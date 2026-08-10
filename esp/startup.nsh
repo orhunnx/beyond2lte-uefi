@@ -40,7 +40,24 @@ if exist fs0:\initramfs-test.gz then
     echo .
     echo (baslatmak icin ses tusu)
     pause
-    fs0:\vmlinuz-lts initrd=\initramfs-test.gz console=tty0 earlycon acpi=force loglevel=7 keep_bootcon
+    #
+    # Bu satiri gorursen "pause" gecildi demektir. Sonrasinda ekran donarsa
+    # kernel devraldi ama ciktisini basamiyor; hic gorunmezse tus algilanmadi.
+    #
+    echo ISARET A: kernel yukleniyor...
+    #
+    # earlycon PARAMETRESIZ KULLANILMAZ. Oyle yazilinca Linux seri portu
+    # SPCR ya da DBG2 tablosundan okumaya calisiyor; bizde ikisi de yok,
+    # dolayisiyla erken konsol hic kurulmuyor ve kernel acilirken tek satir
+    # basamiyor. Ekranin donmus gorunmesinin sebebi buydu.
+    # "efifb" diyerek framebuffer'i dogrudan gosteriyoruz.
+    #
+    fs0:\vmlinuz-lts initrd=\initramfs-test.gz earlycon=efifb console=tty0 acpi=force loglevel=8 keep_bootcon
+    #
+    # Buraya donduysek kernel HIC BASLAMADI (yuklenemedi). Yukaridaki komutun
+    # bastigi hata satiri sebebi soyler.
+    #
+    echo ISARET B: kernel geri dondu, yani baslatilamadi.
 else
     echo initramfs-test.gz yok. Uretmek icin (WSL):
     echo   bash linux_test/kur.sh

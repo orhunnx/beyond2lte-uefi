@@ -157,3 +157,20 @@ Linux panik logunu UEFI değişkenlerine yazabiliyor (`efi_pstore`), Shell'den
 `dmpstore` ile okunabilirdi. Ama Mu-Silicium'un değişken deposunun kalıcı olup
 olmadığı belirsiz; RAM'de tutuluyorsa yeniden başlatmada uçar. FAT yolu daha
 garantili.
+
+## `earlycon` tuzağı
+
+İlk denemede komut satırında parametresiz `earlycon` vardı. Ekran donmuş
+göründü, hiçbir kernel mesajı çıkmadı.
+
+Sebep: **parametresiz `earlycon` seri portu SPCR ya da DBG2 tablosundan
+okur.** Bizde ikisi de yok (bilerek — bkz. STATUS.md), dolayısıyla erken
+konsol hiç kurulmadı ve kernel açılırken tek satır basamadı. Kernel
+muhtemelen çalışıyordu; `ExitBootServices` sonrası ekranda UEFI'nin son
+karesi kalmıştı.
+
+Doğrusu **`earlycon=efifb`** — framebuffer'ı doğrudan gösteriyoruz, tabloya
+ihtiyaç kalmıyor.
+
+Ders: ACPI tablosu eksikliği "SBBR şikâyet eder ama işlev etkilenmez" diye
+geçiştirilemiyor. DBG2/SPCR yokluğu burada somut bir işlevi bozdu.
