@@ -116,6 +116,13 @@ if [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
   wimlib-imagex info "$SRCWIM" | grep -E '^(Index|Name|Description)' | sed 's/^/    /' || true
 
   mkdir -p "$ESP/sources"
+  #
+  # "export" hedef WIM'e EKLER, uzerine yazmaz. Onceki turdan kalan dosya
+  # duruyorsa ayni isimli ikinci imaj eklenmeye calisilir ve wimlib
+  # "There is already an image named ... / error code 11" verir.
+  # O yuzden once siliyoruz.
+  #
+  rm -f "$ESP/sources/boot.wim"
   wimlib-imagex export "$SRCWIM" 1 "$ESP/sources/boot.wim" --compress=LZX --rebuild
   echo "  sonuc: $(du -h "$ESP/sources/boot.wim" | cut -f1)"
 
