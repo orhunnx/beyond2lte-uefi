@@ -659,3 +659,24 @@ demeden önce ölçüm koy.**
 
 Dosya kanalı aslında AÇIK. WinPE depolamayı görebilirse `WINLOG.TXT` yazılabilir
 ve recovery'den okunabilir — kör eleme bitebilir.
+
+## EFI Shell yönlendirmesi bu platformda çalışmıyor (engel değil)
+
+`>` ve `>a` operatörlerinin **ikisi de** `Unable to redirect file /
+Invalid Parameter` verip script'i öldürüyor. Ama enstrümantasyon gösterdi ki
+dosya oluşuyor ve içine yazılıyor:
+
+```
+FSOpen: Created new directory entry 'T1.TXT'
+B2L UFS: WriteBlocks sonuc = Success
+```
+
+EDK2'nin yönlendirme kodu (`Shell.c`, `UpdateStdInStdOutStdErr`) hedef dosyayı
+açıp **siliyor** ve yeniden oluşturuyor. Silme yolunda takılıyor olması en
+olası açıklama.
+
+**Engel değil:** Shell yönlendirmesine yalnızca kendi ACPI dökümlerimiz için
+ihtiyacımız vardı, onlar alındı. Windows'un logları Shell'den geçmiyor.
+
+**Asıl kazanım:** blok yazma, FAT yazma, dizin oluşturma çalışıyor. Yani WinPE
+depolamayı görürse `WINLOG.TXT` yazılabilir ve recovery'den okunabilir.

@@ -1,52 +1,25 @@
 @echo -off
 #
-# YONLENDIRME BICIMI TESTI.
+# Windows'u dogrudan baslatir. Bekleme yok, ACPI dokumu yok.
 #
-# ONCEKI TESHIS YANLISTI. "UEFI'den UFS'e yazma calismiyor" demistim; enstrumante
-# edilmis UfsDxe bunun tersini gosterdi:
+# YONLENDIRME KULLANMA. Shell'in ">" ve ">a" operatorlerinin ikisi de bu
+# platformda "Unable to redirect file / Invalid Parameter" veriyor ve
+# SCRIPT'I OLDURUYOR. Dosya aslinda olusuyor ve yaziliyor (UfsDxe tani
+# satirlari bunu gosterdi); sorun EDK2'nin yonlendirme kodunun hedefi
+# acip-silip-yeniden-olusturma adiminda. Detay: STATUS.md
 #
-#   B2L UFS: WriteBlocks LUN=0 LBA=1983528 boyut=4096 blok=4096 ro=0
-#   B2L UFS: WriteBlocks sonuc = Success
-#   FSOpen: Created new directory entry 'YAZTEST.TXT'
-#
-# Yazma, FAT, dizin girdisi hepsi calisiyor. Basarisiz olan SHELL'IN
-# YONLENDIRME mekanizmasi:
-#
-#   Unable to redirect file.
-#   Script Error Status: Invalid Parameter (line number 20)   <- ">a" satiri
-#
-# Bu script iki bicimi ayri ayri deniyor. Yonlendirme hatasi script'i
-# OLDURDUGU icin siralama onemli: once ">" (supheli olmayan), sonra ls,
-# en sonda ">a".
-#
-
 mode 80 25
 
-echo .
-echo ================ YONLENDIRME TESTI
-echo .
-
-echo 1) Duz ">" (UCS-2) deneniyor
-echo duz yonlendirme > fs0:\T1.TXT
-
-echo 2) Buraya geldiysek ">" CALISTI
-if exist fs0:\T1.TXT then
-    echo    T1.TXT olustu
-else
-    echo    T1.TXT YOK
+if exist fs0:\EFI\Microsoft\Boot\bootmgfw.efi then
+    echo Windows Boot Manager...
+    fs0:\EFI\Microsoft\Boot\bootmgfw.efi
+    echo ISARET W: Boot Manager geri dondu.
 endif
 
-echo .
-echo 3) Kokteki dosyalar
-ls fs0:\
+if exist fs0:\initramfs-test.gz then
+    echo Linux (ACPI, DTB yok)...
+    fs0:\vmlinuz-lts initrd=\initramfs-test.gz earlycon=efifb console=tty0 acpi=force loglevel=8 keep_bootcon
+endif
 
-echo .
-echo 4) Simdi ">a" (ASCII) deneniyor. Script burada olebilir.
-echo ascii yonlendirme >a fs0:\T2.TXT
-
-echo 5) Buraya geldiysek ">a" da CALISTI
-ls fs0:\
-
-echo .
-echo ================ Bitti. Fotografla.
+echo Acilacak bir sey yok.
 pause
