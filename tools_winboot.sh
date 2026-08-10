@@ -79,6 +79,25 @@ MAGIC="$(head -c4 "$BCD")"
 echo "  BCD dogrulandi: regf, $(stat -c%s "$BCD") bayt"
 
 #
+# boot.sdi - RAM DISKININ TANIMI. WinPE icin ZORUNLU.
+#
+# Bir tur bunsuz denendi: bootmgr "A required device isn't connected or can't
+# be accessed / 0xc000000f" verdi. Sikayeti kelimesi kelimesine dogruymus -
+# gereken aygit gercekten yoktu, cunku tanimi eksikti.
+#
+# BCD'deki {ramdiskoptions} girdisi "ramdisksdipath = \boot\boot.sdi" diyor.
+# boot.wim icerigi tasiyor, boot.sdi ise diskin kendisini tarif ediyor;
+# ikisi de ayni birimde olmak zorunda.
+#
+SDI_PATH="$(find_in_iso '(^|[/\\])boot[/\\]boot\.sdi$')"
+echo "  boot.sdi     : ${SDI_PATH:-BULUNAMADI}"
+[ -n "$SDI_PATH" ] || { echo "HATA: boot.sdi ISO'da yok."; exit 1; }
+7z e -o"$W" "$ISO" "$SDI_PATH" >/dev/null
+SDI="$W/$(basename "$SDI_PATH")"
+[ -s "$SDI" ] || { echo "HATA: boot.sdi cikarilamadi."; exit 1; }
+echo "  boot.sdi dogrulandi: $(stat -c%s "$SDI") bayt"
+
+#
 # Yazi tipleri - SADECE LATIN OLANLAR.
 #
 # ISO'da 20 font var ve toplami 83 MB; buyuk kismi CJK (chs/cht/jpn/kor,
@@ -144,13 +163,15 @@ rm -rf "$ESP/EFI/Microsoft/Boot/Fonts"   # onceki turdan kalan 83 MB CJK font
 mkdir -p "$ESP/EFI/Microsoft/Boot"
 cp "$BM"  "$ESP/EFI/Microsoft/Boot/bootmgfw.efi"
 cp "$BCD" "$ESP/EFI/Microsoft/Boot/BCD"
+mkdir -p "$ESP/boot"
+cp "$SDI" "$ESP/boot/boot.sdi"
 if [ -d "$W/fonts" ] && [ -n "$(ls -A "$W/fonts" 2>/dev/null)" ]; then
   mkdir -p "$ESP/EFI/Microsoft/Boot/Fonts"
   cp "$W"/fonts/* "$ESP/EFI/Microsoft/Boot/Fonts/" 2>/dev/null || true
 fi
 
 say "Sonuc"
-find "$ESP/EFI/Microsoft" -type f -exec ls -lh {} \; | awk '{print "  "$5"\t"$9}'
+find "$ESP/EFI/Microsoft" "$ESP/boot" "$ESP/sources" -type f 2>/dev/null -exec ls -lh {} \; | awk '{print "  "$5"\t"$9}'
 echo
 echo "Toplam: $(du -sh "$ESP" | cut -f1)  (CACHE bolumu 600 MB, imaj 75 MB)"
 echo
