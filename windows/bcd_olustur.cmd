@@ -4,7 +4,19 @@ setlocal enabledelayedexpansion
 :: WinPE icin SIFIRDAN BCD uretir - TANI SECENEKLERI ACIK.
 ::
 :: Windows'ta, YONETICI olarak calistir:
-::     windows\bcd_olustur.cmd
+::     windows\bcd_olustur.cmd [varyant]
+::
+:: VARYANTLAR - her biri TEK bir hipotezi test eder, ayri ayri dene:
+::
+::   tani     (varsayilan) sadece tani secenekleri
+::   tekcpu   numproc 1  -> Windows'u TEK cekirdege zorlar
+::                          Cokme ikincil cekirdek acilirken oluyorsa bu gecer.
+::                          Bizim MADT/PSCI ile en cok iliskili varyant.
+::   azram    truncatememory 0x100000000 -> RAM'i 4 GB'a kirpar
+::                          Cokme yuksek bellek adreslerinden geliyorsa bu gecer.
+::                          8 GB'lik haritamizin ust kismi supheli olabilir.
+::
+:: Ikisini AYNI ANDA deneme; hangisinin ise yaradigini bilemezsin.
 ::
 :: Cikti: Masaustunde "BCD" dosyasi. Onu WSL'deki depoya kopyala:
 ::     cp /mnt/c/Users/<sen>/Desktop/BCD ~/beyond2lte-uefi/windows/BCD
@@ -32,6 +44,10 @@ if errorlevel 1 (
   echo HATA: Yonetici olarak calistir.
   pause & exit /b 1
 )
+
+set "VAR=%~1"
+if "%VAR%"=="" set "VAR=tani"
+echo   varyant: %VAR%
 
 set "BCD=%USERPROFILE%\Desktop\BCD"
 if exist "%BCD%" del /f /q "%BCD%"
@@ -62,6 +78,16 @@ bcdedit /store "%BCD%" /set %G% bootstatuspolicy   IgnoreAllFailures >nul
 bcdedit /store "%BCD%" /set %G% quietboot          No  >nul
 bcdedit /store "%BCD%" /set %G% sos                On  >nul
 bcdedit /store "%BCD%" /set %G% nx                 OptIn >nul
+
+:: --- varyanta ozel ayar ---------------------------------------------------
+if /i "%VAR%"=="tekcpu" (
+  bcdedit /store "%BCD%" /set %G% numproc 1 >nul
+  echo   AYAR: numproc 1  ^(tek cekirdek^)
+)
+if /i "%VAR%"=="azram" (
+  bcdedit /store "%BCD%" /set %G% truncatememory 0x100000000 >nul
+  echo   AYAR: truncatememory 4 GB
+)
 
 :: --- boot manager ---------------------------------------------------------
 bcdedit /store "%BCD%" /create {bootmgr} /d "beyond2lte" >nul

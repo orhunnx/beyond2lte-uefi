@@ -518,3 +518,33 @@ okudum ve iki tur harcadım.
 **Ders:** NTSTATUS kodunu tahmin etmeye çalışmak yerine `certutil -error`
 ile sormak. Arama motorları bu kodu bulamadı, Windows'un kendisi bir
 saniyede söyledi.
+
+## WinPE yükleniyor, `winload` sessizce sıfırlıyor
+
+`Boot Index: 1` işaretlendikten sonra cihazda **"Loading files" ve Windows'un
+ilerleme çubuğu** çıktı — `bootmgr` `boot.wim`'i RAM diske tamamen yükledi.
+Ardından Project Silicium logosu göründü, yani cihaz sıfırlanıp UEFI'den
+baştan başladı.
+
+Yani zincir şuraya kadar sağlam:
+
+```
+bootmgfw -> BCD -> boot.sdi -> ramdisk -> boot.wim (yüklendi) -> winload.efi -> ???
+```
+
+`winload` **hiçbir çıktı üretmeden** sıfırlıyor. `sos On` açıktı, tek satır
+görülmedi. `bootmgr` aynı ekrana yazabildiğine göre GOP çalışıyor; demek ki
+çökme herhangi bir çıktıdan önce.
+
+### Eleme planı
+
+Serial/KDNET olmadan çökme noktasını doğrudan göremiyoruz, o yüzden BCD
+varyantlarıyla eleyeceğiz. `windows/bcd_olustur.cmd [varyant]`:
+
+| Varyant | Ayar | Hangi hipotezi test eder |
+|---|---|---|
+| `tani` | — | temel; sadece tanı seçenekleri |
+| `tekcpu` | `numproc 1` | Çökme ikincil çekirdek açılırken mi? Bizim MADT/PSCI ile en ilgili varyant. |
+| `azram` | `truncatememory 4 GB` | Çökme yüksek bellek adreslerinden mi? 8 GB'lik haritanın üst kısmı şüpheli olabilir. |
+
+Aynı anda ikisi denenmemeli; hangisinin işe yaradığı belirsiz kalır.
