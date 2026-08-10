@@ -91,9 +91,12 @@ bcdedit /store "%BCD%" /set %G% device   ramdisk=[boot]\sources\boot.wim,{ramdis
 bcdedit /store "%BCD%" /set %G% osdevice ramdisk=[boot]\sources\boot.wim,{ramdiskoptions} >nul || goto :hata
 bcdedit /store "%BCD%" /set %G% path       \windows\system32\boot\winload.efi >nul || goto :hata
 bcdedit /store "%BCD%" /set %G% systemroot \windows >nul || goto :hata
-bcdedit /store "%BCD%" /set %G% detecthal  Yes >nul
-bcdedit /store "%BCD%" /set %G% winpe      Yes >nul
-bcdedit /store "%BCD%" /set %G% inherit {bootloadersettings} >nul
+bcdedit /store "%BCD%" /set %G% detecthal  Yes
+if errorlevel 1 echo   ! BASARISIZ: detecthal  Yes
+bcdedit /store "%BCD%" /set %G% winpe      Yes
+if errorlevel 1 echo   ! BASARISIZ: winpe      Yes
+bcdedit /store "%BCD%" /set %G% inherit {bootloadersettings}
+if errorlevel 1 echo   ! BASARISIZ: inherit {bootloadersettings}
 
 :: --- TANI: sessiz cokmeyi gorunur kil ------------------------------------
 ::
@@ -103,40 +106,54 @@ bcdedit /store "%BCD%" /set %G% inherit {bootloadersettings} >nul
 :: tersine cevirir.
 ::
 if /i "%VAR%"=="hatagoster" (
-  bcdedit /store "%BCD%" /set %G% recoveryenabled  Yes >nul
-  bcdedit /store "%BCD%" /set %G% bootstatuspolicy DisplayAllFailures >nul
-  bcdedit /store "%BCD%" /set %G% numproc 1 >nul
+  bcdedit /store "%BCD%" /set %G% recoveryenabled  Yes
+  if errorlevel 1 echo   ! BASARISIZ: recoveryenabled  Yes
+  bcdedit /store "%BCD%" /set %G% bootstatuspolicy DisplayAllFailures
+  if errorlevel 1 echo   ! BASARISIZ: bootstatuspolicy DisplayAllFailures
+  bcdedit /store "%BCD%" /set %G% numproc 1
+  if errorlevel 1 echo   ! BASARISIZ: numproc 1
   echo   AYAR: hata raporlamasi ACIK + numproc 1
 ) else (
-  bcdedit /store "%BCD%" /set %G% recoveryenabled    No  >nul
-  bcdedit /store "%BCD%" /set %G% bootstatuspolicy   IgnoreAllFailures >nul
+  bcdedit /store "%BCD%" /set %G% recoveryenabled    No
+  if errorlevel 1 echo   ! BASARISIZ: recoveryenabled    No
+  bcdedit /store "%BCD%" /set %G% bootstatuspolicy   IgnoreAllFailures
+  if errorlevel 1 echo   ! BASARISIZ: bootstatuspolicy   IgnoreAllFailures
 )
-bcdedit /store "%BCD%" /set %G% quietboot          No  >nul
-bcdedit /store "%BCD%" /set %G% sos                On  >nul
+bcdedit /store "%BCD%" /set %G% quietboot          No
+if errorlevel 1 echo   ! BASARISIZ: quietboot          No
+bcdedit /store "%BCD%" /set %G% sos                On
+if errorlevel 1 echo   ! BASARISIZ: sos                On
 :: Legacy boot deneyimi: grafik yerine METIN. Donen daire yerine surucu
 :: isimleri akmasi icin gerekli - "sos On" tek basina Win11'de yetmiyor.
-bcdedit /store "%BCD%" /set %G% bootmenupolicy      Legacy >nul
-bcdedit /store "%BCD%" /set %G% nx                 OptIn >nul
+bcdedit /store "%BCD%" /set %G% bootmenupolicy      Legacy
+if errorlevel 1 echo   ! BASARISIZ: bootmenupolicy      Legacy
+bcdedit /store "%BCD%" /set %G% nx                 OptIn
+if errorlevel 1 echo   ! BASARISIZ: nx                 OptIn
 
 :: --- varyanta ozel ayar ---------------------------------------------------
 if /i "%VAR%"=="tekcpu" (
-  bcdedit /store "%BCD%" /set %G% numproc 1 >nul
+  bcdedit /store "%BCD%" /set %G% numproc 1
+  if errorlevel 1 echo   ! BASARISIZ: numproc 1
   echo   AYAR: numproc 1  ^(tek cekirdek^)
 )
 if /i "%VAR%"=="azram" (
-  bcdedit /store "%BCD%" /set %G% truncatememory 0x100000000 >nul
+  bcdedit /store "%BCD%" /set %G% truncatememory 0x100000000
+  if errorlevel 1 echo   ! BASARISIZ: truncatememory 0x100000000
   echo   AYAR: truncatememory 4 GB
 )
 
 :: --- boot manager ---------------------------------------------------------
 bcdedit /store "%BCD%" /create {bootmgr} /d "beyond2lte" >nul
-bcdedit /store "%BCD%" /set {bootmgr} device boot >nul
-bcdedit /store "%BCD%" /set {bootmgr} default %G%  >nul
-bcdedit /store "%BCD%" /set {bootmgr} timeout 0    >nul
+bcdedit /store "%BCD%" /set {bootmgr} device boot
+if errorlevel 1 echo   ! BASARISIZ: device boot
+bcdedit /store "%BCD%" /set {bootmgr} default %G%
+if errorlevel 1 echo   ! BASARISIZ: default %G%
+bcdedit /store "%BCD%" /set {bootmgr} timeout 0
+if errorlevel 1 echo   ! BASARISIZ: timeout 0
 bcdedit /store "%BCD%" /displayorder %G% /addlast  >nul
 
 echo.
-echo === Sonuc
+echo === Sonuc  (BU CIKTIYI PAYLAS - hangi ayarin gercekten yazildigini gosterir)
 bcdedit /store "%BCD%" /enum all
 echo.
 echo Dosya: %BCD%
