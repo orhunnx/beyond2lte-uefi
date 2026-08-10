@@ -2,20 +2,25 @@
 ::
 :: WinPE acilisinda OTOMATIK calisir (\Windows\System32\startnet.cmd).
 ::
-:: BU DOSYA CRLF SATIR SONLARIYLA YAZILIR. Linux'ta LF ile yazilmisti;
-:: batch yorumlayicisi etiketleri ve "goto"yu LF ile bozabiliyor, script
-:: yarida kirilinca cmd.exe cikiyor ve WinPE MAKINEYI YENIDEN BASLATIYOR.
-:: tools_winboot.sh enjekte ederken unix2dos uyguluyor.
+:: BU DOSYADA UC TUZAK VAR, UCU DE YASANDI:
 ::
-:: ZAMANLA TANI: ekrani goremiyor olabiliriz (WinPE masaustune gecince
-:: ekran surucusu calismiyorsa kor kaliyoruz). O yuzden her asama arasinda
-:: 25 saniye bekliyoruz. Cihazin donen daireden KAC SANIYE sonra yeniden
-:: basladigi hangi asamada oldugunu soyler:
+:: 1) CRLF SATIR SONU ZORUNLU. Linux'ta LF ile yazilmisti; batch yorumlayicisi
+::    etiketleri ve "goto"yu bozabiliyor.
 ::
-::    ~25 sn  -> asama 1 gecildi, wpeinit'te oldu
-::    ~50 sn  -> wpeinit gecti, diskpart'ta oldu
-::    ~75 sn  -> diskpart gecti, kopyalamada oldu
-::    hic     -> her sey gecti, sonsuz dongude bekliyor  <- HEDEF
+:: 2) "ping" ILE BEKLEME YAPILMAZ. ping TCP/IP yiginina ihtiyac duyuyor ve
+::    wpeinit calismadan once WinPE'de ag YOK - beklemeler aninda donuyor,
+::    zamana dayali tani islemiyor. "timeout" ag gerektirmiyor.
+::
+:: 3) SONSUZ DONGU HICBIR DIS KOMUTA BAGLI OLMAMALI. Kabuk cikarsa WinPE
+::    MAKINEYI YENIDEN BASLATIYOR; dongu bir sekilde kirilirsa her sey biter.
+::    Sondaki dongu saf batch, hicbir exe cagirmiyor.
+::
+:: ZAMANLA TANI - cihazin donen daireden KAC SANIYE sonra yeniden basladigi
+:: hangi asamada oldugunu soyler:
+::    ~20 sn -> asama 1 gecti, wpeinit'te oldu
+::    ~40 sn -> wpeinit gecti, diskpart'ta oldu
+::    ~60 sn -> diskpart gecti, kopyalamada oldu
+::    hic    -> hepsi gecti, bekliyor   <- HEDEF
 ::
 set L=X:\b2l.txt
 
@@ -24,14 +29,14 @@ echo ================ beyond2lte WinPE
 echo [1] startnet basladi
 echo ================ beyond2lte WinPE > %L%
 echo [1] startnet basladi >> %L%
-ping -n 26 127.0.0.1 >nul
+timeout /t 20 /nobreak >nul
 
 echo [2] wpeinit
 echo [2] wpeinit >> %L%
 wpeinit
 echo [2] wpeinit bitti
 echo [2] wpeinit bitti >> %L%
-ping -n 26 127.0.0.1 >nul
+timeout /t 20 /nobreak >nul
 
 echo [3] diskpart
 echo [3] diskpart >> %L%
@@ -39,7 +44,7 @@ echo list disk   | diskpart >> %L% 2>&1
 echo list volume | diskpart >> %L% 2>&1
 echo [3] diskpart bitti
 echo [3] diskpart bitti >> %L%
-ping -n 26 127.0.0.1 >nul
+timeout /t 20 /nobreak >nul
 
 echo [4] ESP araniyor
 echo [4] ESP araniyor >> %L%
@@ -52,6 +57,9 @@ type %L%
 echo.
 echo Bu ekran kalici. Cihaz artik yeniden baslamamali.
 
+::
+:: Saf batch sonsuz dongu. Hicbir dis komut cagirmiyor, dolayisiyla
+:: hicbir sekilde kirilamaz.
+::
 :bekle
-ping -n 60 127.0.0.1 >nul
 goto bekle
