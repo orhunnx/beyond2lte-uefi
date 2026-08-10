@@ -15,8 +15,10 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | Yan tuşlar | ✅ |
 | **Dahili depolama (UFS)** | ✅ 5 LUN, BlockIO kurulu |
 | Boot Manager | ✅ |
-| EFI Shell | ⏳ FV'ye giriyor mu, doğrulanıyor |
-| ACPI | ⏳ tablolar hazır, derlenmedi |
+| EFI Shell | ✅ FV'den açılıyor, `startup.nsh` çalışıyor |
+| ACPI | ✅ `acpiview -r 2`: 3 hata, üçü de kasıtlı (MCFG/SPCR/DBG2) |
+| PPTT (CPU topolojisi) | ✅ DTB `cpu-map`'inden üretiliyor |
+| UEFI'den UFS'e **yazma** | ❌ redirect başarısız, sebep açık |
 | USB | ❌ |
 | OS boot | ❌ |
 

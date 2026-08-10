@@ -249,7 +249,15 @@ sonda.
 
 ## acpiview sonucu (ilk gerçek doğrulama)
 
-`acpiview -r 2`: **12 hata, 0 uyarı.** Hepsi hesaba oturuyor: 8 + 4.
+`acpiview -r 2`: önce **12 hata**, düzeltmelerden sonra **3 hata** — kalan üçü
+de bilerek bırakıldı. Tablolar spec'e temiz.
+
+| Tur | Hata | Ne değişti |
+|---|---|---|
+| İlk ölçüm | 12 | 8 TRBE + 4 eksik SBBR tablosu |
+| TRBE sıfırlandı, PPTT eklendi | 3 | MCFG, SPCR, DBG2 — üçü de kasıtlı |
+
+Hepsi hesaba oturuyor: 8 + 4.
 
 ### 8 hata: TRBE Interrupt (DÜZELTİLDİ)
 

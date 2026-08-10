@@ -1,0 +1,86 @@
+#!/bin/busybox sh
+#
+# Minik initramfs /init - tek isi var: kernel'in ACPI hakkinda ne dusundugunu
+# DOSYAYA yazmak.
+#
+# Neden: UART jig yok, UEFI'nin UFS'e yazmasi calismiyor, ve kernel basladiktan
+# sonra EFI Shell devrede olmadigi icin ekrandan baska kanal kalmiyordu.
+# Ama Linux'un kendi UFS ve FAT surucusu saglam - recovery zaten o bolume
+# yaziyor. Yani UEFI'nin yazamadigi yere Linux yazabiliyor.
+#
+# Cikti: ESP'nin kokunde KLOG.TXT. Sonra recovery'den bolumu cekip okuyoruz.
+#
+/bin/busybox --install -s /bin
+
+mount -t proc     none /proc
+mount -t sysfs    none /sys
+mount -t devtmpfs none /dev
+
+echo
+echo "=== beyond2lte ACPI testi ==="
+echo
+
+mkdir -p /mnt
+
+#
+# ESP'yi bul. Etikete guvenmiyoruz (busybox blkid her yapida yok);
+# bunun yerine her blok cihazi vfat olarak baglamayi deneyip icinde
+# BOOTAA64.EFI var mi diye bakiyoruz. Yanlis bolume yazma riski yok.
+#
+ESP=""
+for d in /dev/sd?? /dev/sd??? /dev/block/sd?? /dev/block/sd???; do
+    [ -b "$d" ] || continue
+    mount -t vfat "$d" /mnt 2>/dev/null || continue
+    if [ -f /mnt/EFI/BOOT/BOOTAA64.EFI ]; then
+        ESP="$d"
+        echo "ESP bulundu: $d"
+        break
+    fi
+    umount /mnt
+done
+
+if [ -z "$ESP" ]; then
+    echo "ESP BULUNAMADI. Blok cihazlar:"
+    ls -l /dev/sd* /dev/block/sd* 2>/dev/null
+    echo "10 saniye sonra kapaniyor."
+    sleep 10
+    poweroff -f
+fi
+
+L=/mnt/KLOG.TXT
+
+{
+    echo "########## dmesg ##########"
+    dmesg
+    echo
+    echo "########## /proc/cpuinfo ##########"
+    cat /proc/cpuinfo
+    echo
+    echo "########## kurulu ACPI tablolari ##########"
+    ls -l /sys/firmware/acpi/tables/ 2>/dev/null || echo "(ACPI tablo dizini yok)"
+    echo
+    echo "########## CPU topolojisi (PPTT buradan okunur) ##########"
+    for c in /sys/devices/system/cpu/cpu[0-9]*; do
+        [ -d "$c/topology" ] || continue
+        echo "$(basename $c): pkg=$(cat $c/topology/physical_package_id 2>/dev/null)" \
+             "core=$(cat $c/topology/core_id 2>/dev/null)" \
+             "cluster=$(cat $c/topology/cluster_id 2>/dev/null)"
+    done
+    echo "online: $(cat /sys/devices/system/cpu/online)"
+    echo
+    echo "########## /proc/interrupts (GIC calisiyor mu) ##########"
+    cat /proc/interrupts
+    echo
+    echo "########## /proc/iomem ##########"
+    cat /proc/iomem
+} > "$L" 2>&1
+
+sync
+echo
+echo "Yazildi: $L  ($(wc -c < $L) bayt)"
+umount /mnt
+sync
+
+echo "5 saniye sonra kapaniyor. Sonra recovery'ye gecip cache'i cek."
+sleep 5
+poweroff -f

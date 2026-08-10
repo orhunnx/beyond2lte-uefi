@@ -45,12 +45,7 @@ if [ "$DO_ACPI" = 1 ]; then
   python3 "$PROJ/tools_pptt_gen.py"
   cp -r "$PROJ/silicium-acpi-overlay/SoCs" "$MU/Silicium-ACPI/"
   ( cd "$MU/Silicium-ACPI/SoCs/Samsung/S5E9820" && for f in *.dsl; do iasl -ve "$f"; done )
-  # ACPI.inc'i ac
-  sed -i 's|^#\(FILE FREEFORM = 7E374E25\)|\1|; s|^#\(    SECTION \)|\1|; s|^#\(}\)|\1|' \
-    "$PROJ/beyond2ltePkg/Include/ACPI.inc"
-  cp "$PROJ/beyond2ltePkg/Include/ACPI.inc" \
-     "$PROJ/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Include/ACPI.inc"
-  echo "ACPI etkinlestirildi."
+  echo "ACPI tablolari derlendi."
 fi
 
 # ---------------------------------------------------------------- overlay
@@ -60,6 +55,22 @@ echo "  Platforms/Samsung/beyond2ltePkg"
 echo "  Silicon/Samsung/S5E9820Pkg"
 echo "  Silicon/Samsung/SamsungPkg/Drivers/UfsDxe/UfsDxe.inf  (upstream yamasi)"
 echo "  Resources/{Configs,DTBs}/beyond2lte.*"
+
+#
+# ACPI.inc'i ETKINLESTIR - ama $MU icindeki kopyada, depoda degil.
+#
+# Onceden bu sed depodaki dosyaya uygulaniyordu. Sonuc: her --acpi derlemesi
+# takip edilen iki dosyayi degistiriyor ve sonraki "git pull" su hatayla
+# duruyordu:
+#   error: Your local changes to the following files would be overwritten by merge
+#
+# $MU bir git deposu degil, orada degistirmek serbest. Depo temiz kaliyor.
+#
+if [ "$DO_ACPI" = 1 ]; then
+  INC="$MU/Platforms/Samsung/beyond2ltePkg/Include/ACPI.inc"
+  sed -i 's|^#\(FILE FREEFORM = 7E374E25\)|\1|; s|^#\(    SECTION \)|\1|; s|^#\(}\)|\1|' "$INC"
+  echo "  ACPI.inc etkinlestirildi ($(grep -c '^    SECTION RAW' "$INC") tablo)"
+fi
 
 # ---------------------------------------------------------------- derle
 say "Derleniyor ($REL)"
