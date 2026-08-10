@@ -41,8 +41,16 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 # sigmiyor - bir tur mcopy "Disk full" verdi ve sources/ bos kaldi.
 # Iki mod ayri ayri calisiyor, ikisi ayni anda degil.
 #
+#   --win  -> Windows: bootmgfw + BCD + boot.sdi + boot.wim, Linux dosyalari YOK
+#   (bayraksiz) -> Linux: kernel + initramfs, WINDOWS DOSYALARI DA YOK
+#
+# Ikincisi onemli: onceden bayraksiz mod Windows dosyalarini da koyuyordu ve
+# startup.nsh once bootmgfw'yi gordugu icin Linux'a hic sira gelmiyordu.
+# Yani "Linux modu" diye bir sey yoktu.
+#
 WINONLY=0
 if [ "${1:-}" = "--win" ]; then WINONLY=1; shift; fi
+if [ "$WINONLY" = 1 ]; then say "MOD: Windows"; else say "MOD: Linux"; fi
 
 APP="${1:-}"
 if [ -z "$APP" ]; then
@@ -102,7 +110,13 @@ if command -v mcopy >/dev/null; then
     [ -e "$f" ] || continue
     if [ "$WINONLY" = 1 ]; then
       case "$b" in
-        vmlinuz-*|initramfs-*) echo "  - $b (atlandi, --win)"; continue ;;
+        vmlinuz-*|initramfs-*) echo "  - $b (atlandi: Windows modu)"; continue ;;
+      esac
+    else
+      # EFI/BOOT zaten yukarida ayrica dolduruldu; buradaki EFI klasoru
+      # sadece Microsoft/ agacini tasiyor, Linux modunda istemiyoruz.
+      case "$b" in
+        EFI|sources|boot) echo "  - $b (atlandi: Linux modu)"; continue ;;
       esac
     fi
     # Buyukten kucuge degil, sirayla kopyaliyoruz; hata SESSIZ GECMESIN.
