@@ -62,12 +62,28 @@ echo "  Resources/{Configs,DTBs}/beyond2lte.*"
 say "Derleniyor ($REL)"
 cd "$MU"
 [ -d .venv ] && source .venv/bin/activate || true
+
+# Eski ciktiyi sil ki "yeni uretildi mi" sorusu belirsiz kalmasin
+rm -f "$MU"/Mu-beyond2lte*.img "$MU"/uefi-boot.tar
+
+set +e
 python3 build_uefi.py -d beyond2lte -r "$REL" $CLEAN
+RC=$?
+set -e
+if [ $RC -ne 0 ]; then
+  echo
+  echo "DERLEME BASARISIZ (cikis kodu $RC). Cikti uretilmedi."
+  echo "Ayrintili log: $MU/Build/BUILDLOG_beyond2ltePkg.txt"
+  exit $RC
+fi
 
 # ---------------------------------------------------------------- rapor
-IMG="$MU/Mu-beyond2lte.img"
+# build_uefi.py model son ekiyle "Mu-beyond2lte-0.img" de uretebiliyor,
+# o yuzden isme sabitlemiyoruz: en yeni eslesmeyi aliyoruz.
+IMG="$(ls -t "$MU"/Mu-beyond2lte*.img 2>/dev/null | head -1)"
 say "Sonuc"
-if [ -f "$IMG" ]; then
+if [ -n "$IMG" ] && [ -f "$IMG" ]; then
+  echo "Uretilen imaj: $(basename "$IMG")"
   ls -lh "$IMG"
   RPT="$MU/Build/beyond2ltePkg/${REL}_CLANGPDB/BUILD_REPORT.TXT"
   if [ -f "$RPT" ]; then
@@ -77,7 +93,7 @@ if [ -f "$IMG" ]; then
     if grep -qi '7C04A583' "$RPT"; then echo "  EVET (7C04A583 bulundu)"; else echo "  HAYIR"; fi
   fi
   # Odin tar'ini her zaman uret - flash icin gereken bu.
-  ( cd "$MU" && cp -f Mu-beyond2lte.img boot.img \
+  ( cd "$MU" && cp -f "$IMG" boot.img \
       && tar -H ustar -cf uefi-boot.tar boot.img && rm -f boot.img )
 
   # Masaustunu bul. OneDrive yonlendirmesi ve Turkce klasor adi oncelikli
@@ -111,5 +127,7 @@ if [ -f "$IMG" ]; then
     echo "  $MU/uefi-boot.tar"
   fi
 else
-  echo "Cikti uretilmedi."; exit 1
+  echo "Derleme gecti ama Mu-beyond2lte*.img bulunamadi."
+  echo "Bulunanlar:"; ls -la "$MU"/*.img 2>/dev/null || echo "  hic .img yok"
+  exit 1
 fi
