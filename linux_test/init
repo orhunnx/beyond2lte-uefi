@@ -1,49 +1,66 @@
-#!/bin/sh
+#!/bin/busybox sh
 #
 # Minik initramfs /init - kernel'in ACPI hakkinda ne dusundugunu raporlar.
 #
-# ONEMLI SINIR (ilk surumde atlanmisti):
-# ACPI ile acilista Linux'un DEPOLAMASI OLMAYABILIR. DSDT'mizde UFS aygit
-# dugumu yok ve DTB de vermiyoruz, dolayisiyla exynos-ufs surucusu hicbir
-# seye baglanmiyor -> /dev/sd* olusmuyor -> dosyaya yazamiyoruz.
+# BU DOSYADA UC KURAL VAR, UCU DE PAHALIYA MAL OLDU:
 #
-# O yuzden bu script iki modlu:
-#   depolama VARSA  -> ESP'ye KLOG.TXT yaz (tam metin, fotograf yok)
-#   depolama YOKSA  -> ozeti ekrana dok (fotograflanacak kadar kisa tut)
+# 1) Shebang "#!/bin/busybox sh" olmali, "#!/bin/sh" DEGIL.
+# 2) Ilk is "busybox --install -s" olmali.
+#    Alpine'in initramfs'inde applet sembolik baglari ONCEDEN YOK; Alpine'in
+#    kendi init'i de bu yuzden ayni komutla basliyor. Bunlar olmadan mount,
+#    dmesg, ls, poweroff hicbiri bulunamiyor. Bir tur boyle kaybedildi:
+#    "Kernel panic: Attempted to kill init! exitcode=0x00007f00"  (0x7f00>>8 = 127
+#    yani "command not found") ve ekranda tek satir cikti yoktu.
+# 3) Script ASLA cikmamali. init cikarsa kernel panik veriyor ve ekranda ne
+#    yazdiysak panik dokumunun altinda kayboluyor. Sonda sonsuz bekleme var.
 #
-# Depolamanin ACPI altinda calismasi zaten sonraki isimiz: DSDT'ye UFS
-# dugumu eklemek. Windows da tam olarak bunu arayacak.
+# Ikinci sinir: ACPI ile acilista depolama olmayabilir (DSDT'de UFS dugumu
+# yok). O yuzden iki modlu: depolama varsa KLOG.TXT yaziyor, yoksa ozeti
+# ekrana dokuyor.
 #
+/bin/busybox mkdir -p /proc /sys /dev /mnt /bin /sbin
+/bin/busybox mount -t proc     none /proc 2>/dev/null
+/bin/busybox mount -t sysfs    none /sys  2>/dev/null
+/bin/busybox mount -t devtmpfs none /dev  2>/dev/null
+
+# Ciktinin ekrana gittiginden emin ol
+/bin/busybox test -c /dev/console && exec >/dev/console 2>&1 </dev/console
+
+/bin/busybox --install -s /bin
 PATH=/bin:/sbin:/usr/bin:/usr/sbin
 export PATH
-
-mount -t proc     none /proc 2>/dev/null
-mount -t sysfs    none /sys  2>/dev/null
-mount -t devtmpfs none /dev  2>/dev/null
 
 echo
 echo "======== beyond2lte ACPI testi ========"
 echo
 
-# --- ekrana kisa ozet: en kritik dort soru --------------------------------
-echo "-- CPU sayisi ve topoloji"
-echo "   online : $(cat /sys/devices/system/cpu/online 2>/dev/null)"
+echo "-- CPU"
+echo "   online  : $(cat /sys/devices/system/cpu/online 2>/dev/null)"
 echo "   possible: $(cat /sys/devices/system/cpu/possible 2>/dev/null)"
-grep -c ^processor /proc/cpuinfo | sed 's/^/   cpuinfo: /'
 
-echo "-- ACPI tablolari kernel tarafindan goruldu mu"
+echo "-- PSCI (ikincil cekirdekler bununla aciliyor)"
+dmesg | grep -i psci | head -8
+
+echo "-- SMP sonucu"
+dmesg | grep -i -E 'SMP:|Brought up' | head -4
+
+echo "-- ACPI tablolari"
 if [ -d /sys/firmware/acpi/tables ]; then
-    echo "   $(ls /sys/firmware/acpi/tables/ | tr '\n' ' ')"
+    ls /sys/firmware/acpi/tables/ | tr '\n' ' '; echo
 else
-    echo "   /sys/firmware/acpi YOK -> kernel ACPI ile acilmadi"
+    echo "   /sys/firmware/acpi YOK"
 fi
 
-echo "-- ACPI ile ilgili kernel satirlari"
-dmesg | grep -i -E 'acpi|pptt|madt|gtdt|psci' | head -20
+echo "-- CPU topolojisi (PPTT)"
+for c in /sys/devices/system/cpu/cpu[0-9]*; do
+    [ -d "$c/topology" ] || continue
+    echo "   $(basename $c): pkg=$(cat $c/topology/physical_package_id 2>/dev/null)" \
+         "cluster=$(cat $c/topology/cluster_id 2>/dev/null)" \
+         "core=$(cat $c/topology/core_id 2>/dev/null)"
+done
 
 echo "-- hata ve uyarilar"
-dmesg | grep -i -E '\bBUG\b|\bWARN|panic|Unable to handle' | head -10
-
+dmesg | grep -i -E '\bBUG\b|\bWARN|panic|Unable to handle' | head -8
 echo
 
 # --- depolama var mi ------------------------------------------------------
@@ -55,39 +72,29 @@ for d in /dev/sd?? /dev/sd??? /dev/block/sd?? /dev/block/sd???; do
     umount /mnt
 done
 
-if [ -z "$ESP" ]; then
-    echo "DEPOLAMA YOK - bu ACPI acilisinda bekleniyor."
-    echo "Blok cihazlar:"
-    ls /dev/sd* /dev/block/sd* 2>/dev/null || echo "   (hic yok)"
-    echo
-    echo "Yukaridaki ozeti fotografla. 120 saniye bekliyor."
-    sleep 120
-    poweroff -f
+if [ -n "$ESP" ]; then
+    echo "ESP bulundu: $ESP  -> KLOG.TXT yaziliyor"
+    L=/mnt/KLOG.TXT
+    {
+        echo "########## dmesg ##########";              dmesg
+        echo; echo "########## cpuinfo ##########";      cat /proc/cpuinfo
+        echo; echo "########## ACPI tablolari ##########"
+        ls -l /sys/firmware/acpi/tables/ 2>/dev/null
+        echo; echo "########## interrupts ##########";   cat /proc/interrupts
+        echo; echo "########## iomem ##########";        cat /proc/iomem
+    } > "$L" 2>&1
+    sync
+    echo "Yazildi: $L ($(wc -c < $L) bayt)"
+    umount /mnt
+    sync
+    echo "Recovery'ye gecip cache bolumunu cekebilirsin."
+else
+    echo "DEPOLAMA YOK (ACPI acilisinda bekleniyor, DSDT'de UFS dugumu yok)."
+    echo "Yukaridaki ozeti fotografla."
 fi
 
-# --- depolama varsa tam logu dosyaya yaz ----------------------------------
-echo "ESP bulundu: $ESP  -> KLOG.TXT yaziliyor"
-L=/mnt/KLOG.TXT
-{
-    echo "########## dmesg ##########";            dmesg
-    echo; echo "########## /proc/cpuinfo ##########"; cat /proc/cpuinfo
-    echo; echo "########## ACPI tablolari ##########"
-    ls -l /sys/firmware/acpi/tables/ 2>/dev/null || echo "(yok)"
-    echo; echo "########## CPU topolojisi (PPTT) ##########"
-    for c in /sys/devices/system/cpu/cpu[0-9]*; do
-        [ -d "$c/topology" ] || continue
-        echo "$(basename $c): pkg=$(cat $c/topology/physical_package_id 2>/dev/null)" \
-             "core=$(cat $c/topology/core_id 2>/dev/null)" \
-             "cluster=$(cat $c/topology/cluster_id 2>/dev/null)"
-    done
-    echo "online: $(cat /sys/devices/system/cpu/online 2>/dev/null)"
-    echo; echo "########## /proc/interrupts ##########"; cat /proc/interrupts
-    echo; echo "########## /proc/iomem ##########";      cat /proc/iomem
-} > "$L" 2>&1
-sync
-echo "Yazildi: $L ($(wc -c < $L) bayt)"
-umount /mnt
-sync
-echo "10 saniye sonra kapaniyor. Sonra recovery'den cache'i cek."
-sleep 10
-poweroff -f
+echo
+echo "======== bitti ========"
+
+# init ASLA cikmamali - yoksa panik ekrani her seyi bastirir.
+while true; do sleep 3600; done

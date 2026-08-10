@@ -295,3 +295,52 @@ hiçbiri şart değil:
 ACPI 6.4 §5.2.12.14: düşük değer daha verimli demek. Tabloda A55'lere 02,
 M4'lere 00 verilmişti — tam tersi. Düzeltildi: A55 -> 00, A75 -> 01,
 M4 -> 02. Açılışı engellemez, Windows'un heterojen zamanlayıcısını etkiler.
+
+## Linux ACPI ile açıldı (ilk uçtan uca test)
+
+Alpine 6.10 LTS, `acpi=force`, DTB verilmeden. Sonuçlar:
+
+### Çalışan
+
+- Bütün tablolar yüklendi: RSDP, XSDT, FACP, DSDT, APIC, SSDT, GTDT, **PPTT**, BGRT
+- `ACPI: PPTT ... 00013C` — üreticimizin çıkardığı 316 baytın tam olarak kendisi
+- `ACPI: Interpreter enabled`, `Using GIC for interrupt routing`
+- 8 CPU'nun hepsi `hot-added` (MADT doğru okunuyor)
+- `arch_timer: cp15 timer running at 26.00MHz` (GTDT doğru)
+- `DMI: Samsung Galaxy S10+/Galaxy S10+` (SMBIOS doğru)
+- initramfs açıldı, `Run /init as init process`'e kadar gelindi
+
+### Bozuk: PSCI
+
+```
+psci: PSCIv33792.0 detected in firmware.
+psci: SMC Calling Convention v32760.0
+psci: failed to boot CPU1..CPU7 (-22)
+SMP: Total of 1 processors activated.
+```
+
+33792 = **0x8400**. Bu bir sürüm değil, `PSCI_VERSION` çağrısının fonksiyon
+kimliği (0x84000000). Yani çağrı yapıldı, kimse cevaplamadı, `x0` olduğu gibi
+döndü.
+
+Sebep FADT'de: `ARM Flags : 0003` = PSCI_COMPLIANT + **PSCI_USE_HVC**. Linux
+EL1'de çalışıyor (`All CPU(s) started at EL1`), HVC EL2'ye düşüyor, oradaki
+Mu-Silicium saplaması PSCI uygulamıyor. Samsung'un EL3 firmware'i ise
+uyguluyor — Android sekiz çekirdeği onunla açıyor.
+
+**Düzeltme: `ARM Flags : 0001`** (SMC). Doğrulaması net olacak:
+`SMP: Total of 8 processors activated`.
+
+Bu doğrudan Windows'u da ilgilendiriyor; Windows da ikincil çekirdekleri
+PSCI ile açar.
+
+### Bozuk: initramfs /init (bizim regresyonumuz)
+
+`Kernel panic: Attempted to kill init! exitcode=0x00007f00` → 127, "komut
+bulunamadı", ve script'ten tek satır çıktı yok.
+
+Alpine'ın initramfs'inde busybox applet sembolik bağları **önceden yok**;
+Alpine'ın kendi `init`'i `#!/bin/busybox sh` ile başlayıp `busybox --install -s`
+çalıştırıyor. İlk sürümümüzde ikisi de vardı, yeniden yazarken düştü.
+Geri kondu, ayrıca `init` artık asla çıkmıyor (sonsuz bekleme) — çıkarsa panik
+ekranı yazdıklarımızı bastırıyor.

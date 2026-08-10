@@ -95,9 +95,9 @@
 [078h 0120 008h]                     Address : 00000000009020B4
 
 [080h 0128 001h]        Value to cause reset : 01
-[081h 0129 002h]   ARM Flags (decoded below) : 0003
+[081h 0129 002h]   ARM Flags (decoded below) : 0001
                               PSCI Compliant : 1
-                       Must use HVC for PSCI : 1
+                       Must use HVC for PSCI : 0
 
 [083h 0131 001h]         FADT Minor Revision : 00
 [084h 0132 008h]                FACS Address : 0000000000000000
