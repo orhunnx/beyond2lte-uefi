@@ -67,6 +67,10 @@ for c in /sys/devices/system/cpu/cpu[0-9]*; do
         "core=$(cat $c/topology/core_id 2>/dev/null)"
 done
 
+say "-- ACPI aygitlari (DSDT'deki UFS0 gorunuyor mu)"
+ACPIDEV="$(ls /sys/bus/acpi/devices/ 2>/dev/null | grep -i -E 'SMSN|UFS' | tr '\n' ' ')"
+say "   ${ACPIDEV:-YOK}"
+
 say "-- blok cihazlar (depolama var mi)"
 BD="$(ls /dev/sd* /dev/block/sd* 2>/dev/null | tr '\n' ' ')"
 say "   ${BD:-YOK}"

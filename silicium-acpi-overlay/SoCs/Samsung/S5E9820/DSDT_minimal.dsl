@@ -18,7 +18,7 @@
  *     Compiler ID      "INTL"
  *     Compiler Version 0x20230628 (539166248)
  */
-DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000003)
+DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000004)
 {
     Scope (_SB)
     {
@@ -100,6 +100,54 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000003)
             {
                 Return (0x0F)
             }
+        }
+
+        //
+        // UFS denetleyicisi.
+        //
+        // Adresler ve kesme dogrudan stock DTB'nin ufs@0x13D60000 node'undan:
+        //     reg = <0x13d60000 0x200    HCI (standart UFSHCI)
+        //            0x13d61100 0x200    VS_HCI (Samsung vendor)
+        //            0x13d50000 0x8000   UNIPRO
+        //            0x13d70000 0x100>   UFSP (kullanmiyoruz)
+        //     ufs-phy reg = <0x13d64000 0x800>
+        //     interrupts = <0 0xf9 0>  ->  SPI 249  ->  GSIV 249+32 = 281 = 0x119
+        //
+        // _HID GECICI. Windows'un kutudan cikan UFS surucusu storufs.sys'in
+        // hangi ACPI kimligine baglandigi henuz bilinmiyor; Microsoft belgesi
+        // sadece UFSHCI standardini destekledigini soyluyor, kimligi vermiyor.
+        // Windows ARM64 imajindaki storufs.inf'ten cikarilacak.
+        //
+        // Bilerek ESLESMEYEN bir kimlik kullaniyoruz: boylece hicbir surucu
+        // baglanmiyor ve donanima dokunulmuyor. Bu adimda amac sadece
+        // DSDT'nin derlenip kurulmasi ve kaynaklarin dogru tarif edilmesi;
+        // Linux'ta /sys/bus/acpi/devices altinda gorunmesi yeterli kanit.
+        //
+        Device (UFS0)
+        {
+            Name (_HID, "SMSN9820")  // GECICI - bkz. yukaridaki not
+            Name (_UID, Zero)
+            //
+            // _CCA ARM64'te DMA yapan her aygit icin zorunlu. DTB'de
+            // "ufs-io-coherency" node'u var ve UEFI (BoardInit.c) SYSREG'deki
+            // koherans bitlerini set ediyor, yani aygit gercekten koherent.
+            //
+            Name (_CCA, One)
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x13D60000, 0x00000200)  // HCI
+                Memory32Fixed (ReadWrite, 0x13D61100, 0x00000200)  // VS_HCI
+                Memory32Fixed (ReadWrite, 0x13D50000, 0x00008000)  // UNIPRO
+                Memory32Fixed (ReadWrite, 0x13D64000, 0x00000800)  // PHY PMA
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+                {
+                    0x00000119
+                }
+            })
         }
     }
 }
