@@ -21,7 +21,7 @@
 [020h 0032 004h]       Asl Compiler Revision : 20230628
 
 [024h 0036 004h]                FACS Address : 00000000
-[028h 0040 004h]                DSDT Address : 00000000
+[028h 0040 004h]                DSDT Address : FFFFFFFF
 [02Ch 0044 001h]                       Model : 00
 [02Dh 0045 001h]                  PM Profile : 08 [Tablet]
 [02Eh 0046 002h]               SCI Interrupt : 0000
