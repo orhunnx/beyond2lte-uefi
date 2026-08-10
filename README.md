@@ -23,7 +23,8 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | UEFI'den UFS'e **yazma** | ❌ redirect başarısız, sebep açık |
 | USB | ❌ |
 | **Linux (ACPI, DTB yok)** | ✅ 8 CPU açılıyor, initramfs'e kadar |
-| Windows | ❌ |
+| Windows Boot Manager | ✅ çalışıyor, ekran çiziyor, ESP'den okuyor |
+| Windows | ⏳ BCD + yerleşim |
 
 Ayrıntı: [`STATUS.md`](STATUS.md)
 

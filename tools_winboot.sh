@@ -41,19 +41,55 @@ command -v 7z >/dev/null || { echo "7z yok -> sudo apt install -y p7zip-full"; e
 say "ISO: $ISO"
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 
-say "Boot Manager ve BCD cikariliyor"
-# ISO'daki efi/boot/bootaa64.efi = Windows Boot Manager (bootmgfw ile ayni ikili)
-7z e -o"$W" "$ISO" efi/boot/bootaa64.efi         >/dev/null
-7z e -o"$W" "$ISO" efi/microsoft/boot/BCD        >/dev/null 2>&1 || true
-# Yazi tipleri: hata ekranini duzgun cizebilmesi icin
-7z e -o"$W/fonts" "$ISO" "efi/microsoft/boot/fonts/*" >/dev/null 2>&1 || true
+say "ISO icindeki boot dosyalari araniyor"
+#
+# ILK DENEMEDE BURASI SESSIZCE BASARISIZ OLDU. Cikarma satirlari "|| true" ile
+# korunuyordu, BCD kopyalanmadi ve cihaz "0xc000000f - File: \EFI\Microsoft\
+# Boot\BCD" verdi. Simdi yollar ISO listesinden BULUNUYOR (buyuk/kucuk harf
+# ISO'dan ISO'ya degisiyor) ve eksik dosya varsa script DURUYOR.
+#
+LIST="$W/list.txt"
+7z l -slt "$ISO" > "$LIST"
 
-ls -l "$W" | sed 's/^/  /'
+find_in_iso() {   # $1 = aranan yol deseni (buyuk/kucuk harf duyarsiz)
+  grep -i '^Path = ' "$LIST" | sed 's/^Path = //' | grep -i -m1 -E "$1" || true
+}
+
+BM_PATH="$(find_in_iso '(^|[/\\])efi[/\\]boot[/\\]bootaa64\.efi$')"
+BCD_PATH="$(find_in_iso '(^|[/\\])efi[/\\]microsoft[/\\]boot[/\\]bcd$')"
+echo "  Boot Manager : ${BM_PATH:-BULUNAMADI}"
+echo "  BCD          : ${BCD_PATH:-BULUNAMADI}"
+
+[ -n "$BM_PATH" ]  || { echo "HATA: bootaa64.efi ISO'da yok."; exit 1; }
+[ -n "$BCD_PATH" ] || { echo "HATA: BCD ISO'da yok."; exit 1; }
+
+say "cikariliyor"
+7z e -o"$W" "$ISO" "$BM_PATH"  >/dev/null
+7z e -o"$W" "$ISO" "$BCD_PATH" >/dev/null
+BM="$W/$(basename "$BM_PATH")"
+BCD="$W/$(basename "$BCD_PATH")"
+
+# Gercekten geldiler mi? Sessiz basarisizlik bir tur kaybettirdi.
+[ -s "$BM" ]  || { echo "HATA: bootaa64.efi cikarilamadi."; exit 1; }
+[ -s "$BCD" ] || { echo "HATA: BCD cikarilamadi."; exit 1; }
+
+# BCD bir registry hive'i; "regf" ile baslar. Yanlis dosyayi almadigimizi dogrula.
+MAGIC="$(head -c4 "$BCD")"
+[ "$MAGIC" = "regf" ] || { echo "HATA: BCD registry hive gibi gorunmuyor (basi: $MAGIC)"; exit 1; }
+echo "  BCD dogrulandi: regf, $(stat -c%s "$BCD") bayt"
+
+# Yazi tipleri (hata ekranini duzgun cizmek icin)
+FONTS="$(grep -i '^Path = ' "$LIST" | sed 's/^Path = //' | grep -i -E 'efi[/\\]microsoft[/\\]boot[/\\]fonts[/\\].*\.ttf$' || true)"
+if [ -n "$FONTS" ]; then
+  mkdir -p "$W/fonts"
+  echo "$FONTS" | while read -r f; do 7z e -o"$W/fonts" "$ISO" "$f" >/dev/null 2>&1 || true; done
+  echo "  yazi tipi: $(ls "$W/fonts" 2>/dev/null | wc -l) dosya"
+fi
 
 say "ESP agacina yerlestiriliyor"
 mkdir -p "$ESP/EFI/Microsoft/Boot"
-cp "$W/bootaa64.efi" "$ESP/EFI/Microsoft/Boot/bootmgfw.efi"
-[ -f "$W/BCD" ] && cp "$W/BCD" "$ESP/EFI/Microsoft/Boot/BCD"
+cp "$BM"  "$ESP/EFI/Microsoft/Boot/bootmgfw.efi"
+cp "$BCD" "$ESP/EFI/Microsoft/Boot/BCD"
 if [ -d "$W/fonts" ] && [ -n "$(ls -A "$W/fonts" 2>/dev/null)" ]; then
   mkdir -p "$ESP/EFI/Microsoft/Boot/Fonts"
   cp "$W"/fonts/* "$ESP/EFI/Microsoft/Boot/Fonts/" 2>/dev/null || true

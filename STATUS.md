@@ -418,3 +418,39 @@ USERDATA'nın biçimlendirilmesi Android verisini siler ama geri dönüşü var.
 
 USB sürücüsü olmadığı için kurulum sihirbazı çalıştırılamaz. Yöntem: WIM'i
 WSL'de `wimlib-imagex` ile doğrudan bölüme uygulamak, kurulumu atlamak.
+
+## Windows Boot Manager çalıştı
+
+İlk Windows denemesi, hiçbir şey silmeden. ISO'nun `bootaa64.efi`'si ESP'ye
+konup `startup.nsh`'tan başlatıldı.
+
+**Sonuç: Windows kurtarma ekranı çizildi.**
+
+```
+File: \EFI\Microsoft\Boot\BCD
+Error Code: 0xc000000f
+```
+
+Hata bir başarısızlık değil, tam tersi. Bu ekranın görünebilmesi için Windows
+Boot Manager'ın şunları yapmış olması gerekiyordu:
+
+| Adım | Ne kanıtlıyor |
+|---|---|
+| Yüklendi ve çalıştı | PE imajımızı yükleyen UEFI yükleyicisi doğru |
+| Kendi grafik arayüzünü çizdi | GOP'umuz Windows'a yetiyor |
+| ESP'den dosya okudu | FAT + DiskIo + **UfsDxe** Windows tarafında çalışıyor |
+| BCD yolunu aradı | Dosya sistemi yolunu çözebiliyor |
+| ACPI'yi ayrıştırdı | Tablolarımız kabul edildi (aksi halde daha erken çökerdi) |
+
+`0xc000000f` + `File: ...\BCD` = BCD eksik ya da bozuk. Sebep bizim
+tarafımızda: `tools_winboot.sh` BCD'yi `|| true` ile çıkarmaya çalışıyordu ve
+sessizce başarısız olmuştu. Script artık yolları ISO listesinden buluyor
+(büyük/küçük harf ISO'dan ISO'ya değişiyor), dosyanın `regf` ile başladığını
+doğruluyor ve eksikse duruyor.
+
+### Sıradaki sınır: boot.wim sığmıyor
+
+ISO'nun BCD'si WinPE'yi RAM diskten açmak üzere kurulu ve `\sources\boot.wim`
+arıyor — 606 MB. CACHE bölümü 600 MB. Yani doğru BCD ile bu sefer
+`0xc0000225` (boot device bulunamadı) beklenir; o da BCD'nin ayrıştırıldığını
+kanıtlar ve bir sonraki adıma geçeriz.
