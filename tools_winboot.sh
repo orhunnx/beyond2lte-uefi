@@ -27,6 +27,21 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ESP="$HERE/esp"
 
+#
+# BAYRAKLARI ONCE AYIKLA. Onceden bayrak ayristirmasi ISO atamasindan SONRA
+# geliyordu; "bash tools_winboot.sh --wim-yenile" calistirinca bayrak ISO
+# yolu saniliyor ve "ISO bulunamadi" hatasi veriyordu.
+#
+FORCE_WIM=0
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --wim-yenile) FORCE_WIM=1 ;;
+    *) ARGS+=("$a") ;;
+  esac
+done
+if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
+
 ISO="${1:-}"
 if [ -z "$ISO" ]; then
   for c in "$HOME"/*.iso /mnt/c/Users/*/Downloads/*Arm64*.iso /mnt/c/Users/*/Downloads/*.iso; do
@@ -134,10 +149,6 @@ fi
 # hicbir ilgisi yok. Hazirsa dokunmuyoruz.
 #   Zorla yeniden uretmek icin:  bash tools_winboot.sh --wim-yenile
 #
-FORCE_WIM=0
-[ "${2:-}" = "--wim-yenile" ] && FORCE_WIM=1
-[ "${1:-}" = "--wim-yenile" ] && FORCE_WIM=1
-
 WIM_PATH="$(find_in_iso '(^|[/\\])sources[/\\]boot\.wim$')"
 if [ "$FORCE_WIM" = 0 ] && [ -s "$ESP/sources/boot.wim" ] \
    && wimlib-imagex info "$ESP/sources/boot.wim" 2>/dev/null | grep -qi '^Boot Index: *1'; then
