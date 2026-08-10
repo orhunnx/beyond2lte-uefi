@@ -9,7 +9,7 @@
 #   yap.sh                 DEBUG derle
 #   yap.sh -r RELEASE      RELEASE derle
 #   yap.sh --acpi          ACPI tablolarini derle + etkinlestir
-#   yap.sh --tar           Odin icin .tar da uret
+#   (Odin .tar ve .img her zaman uretilir)
 #   yap.sh --clean         temiz derleme (-c)
 #
 set -euo pipefail
@@ -22,7 +22,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -r|--release) REL="$2"; shift 2 ;;
     --acpi)  DO_ACPI=1; shift ;;
-    --tar)   DO_TAR=1;  shift ;;
+    --tar)   shift ;;   # geriye donuk uyumluluk, artik varsayilan
     --clean) CLEAN="-c"; shift ;;
     -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     *) echo "Bilinmeyen secenek: $1"; exit 1 ;;
@@ -76,17 +76,36 @@ if [ -f "$IMG" ]; then
     echo "--- Shell FV'de mi:"
     if grep -qi '7C04A583' "$RPT"; then echo "  EVET (7C04A583 bulundu)"; else echo "  HAYIR"; fi
   fi
-  # Windows masaustune kopyala
-  for d in /mnt/c/Users/*/Desktop; do
-    [ -d "$d" ] || continue
-    cp "$IMG" "$d/" && echo "Kopyalandi: $d/$(basename "$IMG")"
-    if [ "$DO_TAR" = 1 ]; then
-      T="$MU/uefi-boot.tar"
-      ( cd "$MU" && cp Mu-beyond2lte.img boot.img && tar -H ustar -cf uefi-boot.tar boot.img && rm -f boot.img )
-      cp "$T" "$d/" && echo "Kopyalandi: $d/uefi-boot.tar  (Odin -> AP)"
-    fi
-    break
-  done
+  # Odin tar'ini her zaman uret - flash icin gereken bu.
+  ( cd "$MU" && cp -f Mu-beyond2lte.img boot.img \
+      && tar -H ustar -cf uefi-boot.tar boot.img && rm -f boot.img )
+
+  # Masaustunu bul. OneDrive yonlendirmesi ve Turkce klasor adi oncelikli
+  # (ORTAM.md: C:\Users\orhun\OneDrive\Masaustu).
+  DESK=""
+  if [ -n "${OUTDIR:-}" ]; then
+    DESK="$OUTDIR"
+  else
+    for p in /mnt/c/Users/*/OneDrive/Masa*st* \
+             /mnt/c/Users/*/OneDrive/Desktop \
+             /mnt/c/Users/*/Masa*st* \
+             /mnt/c/Users/*/Desktop; do
+      [ -d "$p" ] && { DESK="$p"; break; }
+    done
+  fi
+
+  if [ -n "$DESK" ]; then
+    mkdir -p "$DESK/beyond2lte-flash"
+    cp -f "$IMG" "$DESK/beyond2lte-flash/"
+    cp -f "$MU/uefi-boot.tar" "$DESK/beyond2lte-flash/"
+    echo "Flash dosyalari: $DESK/beyond2lte-flash"
+    echo "  uefi-boot.tar        -> Odin, AP slotu  (Re-Partition ISARETSIZ)"
+    echo "  Mu-beyond2lte.img    -> heimdall flash --BOOT Mu-beyond2lte.img"
+  else
+    echo "Masaustu bulunamadi. OUTDIR=/mnt/c/... ile yol verebilirsin."
+    echo "  $IMG"
+    echo "  $MU/uefi-boot.tar"
+  fi
 else
   echo "Cikti uretilmedi."; exit 1
 fi
