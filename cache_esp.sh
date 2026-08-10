@@ -56,6 +56,14 @@ mkfs.vfat -F 16 -S 4096 -s 1 -n UEFIESP "$IMG" >/dev/null
 # surume gore degisiyor: once kendi dizini, sonra kok.
 NSH="$PROJ/esp/startup.nsh"
 
+# Bir tur, cihazdan geri okunan imajda ESKI startup.nsh cikti: kernel'ler
+# eklendikten sonra ama script duzenlenmeden once uretilmis bir imaj
+# flaslanmisti ve hicbir log uretilmedi. Boyut+ozet basiyoruz ki hangi surumun
+# gittigi belli olsun; cihazdan geri okuyunca bununla karsilastir.
+if [ -f "$NSH" ]; then
+  say "startup.nsh: $(stat -c%s "$NSH") bayt  sha1=$(sha1sum "$NSH" | cut -c1-12)"
+fi
+
 if command -v mcopy >/dev/null; then
   export MTOOLS_SKIP_CHECK=1
   mmd   -i "$IMG" ::/EFI ::/EFI/BOOT
