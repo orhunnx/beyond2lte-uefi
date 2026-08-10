@@ -86,6 +86,42 @@ if [ -n "$FONTS" ]; then
   echo "  yazi tipi: $(ls "$W/fonts" 2>/dev/null | wc -l) dosya"
 fi
 
+#
+# boot.wim - WinPE'yi RAM diskten acmak icin.
+#
+# ISO'daki boot.wim 606 MB ve iki indeks iceriyor:
+#   1 = Microsoft Windows PE      <- bize gereken
+#   2 = Microsoft Windows Setup   <- kurulum sihirbazi, bizde klavye yok, gereksiz
+#
+# Sadece 1. indeksi disari aktarinca ciddi kuculuyor. LZX kullaniyoruz;
+# bootmgr'in ramdisk yukleyicisi XPRESS ve LZX okuyabiliyor ama LZMS/solid
+# OKUYAMIYOR - o yuzden "--solid" YOK, daha kucuk olurdu ama acilmazdi.
+#
+WIM_PATH="$(find_in_iso '(^|[/\\])sources[/\\]boot\.wim$')"
+if [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
+  say "boot.wim isleniyor (sadece WinPE indeksi)"
+  7z e -o"$W" "$ISO" "$WIM_PATH" >/dev/null
+  SRCWIM="$W/$(basename "$WIM_PATH")"
+  echo "  kaynak: $(du -h "$SRCWIM" | cut -f1)"
+  wimlib-imagex info "$SRCWIM" | grep -E '^(Index|Name|Description)' | sed 's/^/    /' || true
+
+  mkdir -p "$ESP/sources"
+  wimlib-imagex export "$SRCWIM" 1 "$ESP/sources/boot.wim" --compress=LZX --rebuild
+  echo "  sonuc: $(du -h "$ESP/sources/boot.wim" | cut -f1)"
+
+  # 600 MiB bolume sigacak mi? Kalan dosyalar icin ~10 MB pay birakiyoruz.
+  SZB=$(stat -c%s "$ESP/sources/boot.wim")
+  LIMIT=$((600*1024*1024 - 12*1024*1024))
+  if [ "$SZB" -gt "$LIMIT" ]; then
+    echo
+    echo "  UYARI: boot.wim ESP'ye SIGMIYOR ($((SZB/1024/1024)) MB > $((LIMIT/1024/1024)) MB)."
+    echo "  Secenekler: WIM'den dil/surucu paketleri cikarmak, ya da daha buyuk"
+    echo "  bir bolum kullanmak (SYSTEM 5.57 GB)."
+  fi
+else
+  echo "  (boot.wim atlandi: ISO'da yok ya da wimlib-imagex kurulu degil)"
+fi
+
 say "ESP agacina yerlestiriliyor"
 mkdir -p "$ESP/EFI/Microsoft/Boot"
 cp "$BM"  "$ESP/EFI/Microsoft/Boot/bootmgfw.efi"

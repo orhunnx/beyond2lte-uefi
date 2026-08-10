@@ -42,14 +42,26 @@ fi
 [ -f "$APP" ] || { echo "EFI uygulamasi bulunamadi. Yolu argüman olarak ver."; exit 1; }
 say "Icerik: $APP ($(du -h "$APP" | cut -f1))"
 
-# CACHE = 153600 blok x 512 = 78643200 bayt (PARTITIONS.md, PIT'ten)
-SZ=78643200
+#
+# CACHE = 153600 blok x 4096 = 629145600 bayt = 600 MiB.
+#
+# Onceden 512 bayt varsayip 75 MB imaj yaziyorduk; bolumun geri kalani bos
+# kaliyordu. Cihazdan geri okununca gercek boyut 600 MiB cikti (PARTITIONS.md).
+# Windows'un boot.wim'i icin bu alana ihtiyacimiz var.
+#
+# KUME BOYUTU: 600 MiB'i 4K kumeyle bicimlendirirsek 153600 kume cikar ve bu
+# FAT16'nin ust siniri olan 65525'i asar -> FatPkg birimi baglamaz. "-s 8"
+# ile kume 32 KiB oluyor, kume sayisi 19200'e dusuyor ve FAT16'nin gecerli
+# araligi olan 4085-65525'in tam ortasinda kaliyor. (FAT32'ye gecemiyoruz,
+# bkz. yukaridaki 2 numarali kisit.)
+#
+SZ=629145600
 IMG="$OUT/cache.img"
 
-say "FAT16 imaji olusturuluyor (4096 bayt sektor)"
+say "FAT16 imaji olusturuluyor (600 MiB, 4096 bayt sektor, 32 KiB kume)"
 rm -f "$IMG"
 dd if=/dev/zero of="$IMG" bs=1M count=$((SZ/1048576)) status=none
-mkfs.vfat -F 16 -S 4096 -s 1 -n UEFIESP "$IMG" >/dev/null
+mkfs.vfat -F 16 -S 4096 -s 8 -n UEFIESP "$IMG" >/dev/null
 
 # startup.nsh: Shell acilista bunu otomatik calistirir. Klavye olmadan
 # komut vermenin tek yolu. Iki yere de koyuyoruz cunku Shell'in arama sirasi
@@ -83,6 +95,8 @@ if command -v mcopy >/dev/null; then
       mcopy -i "$IMG" "$f" "::/$b" && echo "  + $b ($(du -h "$f" | cut -f1))"
     fi
   done
+  echo "--- bos alan:"
+  mdir -i "$IMG" ::/ | tail -1
   echo "--- imaj icerigi:"
   mdir -i "$IMG" ::/
   mdir -i "$IMG" ::/EFI/BOOT
