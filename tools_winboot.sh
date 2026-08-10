@@ -231,10 +231,17 @@ REG
   #
   # Bizimki asla cikmiyor ve icerideki durumu hem ekrana hem ESP'ye yaziyor.
   #
-  if [ -f "$(dirname "$ESP")/windows/startnet.cmd" ]; then
+  SN="$(dirname "$ESP")/windows/startnet.cmd"
+  if [ -f "$SN" ]; then
     say "startnet.cmd enjekte ediliyor"
+    # CRLF ZORUNLU. Batch yorumlayicisi LF ile etiketleri ve "goto"yu
+    # bozabiliyor; script kirilinca cmd.exe cikiyor ve WinPE yeniden
+    # baslatiyor. Bir tur boyle gecti.
+    SNTMP="$W/startnet.cmd"
+    sed 's/\r*$/\r/' "$SN" > "$SNTMP"
+    printf '  satir sonu: %s\n' "$(file -b "$SNTMP" | grep -o 'CRLF' || echo 'CRLF DEGIL!')"
     wimlib-imagex update "$ESP/sources/boot.wim" 1 \
-      --command="add '$(dirname "$ESP")/windows/startnet.cmd' /Windows/System32/startnet.cmd" >/dev/null
+      --command="add '$SNTMP' /Windows/System32/startnet.cmd" >/dev/null
     echo "  kondu: /Windows/System32/startnet.cmd"
   fi
 
