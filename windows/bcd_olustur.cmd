@@ -15,6 +15,15 @@ setlocal enabledelayedexpansion
 ::   azram    truncatememory 0x100000000 -> RAM'i 4 GB'a kirpar
 ::                          Cokme yuksek bellek adreslerinden geliyorsa bu gecer.
 ::                          8 GB'lik haritamizin ust kismi supheli olabilir.
+::   zamanlayici  numproc 1 + disabledynamictick + useplatformclock
+::                          CEKIRDEK 5-6 SANIYE CALISIP SONRA SESSIZCE
+::                          SIFIRLIYOR. Anlik cokme degil; bu ARM portlarinda
+::                          klasik bir zamanlayici belirtisi. Windows dinamik
+::                          tick'i timer'i Linux'tan farkli kullaniyor ve
+::                          GTDT'miz 9830'dan uyarlanmisti.
+::                            disabledynamictick -> sabit periyodik tick
+::                            useplatformclock   -> platform saatini kullan
+::
 ::   hatagoster  Windows'un KENDI hata raporlamasini ACAR.
 ::                          numproc 1 + recoveryenabled Yes + DisplayAllFailures.
 ::                          Windows her acilisin durumunu ESP'deki bootstat.dat'a
@@ -135,6 +144,15 @@ if /i "%VAR%"=="tekcpu" (
   bcdedit /store "%BCD%" /set %G% numproc 1
   if errorlevel 1 echo   ! BASARISIZ: numproc 1
   echo   AYAR: numproc 1  ^(tek cekirdek^)
+)
+if /i "%VAR%"=="zamanlayici" (
+  bcdedit /store "%BCD%" /set %G% numproc 1
+  if errorlevel 1 echo   ! BASARISIZ: numproc 1
+  bcdedit /store "%BCD%" /set %G% disabledynamictick Yes
+  if errorlevel 1 echo   ! BASARISIZ: disabledynamictick Yes
+  bcdedit /store "%BCD%" /set %G% useplatformclock Yes
+  if errorlevel 1 echo   ! BASARISIZ: useplatformclock Yes
+  echo   AYAR: numproc 1 + disabledynamictick + useplatformclock
 )
 if /i "%VAR%"=="azram" (
   bcdedit /store "%BCD%" /set %G% truncatememory 0x100000000

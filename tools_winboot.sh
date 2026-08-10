@@ -126,8 +126,24 @@ fi
 # bootmgr'in ramdisk yukleyicisi XPRESS ve LZX okuyabiliyor ama LZMS/solid
 # OKUYAMIYOR - o yuzden "--solid" YOK, daha kucuk olurdu ama acilmazdi.
 #
+#
+# WIM ZATEN HAZIRSA ATLA.
+#
+# 570 MB'lik WIM'i her BCD denemesinde yeniden isliyorduk; cikarma + delete +
+# optimize + hive duzenleme dakikalar suruyor ve BCD degisikliginin WIM ile
+# hicbir ilgisi yok. Hazirsa dokunmuyoruz.
+#   Zorla yeniden uretmek icin:  bash tools_winboot.sh --wim-yenile
+#
+FORCE_WIM=0
+[ "${2:-}" = "--wim-yenile" ] && FORCE_WIM=1
+[ "${1:-}" = "--wim-yenile" ] && FORCE_WIM=1
+
 WIM_PATH="$(find_in_iso '(^|[/\\])sources[/\\]boot\.wim$')"
-if [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
+if [ "$FORCE_WIM" = 0 ] && [ -s "$ESP/sources/boot.wim" ] \
+   && wimlib-imagex info "$ESP/sources/boot.wim" 2>/dev/null | grep -qi '^Boot Index: *1'; then
+  say "boot.wim hazir, atlaniyor ($(du -h "$ESP/sources/boot.wim" | cut -f1), Boot Index 1)"
+  echo "  yeniden uretmek icin: bash tools_winboot.sh --wim-yenile"
+elif [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
   say "boot.wim isleniyor (sadece WinPE indeksi)"
   7z e -o"$W" "$ISO" "$WIM_PATH" >/dev/null
   SRCWIM="$W/$(basename "$WIM_PATH")"
