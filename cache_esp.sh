@@ -1,65 +1,92 @@
 #!/usr/bin/env bash
 #
-# CACHE bolumu icin ESP (FAT32) imaji uretir ve Odin tar'ina paketler.
+# CACHE bolumu icin ESP imaji uretir. Iki cikti verir:
+#
+#   out/cache.img       ham imaj   -> recovery + adb dd yolu
+#   out/cache-esp.tar   sparse tar -> Odin, AP slotu
 #
 #   bash cache_esp.sh [iceri-konacak-dosya.efi]
 #
 # Argüman verilmezse Mu-Silicium build'indeki Shell.efi aranir.
 #
-# IKI KISIT VAR, ikisi de zorunlu:
+# ---------------------------------------------------------------------------
+# UC KISIT VAR, ucu de zorunlu. Her biri bir tur kaybettirdi:
 #
 # 1) -S 4096 : UFS'in mantiksal blok boyutu 4096 (log: "BlockSize : 4096").
-#    FAT'in BPB'sindeki sektor boyutu BlockIo'nunkiyle esitlesmeli.
+#    FAT'in BPB'sindeki sektor boyutu BlockIo'nunkiyle esitlesmeli, yoksa
+#    FatPkg birimi baglamaz.
 #
 # 2) -F 16   : FAT32 DEGIL. FatPkg/EnhancedFatDxe/Init.c:
 #         if (Volume->MaxCluster < FAT_MAX_FAT16_CLUSTER) return EFI_VOLUME_CORRUPTED;
 #    FAT_MAX_FAT16_CLUSTER = 65525. CACHE 75 MB; 4K sektorle 19200 cluster
-#    cikiyor, esigin altinda -> FAT32 sessizce reddediliyor.
-#    4K sektorle FAT32 icin en az 256 MB lazim. FAT16'nin gecerli araligi
-#    4085-65525, 19200 tam ortasinda.
+#    cikiyor -> FAT32 sessizce reddediliyor. 4K sektorle FAT32 icin en az
+#    256 MB lazim. FAT16'nin gecerli araligi 4085-65525; 19200 tam ortasinda.
 #
+# 3) sparse  : Odin ham FAT imajini reddediyor. Android sparse formatina
+#    (0xED26FF3A) cevirince kabul ediyor. dd yolu icin ham imaj gerekli,
+#    o yuzden ikisini birden uretiyoruz.
+# ---------------------------------------------------------------------------
 set -euo pipefail
 PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MU="${MU_SILICIUM:-$HOME/Mu-Silicium}"
 OUT="$PROJ/out"; mkdir -p "$OUT"
 
+say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
+
 APP="${1:-}"
 if [ -z "$APP" ]; then
   APP="$(find "$MU/Build" -name 'Shell.efi' -path '*ShellPkg*' 2>/dev/null | head -1)"
-  [ -n "$APP" ] || APP="$(find "$MU/Build" -maxdepth 4 -name 'Shell.efi' 2>/dev/null | head -1)"
+  [ -n "$APP" ] || APP="$(find "$MU/Build" -maxdepth 5 -name 'Shell.efi' 2>/dev/null | head -1)"
 fi
 [ -f "$APP" ] || { echo "EFI uygulamasi bulunamadi. Yolu argüman olarak ver."; exit 1; }
-echo "Icerik: $APP"
+say "Icerik: $APP ($(du -h "$APP" | cut -f1))"
 
-# CACHE = 153600 blok x 512 = 78643200 bayt (PARTITIONS.md)
+# CACHE = 153600 blok x 512 = 78643200 bayt (PARTITIONS.md, PIT'ten)
 SZ=78643200
 IMG="$OUT/cache.img"
+
+say "FAT16 imaji olusturuluyor (4096 bayt sektor)"
 rm -f "$IMG"
 dd if=/dev/zero of="$IMG" bs=1M count=$((SZ/1048576)) status=none
+mkfs.vfat -F 16 -S 4096 -s 1 -n UEFIESP "$IMG" >/dev/null
 
-# 4096 baytlik sektor - UFS BlockSize ile eslesmek zorunda
-mkfs.vfat -F 16 -S 4096 -n UEFIESP "$IMG" >/dev/null
-
-# mtools ile mount'suz yaz (sudo gerekmez)
 if command -v mcopy >/dev/null; then
   export MTOOLS_SKIP_CHECK=1
   mmd   -i "$IMG" ::/EFI ::/EFI/BOOT
   mcopy -i "$IMG" "$APP" ::/EFI/BOOT/BOOTAA64.EFI
-  echo "--- imaj icerigi:"; mdir -i "$IMG" ::/EFI/BOOT
+  mdir  -i "$IMG" ::/EFI/BOOT
 else
-  echo "mtools yok (sudo apt install -y mtools). Loop mount'a dusuluyor..."
+  echo "mtools yok -> sudo apt install -y mtools   (loop mount'a dusuluyor)"
   T=$(mktemp -d); sudo mount -o loop "$IMG" "$T"
   sudo mkdir -p "$T/EFI/BOOT"; sudo cp "$APP" "$T/EFI/BOOT/BOOTAA64.EFI"
   sudo umount "$T"; rmdir "$T"
 fi
 
-( cd "$OUT" && tar -H ustar -cf cache-esp.tar cache.img )
+say "Odin icin sparse imaj + tar"
+WORK="$(mktemp -d)"
+if command -v img2simg >/dev/null; then
+  img2simg "$IMG" "$WORK/cache.img"
+  MAGIC=$(od -An -tx4 -N4 "$WORK/cache.img" | tr -d ' ')
+  echo "  sparse sihirli sayisi: 0x$MAGIC  (beklenen: ed26ff3a)"
+else
+  echo "  UYARI: img2simg yok -> sudo apt install -y android-sdk-libsparse-utils"
+  echo "  Ham imaj tar'lanıyor; Odin reddedebilir."
+  cp "$IMG" "$WORK/cache.img"
+fi
+( cd "$WORK" && tar -H ustar -cf "$OUT/cache-esp.tar" cache.img )
+rm -rf "$WORK"
+
+say "Cikti"
+ls -lh "$IMG" "$OUT/cache-esp.tar"
 
 for p in /mnt/c/Users/*/OneDrive/Masa*st* /mnt/c/Users/*/OneDrive/Desktop \
          /mnt/c/Users/*/Masa*st* /mnt/c/Users/*/Desktop; do
   [ -d "$p" ] || continue
   mkdir -p "$p/beyond2lte-flash"
-  cp -f "$OUT/cache-esp.tar" "$p/beyond2lte-flash/"
-  echo "Kopyalandi: $p/beyond2lte-flash/cache-esp.tar  (Odin -> AP)"
+  cp -f "$OUT/cache-esp.tar" "$OUT/cache.img" "$p/beyond2lte-flash/"
+  echo
+  echo "Masaustune kopyalandi: $p/beyond2lte-flash"
+  echo "  cache-esp.tar  -> Odin, AP slotu (Re-Partition ISARETSIZ)"
+  echo "  cache.img      -> recovery: adb push + dd"
   break
 done
