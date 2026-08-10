@@ -40,6 +40,9 @@ say "Mu-Silicium: $MU"
 if [ "$DO_ACPI" = 1 ]; then
   say "ACPI tablolari derleniyor"
   command -v iasl >/dev/null || { echo "iasl yok -> sudo apt install -y acpica-tools"; exit 1; }
+  # PPTT iasl ile degil Python ile uretiliyor (tools_pptt_gen.py'deki nedene bak).
+  # iasl'den ONCE calismali ki SoCs kopyalanirken PPTT.aml yerinde olsun.
+  python3 "$PROJ/tools_pptt_gen.py"
   cp -r "$PROJ/silicium-acpi-overlay/SoCs" "$MU/Silicium-ACPI/"
   ( cd "$MU/Silicium-ACPI/SoCs/Samsung/S5E9820" && for f in *.dsl; do iasl -ve "$f"; done )
   # ACPI.inc'i ac

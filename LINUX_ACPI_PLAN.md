@@ -108,3 +108,37 @@ Windows'un `INACCESSIBLE_BOOT_DEVICE` vermemesi için. Şu anki
 
 Yani sıralama: ACPI çekirdeği doğrula (Linux) → DSDT'yi genişlet →
 Windows dene.
+
+## Kernel logunu donanımsız almak
+
+UART jig yok, yani `ExitBootServices` sonrası ekrandan başka kanalımız kalmıyor
+gibi görünüyor. Ama bir yol var: **Linux'un kendisine yazdırmak.**
+
+Linux'un UFS ve FAT sürücüleri sağlam (recovery bu bölüme zaten yazıyor). O
+zaman UEFI'nin yazamadığı yere Linux yazabilir:
+
+```sh
+#!/bin/sh
+# initramfs /init
+mount -t devtmpfs none /dev
+mkdir -p /mnt
+mount -t vfat /dev/disk/by-label/UEFIESP /mnt
+dmesg > /mnt/KLOG.TXT
+sync
+umount /mnt
+poweroff -f
+```
+
+Sonra recovery'den bölümü çekip `KLOG.TXT`'i okuyoruz — tam metin, fotoğraf yok.
+Kernel ACPI'yi nasıl ayrıştırdığı, CPU'ları kurup kuramadığı, PPTT'yi görüp
+görmediği hepsi burada olur.
+
+Gereken: aarch64 static busybox + üç satırlık `/init` + `cpio`. Alpine'ın hazır
+`initramfs-lts`'i yerine bunu kullanacağız.
+
+### Denenmeyecek alternatif: pstore/efivars
+
+Linux panik logunu UEFI değişkenlerine yazabiliyor (`efi_pstore`), Shell'den
+`dmpstore` ile okunabilirdi. Ama Mu-Silicium'un değişken deposunun kalıcı olup
+olmadığı belirsiz; RAM'de tutuluyorsa yeniden başlatmada uçar. FAT yolu daha
+garantili.

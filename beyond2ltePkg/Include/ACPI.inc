@@ -16,5 +16,6 @@
 #    SECTION RAW = Common/SSDT.aml
 #    SECTION RAW = S5E9820/FACP.aml
 #    SECTION RAW = S5E9820/GTDT.aml
+#    SECTION RAW = S5E9820/PPTT.aml
 #    SECTION UI = "AcpiTables"
 #}
