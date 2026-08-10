@@ -161,3 +161,63 @@ python3 build_uefi.py -d beyond2lte -r DEBUG
 
 UART jig kablosu ancak biri Exynos `SerialPortLib`'i yazarsa anlamlı olur
 (UART base'leri DTB'de: uart0 `0x10440000`). Şimdilik gerek yok.
+
+---
+
+# EFI Shell çalışıyor — doğrulanan zincir
+
+`startup.nsh` çıktısı (10 Ağustos 2026):
+
+```
+FS0: ... VenHw(5F2C8E91-...,00)/HD(28,GPT,52444E41-494F-2044-6361-636865000000)
+Directory of: fs0:\
+  EFI  <DIR>      startup.nsh  762 bytes
+```
+
+**FS0 = CACHE bölümü.** Samsung GPT tip GUID'i bölüm adını ASCII gömüyor:
+`...-6361-636865000000` → `cache`.
+
+| Katman | Durum |
+|---|---|
+| UFS link (G3, 2 lane) | ✅ |
+| 5 LUN → BlockIo | ✅ |
+| GPT → 31 bölüm | ✅ |
+| PartitionDxe → HD(1..31) | ✅ |
+| Fat.efi → FS0 (cache) | ✅ |
+| Shell + startup.nsh | ✅ |
+
+`dh -p SimpleFileSystem` tek handle döndürüyor (3C = cache). Diğer 30 bölüm
+Android formatlarında olduğu için bağlanmıyor — beklenen.
+
+`ver`: UEFI Interactive Shell v2.2 / EDK II / UEFI v2.70 (Project Silicium)
+
+## ESP'yi çalıştırmak için gereken üç kısıt
+
+Her biri bir tur kaybettirdi, üçü birden sağlanmadan olmuyor:
+
+1. **`-S 4096`** — UFS mantıksal blok boyutu 4096. FAT BPB'sindeki sektör
+   boyutu `BlockIo` ile eşleşmeli.
+2. **`-F 16`** — FAT32 değil. `FatPkg/EnhancedFatDxe/Init.c`:
+   `if (MaxCluster < FAT_MAX_FAT16_CLUSTER) return EFI_VOLUME_CORRUPTED`.
+   65525 eşiği; CACHE 75 MB'ta 19200 cluster veriyor. 4K sektörle FAT32 için
+   en az 256 MB gerekiyor.
+3. **sparse** — Odin ham FAT imajını reddediyor, `img2simg` ile Android sparse
+   formatına çevrilmeli. (`dd` yolu ham imaj istiyor, ikisi de üretiliyor.)
+
+## Bölüm haritası — cihazdan doğrulandı
+
+`map -r` çıktısındaki GPT GUID'lerinden çözüldü:
+
+| HD# | Bölüm | HD# | Bölüm | HD# | Bölüm |
+|---|---|---|---|---|---|
+| 1 | bota0 | 12 | dtb | 22 | dqmdbg |
+| 2 | bota1 | 13 | dtbo | 23 | vbmeta |
+| 3 | efs | 14 | **boot** | 24 | bota3 |
+| 4 | param | 15 | **recovery** | 25 | **system** (712 MB) |
+| 5 | up_param | 16 | radio | 26 | vendor |
+| 6 | keystorage | 17 | nad_refer | 27 | product |
+| 7 | sec_efs | 18 | persistent | 28 | **cache** → FS0 |
+| 8 | bota2 | 19 | misc | 29 | omr |
+| 9 | steady | 20 | keyrefuge | 30 | cp_debug |
+| 10 | uh | 21 | keydata | 31 | **userdata** (kalan ~120 GB) |
+| 11 | uhcfg | | | | |
