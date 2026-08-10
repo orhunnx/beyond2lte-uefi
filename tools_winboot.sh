@@ -242,7 +242,20 @@ REG
     printf '  satir sonu: %s\n' "$(file -b "$SNTMP" | grep -o 'CRLF' || echo 'CRLF DEGIL!')"
     wimlib-imagex update "$ESP/sources/boot.wim" 1 \
       --command="add '$SNTMP' /Windows/System32/startnet.cmd" >/dev/null
-    echo "  kondu: /Windows/System32/startnet.cmd"
+    #
+    # GERCEKTEN GIRDI MI? "add" mevcut dosyanin uzerine yazmazsa sessizce
+    # eski surum kalir ve cihazda hicbir sey degismez. Geri okuyup SHA1
+    # karsilastiriyoruz - imaj uretirken bilmek, cihazda tahmin etmekten iyi.
+    #
+    CK="$W/verify"; mkdir -p "$CK"
+    if wimlib-imagex extract "$ESP/sources/boot.wim" 1 \
+         /Windows/System32/startnet.cmd --dest-dir="$CK" --no-acls >/dev/null 2>&1; then
+      A="$(sha1sum "$SNTMP" | cut -c1-12)"; B="$(sha1sum "$CK/startnet.cmd" | cut -c1-12)"
+      if [ "$A" = "$B" ]; then echo "  kondu ve DOGRULANDI (sha1=$A)"
+      else echo "  ! UYARI: WIM'deki startnet.cmd farkli ($A vs $B)"; fi
+    else
+      echo "  ! UYARI: startnet.cmd geri okunamadi"
+    fi
   fi
 
   # Butunluk: wimlib her dosyanin SHA1'ini saklar, verify hepsini kontrol eder.

@@ -54,6 +54,20 @@ if exist "%BCD%" del /f /q "%BCD%"
 
 bcdedit /createstore "%BCD%" || goto :hata
 
+::
+:: MIRAS ZINCIRI. BUNU ATLAMISTIM VE BIR TUR KAYBETTIRDI.
+::
+:: Gercek bir BCD'de girdiler {bootloadersettings} -> {globalsettings}
+:: zinciriyle baglidir. Elle kurdugumuz depoda {globalsettings}'i olusturup
+:: HICBIR YERE BAGLAMAMISTIM; dolayisiyla oraya yazdigim "bootux Disabled"
+:: tamamen etkisiz kaldi. "sos On" acikken tek satir metin gormememizin
+:: sebebi bu olabilir.
+::
+bcdedit /store "%BCD%" /create {globalsettings}     /d "Global" >nul 2>&1
+bcdedit /store "%BCD%" /create {bootloadersettings} /d "Loader" >nul 2>&1
+bcdedit /store "%BCD%" /set {bootloadersettings} inherit {globalsettings} >nul 2>&1
+bcdedit /store "%BCD%" /set {globalsettings} bootux Disabled >nul 2>&1
+
 :: --- ramdisk tanimi -------------------------------------------------------
 :: boot.sdi'yi burasi isaret ediyor. "boot" = bootmgr'in yuklendigi birim.
 bcdedit /store "%BCD%" /create {ramdiskoptions} /d "Ramdisk" >nul || goto :hata
@@ -71,6 +85,7 @@ bcdedit /store "%BCD%" /set %G% path       \windows\system32\boot\winload.efi >n
 bcdedit /store "%BCD%" /set %G% systemroot \windows >nul || goto :hata
 bcdedit /store "%BCD%" /set %G% detecthal  Yes >nul
 bcdedit /store "%BCD%" /set %G% winpe      Yes >nul
+bcdedit /store "%BCD%" /set %G% inherit {bootloadersettings} >nul
 
 :: --- TANI: sessiz cokmeyi gorunur kil ------------------------------------
 bcdedit /store "%BCD%" /set %G% recoveryenabled    No  >nul
@@ -97,9 +112,6 @@ bcdedit /store "%BCD%" /create {bootmgr} /d "beyond2lte" >nul
 bcdedit /store "%BCD%" /set {bootmgr} device boot >nul
 bcdedit /store "%BCD%" /set {bootmgr} default %G%  >nul
 bcdedit /store "%BCD%" /set {bootmgr} timeout 0    >nul
-:: Acilis animasyonunu tamamen kapat (metin ciktisinin onunu acar)
-bcdedit /store "%BCD%" /create {globalsettings} /d "Global" >nul 2>&1
-bcdedit /store "%BCD%" /set {globalsettings} bootux Disabled >nul 2>&1
 bcdedit /store "%BCD%" /displayorder %G% /addlast  >nul
 
 echo.
