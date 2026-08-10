@@ -1,65 +1,76 @@
 @echo -off
 #
-# ILK IS: konsolu EN BUYUK yazi tipine al.
-# Log'da gorulen mod listesi:
-#   Mode 0: 80x25   <- en buyuk glif, fotograflanabilir
-#   Mode 1: 80x50   Mode 2: 100x31   Mode 3: 128x40   Mode 4: 160x42
-# 1440x3040 ekranda 80x25 disindaki modlar fotografta okunmuyor.
-#
-mode 80 25
-#
 # EFI Shell acilisinda otomatik calisir. Klavye yok; komutlar burada.
-# "pause" satirlarini SES TUSUYLA gecebilirsin (KeypadDxe -> SimpleTextIn).
+#
+# CIKTI DOSYAYA YAZILIYOR. Recovery calistigi icin artik ekrani
+# fotograflamaya gerek yok:
+#   1) Bu script fs0:\log\*.txt dosyalarini uretir
+#   2) Recovery'ye gir, cache bolumunu cek, dosyalari oku (bkz. LOG_CEKME.md)
+#
+# ">a" ASCII olarak yazar. Duz ">" UCS-2 yazar ve PC'de okumak zorlasir.
 #
 # Duzenle -> cache_esp.sh -> cache'i yaz. UEFI'yi yeniden derlemeye gerek yok.
 #
 # AMAC: ACPI tablolarimizi dogrulamak. Nihai hedef Windows on ARM ve Windows
-# ACPI olmadan hic acilmaz. Once tablolari burada, sonra Linux'la test ediyoruz.
+# ACPI olmadan hic acilmaz.
 #
 
-echo .
-echo ================ 1/4  ACPI tablolari kurulu mu
-echo .
-acpiview -l
-echo .
-echo (devam icin ses tusu)
-pause
+mode 80 25
 
 echo .
-echo ================ 2/4  ACPI tablolarini spec'e karsi dogrula
+echo beyond2lte - ACPI dogrulama
+echo Cikti fs0:\log\ altina yaziliyor...
 echo .
-# -r 2 : ACPI 6.x kurallarina gore denetle. Hata/uyari sayisini sonda yazar.
-acpiview -r 2
-echo .
-echo Yukarida "0 Errors, 0 Warnings" gormek istiyoruz.
-pause
+
+if not exist fs0:\log then
+    mkdir fs0:\log
+endif
+
+echo [1/6] map -r
+map -r >a fs0:\log\01_map.txt
+
+echo [2/6] acpiview -l  (kurulu tablolar)
+acpiview -l >a fs0:\log\02_acpi_list.txt
+
+echo [3/6] acpiview -r 2  (spec dogrulama)
+acpiview -r 2 >a fs0:\log\03_acpi_verify.txt
+
+echo [4/6] acpiview -s APIC  (MADT: CPU'lar)
+acpiview -s APIC >a fs0:\log\04_madt.txt
+
+echo [5/6] acpiview -s GTDT + FACP
+acpiview -s GTDT >a fs0:\log\05_gtdt.txt
+acpiview -s FACP >a fs0:\log\06_facp.txt
+
+echo [6/6] handle ve surum bilgisi
+dh -p SimpleFileSystem >a fs0:\log\07_fs.txt
+ver >a fs0:\log\08_ver.txt
+memmap >a fs0:\log\09_memmap.txt
 
 echo .
-echo ================ 3/4  MADT (CPU'lar) ve GTDT (timer) ayrintisi
+echo Log dosyalari yazildi:
+ls fs0:\log
 echo .
-acpiview -s APIC
-pause
-acpiview -s GTDT
-pause
 
-echo .
-echo ================ 4/4  Linux ACPI testi
-echo .
+#
+# Linux ACPI testi - kernel varsa
+#
 if exist fs0:\vmlinuz-lts then
-    echo Kernel bulundu, ACPI ile aciliyor (DTB YOK).
+    echo Kernel bulundu. ACPI ile aciliyor (DTB YOK).
     echo Beklenen: ACPI ayristirilir, CPU'lar kurulur, root bulunamayip panic.
     echo Panic BASARIDIR - oraya kadar gelmek ACPI'nin calistigini gosterir.
+    echo Bu asamada cikti ekranda kalir, dosyaya yazilamaz.
     echo .
+    echo (baslatmak icin ses tusu)
     pause
     fs0:\vmlinuz-lts initrd=\initramfs-lts console=tty0 earlycon acpi=force loglevel=7 keep_bootcon
 else
     echo Kernel yok. Indirmek icin (WSL, proje icinde):
     echo   cd esp
-    echo   curl -LO https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/aarch64/netboot/vmlinuz-lts
-    echo   curl -LO https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/aarch64/netboot/initramfs-lts
-    echo   bash cache_esp.sh
-    echo .
-    echo Shell'e dusuluyor.
+    echo   curl -LO .../aarch64/netboot/vmlinuz-lts
+    echo   curl -LO .../aarch64/netboot/initramfs-lts
 endif
 
+echo .
+echo Bitti. Simdi recovery'ye gecip log'lari cekebilirsin.
 pause
