@@ -206,7 +206,22 @@ say "ESP agacina yerlestiriliyor"
 rm -rf "$ESP/EFI/Microsoft/Boot/Fonts"   # onceki turdan kalan 83 MB CJK font
 mkdir -p "$ESP/EFI/Microsoft/Boot"
 cp "$BM"  "$ESP/EFI/Microsoft/Boot/bootmgfw.efi"
-cp "$BCD" "$ESP/EFI/Microsoft/Boot/BCD"
+#
+# Kendi BCD'miz varsa ISO'nunkine tercih et.
+#
+# ISO'nun BCD'si Setup icin kurulmus ve tani secenekleri kapali. Cihazda
+# winload calisiyor ama sessizce yeniden basliyor - ne cokme ekrani ne kod.
+# windows/bcd_olustur.cmd bunlari acik uretiyor (recoveryenabled No,
+# bootstatuspolicy IgnoreAllFailures, quietboot No, sos On).
+#
+OWNBCD="$(dirname "$ESP")/windows/BCD"
+if [ -s "$OWNBCD" ] && [ "$(head -c4 "$OWNBCD")" = "regf" ]; then
+  cp "$OWNBCD" "$ESP/EFI/Microsoft/Boot/BCD"
+  echo "  BCD: KENDI URETTIGIMIZ ($(stat -c%s "$OWNBCD") bayt, tani acik)"
+else
+  cp "$BCD" "$ESP/EFI/Microsoft/Boot/BCD"
+  echo "  BCD: ISO'nunki (tani kapali - windows/bcd_olustur.cmd calistir)"
+fi
 mkdir -p "$ESP/boot"
 cp "$SDI" "$ESP/boot/boot.sdi"
 if [ -d "$W/fonts" ] && [ -n "$(ls -A "$W/fonts" 2>/dev/null)" ]; then
