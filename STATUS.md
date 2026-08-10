@@ -222,7 +222,7 @@ Her biri bir tur kaybettirdi, üçü birden sağlanmadan olmuyor:
 | 10 | uh | 21 | keydata | 31 | **userdata** (kalan ~120 GB) |
 | 11 | uhcfg | | | | |
 
-## KRİTİK: UEFI'den UFS'e yazma çalışmıyor (doğrulandı)
+## ~~KRİTİK: UEFI'den UFS'e yazma çalışmıyor~~ — TEŞHİS YANLIŞTI
 
 `startup.nsh` içindeki `>a fs0:\LOG_00_test.txt` yönlendirmesi cihazda
 **"Unable to redirect file."** verdi ve Shell script'i "Invalid Parameter"
@@ -616,3 +616,46 @@ recovery'den okunabiliyor — Linux'ta initramfs ile yaptığımızın aynısı.
 Bu aynı zamanda `_CLS` ile eklediğimiz UFS düğümünün Windows tarafında işe
 yarayıp yaramadığını gösterecek: `list disk` çıktısında disk görünürse
 `storufs.sys` bağlanmış demektir.
+
+## Düzeltme: UFS yazma ÇALIŞIYOR, sorun Shell'in yönlendirmesinde
+
+`UfsDxe.c` enstrümante edilip (bkz. `tools_ufs_patch.py`) DEBUG derlemesiyle
+denendi. Cihaz şunu bastı:
+
+```
+FSOpen: Open '\YAZTEST.TXT' Success
+B2L UFS: WriteBlocks LUN=0 LBA=1983528 boyut=4096 blok=4096 ro=0
+B2L UFS: WriteBlocks sonuc = Success
+FSOpen: Created new directory entry 'YAZTEST.TXT'
+```
+
+Yani `Media.ReadOnly = 0`, `WRITE_10` başarılı, FatPkg dizin girdisini
+oluşturuyor. **Blok yazma, dosya sistemi yazma, dizin güncelleme: hepsi
+çalışıyor.**
+
+Başarısız olan tek şey EFI Shell'in yönlendirme mekanizması:
+
+```
+Unable to redirect file.
+Script Error Status: Invalid Parameter (line number 20)
+```
+
+20. satır `>a` operatörünü kullanan satır. Dosya açılıyor ve yazılıyor, ama
+Shell yönlendirmeyi kuramayıp `EFI_INVALID_PARAMETER` dönüyor ve script'i
+durduruyor.
+
+### Nerede yanıldım
+
+`bootstat.dat`'ın olmamasını "yazma kırık" diye yorumladım ve iki bağımsız
+kanıt olduğunu söyledim. İkisi de aynı yanlış çıkarımdı: Shell'in yönlendirme
+hatası yazma hatası sanıldı, `bootmgr`'ın dosya yazmamasının başka bir sebebi
+olabilir (`bootstatuspolicy`, ya da o turda hatagoster imajının flaşlanmamış
+olması).
+
+Enstrümantasyon olmasa bu yanlış teşhisle devam edecektik. **Ders: "çalışmıyor"
+demeden önce ölçüm koy.**
+
+### Bunun Windows için anlamı
+
+Dosya kanalı aslında AÇIK. WinPE depolamayı görebilirse `WINLOG.TXT` yazılabilir
+ve recovery'den okunabilir — kör eleme bitebilir.

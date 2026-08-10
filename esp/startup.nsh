@@ -1,53 +1,52 @@
 @echo -off
 #
-# YAZMA TESTI MODU.
+# YONLENDIRME BICIMI TESTI.
 #
-# UEFI'den UFS'e yazma calismiyor; tek tani kanalimiz buydu ve kapali.
-# Bu script Windows'u BASLATMIYOR - sadece yazmayi deniyor ve UfsDxe'nin
-# tani satirlarini ekranda birakiyor (tools_ufs_patch.py "B2L UFS:" onekiyle
-# basiyor).
+# ONCEKI TESHIS YANLISTI. "UEFI'den UFS'e yazma calismiyor" demistim; enstrumante
+# edilmis UfsDxe bunun tersini gosterdi:
 #
-# Windows'a donmek icin: bu dosyayi eski haline al (git checkout).
+#   B2L UFS: WriteBlocks LUN=0 LBA=1983528 boyut=4096 blok=4096 ro=0
+#   B2L UFS: WriteBlocks sonuc = Success
+#   FSOpen: Created new directory entry 'YAZTEST.TXT'
 #
-# DIKKAT: DEBUG derlemesi gerekiyor. RELEASE'de DEBUG() makrolari derlemeden
-# cikariliyor ve "B2L UFS:" satirlari hic basilmaz.
-#     bash yap.sh -r DEBUG
+# Yazma, FAT, dizin girdisi hepsi calisiyor. Basarisiz olan SHELL'IN
+# YONLENDIRME mekanizmasi:
+#
+#   Unable to redirect file.
+#   Script Error Status: Invalid Parameter (line number 20)   <- ">a" satiri
+#
+# Bu script iki bicimi ayri ayri deniyor. Yonlendirme hatasi script'i
+# OLDURDUGU icin siralama onemli: once ">" (supheli olmayan), sonra ls,
+# en sonda ">a".
 #
 
 mode 80 25
 
 echo .
-echo ================ UFS YAZMA TESTI
+echo ================ YONLENDIRME TESTI
 echo .
 
-echo 1) Kucuk dosya yazmayi dene
-echo beyond2lte yazma testi >a fs0:\YAZTEST.TXT
+echo 1) Duz ">" (UCS-2) deneniyor
+echo duz yonlendirme > fs0:\T1.TXT
 
-echo .
-echo 2) Dosya olustu mu
-if exist fs0:\YAZTEST.TXT then
-    echo    EVET, yazma CALISIYOR
-    echo    icerik:
-    type fs0:\YAZTEST.TXT
+echo 2) Buraya geldiysek ">" CALISTI
+if exist fs0:\T1.TXT then
+    echo    T1.TXT olustu
 else
-    echo    HAYIR, yazma calismiyor
-    echo    Yukaridaki "B2L UFS:" satirlari sebebi soyluyor:
-    echo      WriteBlocks hic gorunmuyorsa  : FatPkg oraya kadar gelmiyor
-    echo      ro=1 ise                      : Media.ReadOnly, LUN korumali
-    echo      WRITE_10 basarisiz ise        : SCSI seviyesinde reddediliyor
+    echo    T1.TXT YOK
 endif
 
 echo .
-echo 3) Dizin olusturmayi dene
-if not exist fs0:\YAZDIR then
-    mkdir fs0:\YAZDIR
-endif
-if exist fs0:\YAZDIR then
-    echo    dizin: TAMAM
-else
-    echo    dizin: BASARISIZ
-endif
+echo 3) Kokteki dosyalar
+ls fs0:\
 
 echo .
-echo ================ Fotografla. Ustteki B2L UFS satirlari onemli.
+echo 4) Simdi ">a" (ASCII) deneniyor. Script burada olebilir.
+echo ascii yonlendirme >a fs0:\T2.TXT
+
+echo 5) Buraya geldiysek ">a" da CALISTI
+ls fs0:\
+
+echo .
+echo ================ Bitti. Fotografla.
 pause
