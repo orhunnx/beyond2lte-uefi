@@ -2,15 +2,18 @@
 #
 # EFI Shell acilisinda otomatik calisir. Klavye yok; komutlar burada.
 #
-# CIKTI DOSYAYA YAZILIYOR. Recovery calistigi icin ekrani fotograflamiyoruz:
-#   1) Bu script fs0:\LOG_*.txt dosyalarini uretir
-#   2) Recovery'ye gir, cache bolumunu cek, dosyalari oku (bkz. LOG_CEKME.md)
+# SIRALAMA ONEMLI - ONCE EKRAN, SONRA DOSYA.
 #
-# ">a" ASCII yazar. Duz ">" UCS-2 yazar ve PC'de okumak zorlasir.
+# Onceki surum once dosyaya yazmayi deniyordu. Yonlendirme basarisiz olunca
+# Shell "Script Error Status: Invalid Parameter" verip SCRIPT'I KOMPLE
+# DURDURUYOR. Yani yazma calismazsa yedek plan da calisamiyor ve tur bosa
+# gidiyor. Onceki turda tam bu oldu.
 #
-# NEDEN ALT DIZIN YOK: onceki surum "mkdir fs0:\log" yapip icine yaziyordu.
-# mkdir basarisiz olursa dokuz yonlendirmenin hepsi birden sessizce duser ve
-# geriye hicbir iz kalmaz. Koke yazinca o hata modu yok.
+# Simdi once her sey ekrana dokuluyor (bu kesin calisiyor), dosyaya yazma
+# denemesi en sona birakildi. Orada olurse bir sey kaybetmiyoruz.
+#
+# EKRANDA DIKKAT: "echo" metnindeki yalniz "-" isareti bayrak saniliyor
+# ("Unknown flag - '-'"). Metinlerde tire kullanma.
 #
 # Duzenle -> cache_esp.sh -> cache'i yaz. UEFI'yi yeniden derlemeye gerek yok.
 #
@@ -21,81 +24,56 @@
 mode 80 25
 
 echo .
-echo beyond2lte - ACPI dogrulama
+echo beyond2lte ACPI dogrulama
 echo .
 
+echo ==== 1/4  acpiview spec dogrulama (EN ONEMLISI)
+acpiview -r 2
+echo .
+echo (devam icin ses tusu)
+pause
+
+echo ==== 2/4  MADT: CPU listesi
+acpiview -s APIC
+echo .
+echo (devam icin ses tusu)
+pause
+
+echo ==== 3/4  GTDT ve FACP
+acpiview -s GTDT
+acpiview -s FACP
+echo .
+echo (devam icin ses tusu)
+pause
+
+echo ==== 4/4  kurulu tablolar ve dosya sistemi
+acpiview -l
+map -r
+echo .
+echo (devam icin ses tusu)
+pause
+
 #
-# Once yazma testi. UfsDxe'nin BlockIo yazma yolu hic denenmedi; calismiyorsa
-# bunu simdi, ekranda ogrenelim - 20 dakika sonra bos bir imajla degil.
+# Buradan sonrasi dosyaya yazma denemesi. Basarisiz olursa script burada
+# durur ama yukaridaki her sey zaten ekranda gorulmus olur.
 #
+# Onceki tur "Unable to redirect file" verdi. Sebebi henuz belli degil:
+# UfsDxe'nin WriteBlocks yolu (kaynakta var, Media.ReadOnly FALSE) ya da
+# FatPkg'in 4096 baytlik sektorle yazma davranisi. Android tarafindan ayni
+# bolume dd ile yazilabiliyor, yani donanim yaziliabilir durumda.
+#
+echo .
+echo ==== dosyaya yazma denemesi
 echo YAZMA TESTI >a fs0:\LOG_00_test.txt
-if exist fs0:\LOG_00_test.txt then
-    echo   yazma: TAMAM
-else
-    echo   yazma: BASARISIZ - UFS yazma calismiyor.
-    echo   Ekrana dokuyorum, bu turu bosa harcamayalim. Fotografla.
-    echo .
-    echo ---- acpiview -r 2 (spec dogrulama)
-    acpiview -r 2
-    echo (ses tusu)
-    pause
-    echo ---- acpiview -s APIC
-    acpiview -s APIC
-    echo (ses tusu)
-    pause
-    echo ---- acpiview -s GTDT / FACP
-    acpiview -s GTDT
-    acpiview -s FACP
-    echo (ses tusu)
-    pause
-endif
-echo .
-
-echo [1/6] map -r
-map -r >a fs0:\LOG_01_map.txt
-
-echo [2/6] acpiview -l  (kurulu tablolar)
-acpiview -l >a fs0:\LOG_02_acpi_list.txt
-
-echo [3/6] acpiview -r 2  (spec dogrulama)
+echo   yazma calisti. Kalan ciktilar dosyaya gidiyor.
 acpiview -r 2 >a fs0:\LOG_03_acpi_verify.txt
-
-echo [4/6] acpiview -s APIC  (MADT: CPU'lar)
 acpiview -s APIC >a fs0:\LOG_04_madt.txt
-
-echo [5/6] acpiview -s GTDT + FACP
 acpiview -s GTDT >a fs0:\LOG_05_gtdt.txt
 acpiview -s FACP >a fs0:\LOG_06_facp.txt
-
-echo [6/6] handle, surum, bellek haritasi
-dh -p SimpleFileSystem >a fs0:\LOG_07_fs.txt
-ver >a fs0:\LOG_08_ver.txt
+map -r >a fs0:\LOG_01_map.txt
 memmap >a fs0:\LOG_09_memmap.txt
-
-echo .
-echo Yazilan dosyalar:
 ls fs0:\LOG_*
-echo .
-
-#
-# Linux ACPI testi - kernel varsa
-#
-if exist fs0:\vmlinuz-lts then
-    echo Kernel bulundu. ACPI ile aciliyor (DTB YOK).
-    echo Beklenen: ACPI ayristirilir, CPU'lar kurulur, root bulunamayip panic.
-    echo Panic BASARIDIR - oraya kadar gelmek ACPI'nin calistigini gosterir.
-    echo Bu asamada cikti ekranda kalir, dosyaya yazilamaz.
-    echo .
-    echo (baslatmak icin ses tusu, atlamak icin bekleme yok)
-    pause
-    fs0:\vmlinuz-lts initrd=\initramfs-lts console=tty0 earlycon acpi=force loglevel=7 keep_bootcon
-else
-    echo Kernel yok. Indirmek icin (WSL, proje icinde):
-    echo   cd esp
-    echo   curl -LO .../aarch64/netboot/vmlinuz-lts
-    echo   curl -LO .../aarch64/netboot/initramfs-lts
-endif
 
 echo .
-echo Bitti. Simdi recovery'ye gecip log'lari cekebilirsin.
+echo Bitti.
 pause

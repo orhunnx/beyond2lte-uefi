@@ -221,3 +221,28 @@ Her biri bir tur kaybettirdi, üçü birden sağlanmadan olmuyor:
 | 9 | steady | 20 | keyrefuge | 30 | cp_debug |
 | 10 | uh | 21 | keydata | 31 | **userdata** (kalan ~120 GB) |
 | 11 | uhcfg | | | | |
+
+## Açık sorun: UEFI'den UFS'e yazma
+
+`startup.nsh` içindeki `>a fs0:\LOG_00_test.txt` yönlendirmesi cihazda
+**"Unable to redirect file."** verdi ve Shell script'i "Invalid Parameter"
+ile durdurdu.
+
+Bilinenler:
+
+- `UfsDxe.c` içinde `UfsWriteBlocks` **var**, `Media.ReadOnly = FALSE`
+  atanıyor, `UfsWrite` düzgün WRITE_10 CDB'si kuruyor. Yani sürücüde eksik
+  bir şey görünmüyor.
+- Aynı bölüme Android tarafından `dd` ile yazılabiliyor, donanım yazılabilir.
+- Okuma tarafı sorunsuz: FAT bağlanıyor, dosyalar okunuyor, Shell açılıyor.
+
+Şüpheliler (henüz elenmedi):
+
+1. `UfsWriteBlocks` çalışıyor ama SCSI seviyesinde reddediliyor
+   (LUN write protect: `fPowerOnWPEn` / `bLUWriteProtect`)
+2. FatPkg'in 4096 baytlık sektörle **yazma** yolu (okuma çalışıyor)
+3. Yönlendirmenin dosyayı `EFI_FILE_MODE_CREATE` ile açması
+
+Ders: yönlendirme hatası script'i komple öldürüyor, o yüzden dosyaya yazmaya
+bel bağlanamaz. `startup.nsh` artık önce ekrana döküyor, yazma denemesi en
+sonda.
