@@ -15,6 +15,14 @@ setlocal enabledelayedexpansion
 ::   azram    truncatememory 0x100000000 -> RAM'i 4 GB'a kirpar
 ::                          Cokme yuksek bellek adreslerinden geliyorsa bu gecer.
 ::                          8 GB'lik haritamizin ust kismi supheli olabilir.
+::   hatagoster  Windows'un KENDI hata raporlamasini ACAR.
+::                          numproc 1 + recoveryenabled Yes + DisplayAllFailures.
+::                          Windows her acilisin durumunu ESP'deki bootstat.dat'a
+::                          yazar; SONRAKI acilista bootmgr onu okuyup
+::                          "Windows failed to start" ekranini HATA KODUYLA
+::                          gosterir. Yani hatayi N. acilista goremiyoruz ama
+::                          N+1. acilista okuyoruz.
+::                          Iki kez ustuste ac: ilki coksun, ikincisi raporlasin.
 ::
 :: Ikisini AYNI ANDA deneme; hangisinin ise yaradigini bilemezsin.
 ::
@@ -88,8 +96,21 @@ bcdedit /store "%BCD%" /set %G% winpe      Yes >nul
 bcdedit /store "%BCD%" /set %G% inherit {bootloadersettings} >nul
 
 :: --- TANI: sessiz cokmeyi gorunur kil ------------------------------------
-bcdedit /store "%BCD%" /set %G% recoveryenabled    No  >nul
-bcdedit /store "%BCD%" /set %G% bootstatuspolicy   IgnoreAllFailures >nul
+::
+:: DIKKAT: bu ikisi TANIYI ENGELLIYORDU. "Kurtarma ekranina atlamasin" diye
+:: koymustum ama o ekran tam olarak bize lazim olan seyi gosteriyor: bir
+:: onceki acilisin neden basarisiz oldugunu. "hatagoster" varyanti bunlari
+:: tersine cevirir.
+::
+if /i "%VAR%"=="hatagoster" (
+  bcdedit /store "%BCD%" /set %G% recoveryenabled  Yes >nul
+  bcdedit /store "%BCD%" /set %G% bootstatuspolicy DisplayAllFailures >nul
+  bcdedit /store "%BCD%" /set %G% numproc 1 >nul
+  echo   AYAR: hata raporlamasi ACIK + numproc 1
+) else (
+  bcdedit /store "%BCD%" /set %G% recoveryenabled    No  >nul
+  bcdedit /store "%BCD%" /set %G% bootstatuspolicy   IgnoreAllFailures >nul
+)
 bcdedit /store "%BCD%" /set %G% quietboot          No  >nul
 bcdedit /store "%BCD%" /set %G% sos                On  >nul
 :: Legacy boot deneyimi: grafik yerine METIN. Donen daire yerine surucu
