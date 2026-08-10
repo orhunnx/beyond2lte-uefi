@@ -18,7 +18,7 @@
  *     Compiler ID      "INTL"
  *     Compiler Version 0x20230628 (539166248)
  */
-DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000004)
+DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
 {
     Scope (_SB)
     {
@@ -113,20 +113,41 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000004)
         //     ufs-phy reg = <0x13d64000 0x800>
         //     interrupts = <0 0xf9 0>  ->  SPI 249  ->  GSIV 249+32 = 281 = 0x119
         //
-        // _HID GECICI. Windows'un kutudan cikan UFS surucusu storufs.sys'in
-        // hangi ACPI kimligine baglandigi henuz bilinmiyor; Microsoft belgesi
-        // sadece UFSHCI standardini destekledigini soyluyor, kimligi vermiyor.
-        // Windows ARM64 imajindaki storufs.inf'ten cikarilacak.
+        // BAGLANMA NASIL OLUYOR (storufs.inf'ten cikarildi, windows/storufs.inf):
         //
-        // Bilerek ESLESMEYEN bir kimlik kullaniyoruz: boylece hicbir surucu
-        // baglanmiyor ve donanima dokunulmuyor. Bu adimda amac sadece
-        // DSDT'nin derlenip kurulmasi ve kaynaklarin dogru tarif edilmesi;
-        // Linux'ta /sys/bus/acpi/devices altinda gorunmesi yeterli kanit.
+        //   [Generic.NTarm64]
+        //   %ACPI\CC_010901.DeviceDesc%=UfsInstall, ACPI\CC_010901
+        //
+        // Yani Windows'un kutudan cikan UFS surucusunun JENERIK bir ARM64
+        // girdisi var, Qualcomm'a ozel degil. "CC_010901" bir satici kimligi
+        // degil, PCI sinif kodu: 01 yigin depolama / 09 UFS / 01 UFSHCI.
+        //
+        // Bu kimlik _HID'den gelmiyor - gelemez de, ACPI kimlikleri 4 harf +
+        // 4 onaltilik hane olmak zorunda ve "CC_010901" dokuz karakter.
+        // Windows bunu ACPI 6.0'la gelen _CLS nesnesinden turetiyor ve
+        // "ACPI\CC_<sinif><altsinif><arayuz>" biciminde bir UYUMLULUK kimligi
+        // uretiyor. O yuzden _HID satici kimligi olarak kaliyor, esleme _CLS
+        // uzerinden oluyor.
         //
         Device (UFS0)
         {
-            Name (_HID, "SMSN9820")  // GECICI - bkz. yukaridaki not
+            //
+            // Satici kimligi. Gecerli ACPI bicimi (4 harf + 4 hane).
+            // Eslemeyi bu degil, asagidaki _CLS sagliyor.
+            //
+            Name (_HID, "SMSN9820")
             Name (_UID, Zero)
+            //
+            // Windows'un storufs.sys'e baglanmasini saglayan sey.
+            // Package { BaseClass, SubClass, ProgrammingInterface }
+            //   0x01 Mass Storage / 0x09 UFS / 0x01 UFSHCI  ->  ACPI\CC_010901
+            //
+            Name (_CLS, Package (0x03)
+            {
+                0x01,
+                0x09,
+                0x01
+            })
             //
             // _CCA ARM64'te DMA yapan her aygit icin zorunlu. DTB'de
             // "ufs-io-coherency" node'u var ve UEFI (BoardInit.c) SYSREG'deki

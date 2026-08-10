@@ -357,3 +357,64 @@ Alpine'ın kendi `init`'i `#!/bin/busybox sh` ile başlayıp `busybox --install 
 çalıştırıyor. İlk sürümümüzde ikisi de vardı, yeniden yazarken düştü.
 Geri kondu, ayrıca `init` artık asla çıkmıyor (sonsuz bekleme) — çıkarsa panik
 ekranı yazdıklarımızı bastırıyor.
+
+## Windows'a giden yol
+
+ACPI aşaması bitti. Doğrulananlar:
+
+| Ne | Kanıt |
+|---|---|
+| Tablolar spec'e temiz | `acpiview -r 2` → 3 hata, üçü kasıtlı |
+| MADT + PSCI | `SMP: Total of 8 processors activated` |
+| PPTT | Linux `cluster=76/96/136` — üreticinin düğüm offsetleri |
+| GTDT | `arch_timer: cp15 timer running at 26.00MHz` |
+| DSDT | `SMSN9820:00` `/sys/bus/acpi/devices` altında |
+
+### storufs bağlanması — ÇÖZÜLDÜ
+
+`storufs.inf` (Win11 25H2 ARM64, `windows/storufs.inf`) şunu içeriyor:
+
+```
+[Generic.NTarm64]
+%ACPI\CC_010901.DeviceDesc%=UfsInstall, ACPI\CC_010901
+```
+
+**Jenerik bir ARM64 girdisi var**, Qualcomm'a özel değil. `CC_010901` satıcı
+kimliği değil, PCI sınıf kodu: 01 yığın depolama / 09 UFS / 01 UFSHCI.
+
+Bu kimlik `_HID`'den türeyemez — ACPI kimlikleri 4 harf + 4 hane olmak zorunda,
+`CC_010901` dokuz karakter. Windows bunu ACPI 6.0'la gelen **`_CLS`**
+nesnesinden üretiyor. DSDT'ye eklendi:
+
+```asl
+Name (_CLS, Package (0x03) { 0x01, 0x09, 0x01 })
+```
+
+INF'ten çıkan diğer notlar: jenerik `[UfsInstall]` bölümünde hiç `HW.AddReg`
+yok, yani `FeatureFlags` / `HSSeries` / `NumLanes` varsayılanda kalıyor.
+Qualcomm girdisi `FeatureFlags = 0x40000000`, `HSSeries = 0x2` koyuyor;
+Intel girdileri `NumLanes = 2`, `HighSpeedGearMode`, `CommandTimeoutInMS`
+gibi ayarlar veriyor. Bizim donanım 2 lane / Gear 3 / Rate B — gerekirse bu
+değerler çevrimdışı SYSTEM hive'ına yazılabilir.
+
+### Kalan bilinmez: HCE reset
+
+`storufs.sys` başlarken UFSHCI spec'ine göre denetleyiciyi resetler (`HCE=1`).
+Exynos'ta reset sonrası PHY'nin **yeniden kalibre edilmesi** gerekiyor ve
+jenerik sürücü Exynos CAL tablolarını bilmiyor. UEFI'nin kurduğu link
+büyük ihtimalle bu noktada kopar.
+
+Umut verici işaret: Qualcomm girdisinin `FeatureFlags = 0x40000000` değeri.
+Qualcomm WoA'da da PHY init'i UEFI yapıyor, yani sürücüde "firmware zaten
+başlattı" anlamına gelen bir davranış olabilir. Denenmeden bilinmez.
+
+### Yerleşim
+
+Yeni bölüm oluşturmaya gerek yok, PIT'teki mevcutlar yeter:
+`CACHE` (600 MB) → ESP, `USERDATA` (~120 GB) → Windows. GPT'ye dokunulmuyor.
+USERDATA'nın biçimlendirilmesi Android verisini siler ama geri dönüşü var.
+
+### Giriş aygıtı yok
+
+USB sürücüsü olmadığı için kurulum sihirbazı çalıştırılamaz. Yöntem: WIM'i
+WSL'de `wimlib-imagex` ile doğrudan bölüme uygulamak, kurulumu atlamak.
