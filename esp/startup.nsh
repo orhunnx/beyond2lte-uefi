@@ -32,8 +32,22 @@ echo YAZMA TESTI >a fs0:\LOG_00_test.txt
 if exist fs0:\LOG_00_test.txt then
     echo   yazma: TAMAM
 else
-    echo   yazma: BASARISIZ - UFS yazma calismiyor, log dosyaya yazilamaz.
-    echo   Bu durumda komutlari ekrana dokup fotograflamaya donecegiz.
+    echo   yazma: BASARISIZ - UFS yazma calismiyor.
+    echo   Ekrana dokuyorum, bu turu bosa harcamayalim. Fotografla.
+    echo .
+    echo ---- acpiview -r 2 (spec dogrulama)
+    acpiview -r 2
+    echo (ses tusu)
+    pause
+    echo ---- acpiview -s APIC
+    acpiview -s APIC
+    echo (ses tusu)
+    pause
+    echo ---- acpiview -s GTDT / FACP
+    acpiview -s GTDT
+    acpiview -s FACP
+    echo (ses tusu)
+    pause
 endif
 echo .
 
