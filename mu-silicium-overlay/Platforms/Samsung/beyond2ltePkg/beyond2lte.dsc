@@ -60,7 +60,15 @@
   # SiliciumPkg varsayilani 10000 (10 ms). Fotograflayabilmek icin yavaslatildi.
   # Fotograf cekmen bitince 10000'e geri al - yoksa boot cok uzun surer.
   #
-  gSiliciumPkgTokenSpaceGuid.PcdFrameBufferDelay|150000
+  gSiliciumPkgTokenSpaceGuid.PcdFrameBufferDelay|100000
+  #
+  # SiliciumPkg.dsc.inc DEBUG build'de 0x8007EE0F veriyor; bu maskede
+  # DEBUG_INFO (0x40) YOK. Bizim tani satirlarimiz ve UfsDxe'nin
+  # "UFS Well known lun[%d] %llu MB" kapasite satiri EFI_D_INFO seviyesinde,
+  # yani ekrana hic dusmuyordu. INFO bitini ekliyoruz.
+  #
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x8007EE4F
+
 
   #
   # BDS'in otomatik olusturdugu "Internal UEFI Shell" boot secenegi bu GUID'i
