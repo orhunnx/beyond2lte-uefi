@@ -473,15 +473,29 @@ zincirinin tamamı işliyor. Kalan tek adım `winload.efi`'nin kendisi.
 
 Kod herkese açık kaynaklarda belgelenmiyor. İki hipotez var:
 
-1. **WIM sıkıştırması.** `boot.wim`'i 606 MB'dan 570 MB'a indirmek için LZX ile
-   yeniden sıkıştırmıştık. `bootmgr`'ın kendi WIM okuyucusu bu biçimi yanlış
-   çözüyorsa `winload.efi` tam olarak böyle "bozuk" görünür.
-   **Test:** yeniden sıkıştırmadan küçült — ikinci indeksi sil, dosyayı yeniden
-   paketle (`delete 2` + `optimize`, `--recompress` yok). Orijinal sıkıştırılmış
-   veri olduğu gibi korunur.
+1. ~~**WIM sıkıştırması**~~ **ELENDİ.** `delete 2` + `optimize` ile orijinal
+   sıkıştırılmış veri hiç dokunulmadan korunarak denendi (570 MB, `verify`
+   temiz). Aynı hata. Yani `bootmgr` WIM'i doğru okuyor.
 
-2. **CPU özelliği.** Windows 11 24H2 ile ARMv8.0 işlemciler (ör. Snapdragon 835)
-   desteklenmez oldu. Bizim çekirdekler ARMv8.2 ve Linux `LSE atomic
-   instructions` tespit etti, yani bu ihtimal zayıf ama elenmiş değil.
-   Eğer 1 numaralı test sonucu değiştirmezse buraya bakılacak — o durumda
-   daha eski bir Windows sürümü (23H2) denenebilir.
+2. ~~**ARMv8.1 şartı**~~ **ELENDİ.** 24H2 sonrası minimum ARMv8.1; bizim
+   çekirdekler ARMv8.2 ve Linux `LSE atomic instructions` tespit ediyor.
+
+3. **Çekirdekler arası özellik farkı — açık.** Linux logunda:
+
+   ```
+   SANITY CHECK: Unexpected variation in SYS_ID_AA64ISAR0_EL1
+   Boot CPU: 0x...10305400   CPU6: 0x...10305410
+   CPU features: Unsupported CPU feature variation detected.
+   ```
+
+   Farklı nibble `[7:4]` = **AES** alanı. M4 çekirdeklerinde kripto uzantıları
+   var, **açılışın yapıldığı A55'te yok**. winload CPU özelliklerini boot
+   işlemcisinden okuyorsa aday sebep bu. Çıkarım, kanıt değil.
+   **Test:** `linux_test/init` artık `/proc/cpuinfo` Features satırını
+   cpu0 ve cpu7 için ayrı ayrı ekrana basıyor.
+
+4. **Windows sürümü — açık.** 25H2 yerine 23H2 ya da Windows 10 ARM64
+   denenebilir. Büyük indirme, ama kesin sonuç verir.
+
+`0xc0000487` kodunun anlamı herkese açık kaynaklarda belgelenmiyor; arama
+sonuçsuz kaldı.

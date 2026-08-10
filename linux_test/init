@@ -52,6 +52,21 @@ say "   possible: $(cat /sys/devices/system/cpu/possible 2>/dev/null)"
 say "-- SMP sonucu"
 dmesg | grep -i -E 'SMP:|Brought up' | head -3 | sayp
 
+#
+# Windows "winload.efi / 0xc0000487" ile duruyor. Kod belgelenmemis; bilinen
+# tek somut anomali cekirdekler arasi ozellik farki:
+#   SANITY CHECK: Unexpected variation in SYS_ID_AA64ISAR0_EL1
+#   Boot CPU: 0x10305400   CPU6: 0x10305410      <- fark [7:4] = AES alani
+# Yani M4'lerde kripto var, ACILISIN YAPILDIGI A55'te yok. winload CPU
+# ozelliklerini boot islemcisinden okuyorsa aday sebep bu.
+#
+say "-- cpu0 ozellikleri (boot islemcisi)"
+say "   $(grep -m1 '^Features' /proc/cpuinfo 2>/dev/null)"
+say "-- cpu7 ozellikleri (M4, karsilastirma)"
+say "   $(grep '^Features' /proc/cpuinfo 2>/dev/null | tail -1)"
+say "-- ID kayitlari"
+dmesg | grep -i -E 'SANITY CHECK|feature variation' | head -6 | sayp
+
 say "-- ACPI tablolari"
 if [ -d /sys/firmware/acpi/tables ]; then
     say "   $(ls /sys/firmware/acpi/tables/ | tr '\n' ' ')"
