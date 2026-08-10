@@ -1,0 +1,17 @@
+# Samsung stock firmware — 7 GB, depoya girmez.
+# G975FXXSGHWC1 (Android 12). Gerekirse SamMobile/Frija ile yeniden indirilir.
+stockfirmware/
+
+# Uretilen imajlar
+*.img
+*.tar
+*.tar.md5
+!Resources/**/*.img
+
+# macOS
+.DS_Store
+._*
+
+# Gecici
+*.log
+BUILDLOG*.txt
