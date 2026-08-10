@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# CACHE bolumu icin ESP imaji uretir. Iki cikti verir:
+# CACHE bolumu icin ESP imaji uretir. esp/ klasorundeki her seyi iceri koyar
+# (startup.nsh, kernel, initramfs...). Iki cikti verir:
 #
 #   out/cache.img       ham imaj   -> recovery + adb dd yolu
 #   out/cache-esp.tar   sparse tar -> Odin, AP slotu
@@ -61,6 +62,13 @@ if command -v mcopy >/dev/null; then
   mcopy -i "$IMG" "$APP" ::/EFI/BOOT/BOOTAA64.EFI
   [ -f "$NSH" ] && { mcopy -i "$IMG" "$NSH" ::/startup.nsh
                      mcopy -i "$IMG" "$NSH" ::/EFI/BOOT/startup.nsh; }
+  # esp/ icindeki diger dosyalari da al (kernel, initramfs vs.)
+  for f in "$PROJ"/esp/*; do
+    b="$(basename "$f")"
+    [ "$b" = "startup.nsh" ] && continue
+    [ -f "$f" ] || continue
+    mcopy -i "$IMG" "$f" "::/$b" && echo "  + $b ($(du -h "$f" | cut -f1))"
+  done
   echo "--- imaj icerigi:"
   mdir -i "$IMG" ::/
   mdir -i "$IMG" ::/EFI/BOOT
