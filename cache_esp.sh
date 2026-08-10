@@ -34,6 +34,16 @@ OUT="$PROJ/out"; mkdir -p "$OUT"
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
+#
+# --win : sadece Windows dosyalarini koy (Linux kernel/initramfs haric).
+#
+# 600 MiB'lik bolume hem 570 MB'lik boot.wim hem 68 MB'lik Linux dosyalari
+# sigmiyor - bir tur mcopy "Disk full" verdi ve sources/ bos kaldi.
+# Iki mod ayri ayri calisiyor, ikisi ayni anda degil.
+#
+WINONLY=0
+if [ "${1:-}" = "--win" ]; then WINONLY=1; shift; fi
+
 APP="${1:-}"
 if [ -z "$APP" ]; then
   APP="$(find "$MU/Build" -name 'Shell.efi' -path '*ShellPkg*' 2>/dev/null | head -1)"
@@ -85,16 +95,38 @@ if command -v mcopy >/dev/null; then
   # esp/ agacinin tamamini al: dosyalar VE alt klasorler.
   # Alt klasor destegi Windows icin gerekli - bootmgfw BCD'yi
   # \EFI\Microsoft\Boot\BCD yolunda ariyor.
+  COPYFAIL=0
   for f in "$PROJ"/esp/*; do
     b="$(basename "$f")"
     [ "$b" = "startup.nsh" ] && continue
     [ -e "$f" ] || continue
+    if [ "$WINONLY" = 1 ]; then
+      case "$b" in
+        vmlinuz-*|initramfs-*) echo "  - $b (atlandi, --win)"; continue ;;
+      esac
+    fi
+    # Buyukten kucuge degil, sirayla kopyaliyoruz; hata SESSIZ GECMESIN.
     if [ -d "$f" ]; then
-      mcopy -i "$IMG" -s "$f" "::/" && echo "  + $b/ (klasor)"
+      if mcopy -i "$IMG" -s "$f" "::/"; then echo "  + $b/ (klasor)"
+      else echo "  ! $b/ KOPYALANAMADI"; COPYFAIL=1; fi
     else
-      mcopy -i "$IMG" "$f" "::/$b" && echo "  + $b ($(du -h "$f" | cut -f1))"
+      if mcopy -i "$IMG" "$f" "::/$b"; then echo "  + $b ($(du -h "$f" | cut -f1))"
+      else echo "  ! $b KOPYALANAMADI ($(du -h "$f" | cut -f1))"; COPYFAIL=1; fi
     fi
   done
+  if [ "$COPYFAIL" = 1 ]; then
+    echo
+    echo "  DIKKAT: en az bir dosya imaja giremedi (buyuk ihtimalle yer yok)."
+    echo "  Windows icin:  bash cache_esp.sh --win"
+    echo "  esp/ toplami: $(du -sh "$PROJ/esp" | cut -f1) / bolum 600 MiB"
+  fi
+  # Windows icin boot.wim gerekiyor; sessizce eksik kalmasin.
+  if mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
+    echo "--- sources/ (WinPE):"
+    mdir -i "$IMG" ::/sources | sed 's/^/  /'
+  else
+    echo "--- sources/boot.wim YOK  (WinPE acilmaz; tools_winboot.sh ciktisina bak)"
+  fi
   echo "--- bos alan:"
   mdir -i "$IMG" ::/ | tail -1
   echo "--- imaj icerigi:"

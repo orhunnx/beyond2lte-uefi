@@ -78,12 +78,22 @@ MAGIC="$(head -c4 "$BCD")"
 [ "$MAGIC" = "regf" ] || { echo "HATA: BCD registry hive gibi gorunmuyor (basi: $MAGIC)"; exit 1; }
 echo "  BCD dogrulandi: regf, $(stat -c%s "$BCD") bayt"
 
-# Yazi tipleri (hata ekranini duzgun cizmek icin)
-FONTS="$(grep -i '^Path = ' "$LIST" | sed 's/^Path = //' | grep -i -E 'efi[/\\]microsoft[/\\]boot[/\\]fonts[/\\].*\.ttf$' || true)"
+#
+# Yazi tipleri - SADECE LATIN OLANLAR.
+#
+# ISO'da 20 font var ve toplami 83 MB; buyuk kismi CJK (chs/cht/jpn/kor,
+# tek basina 11 MB'lik cht_boot.ttf gibi). Ingilizce hata ekrani icin
+# gereksizler ve boot.wim'e yer birakmiyorlar - bir tur "Disk full" ile
+# gecti. Asagidaki dordu ~300 KB tutuyor.
+#
+WANT_FONTS='wgl4_boot|segmono_boot|segoe_slboot|segoen_slboot'
+FONTS="$(grep -i '^Path = ' "$LIST" | sed 's/^Path = //' \
+         | grep -i -E 'efi[/\\]microsoft[/\\]boot[/\\]fonts[/\\].*\.ttf$' \
+         | grep -i -E "$WANT_FONTS" || true)"
 if [ -n "$FONTS" ]; then
   mkdir -p "$W/fonts"
   echo "$FONTS" | while read -r f; do 7z e -o"$W/fonts" "$ISO" "$f" >/dev/null 2>&1 || true; done
-  echo "  yazi tipi: $(ls "$W/fonts" 2>/dev/null | wc -l) dosya"
+  echo "  yazi tipi: $(ls "$W/fonts" 2>/dev/null | wc -l) dosya, $(du -sh "$W/fonts" | cut -f1)"
 fi
 
 #
@@ -123,6 +133,7 @@ else
 fi
 
 say "ESP agacina yerlestiriliyor"
+rm -rf "$ESP/EFI/Microsoft/Boot/Fonts"   # onceki turdan kalan 83 MB CJK font
 mkdir -p "$ESP/EFI/Microsoft/Boot"
 cp "$BM"  "$ESP/EFI/Microsoft/Boot/bootmgfw.efi"
 cp "$BCD" "$ESP/EFI/Microsoft/Boot/BCD"
