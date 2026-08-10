@@ -705,3 +705,88 @@ kadar sürer.
 
 Bir sonraki test `wpeinit`'i hiç çağırmayan bir `startnet.cmd`. Cihaz artık
 yeniden başlamazsa **WinPE bu telefonda ayakta** demektir.
+
+## Windows: ulaşılan son nokta ve duvar
+
+`wpeinit`'siz, hiçbir dış komut çağırmayan, saf batch sonsuz döngüsünden ibaret
+bir `startnet.cmd` ile de cihaz ~12 saniyede yeniden başlıyor.
+
+**Sonuç: `startnet.cmd` hiç çalışmıyor.** Çökme, çekirdek başladıktan sonra
+ama kabuk çalışmadan önce — `smss.exe` → `wininit.exe` → `winpeshl.exe`
+zincirinde.
+
+### Windows tarafında doğrulananlar
+
+| Aşama | Durum |
+|---|---|
+| `bootmgfw.efi` yükleniyor, ekran çiziyor | ✅ |
+| ESP'den dosya okuyor (FAT + DiskIo + UfsDxe) | ✅ |
+| BCD ayrıştırılıyor | ✅ |
+| `boot.sdi` + RAM disk kuruluyor | ✅ |
+| `boot.wim` yükleniyor ("Loading files") | ✅ |
+| `winload.efi` çalışıyor | ✅ |
+| `ntoskrnl` başlıyor (dönen daire çiziliyor) | ✅ |
+| Erken kullanıcı modu (smss/wininit/winpeshl) | ❌ ~12 sn sonra sessiz reset |
+
+### Elenen ve doğrulanan hipotezler
+
+| Hipotez | Sonuç |
+|---|---|
+| WIM sıkıştırması | Elendi (orijinal veriyle de aynı) |
+| ARMv8.1 şartı | Elendi (çekirdekler ARMv8.2, LSE var) |
+| `STATUS_WIM_NOT_BOOTABLE` | **Çözüldü** (Boot Index 1) |
+| SMP / ikincil çekirdek | **Doğrulandı** (`numproc 1` çekirdeği başlattı) |
+| `storufs.sys` + `_CLS` | **Doğrulandı** (5-6 sn → 12 sn) |
+| Zamanlayıcı (dynamic tick) | Elendi (süre değişmedi) |
+| UEFI'den UFS'e yazma | Elendi (çalışıyor, ölçüldü) |
+
+### Neden burada duruyoruz
+
+Kalan tek şüpheli erken kullanıcı modunda ve oraya bakmak için Windows'un
+kendi hata ayıklama kanallarından biri gerekiyor: seri port (DBG2 + gerçek
+UART), KDNET (ağ kartı) veya USB 3.0 debug kablosu. Üçü de donanım istiyor.
+
+Yazılımla açılabilecek her kanal denendi ve kapalı çıktı: `sos` çıktı vermiyor,
+`bootstat.dat` yazılmıyor, `startnet.cmd` sıraya gelmiyor, ekran `winload`
+sonrası susuyor.
+
+## Donanımsız iki tanı kanalı daha
+
+UART yokken de bakabileceğimiz iki yer kaldı; ikisi de Samsung'un kendi
+donanımını kullanıyor.
+
+### 1. PMU `RST_STAT` — sıfırlamanın kaynağı (uygulandı)
+
+Exynos'un PMU bloğundaki `RST_STAT` (0x15860404) son sıfırlamanın **kaynağını**
+tutuyor ve sıfırlamayı aşıyor. `BoardInit.c` bunu zaten okuyordu ama
+yazdırmıyorduk.
+
+Windows çöküp cihaz sıfırlandıktan sonra, bir sonraki açılışta bu register
+neden sıfırlandığını söylüyor:
+
+| Bit | Anlamı | Ne yapmalı |
+|---|---|---|
+| `WARM_RESET` (28) | Yazılım sıcak sıfırlama istedi — Windows'un `ResetSystem` çağrısı | Kontrollü çökme, bugcheck yolu |
+| `LITTLE_WDT_RESET` (24) | Watchdog attı, yazılım takılmış | Kilitlenme; timer/kesme tarafı |
+| İkisi de 0 | Soğuk açılış | Çok daha sert bir hata |
+
+Bu ayrım önemli: Windows'un kendi istediği bir reset ile donanımın zorla attığı
+bir reset tamamen farklı yerlere bakmayı gerektiriyor.
+
+Not: Linux ACPI ile 120 saniye sorunsuz çalıştı, yani ortada sürekli çalışan
+bir watchdog yok. Bu, `WARM_RESET` beklentisini güçlendiriyor.
+
+### 2. UEFI Runtime `ResetSystem` kancası (sıradaki)
+
+`ResetSystem` bir **runtime servisi** — `ExitBootServices`'ten sonra da bizim
+firmware'imizde kalıyor ve Windows yeniden başlatmak için onu çağırıyor.
+
+Kancalarsak:
+- Sıfırlamak yerine sonsuz döngüye girebiliriz → cihaz yeniden başlamaz,
+  bu tek başına "Windows mu istedi" sorusunu cevaplar
+- `ResetStatus` parametresini okuyabiliriz (bir `EFI_STATUS`)
+- `ResetData` bazı durumlarda **sebep metni** içeriyor
+
+Zorluk: `SetVirtualAddressMap` sonrası işaretçilerin `EfiConvertPointer` ile
+çevrilmesi gerekiyor ve framebuffer'ın runtime bölgesi olarak işaretlenmesi
+lazım. Yapılabilir; UART'a alternatif gerçek bir kanal.

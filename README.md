@@ -25,7 +25,8 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | USB | ❌ |
 | **Linux (ACPI, DTB yok)** | ✅ 8 CPU açılıyor, initramfs'e kadar |
 | Windows Boot Manager | ✅ çalışıyor, ekran çiziyor, ESP'den okuyor |
-| Windows | ⏳ BCD + yerleşim |
+| Windows çekirdeği (`ntoskrnl`) | ✅ başlıyor |
+| Windows erken kullanıcı modu | ❌ ~12 sn sonra reset, tanı kanalı yok |
 
 Ayrıntı: [`STATUS.md`](STATUS.md)
 
