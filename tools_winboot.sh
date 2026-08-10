@@ -158,7 +158,29 @@ if [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
     wimlib-imagex delete "$ESP/sources/boot.wim" 2
   fi
   wimlib-imagex optimize "$ESP/sources/boot.wim"
+
+  #
+  # ACILABILIR OLARAK ISARETLE. IKI TUR BUNUN YUZUNDEN GITTI.
+  #
+  # WIM basliginda "Boot Index" alani var; hangi imajin acilabilir oldugunu
+  # o soyluyor. Windows ISO'sunda bu deger 2, yani SETUP imajini gosteriyor -
+  # biz de tam olarak 2'yi sildik, geriye isaretli imaj kalmadi.
+  #
+  # Cihaz bunu birebir soyledi ama ben "bozuk dosya" diye okudum:
+  #   winload.efi ... 0xc0000487 = STATUS_WIM_NOT_BOOTABLE
+  #   "Belirtilen Windows Goruntusu (WIM) onyuklenebilir olarak isaretli degil."
+  #
+  # (certutil -error 0xc0000487 ile bulundu. Kod tahmin etmeye calismak yerine
+  #  Windows'a sormak bir turda cozdu.)
+  #
+  wimlib-imagex info "$ESP/sources/boot.wim" 1 --boot >/dev/null
+  BOOTIDX="$(wimlib-imagex info "$ESP/sources/boot.wim" 2>/dev/null | grep -i '^Boot Index' | tr -s ' ')"
   echo "  sonuc: $(du -h "$ESP/sources/boot.wim" | cut -f1)  (yeniden sikistirilmadi)"
+  echo "  ${BOOTIDX:-Boot Index: OKUNAMADI}   <- 1 olmali"
+  case "$BOOTIDX" in
+    *1) : ;;
+    *) echo "  UYARI: Boot Index 1 degil, WinPE yine acilmaz." ;;
+  esac
 
   # Butunluk: wimlib her dosyanin SHA1'ini saklar, verify hepsini kontrol eder.
   if wimlib-imagex verify "$ESP/sources/boot.wim" >/dev/null 2>&1; then

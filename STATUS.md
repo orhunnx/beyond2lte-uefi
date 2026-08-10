@@ -469,7 +469,7 @@ Hata mesajlarının sırası, her adımın ayrı ayrı doğrulandığını göst
 Yani `bootmgfw -> BCD -> boot.sdi -> ramdisk -> boot.wim -> winload.efi`
 zincirinin tamamı işliyor. Kalan tek adım `winload.efi`'nin kendisi.
 
-### `0xc0000487` — açık soru
+### `0xc0000487` — ÇÖZÜLDÜ: `STATUS_WIM_NOT_BOOTABLE`
 
 Kod herkese açık kaynaklarda belgelenmiyor. İki hipotez var:
 
@@ -497,5 +497,24 @@ Kod herkese açık kaynaklarda belgelenmiyor. İki hipotez var:
 4. **Windows sürümü — açık.** 25H2 yerine 23H2 ya da Windows 10 ARM64
    denenebilir. Büyük indirme, ama kesin sonuç verir.
 
-`0xc0000487` kodunun anlamı herkese açık kaynaklarda belgelenmiyor; arama
-sonuçsuz kaldı.
+**Cevap:** `certutil -error 0xc0000487` (Windows'ta, tek satır):
+
+```
+0xc0000487 (NT: 0xc0000487 STATUS_WIM_NOT_BOOTABLE)
+Belirtilen Windows Görüntüsü (WIM) önyüklenebilir olarak işaretli değil.
+```
+
+WIM başlığında **`Boot Index`** alanı var ve hangi imajın açılabilir olduğunu
+o söylüyor. Windows ISO'sunda bu değer **2** — yani Setup imajı. Biz de tam
+olarak 2 numaralı indeksi sildik, geriye işaretli imaj kalmadı. İlk denemede
+de sadece indeks 1'i dışarı aktarmıştık; export de işareti taşımıyor.
+
+Yani iki denemenin ikisi de aynı sebepten düştü ve sıkıştırmayla hiç ilgisi
+yoktu. Hata adı ne olduğunu birebir söylüyordu; ben "bozuk dosya" diye
+okudum ve iki tur harcadım.
+
+**Düzeltme:** `wimlib-imagex info boot.wim 1 --boot`
+
+**Ders:** NTSTATUS kodunu tahmin etmeye çalışmak yerine `certutil -error`
+ile sormak. Arama motorları bu kodu bulamadı, Windows'un kendisi bir
+saniyede söyledi.
