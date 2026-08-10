@@ -57,10 +57,12 @@
 
   #
   # Ekrandaki debug log'unun akis hizi (satir basina gecikme, mikrosaniye).
-  # SiliciumPkg varsayilani 10000 (10 ms). Fotograflayabilmek icin yavaslatildi.
-  # Fotograf cekmen bitince 10000'e geri al - yoksa boot cok uzun surer.
+  # SiliciumPkg varsayilani 10000 (10 ms). Bir ara fotograflayabilmek icin
+  # 100000 (100 ms!) yapilmisti - her debug satiri icin onda bir saniye,
+  # acilis dakikalara cikiyordu. Windows denemelerinde her tur bu bekleniyor.
+  # Artik logu ekrandan okumuyoruz; sifir.
   #
-  gSiliciumPkgTokenSpaceGuid.PcdFrameBufferDelay|100000
+  gSiliciumPkgTokenSpaceGuid.PcdFrameBufferDelay|0
   #
   # SiliciumPkg.dsc.inc DEBUG build'de 0x8007EE0F veriyor; bu maskede
   # DEBUG_INFO (0x40) YOK. Bizim tani satirlarimiz ve UfsDxe'nin
