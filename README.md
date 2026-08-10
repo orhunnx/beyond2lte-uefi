@@ -20,7 +20,8 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | PPTT (CPU topolojisi) | ✅ DTB `cpu-map`'inden üretiliyor |
 | UEFI'den UFS'e **yazma** | ❌ redirect başarısız, sebep açık |
 | USB | ❌ |
-| OS boot | ❌ |
+| **Linux (ACPI, DTB yok)** | ✅ 8 CPU açılıyor, initramfs'e kadar |
+| Windows | ❌ |
 
 Ayrıntı: [`STATUS.md`](STATUS.md)
 

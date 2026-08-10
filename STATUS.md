@@ -328,8 +328,21 @@ EL1'de çalışıyor (`All CPU(s) started at EL1`), HVC EL2'ye düşüyor, orada
 Mu-Silicium saplaması PSCI uygulamıyor. Samsung'un EL3 firmware'i ise
 uyguluyor — Android sekiz çekirdeği onunla açıyor.
 
-**Düzeltme: `ARM Flags : 0001`** (SMC). Doğrulaması net olacak:
-`SMP: Total of 8 processors activated`.
+**Düzeltme: `ARM Flags : 0001`** (SMC). **Doğrulandı:**
+
+```
+psci: SMC Calling Convention v1.0
+smp: Bringing up secondary CPUs ...
+CPU1..CPU7: Booted secondary processor
+SMP: Total of 8 processors activated.
+```
+
+Üstelik MIDR'lar PPTT topolojimizi birebir doğruladı:
+CPU0-3 `0x411fd050` (A55), CPU4-5 `0x412fd0a1` (A75),
+CPU6-7 `0x531f0030` (Mongoose M4).
+
+Not: `PSCI_VERSION` hâlâ 0xFFFFFFFF (NOT_SUPPORTED) dönüyor ama `CPU_ON`
+çalışıyor — Samsung'un EL3'ü sürüm sorgusunu uygulamamış. İşlevsel sorun yok.
 
 Bu doğrudan Windows'u da ilgilendiriyor; Windows da ikincil çekirdekleri
 PSCI ile açar.

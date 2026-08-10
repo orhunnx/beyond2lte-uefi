@@ -2,68 +2,76 @@
 #
 # Minik initramfs /init - kernel'in ACPI hakkinda ne dusundugunu raporlar.
 #
-# BU DOSYADA UC KURAL VAR, UCU DE PAHALIYA MAL OLDU:
+# DORT KURAL, DORDU DE BIRER TUR MALIYETINDE OGRENILDI:
 #
 # 1) Shebang "#!/bin/busybox sh" olmali, "#!/bin/sh" DEGIL.
-# 2) Ilk is "busybox --install -s" olmali.
-#    Alpine'in initramfs'inde applet sembolik baglari ONCEDEN YOK; Alpine'in
-#    kendi init'i de bu yuzden ayni komutla basliyor. Bunlar olmadan mount,
-#    dmesg, ls, poweroff hicbiri bulunamiyor. Bir tur boyle kaybedildi:
-#    "Kernel panic: Attempted to kill init! exitcode=0x00007f00"  (0x7f00>>8 = 127
-#    yani "command not found") ve ekranda tek satir cikti yoktu.
-# 3) Script ASLA cikmamali. init cikarsa kernel panik veriyor ve ekranda ne
-#    yazdiysak panik dokumunun altinda kayboluyor. Sonda sonsuz bekleme var.
 #
-# Ikinci sinir: ACPI ile acilista depolama olmayabilir (DSDT'de UFS dugumu
-# yok). O yuzden iki modlu: depolama varsa KLOG.TXT yaziyor, yoksa ozeti
-# ekrana dokuyor.
+# 2) Ilk is "busybox --install -s" olmali. Alpine'in initramfs'inde applet
+#    sembolik baglari ONCEDEN YOK (Alpine'in kendi init'i de ayni komutla
+#    basliyor). Bunlar olmadan mount/dmesg/ls/poweroff bulunamiyor:
+#    "Kernel panic: Attempted to kill init! exitcode=0x00007f00" (0x7f00>>8=127).
+#
+# 3) CIKTI /dev/kmsg UZERINDEN GITMELI. init'in stdout'u hicbir yere bagli
+#    olmayabiliyor: kernel /dev/console dugumunu acamazsa init fd'siz basliyor
+#    ve butun echo'lar sessizce kayboluyor. Bir tur boyle gecti - panik yoktu,
+#    cikti da yoktu. /dev/kmsg'e yazilan satir kernel halkasina girip zaten
+#    gorebildigimiz printk yolundan ekrana dusuyor.
+#
+# 4) Script ASLA cikmamali; cikarsa panik ekrani yazdiklarimizi bastiriyor.
 #
 /bin/busybox mkdir -p /proc /sys /dev /mnt /bin /sbin
 /bin/busybox mount -t proc     none /proc 2>/dev/null
 /bin/busybox mount -t sysfs    none /sys  2>/dev/null
 /bin/busybox mount -t devtmpfs none /dev  2>/dev/null
 
-# Ciktinin ekrana gittiginden emin ol
+# devtmpfs baglanmadiysa dugumleri elle ac (initramfs tmpfs, mknod calisir)
+/bin/busybox test -c /dev/kmsg    || /bin/busybox mknod -m 600 /dev/kmsg    c 1 11 2>/dev/null
+/bin/busybox test -c /dev/console || /bin/busybox mknod -m 622 /dev/console c 5 1  2>/dev/null
+
 /bin/busybox test -c /dev/console && exec >/dev/console 2>&1 </dev/console
 
 /bin/busybox --install -s /bin
 PATH=/bin:/sbin:/usr/bin:/usr/sbin
 export PATH
 
-echo
-echo "======== beyond2lte ACPI testi ========"
-echo
+# Hem ekrana hem kernel halkasina. Onemli olan ikincisi.
+say() {
+    echo "$*"
+    echo "B2L: $*" > /dev/kmsg 2>/dev/null
+}
+sayp() {   # borudan gelen satirlari tek tek gecir
+    while read -r l; do say "  $l"; done
+}
 
-echo "-- CPU"
-echo "   online  : $(cat /sys/devices/system/cpu/online 2>/dev/null)"
-echo "   possible: $(cat /sys/devices/system/cpu/possible 2>/dev/null)"
+say "======== beyond2lte ACPI testi ========"
 
-echo "-- PSCI (ikincil cekirdekler bununla aciliyor)"
-dmesg | grep -i psci | head -8
+say "-- CPU"
+say "   online  : $(cat /sys/devices/system/cpu/online 2>/dev/null)"
+say "   possible: $(cat /sys/devices/system/cpu/possible 2>/dev/null)"
 
-echo "-- SMP sonucu"
-dmesg | grep -i -E 'SMP:|Brought up' | head -4
+say "-- SMP sonucu"
+dmesg | grep -i -E 'SMP:|Brought up' | head -3 | sayp
 
-echo "-- ACPI tablolari"
+say "-- ACPI tablolari"
 if [ -d /sys/firmware/acpi/tables ]; then
-    ls /sys/firmware/acpi/tables/ | tr '\n' ' '; echo
+    say "   $(ls /sys/firmware/acpi/tables/ | tr '\n' ' ')"
 else
-    echo "   /sys/firmware/acpi YOK"
+    say "   /sys/firmware/acpi YOK"
 fi
 
-echo "-- CPU topolojisi (PPTT)"
+say "-- CPU topolojisi (PPTT'den gelmeli)"
 for c in /sys/devices/system/cpu/cpu[0-9]*; do
     [ -d "$c/topology" ] || continue
-    echo "   $(basename $c): pkg=$(cat $c/topology/physical_package_id 2>/dev/null)" \
-         "cluster=$(cat $c/topology/cluster_id 2>/dev/null)" \
-         "core=$(cat $c/topology/core_id 2>/dev/null)"
+    say "   $(basename $c): pkg=$(cat $c/topology/physical_package_id 2>/dev/null)" \
+        "cluster=$(cat $c/topology/cluster_id 2>/dev/null)" \
+        "core=$(cat $c/topology/core_id 2>/dev/null)"
 done
 
-echo "-- hata ve uyarilar"
-dmesg | grep -i -E '\bBUG\b|\bWARN|panic|Unable to handle' | head -8
-echo
+say "-- blok cihazlar (depolama var mi)"
+BD="$(ls /dev/sd* /dev/block/sd* 2>/dev/null | tr '\n' ' ')"
+say "   ${BD:-YOK}"
 
-# --- depolama var mi ------------------------------------------------------
+# --- depolama varsa tam logu dosyaya yaz ----------------------------------
 ESP=""
 for d in /dev/sd?? /dev/sd??? /dev/block/sd?? /dev/block/sd???; do
     [ -b "$d" ] || continue
@@ -73,28 +81,26 @@ for d in /dev/sd?? /dev/sd??? /dev/block/sd?? /dev/block/sd???; do
 done
 
 if [ -n "$ESP" ]; then
-    echo "ESP bulundu: $ESP  -> KLOG.TXT yaziliyor"
+    say "ESP bulundu: $ESP  -> KLOG.TXT yaziliyor"
     L=/mnt/KLOG.TXT
     {
-        echo "########## dmesg ##########";              dmesg
-        echo; echo "########## cpuinfo ##########";      cat /proc/cpuinfo
+        echo "########## dmesg ##########";            dmesg
+        echo; echo "########## cpuinfo ##########";    cat /proc/cpuinfo
         echo; echo "########## ACPI tablolari ##########"
         ls -l /sys/firmware/acpi/tables/ 2>/dev/null
-        echo; echo "########## interrupts ##########";   cat /proc/interrupts
-        echo; echo "########## iomem ##########";        cat /proc/iomem
+        echo; echo "########## interrupts ##########"; cat /proc/interrupts
+        echo; echo "########## iomem ##########";      cat /proc/iomem
     } > "$L" 2>&1
     sync
-    echo "Yazildi: $L ($(wc -c < $L) bayt)"
+    say "Yazildi: $L ($(wc -c < $L) bayt) - recovery'den cache'i cek"
     umount /mnt
     sync
-    echo "Recovery'ye gecip cache bolumunu cekebilirsin."
 else
-    echo "DEPOLAMA YOK (ACPI acilisinda bekleniyor, DSDT'de UFS dugumu yok)."
-    echo "Yukaridaki ozeti fotografla."
+    say "DEPOLAMA YOK (ACPI acilisinda bekleniyor, DSDT'de UFS dugumu yok)"
+    say "Yukaridaki ozeti fotografla."
 fi
 
-echo
-echo "======== bitti ========"
+say "======== bitti ========"
 
-# init ASLA cikmamali - yoksa panik ekrani her seyi bastirir.
+# init ASLA cikmamali.
 while true; do sleep 3600; done
