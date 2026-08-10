@@ -222,7 +222,7 @@ Her biri bir tur kaybettirdi, üçü birden sağlanmadan olmuyor:
 | 10 | uh | 21 | keydata | 31 | **userdata** (kalan ~120 GB) |
 | 11 | uhcfg | | | | |
 
-## Açık sorun: UEFI'den UFS'e yazma
+## KRİTİK: UEFI'den UFS'e yazma çalışmıyor (doğrulandı)
 
 `startup.nsh` içindeki `>a fs0:\LOG_00_test.txt` yönlendirmesi cihazda
 **"Unable to redirect file."** verdi ve Shell script'i "Invalid Parameter"
@@ -236,12 +236,34 @@ Bilinenler:
 - Aynı bölüme Android tarafından `dd` ile yazılabiliyor, donanım yazılabilir.
 - Okuma tarafı sorunsuz: FAT bağlanıyor, dosyalar okunuyor, Shell açılıyor.
 
-Şüpheliler (henüz elenmedi):
+### İkinci, bağımsız kanıt
 
-1. `UfsWriteBlocks` çalışıyor ama SCSI seviyesinde reddediliyor
-   (LUN write protect: `fPowerOnWPEn` / `bLUWriteProtect`)
-2. FatPkg'in 4096 baytlık sektörle **yazma** yolu (okuma çalışıyor)
-3. Yönlendirmenin dosyayı `EFI_FILE_MODE_CREATE` ile açması
+Windows denemesinden sonra cache bölümü geri okundu: imajda **sadece bizim
+koyduğumuz dosyalar** var. `bootmgr` normalde her açılışın durumunu
+`bootstat.dat` olarak ESP'ye yazar — yazamamış. `WINLOG.TXT` de yok.
+
+Yani iki bağımsız yazıcı (EFI Shell yönlendirmesi ve `bootmgr`) aynı yerde
+başarısız oluyor. Sorun bizim `UfsDxe` yazma yolumuzda.
+
+### Bu neden kritik
+
+Dosya tabanlı **tek** tanı kanalımız buydu. Seri port yok, USB yok; ekran da
+`winload` sonrası susuyor. Yazma çalışmadığı sürece Windows'un ne yaptığını
+öğrenmenin yolu kalmıyor — son turlar bunu gösterdi.
+
+Ayrıca Windows'u kalıcı kurmak da yazma gerektiriyor.
+
+### Şüpheliler
+
+1. **Önbellek bakımı eksik.** `UfsDxe.c`'de DMA öncesi/sonrası hiçbir cache
+   işlemi yok. Okuma çalışıp yazmanın çalışmaması bununla tutarlı: aygıt
+   DRAM'e yazınca CPU taze veriyi görüyor, ama CPU'nun yazdığı veri
+   önbellekte kalıyorsa aygıt bayat DRAM okuyor. `BoardInit.c`'de SYSREG
+   koherans bitlerini set ediyoruz; ya etkili olmuyorlar ya da tek yönlü.
+   **En güçlü aday.**
+2. LUN write protect (`fPowerOnWPEn` / `bLUWriteProtect`) — Android aynı
+   bölüme yazabildiği için zayıf ama elenmiş değil.
+3. FatPkg'in 4096 baytlık sektörle yazma yolu.
 
 Ders: yönlendirme hatası script'i komple öldürüyor, o yüzden dosyaya yazmaya
 bel bağlanamaz. `startup.nsh` artık önce ekrana döküyor, yazma denemesi en

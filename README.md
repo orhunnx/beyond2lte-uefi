@@ -20,7 +20,7 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | PPTT (CPU topolojisi) | ✅ Linux doğru okuyor (3 küme) |
 | PSCI / SMP | ✅ 8 çekirdek açılıyor (SMC konduiti) |
 | DSDT UFS düğümü | ✅ numaralanıyor, `_HID` geçici |
-| UEFI'den UFS'e **yazma** | ❌ redirect başarısız, sebep açık |
+| UEFI'den UFS'e **yazma** | ❌ **kritik** — tek tanı kanalımız, iki bağımsız kanıtla doğrulandı |
 | USB | ❌ |
 | **Linux (ACPI, DTB yok)** | ✅ 8 CPU açılıyor, initramfs'e kadar |
 | Windows Boot Manager | ✅ çalışıyor, ekran çiziyor, ESP'den okuyor |
