@@ -94,6 +94,10 @@ if [ -f "$IMG" ]; then
     done
   fi
 
+  # Proje icindeki out/ klasorune de koy (Mac'e senkronlamak icin sabit yol)
+  mkdir -p "$PROJ/out"
+  cp -f "$IMG" "$MU/uefi-boot.tar" "$PROJ/out/" 2>/dev/null || true
+
   if [ -n "$DESK" ]; then
     mkdir -p "$DESK/beyond2lte-flash"
     cp -f "$IMG" "$DESK/beyond2lte-flash/"
