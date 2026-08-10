@@ -246,3 +246,44 @@ Bilinenler:
 Ders: yönlendirme hatası script'i komple öldürüyor, o yüzden dosyaya yazmaya
 bel bağlanamaz. `startup.nsh` artık önce ekrana döküyor, yazma denemesi en
 sonda.
+
+## acpiview sonucu (ilk gerçek doğrulama)
+
+`acpiview -r 2`: **12 hata, 0 uyarı.** Hepsi hesaba oturuyor: 8 + 4.
+
+### 8 hata: TRBE Interrupt (DÜZELTİLDİ)
+
+Her GICC girdisinde `TRBE Interrupt` alanı çöp değer taşıyordu (7 tanesi
+`0x500B`, biri `0x180C` — düzenli olsalar hepsi aynı olurdu). Bu alan bir PPI
+kimliği olmak zorunda: 16-31 ya da 1056-1119.
+
+Değerler 9830'un AML'inden taşınmış. Exynos 9820 ARMv8.2; TRBE bir ARMv9
+özelliği, yani bu SoC'de yok. Doğru değer **0** (desteklenmiyor). Sekiz
+girdinin hepsi sıfırlandı.
+
+### 4 hata: eksik SBBR tabloları (kasıtlı olarak bırakıldı)
+
+SBBR v1.2 zorunlu diyor ama SBBR sunucu profilidir; Windows'un açılması için
+hiçbiri şart değil:
+
+| Tablo | Ne işe yarar | Karar |
+|---|---|---|
+| MCFG | PCIe yapılandırma alanı | Telefonda PCIe yok. Gerekmiyor. |
+| SPCR | Seri konsol yönlendirme | UART sürücümüz yok. Gerekmiyor. |
+| DBG2 | Hata ayıklama portu | Açılış için şart değil. Sonra. |
+| PPTT | İşlemci topolojisi | **Eklenmeli.** Windows CPU topolojisini buradan okur. |
+
+### Doğru çıkan şeyler
+
+- **GIC**: DTB `arm,cortex-a15-gic` diyor = GICv2. MADT'deki `Version : 02`,
+  GICR base 0 ve GICD/GICC/GICH/GICV adresleri DTB'nin `reg` alanıyla birebir.
+- **MPIDR**: 0-3 / 4-5 / 0x100-0x101. Önce 9830'dan kalma sandım, DTB
+  doğruladı: `cpu@0000..0003` (ananke/A55), `cpu@0004..0005`
+  (prometheus/A75), `cpu@0100..0101` (cheetah/M4). Doğruymuş.
+- MADT, GTDT, FACP başka hata vermedi.
+
+### Efficiency Class ters çevrildi
+
+ACPI 6.4 §5.2.12.14: düşük değer daha verimli demek. Tabloda A55'lere 02,
+M4'lere 00 verilmişti — tam tersi. Düzeltildi: A55 -> 00, A75 -> 01,
+M4 -> 02. Açılışı engellemez, Windows'un heterojen zamanlayıcısını etkiler.

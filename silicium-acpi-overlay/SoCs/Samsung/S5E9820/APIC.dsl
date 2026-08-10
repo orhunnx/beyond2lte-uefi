@@ -42,10 +42,10 @@
 [064h 0100 004h]       Virtual GIC Interrupt : 00000019
 [068h 0104 008h]  Redistributor Base Address : 0000000000000000
 [070h 0112 008h]                   ARM MPIDR : 0000000000000000
-[078h 0120 001h]            Efficiency Class : 02
+[078h 0120 001h]            Efficiency Class : 00
 [079h 0121 001h]                    Reserved : 00
 [07Ah 0122 002h]      SPE Overflow Interrupt : 0000
-[07Ch 0124 002h]              TRBE Interrupt : 500B
+[07Ch 0124 002h]              TRBE Interrupt : 0000
 
 [07Eh 0126 001h]               Subtable Type : 0B [Generic Interrupt Controller]
 [07Fh 0127 001h]                      Length : 52
@@ -65,10 +65,10 @@
 [0B6h 0182 004h]       Virtual GIC Interrupt : 00000019
 [0BAh 0186 008h]  Redistributor Base Address : 0000000000000000
 [0C2h 0194 008h]                   ARM MPIDR : 0000000000000001
-[0CAh 0202 001h]            Efficiency Class : 02
+[0CAh 0202 001h]            Efficiency Class : 00
 [0CBh 0203 001h]                    Reserved : 00
 [0CCh 0204 002h]      SPE Overflow Interrupt : 0000
-[0CEh 0206 002h]              TRBE Interrupt : 500B
+[0CEh 0206 002h]              TRBE Interrupt : 0000
 
 [0D0h 0208 001h]               Subtable Type : 0B [Generic Interrupt Controller]
 [0D1h 0209 001h]                      Length : 52
@@ -88,10 +88,10 @@
 [108h 0264 004h]       Virtual GIC Interrupt : 00000019
 [10Ch 0268 008h]  Redistributor Base Address : 0000000000000000
 [114h 0276 008h]                   ARM MPIDR : 0000000000000002
-[11Ch 0284 001h]            Efficiency Class : 02
+[11Ch 0284 001h]            Efficiency Class : 00
 [11Dh 0285 001h]                    Reserved : 00
 [11Eh 0286 002h]      SPE Overflow Interrupt : 0000
-[120h 0288 002h]              TRBE Interrupt : 500B
+[120h 0288 002h]              TRBE Interrupt : 0000
 
 [122h 0290 001h]               Subtable Type : 0B [Generic Interrupt Controller]
 [123h 0291 001h]                      Length : 52
@@ -111,10 +111,10 @@
 [15Ah 0346 004h]       Virtual GIC Interrupt : 00000019
 [15Eh 0350 008h]  Redistributor Base Address : 0000000000000000
 [166h 0358 008h]                   ARM MPIDR : 0000000000000003
-[16Eh 0366 001h]            Efficiency Class : 02
+[16Eh 0366 001h]            Efficiency Class : 00
 [16Fh 0367 001h]                    Reserved : 00
 [170h 0368 002h]      SPE Overflow Interrupt : 0000
-[172h 0370 002h]              TRBE Interrupt : 500B
+[172h 0370 002h]              TRBE Interrupt : 0000
 
 [174h 0372 001h]               Subtable Type : 0B [Generic Interrupt Controller]
 [175h 0373 001h]                      Length : 52
@@ -137,7 +137,7 @@
 [1C0h 0448 001h]            Efficiency Class : 01
 [1C1h 0449 001h]                    Reserved : 00
 [1C2h 0450 002h]      SPE Overflow Interrupt : 0000
-[1C4h 0452 002h]              TRBE Interrupt : 500B
+[1C4h 0452 002h]              TRBE Interrupt : 0000
 
 [1C6h 0454 001h]               Subtable Type : 0B [Generic Interrupt Controller]
 [1C7h 0455 001h]                      Length : 52
@@ -160,7 +160,7 @@
 [212h 0530 001h]            Efficiency Class : 01
 [213h 0531 001h]                    Reserved : 00
 [214h 0532 002h]      SPE Overflow Interrupt : 0000
-[216h 0534 002h]              TRBE Interrupt : 500B
+[216h 0534 002h]              TRBE Interrupt : 0000
 
 [218h 0536 001h]               Subtable Type : 0B [Generic Interrupt Controller]
 [219h 0537 001h]                      Length : 52
@@ -180,10 +180,10 @@
 [250h 0592 004h]       Virtual GIC Interrupt : 00000019
 [254h 0596 008h]  Redistributor Base Address : 0000000000000000
 [25Ch 0604 008h]                   ARM MPIDR : 0000000000000100
-[264h 0612 001h]            Efficiency Class : 00
+[264h 0612 001h]            Efficiency Class : 02
 [265h 0613 001h]                    Reserved : 00
 [266h 0614 002h]      SPE Overflow Interrupt : 0000
-[268h 0616 002h]              TRBE Interrupt : 500B
+[268h 0616 002h]              TRBE Interrupt : 0000
 
 [26Ah 0618 001h]               Subtable Type : 0B [Generic Interrupt Controller]
 [26Bh 0619 001h]                      Length : 52
@@ -203,10 +203,10 @@
 [2A2h 0674 004h]       Virtual GIC Interrupt : 00000019
 [2A6h 0678 008h]  Redistributor Base Address : 0000000000000000
 [2AEh 0686 008h]                   ARM MPIDR : 0000000000000101
-[2B6h 0694 001h]            Efficiency Class : 00
+[2B6h 0694 001h]            Efficiency Class : 02
 [2B7h 0695 001h]                    Reserved : 00
 [2B8h 0696 002h]      SPE Overflow Interrupt : 0000
-[2BAh 0698 002h]              TRBE Interrupt : 180C
+[2BAh 0698 002h]              TRBE Interrupt : 0000
 
 [2BCh 0700 001h]               Subtable Type : 0C [Generic Interrupt Distributor]
 [2BDh 0701 001h]                      Length : 18
