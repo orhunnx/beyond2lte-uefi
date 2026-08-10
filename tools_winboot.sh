@@ -221,6 +221,23 @@ REG
     echo "  (AutoReboot acik kalir; cokunce kod gorulmez)"
   fi
 
+  #
+  # KENDI startnet.cmd'MIZ.
+  #
+  # WinPE acilista \Windows\System32\startnet.cmd calistirir. Varsayilani
+  # wpeinit calistirip cmd.exe aciyor; cmd.exe cikinca WinPE MAKINEYI YENIDEN
+  # BASLATIYOR. Cihazda gordugumuz "donen daire -> ekran sonme animasyonu ->
+  # reset" tam olarak buydu: cokme degil, duzgun kapanma.
+  #
+  # Bizimki asla cikmiyor ve icerideki durumu hem ekrana hem ESP'ye yaziyor.
+  #
+  if [ -f "$(dirname "$ESP")/windows/startnet.cmd" ]; then
+    say "startnet.cmd enjekte ediliyor"
+    wimlib-imagex update "$ESP/sources/boot.wim" 1 \
+      --command="add '$(dirname "$ESP")/windows/startnet.cmd' /Windows/System32/startnet.cmd" >/dev/null
+    echo "  kondu: /Windows/System32/startnet.cmd"
+  fi
+
   # Butunluk: wimlib her dosyanin SHA1'ini saklar, verify hepsini kontrol eder.
   if wimlib-imagex verify "$ESP/sources/boot.wim" >/dev/null 2>&1; then
     echo "  butunluk: TAMAM"

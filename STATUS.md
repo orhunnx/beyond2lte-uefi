@@ -574,3 +574,23 @@ bir fark.
 2. SMP sorununu çözmek. Windows'un PSCI `CPU_ON` çağrısı Linux'unkinden farklı
    parametreler kullanıyor olabilir; MADT'deki `Parking Protocol Version` ve
    GICC alanları gözden geçirilecek.
+
+## Ekran sönme animasyonu = çökme değil, düzgün kapanma
+
+`AutoReboot=0` yazıldıktan sonra cihaz hâlâ yeniden başlıyor **ama dönen daire
+bir ekran sönme animasyonuyla kayboluyor.** Mavi ekran olsaydı artık ekranda
+kalırdı; animasyon Windows'un kendi düzgün yeniden başlatma yolu.
+
+WinPE'de bunun tek anlamı var: **kabuk sonlandı.** WinPE'nin kabuğu `cmd.exe`
+ve çıktığı anda makine yeniden başlar — tasarım böyle.
+
+Yani `ntoskrnl` ayakta, WinPE başlıyor, oturum açılıp kapanıyor. Çökme yok.
+
+**Çözüm:** kendi `\Windows\System32\startnet.cmd`'imiz (`windows/startnet.cmd`),
+WIM'e enjekte ediliyor. Asla çıkmıyor, `diskpart` ile birim/disk listesini hem
+ekrana hem ESP'ye yazıyor. Depolama görünüyorsa `WINLOG.TXT` ESP'ye düşüyor ve
+recovery'den okunabiliyor — Linux'ta initramfs ile yaptığımızın aynısı.
+
+Bu aynı zamanda `_CLS` ile eklediğimiz UFS düğümünün Windows tarafında işe
+yarayıp yaramadığını gösterecek: `list disk` çıktısında disk görünürse
+`storufs.sys` bağlanmış demektir.
