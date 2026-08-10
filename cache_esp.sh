@@ -70,12 +70,18 @@ if command -v mcopy >/dev/null; then
   mcopy -i "$IMG" "$APP" ::/EFI/BOOT/BOOTAA64.EFI
   [ -f "$NSH" ] && { mcopy -i "$IMG" "$NSH" ::/startup.nsh
                      mcopy -i "$IMG" "$NSH" ::/EFI/BOOT/startup.nsh; }
-  # esp/ icindeki diger dosyalari da al (kernel, initramfs vs.)
+  # esp/ agacinin tamamini al: dosyalar VE alt klasorler.
+  # Alt klasor destegi Windows icin gerekli - bootmgfw BCD'yi
+  # \EFI\Microsoft\Boot\BCD yolunda ariyor.
   for f in "$PROJ"/esp/*; do
     b="$(basename "$f")"
     [ "$b" = "startup.nsh" ] && continue
-    [ -f "$f" ] || continue
-    mcopy -i "$IMG" "$f" "::/$b" && echo "  + $b ($(du -h "$f" | cut -f1))"
+    [ -e "$f" ] || continue
+    if [ -d "$f" ]; then
+      mcopy -i "$IMG" -s "$f" "::/" && echo "  + $b/ (klasor)"
+    else
+      mcopy -i "$IMG" "$f" "::/$b" && echo "  + $b ($(du -h "$f" | cut -f1))"
+    fi
   done
   echo "--- imaj icerigi:"
   mdir -i "$IMG" ::/

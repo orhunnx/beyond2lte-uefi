@@ -33,6 +33,26 @@ pause
 # yaziyor, sonra cihazi kapatiyor. Boylece kernel ciktisini fotograflamadan,
 # tam metin olarak alabiliyoruz (bkz. linux_test/init).
 #
+#
+# WINDOWS BOOT MANAGER - varsa once bunu dene.
+#
+# Hicbir sey silmeden yapilan ilk Windows testi. Isletim sistemi yok, yani
+# hata verecek. Onemli olan hata ekranini CIZEBILMESI: o an GOP, ACPI ve
+# bellek haritamiz Windows tarafindan kabul edilmis oluyor.
+#
+# 0xc0000225 ya da benzeri bir "boot device bulunamadi" ekrani BASARIDIR.
+#
+if exist fs0:\EFI\Microsoft\Boot\bootmgfw.efi then
+    echo ==== Windows Boot Manager
+    echo Isletim sistemi YOK, hata bekleniyor. Onemli olan ekrani cizebilmesi.
+    echo Hata kodunu (0xc0000...) fotografla.
+    echo .
+    echo (baslatmak icin ses tusu)
+    pause
+    fs0:\EFI\Microsoft\Boot\bootmgfw.efi
+    echo ISARET W: Boot Manager geri dondu (calistirilamadi).
+endif
+
 if exist fs0:\initramfs-test.gz then
     echo ==== Linux baslatiliyor (ACPI, DTB yok)
     echo Kernel log ESP'ye KLOG.TXT olarak yazilacak, sonra cihaz kapanacak.
