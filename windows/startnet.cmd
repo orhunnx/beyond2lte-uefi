@@ -1,65 +1,35 @@
 @echo off
 ::
-:: WinPE acilisinda OTOMATIK calisir (\Windows\System32\startnet.cmd).
+:: EN SADE HALI - wpeinit YOK.
 ::
-:: BU DOSYADA UC TUZAK VAR, UCU DE YASANDI:
+:: NEDEN: _CLS kapatilinca (storufs.sys artik UFS0'a baglanmiyor) cihaz
+:: 5-6 saniye yerine 12 SANIYE dayandi. Sure ikiye katlandi, yani storufs
+:: supheli dogrulandi.
 ::
-:: 1) CRLF SATIR SONU ZORUNLU. Linux'ta LF ile yazilmisti; batch yorumlayicisi
-::    etiketleri ve "goto"yu bozabiliyor.
+:: 12 saniye ayrica sunu soyluyor: bu script muhtemelen CALISIYOR. Ilk
+:: beklememiz 20 saniyeydi; ona ulassaydik daha uzun dayanirdik. Demek ki
+:: "timeout" aninda donuyor (WinPE'de ag yokken oluyor) ve hemen wpeinit'e
+:: geciyoruz - wpeinit'in aygit taramasi tam olarak bu kadar suruyor.
 ::
-:: 2) "ping" ILE BEKLEME YAPILMAZ. ping TCP/IP yiginina ihtiyac duyuyor ve
-::    wpeinit calismadan once WinPE'de ag YOK - beklemeler aninda donuyor,
-::    zamana dayali tani islemiyor. "timeout" ag gerektirmiyor.
+:: Bu surum wpeinit'i HIC CAGIRMIYOR. Sonuc ikiye ayiriyor:
+::   cihaz ARTIK YENIDEN BASLAMIYORSA  -> sucllu wpeinit, WinPE ayakta demektir
+::   yine ~12 saniyede sifirliyorsa    -> script hic calismiyor, baska yerde
 ::
-:: 3) SONSUZ DONGU HICBIR DIS KOMUTA BAGLI OLMAMALI. Kabuk cikarsa WinPE
-::    MAKINEYI YENIDEN BASLATIYOR; dongu bir sekilde kirilirsa her sey biter.
-::    Sondaki dongu saf batch, hicbir exe cagirmiyor.
+:: Hicbir dis komut cagirmiyoruz; timeout, ping, diskpart hepsi disarida.
 ::
-:: ZAMANLA TANI - cihazin donen daireden KAC SANIYE sonra yeniden basladigi
-:: hangi asamada oldugunu soyler:
-::    ~20 sn -> asama 1 gecti, wpeinit'te oldu
-::    ~40 sn -> wpeinit gecti, diskpart'ta oldu
-::    ~60 sn -> diskpart gecti, kopyalamada oldu
-::    hic    -> hepsi gecti, bekliyor   <- HEDEF
-::
-set L=X:\b2l.txt
-
 cls
-echo ================ beyond2lte WinPE
-echo [1] startnet basladi
-echo ================ beyond2lte WinPE > %L%
-echo [1] startnet basladi >> %L%
-timeout /t 20 /nobreak >nul
-
-echo [2] wpeinit
-echo [2] wpeinit >> %L%
-wpeinit
-echo [2] wpeinit bitti
-echo [2] wpeinit bitti >> %L%
-timeout /t 20 /nobreak >nul
-
-echo [3] diskpart
-echo [3] diskpart >> %L%
-echo list disk   | diskpart >> %L% 2>&1
-echo list volume | diskpart >> %L% 2>&1
-echo [3] diskpart bitti
-echo [3] diskpart bitti >> %L%
-timeout /t 20 /nobreak >nul
-
-echo [4] ESP araniyor
-echo [4] ESP araniyor >> %L%
-for %%d in (C D E F G H I J) do if exist %%d:\EFI\Microsoft\Boot\bootmgfw.efi copy /y %L% %%d:\WINLOG.TXT >nul 2>&1
-
-cls
-echo ================ beyond2lte WinPE  [5] TAMAM
+echo ================================================
+echo   beyond2lte WinPE  -  startnet calisiyor
+echo   wpeinit CAGIRILMADI
+echo ================================================
 echo.
-type %L%
+echo Bu ekran kaliciysa WinPE bu telefonda AYAKTA.
 echo.
-echo Bu ekran kalici. Cihaz artik yeniden baslamamali.
 
-::
-:: Saf batch sonsuz dongu. Hicbir dis komut cagirmiyor, dolayisiyla
-:: hicbir sekilde kirilamaz.
-::
+:: Depolama gorunuyorsa ESP'ye iz birak (storufs bagli degil, muhtemelen yok)
+for %%d in (C D E F G H I J) do if exist %%d:\EFI\Microsoft\Boot\bootmgfw.efi echo WinPE ayakta, wpeinit yok > %%d:\WINLOG.TXT
+
+echo Bekleme dongusune giriliyor.
+
 :bekle
 goto bekle

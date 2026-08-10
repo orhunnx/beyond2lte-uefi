@@ -680,3 +680,28 @@ ihtiyacımız vardı, onlar alındı. Windows'un logları Shell'den geçmiyor.
 
 **Asıl kazanım:** blok yazma, FAT yazma, dizin oluşturma çalışıyor. Yani WinPE
 depolamayı görürse `WINLOG.TXT` yazılabilir ve recovery'den okunabilir.
+
+## `_CLS` kapatıldı: 5-6 sn → **12 sn**
+
+`storufs.sys`'in UFS0'a bağlanmasını sağlayan `_CLS` nesnesi DSDT'de yorum
+satırına alındı. Cihazın dayanma süresi **ikiye katlandı**.
+
+Bu ölçülebilir bir fark ve şüpheliyi doğruluyor: `storufs.sys` bağlanıyor,
+UFSHCI spec'ine göre denetleyiciyi resetliyor (`HCE`) ve jenerik kodla link
+kurmaya çalışıyor — Exynos'un PHY kalibrasyonunu bilmeden. Zaman aşımına
+düşüp çekirdeği götürüyor.
+
+**Windows için sonuç:** `storufs.sys` bu SoC'de olduğu gibi kullanılamaz.
+Ya UEFI'nin kurduğu linki bozmaması sağlanmalı (`FeatureFlags`, Qualcomm
+girdisindeki `0x40000000` gibi), ya da Exynos için ayrı bir sürücü gerekir.
+Kalıcı Windows kurulumunun önündeki gerçek engel bu.
+
+### 12 saniyenin ikinci anlamı
+
+`startnet.cmd`'nin ilk beklemesi 20 saniyeydi; ona ulaşsaydık daha uzun
+dayanırdık. Muhtemelen `timeout` anında dönüyor (WinPE'de ağ yokken oluyor)
+ve hemen `wpeinit`'e geçiliyor — `wpeinit`'in aygıt taraması tam olarak bu
+kadar sürer.
+
+Bir sonraki test `wpeinit`'i hiç çağırmayan bir `startnet.cmd`. Cihaz artık
+yeniden başlamazsa **WinPE bu telefonda ayakta** demektir.
