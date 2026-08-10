@@ -18,7 +18,7 @@
  *     Compiler ID      "INTL"
  *     Compiler Version 0x20230628 (539166248)
  */
-DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
+DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000006)
 {
     Scope (_SB)
     {
@@ -138,16 +138,33 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             Name (_HID, "SMSN9820")
             Name (_UID, Zero)
             //
-            // Windows'un storufs.sys'e baglanmasini saglayan sey.
-            // Package { BaseClass, SubClass, ProgrammingInterface }
-            //   0x01 Mass Storage / 0x09 UFS / 0x01 UFSHCI  ->  ACPI\CC_010901
+            // _CLS GECICI OLARAK KAPALI - SUPHELI.
             //
-            Name (_CLS, Package (0x03)
-            {
-                0x01,
-                0x09,
-                0x01
-            })
+            // Bu nesne Windows'un storufs.sys'i UFS0'a baglamasini sagliyor
+            // (ACPI\CC_010901). Ama baglanan surucu UFSHCI spec'ine gore
+            // denetleyiciyi RESETLIYOR (HCE) ve jenerik kodla link kurmaya
+            // calisiyor - Exynos'un PHY kalibrasyonunu bilmeden.
+            //
+            // Cihazda gordugumuz tablo bununla birebir ortusuyor: WinPE
+            // cekirdegi basliyor, 5-6 saniye calisiyor, sonra sessizce
+            // sifirlaniyor. Surucu yukleme penceresi ve zaman asimi suresi.
+            //
+            // _CLS eklendiginde henuz WIM_NOT_BOOTABLE'da takiliydik, yani
+            // WinPE hicbir zaman _CLS'siz calismadi. Bu test onu kapatiyor.
+            //
+            // SONUC NE OLURSA OLSUN ONEMLI:
+            //   Windows daha ileri giderse -> supheli dogrulandi, storufs'un
+            //     Exynos'ta calismasi icin PHY/CAL isi gerekiyor demektir
+            //   Ayni kalirsa -> storufs elenir, baska yere bakariz
+            //
+            // Geri acmak icin asagidaki blogun yorumunu kaldir.
+            //
+            // Name (_CLS, Package (0x03)
+            // {
+            //     0x01,
+            //     0x09,
+            //     0x01
+            // })
             //
             // _CCA ARM64'te DMA yapan her aygit icin zorunlu. DTB'de
             // "ufs-io-coherency" node'u var ve UEFI (BoardInit.c) SYSREG'deki
