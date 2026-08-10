@@ -57,6 +57,18 @@ echo "  Silicon/Samsung/SamsungPkg/Drivers/UfsDxe/UfsDxe.inf  (upstream yamasi)"
 echo "  Resources/{Configs,DTBs}/beyond2lte.*"
 
 #
+# UfsDxe.c yamasi - YAZMA YOLU.
+#
+# UEFI'den UFS'e yazma calismiyor (iki bagimsiz kanit: EFI Shell yonlendirmesi
+# ve bootmgr'in bootstat.dat'i). Okuma sorunsuz. Yama hem onbellek bakimini
+# ekliyor hem de yazma yolunu enstrümante ediyor.
+#
+# Dosyanin tamamini overlay'e kopyalamiyoruz (~1000 satir, upstream
+# duzeltmelerini kaybederdik); sadece dokundugumuz satirlar yamada.
+#
+python3 "$PROJ/tools_ufs_patch.py" "$MU"
+
+#
 # ACPI.inc'i ETKINLESTIR - ama $MU icindeki kopyada, depoda degil.
 #
 # Onceden bu sed depodaki dosyaya uygulaniyordu. Sonuc: her --acpi derlemesi

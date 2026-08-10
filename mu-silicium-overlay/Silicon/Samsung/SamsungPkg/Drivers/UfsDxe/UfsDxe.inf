@@ -25,6 +25,8 @@
   DebugLib
   DevicePathLib
   IoLib
+  # tools_ufs_patch.py DMA oncesi/sonrasi onbellek bakimi ekliyor
+  CacheMaintenanceLib
   BaseMemoryLib
   MemoryAllocationLib
 
