@@ -17,7 +17,9 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | Boot Manager | ✅ |
 | EFI Shell | ✅ FV'den açılıyor, `startup.nsh` çalışıyor |
 | ACPI | ✅ `acpiview -r 2`: 3 hata, üçü de kasıtlı (MCFG/SPCR/DBG2) |
-| PPTT (CPU topolojisi) | ✅ DTB `cpu-map`'inden üretiliyor |
+| PPTT (CPU topolojisi) | ✅ Linux doğru okuyor (3 küme) |
+| PSCI / SMP | ✅ 8 çekirdek açılıyor (SMC konduiti) |
+| DSDT UFS düğümü | ✅ numaralanıyor, `_HID` geçici |
 | UEFI'den UFS'e **yazma** | ❌ redirect başarısız, sebep açık |
 | USB | ❌ |
 | **Linux (ACPI, DTB yok)** | ✅ 8 CPU açılıyor, initramfs'e kadar |
