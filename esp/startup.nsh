@@ -1,31 +1,44 @@
 @echo -off
 #
-# SIFIRLAMA SEBEBI OKUMA MODU.
+# SIFIRLAMA SEBEBI - Shell'in "mem" komutuyla dogrudan okunuyor.
 #
-# Windows'u BASLATMIYOR. Amac, bir onceki acilisin nasil bittigini ogrenmek.
+# ONCEKI DENEME NEDEN GORUNMEDI: sebebi BoardInit.c'den DEBUG ile
+# yazdiriyorduk, ama FrameBufferDelay'i 0'a cektigimiz icin DXE logu
+# ekrandan uctu gitti ve Shell acildiginda o satirlar coktan kaymisti.
 #
-# Kullanim:
-#   1) Bu imajla ac, ekrandaki "B2L RESET" satirlarini oku  (temiz acilis)
-#   2) Windows imajini flasla, ac, cihaz sifirlansin
-#   3) BU imaji tekrar flasla ve ac, "B2L RESET" satirlarini yeniden oku
+# Burada firmware'e hic dokunmuyoruz: PMU registerini Shell okuyor ve
+# ekranda EN SONDA kaliyor.
 #
-# Ikisi arasindaki fark, Windows'un sifirlamayi KENDI mi istedigini yoksa
-# donanimin mi zorla attigini soyler:
+# PMU (system-controller@15860000, DTB'den):
+#   +0x404  RST_STAT   son sifirlamanin KAYNAGI, sifirlamayi asar
+#   +0x500  SEQUENCER
 #
-#   WARM=1        -> yazilim sicak sifirlama istedi. Windows'un ResetSystem
-#                    cagrisi bu; yani kontrollu bir cokme (bugcheck yolu).
-#   LITTLE_WDT=1  -> watchdog atti. Yazilim takilmis, donanim mudahale etmis.
-#   ikisi de 0    -> soguk acilis; cok daha sert bir sey olmus.
+# RST_STAT'ta bakacagimiz bitler:
+#   bit 28 (0x10000000)  WARM_RESET        yazilim sicak sifirlama istedi
+#                                          -> Windows'un ResetSystem cagrisi
+#   bit 24 (0x01000000)  LITTLE_WDT_RESET  watchdog atti, yazilim takilmis
 #
-# DEBUG derlemesi gerekiyor: RELEASE'de DEBUG() makrolari derlemeden cikiyor.
-#     bash yap.sh -r DEBUG
+# KULLANIM - uc adim:
+#   1) Bu imajla ac, degeri not et            (temiz acilis referansi)
+#   2) Windows imajini flasla, ac, sifirlansin
+#   3) Bu imaji tekrar flasla, ac, degeri karsilastir
 #
 mode 80 25
 
 echo .
-echo ================ SIFIRLAMA SEBEBI
+echo ================ PMU SIFIRLAMA DURUMU
 echo .
-echo Yukaridaki "B2L RESET" satirlarini fotografla.
-echo Windows denemesinden SONRA bu imajla tekrar acip karsilastir.
+
+echo RST_STAT  (0x15860404):
+mem 0x15860404 4 ;MMIO
+
 echo .
+echo SEQUENCER (0x15860500):
+mem 0x15860500 4 ;MMIO
+
+echo .
+echo Aranan bitler:  0x10000000 = WARM (yazilim istedi)
+echo                 0x01000000 = WDT  (watchdog atti)
+echo .
+echo ================ Fotografla.
 pause
