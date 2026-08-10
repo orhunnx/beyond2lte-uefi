@@ -1,51 +1,69 @@
 #!/usr/bin/env bash
 #
-# ACPI testi icin minik initramfs uretir.
+# ACPI testi icin initramfs uretir.
 #
 #   bash linux_test/kur.sh
 #
 # Cikti: esp/initramfs-test.gz   (cache_esp.sh bunu otomatik iceri alir)
 #
-# Icinde sadece static busybox ve linux_test/init var. Alpine'in hazir
-# initramfs-lts'i kullanilmiyor cunku o kendi init'ini calistirip root
-# ariyor ve bulamayinca panik veriyor - biz onun yerine dosyaya log
-# yazdirmak istiyoruz.
+# NEREDEN BUSYBOX:
+# busybox.net'te aarch64 static binary YOK. Oradaki "armv8l" 32 bit ARM,
+# bu cihazda calismaz (ilk surumde o URL denendi, 404 dondu; donseydi de
+# yanlis mimari olurdu).
+#
+# Onun yerine elimizdeki Alpine initramfs-lts'i taban aliyoruz: icinde
+# dogru mimaride busybox, musl kutuphanesi ve kernel modulleri hazir duruyor.
+# Tek yaptigimiz /init'i kendi script'imizle degistirmek. Boylece hicbir sey
+# indirmiyoruz ve mimari uyusmazligi imkansiz.
 #
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJ="$(dirname "$HERE")"
+SRC="$PROJ/esp/initramfs-lts"
 OUT="$PROJ/esp/initramfs-test.gz"
-
-BB_URL="https://busybox.net/downloads/binaries/1.35.0-aarch64-linux-musl/busybox"
-BB="$HERE/busybox-aarch64"
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
-if [ ! -f "$BB" ]; then
-  say "busybox indiriliyor (aarch64, static)"
-  curl -fL "$BB_URL" -o "$BB"
-fi
+[ -f "$SRC" ] || {
+  echo "esp/initramfs-lts bulunamadi."
+  echo "Alpine aarch64 netboot'tan indir:"
+  echo "  cd esp && curl -LO https://dl-cdn.alpinelinux.org/alpine/latest-stable/releases/aarch64/netboot/initramfs-lts"
+  exit 1
+}
 
-# Dogru mimari mi? Yanlis busybox sessizce calismaz, kernel "no init found" der.
+W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+mkdir -p "$W/root"
+
+say "initramfs-lts aciliyor"
+# Sikistirma bicimi surume gore degisiyor (gzip / xz / zstd). Sihirli sayiya bak.
+MAGIC=$(od -An -tx1 -N4 "$SRC" | tr -d ' ')
+case "$MAGIC" in
+  1f8b*)    DECOMP="gzip -dc"  ;;
+  fd377a*)  DECOMP="xz -dc"    ;;
+  28b52ffd) DECOMP="zstd -dc"  ;;
+  *)        DECOMP="cat"       ;;   # sikistirilmamis cpio
+esac
+echo "  sihirli sayi: $MAGIC -> $DECOMP"
+
+( cd "$W/root" && $DECOMP "$SRC" | cpio -idm --quiet )
+
+[ -x "$W/root/bin/busybox" ] || { echo "HATA: icinde bin/busybox yok"; ls "$W/root"; exit 1; }
 if command -v file >/dev/null; then
-  file "$BB" | grep -q 'ARM aarch64' || { echo "HATA: busybox aarch64 degil:"; file "$BB"; exit 1; }
+  file "$W/root/bin/busybox" | grep -q 'aarch64' \
+    || { echo "HATA: busybox aarch64 degil:"; file "$W/root/bin/busybox"; exit 1; }
+  echo "  busybox: $(file -b "$W/root/bin/busybox" | cut -c1-60)"
 fi
-chmod +x "$BB"
 
-say "initramfs kuruluyor"
-W="$(mktemp -d)"
-mkdir -p "$W"/{bin,dev,proc,sys,mnt}
-cp "$BB" "$W/bin/busybox"
-cp "$HERE/init" "$W/init"
-chmod +x "$W/init" "$W/bin/busybox"
+say "kendi /init'imiz konuyor"
+cp "$HERE/init" "$W/root/init"
+chmod +x "$W/root/init"
 
-( cd "$W" && find . | cpio -o -H newc --quiet | gzip -9 ) > "$OUT"
-rm -rf "$W"
+say "yeniden paketleniyor"
+( cd "$W/root" && find . | cpio -o -H newc --quiet | gzip -9 ) > "$OUT"
 
 say "Cikti"
 ls -lh "$OUT"
 echo
 echo "Sonra:"
-echo "  bash cache_esp.sh     # initramfs'i ESP'ye koyar"
-echo "  cache'i flasla, ac, startup.nsh kernel'i baslatacak"
-echo "  bitince recovery'den cache'i cekip KLOG.TXT'i oku"
+echo "  bash cache_esp.sh"
+echo "  cache'i flasla, ac, ses tusuyla Linux'u baslat"

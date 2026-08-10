@@ -1,86 +1,93 @@
-#!/bin/busybox sh
+#!/bin/sh
 #
-# Minik initramfs /init - tek isi var: kernel'in ACPI hakkinda ne dusundugunu
-# DOSYAYA yazmak.
+# Minik initramfs /init - kernel'in ACPI hakkinda ne dusundugunu raporlar.
 #
-# Neden: UART jig yok, UEFI'nin UFS'e yazmasi calismiyor, ve kernel basladiktan
-# sonra EFI Shell devrede olmadigi icin ekrandan baska kanal kalmiyordu.
-# Ama Linux'un kendi UFS ve FAT surucusu saglam - recovery zaten o bolume
-# yaziyor. Yani UEFI'nin yazamadigi yere Linux yazabiliyor.
+# ONEMLI SINIR (ilk surumde atlanmisti):
+# ACPI ile acilista Linux'un DEPOLAMASI OLMAYABILIR. DSDT'mizde UFS aygit
+# dugumu yok ve DTB de vermiyoruz, dolayisiyla exynos-ufs surucusu hicbir
+# seye baglanmiyor -> /dev/sd* olusmuyor -> dosyaya yazamiyoruz.
 #
-# Cikti: ESP'nin kokunde KLOG.TXT. Sonra recovery'den bolumu cekip okuyoruz.
+# O yuzden bu script iki modlu:
+#   depolama VARSA  -> ESP'ye KLOG.TXT yaz (tam metin, fotograf yok)
+#   depolama YOKSA  -> ozeti ekrana dok (fotograflanacak kadar kisa tut)
 #
-/bin/busybox --install -s /bin
+# Depolamanin ACPI altinda calismasi zaten sonraki isimiz: DSDT'ye UFS
+# dugumu eklemek. Windows da tam olarak bunu arayacak.
+#
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export PATH
 
-mount -t proc     none /proc
-mount -t sysfs    none /sys
-mount -t devtmpfs none /dev
+mount -t proc     none /proc 2>/dev/null
+mount -t sysfs    none /sys  2>/dev/null
+mount -t devtmpfs none /dev  2>/dev/null
 
 echo
-echo "=== beyond2lte ACPI testi ==="
+echo "======== beyond2lte ACPI testi ========"
 echo
 
-mkdir -p /mnt
+# --- ekrana kisa ozet: en kritik dort soru --------------------------------
+echo "-- CPU sayisi ve topoloji"
+echo "   online : $(cat /sys/devices/system/cpu/online 2>/dev/null)"
+echo "   possible: $(cat /sys/devices/system/cpu/possible 2>/dev/null)"
+grep -c ^processor /proc/cpuinfo | sed 's/^/   cpuinfo: /'
 
-#
-# ESP'yi bul. Etikete guvenmiyoruz (busybox blkid her yapida yok);
-# bunun yerine her blok cihazi vfat olarak baglamayi deneyip icinde
-# BOOTAA64.EFI var mi diye bakiyoruz. Yanlis bolume yazma riski yok.
-#
+echo "-- ACPI tablolari kernel tarafindan goruldu mu"
+if [ -d /sys/firmware/acpi/tables ]; then
+    echo "   $(ls /sys/firmware/acpi/tables/ | tr '\n' ' ')"
+else
+    echo "   /sys/firmware/acpi YOK -> kernel ACPI ile acilmadi"
+fi
+
+echo "-- ACPI ile ilgili kernel satirlari"
+dmesg | grep -i -E 'acpi|pptt|madt|gtdt|psci' | head -20
+
+echo "-- hata ve uyarilar"
+dmesg | grep -i -E '\bBUG\b|\bWARN|panic|Unable to handle' | head -10
+
+echo
+
+# --- depolama var mi ------------------------------------------------------
 ESP=""
 for d in /dev/sd?? /dev/sd??? /dev/block/sd?? /dev/block/sd???; do
     [ -b "$d" ] || continue
     mount -t vfat "$d" /mnt 2>/dev/null || continue
-    if [ -f /mnt/EFI/BOOT/BOOTAA64.EFI ]; then
-        ESP="$d"
-        echo "ESP bulundu: $d"
-        break
-    fi
+    if [ -f /mnt/EFI/BOOT/BOOTAA64.EFI ]; then ESP="$d"; break; fi
     umount /mnt
 done
 
 if [ -z "$ESP" ]; then
-    echo "ESP BULUNAMADI. Blok cihazlar:"
-    ls -l /dev/sd* /dev/block/sd* 2>/dev/null
-    echo "10 saniye sonra kapaniyor."
-    sleep 10
+    echo "DEPOLAMA YOK - bu ACPI acilisinda bekleniyor."
+    echo "Blok cihazlar:"
+    ls /dev/sd* /dev/block/sd* 2>/dev/null || echo "   (hic yok)"
+    echo
+    echo "Yukaridaki ozeti fotografla. 120 saniye bekliyor."
+    sleep 120
     poweroff -f
 fi
 
+# --- depolama varsa tam logu dosyaya yaz ----------------------------------
+echo "ESP bulundu: $ESP  -> KLOG.TXT yaziliyor"
 L=/mnt/KLOG.TXT
-
 {
-    echo "########## dmesg ##########"
-    dmesg
-    echo
-    echo "########## /proc/cpuinfo ##########"
-    cat /proc/cpuinfo
-    echo
-    echo "########## kurulu ACPI tablolari ##########"
-    ls -l /sys/firmware/acpi/tables/ 2>/dev/null || echo "(ACPI tablo dizini yok)"
-    echo
-    echo "########## CPU topolojisi (PPTT buradan okunur) ##########"
+    echo "########## dmesg ##########";            dmesg
+    echo; echo "########## /proc/cpuinfo ##########"; cat /proc/cpuinfo
+    echo; echo "########## ACPI tablolari ##########"
+    ls -l /sys/firmware/acpi/tables/ 2>/dev/null || echo "(yok)"
+    echo; echo "########## CPU topolojisi (PPTT) ##########"
     for c in /sys/devices/system/cpu/cpu[0-9]*; do
         [ -d "$c/topology" ] || continue
         echo "$(basename $c): pkg=$(cat $c/topology/physical_package_id 2>/dev/null)" \
              "core=$(cat $c/topology/core_id 2>/dev/null)" \
              "cluster=$(cat $c/topology/cluster_id 2>/dev/null)"
     done
-    echo "online: $(cat /sys/devices/system/cpu/online)"
-    echo
-    echo "########## /proc/interrupts (GIC calisiyor mu) ##########"
-    cat /proc/interrupts
-    echo
-    echo "########## /proc/iomem ##########"
-    cat /proc/iomem
+    echo "online: $(cat /sys/devices/system/cpu/online 2>/dev/null)"
+    echo; echo "########## /proc/interrupts ##########"; cat /proc/interrupts
+    echo; echo "########## /proc/iomem ##########";      cat /proc/iomem
 } > "$L" 2>&1
-
 sync
-echo
-echo "Yazildi: $L  ($(wc -c < $L) bayt)"
+echo "Yazildi: $L ($(wc -c < $L) bayt)"
 umount /mnt
 sync
-
-echo "5 saniye sonra kapaniyor. Sonra recovery'ye gecip cache'i cek."
-sleep 5
+echo "10 saniye sonra kapaniyor. Sonra recovery'den cache'i cek."
+sleep 10
 poweroff -f

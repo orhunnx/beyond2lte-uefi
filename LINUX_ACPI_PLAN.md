@@ -129,6 +129,21 @@ umount /mnt
 poweroff -f
 ```
 
+### Düzeltme: ACPI açılışında depolama olmayacak
+
+Yukarıdaki plan bir şeyi atlıyordu. **ACPI ile açılışta `/dev/sd*` oluşmaz.**
+DSDT'mizde UFS aygıt düğümü yok, DTB de vermiyoruz — yani `exynos-ufs`
+sürücüsü hiçbir şeye bağlanmıyor. Dosyaya yazma tam da doğrulamak istediğimiz
+senaryoda çalışmıyor.
+
+Bu kötü haber değil, **teşhis**: Windows'un `INACCESSIBLE_BOOT_DEVICE` ile
+duracağı yer tam olarak burası. Sıradaki iş DSDT'ye UFS düğümü eklemek.
+
+Bu yüzden `linux_test/init` iki modlu: depolama varsa `KLOG.TXT` yazıyor,
+yoksa özeti ekrana döküp 120 saniye bekliyor (fotoğraflanacak kadar kısa).
+İlk ACPI açılışında ikinci mod bekleniyor — ve zaten merak ettiğimiz şey
+(kernel tabloları kabul etti mi, 8 CPU açıldı mı) erken dmesg'de.
+
 Sonra recovery'den bölümü çekip `KLOG.TXT`'i okuyoruz — tam metin, fotoğraf yok.
 Kernel ACPI'yi nasıl ayrıştırdığı, CPU'ları kurup kuramadığı, PPTT'yi görüp
 görmediği hepsi burada olur.
