@@ -50,15 +50,25 @@ rm -f "$IMG"
 dd if=/dev/zero of="$IMG" bs=1M count=$((SZ/1048576)) status=none
 mkfs.vfat -F 16 -S 4096 -s 1 -n UEFIESP "$IMG" >/dev/null
 
+# startup.nsh: Shell acilista bunu otomatik calistirir. Klavye olmadan
+# komut vermenin tek yolu. Iki yere de koyuyoruz cunku Shell'in arama sirasi
+# surume gore degisiyor: once kendi dizini, sonra kok.
+NSH="$PROJ/esp/startup.nsh"
+
 if command -v mcopy >/dev/null; then
   export MTOOLS_SKIP_CHECK=1
   mmd   -i "$IMG" ::/EFI ::/EFI/BOOT
   mcopy -i "$IMG" "$APP" ::/EFI/BOOT/BOOTAA64.EFI
-  mdir  -i "$IMG" ::/EFI/BOOT
+  [ -f "$NSH" ] && { mcopy -i "$IMG" "$NSH" ::/startup.nsh
+                     mcopy -i "$IMG" "$NSH" ::/EFI/BOOT/startup.nsh; }
+  echo "--- imaj icerigi:"
+  mdir -i "$IMG" ::/
+  mdir -i "$IMG" ::/EFI/BOOT
 else
   echo "mtools yok -> sudo apt install -y mtools   (loop mount'a dusuluyor)"
   T=$(mktemp -d); sudo mount -o loop "$IMG" "$T"
   sudo mkdir -p "$T/EFI/BOOT"; sudo cp "$APP" "$T/EFI/BOOT/BOOTAA64.EFI"
+  [ -f "$NSH" ] && { sudo cp "$NSH" "$T/startup.nsh"; sudo cp "$NSH" "$T/EFI/BOOT/startup.nsh"; }
   sudo umount "$T"; rmdir "$T"
 fi
 
