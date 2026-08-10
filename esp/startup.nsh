@@ -1,5 +1,13 @@
 @echo -off
 #
+# ILK IS: konsolu EN BUYUK yazi tipine al.
+# Log'da gorulen mod listesi:
+#   Mode 0: 80x25   <- en buyuk glif, fotograflanabilir
+#   Mode 1: 80x50   Mode 2: 100x31   Mode 3: 128x40   Mode 4: 160x42
+# 1440x3040 ekranda 80x25 disindaki modlar fotografta okunmuyor.
+#
+mode 80 25
+#
 # EFI Shell acilisinda otomatik calisir. Klavye yok; komutlar burada.
 # "pause" satirlarini SES TUSUYLA gecebilirsin (KeypadDxe -> SimpleTextIn).
 #
