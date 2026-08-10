@@ -77,6 +77,9 @@ bcdedit /store "%BCD%" /set %G% recoveryenabled    No  >nul
 bcdedit /store "%BCD%" /set %G% bootstatuspolicy   IgnoreAllFailures >nul
 bcdedit /store "%BCD%" /set %G% quietboot          No  >nul
 bcdedit /store "%BCD%" /set %G% sos                On  >nul
+:: Legacy boot deneyimi: grafik yerine METIN. Donen daire yerine surucu
+:: isimleri akmasi icin gerekli - "sos On" tek basina Win11'de yetmiyor.
+bcdedit /store "%BCD%" /set %G% bootmenupolicy      Legacy >nul
 bcdedit /store "%BCD%" /set %G% nx                 OptIn >nul
 
 :: --- varyanta ozel ayar ---------------------------------------------------
@@ -94,6 +97,9 @@ bcdedit /store "%BCD%" /create {bootmgr} /d "beyond2lte" >nul
 bcdedit /store "%BCD%" /set {bootmgr} device boot >nul
 bcdedit /store "%BCD%" /set {bootmgr} default %G%  >nul
 bcdedit /store "%BCD%" /set {bootmgr} timeout 0    >nul
+:: Acilis animasyonunu tamamen kapat (metin ciktisinin onunu acar)
+bcdedit /store "%BCD%" /create {globalsettings} /d "Global" >nul 2>&1
+bcdedit /store "%BCD%" /set {globalsettings} bootux Disabled >nul 2>&1
 bcdedit /store "%BCD%" /displayorder %G% /addlast  >nul
 
 echo.

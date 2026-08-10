@@ -182,6 +182,45 @@ if [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
     *) echo "  UYARI: Boot Index 1 degil, WinPE yine acilmaz." ;;
   esac
 
+  #
+  # MAVI EKRANI EKRANDA TUT.
+  #
+  # Cihaz cekirdek cokunce ANINDA sifirliyor, kod gorunmuyor. Sebep WinPE'nin
+  # registry'sindeki CrashControl\AutoReboot = 1. Bu ayar WIM'in ICINDEKI
+  # SYSTEM hive'inda; disari cikarip degistirip geri koyabiliyoruz.
+  #
+  #   AutoReboot        = 0  -> cokunce sifirlama, ekranda kal
+  #   DisplayParameters = 1  -> stop kodunun parametrelerini de goster
+  #
+  # Bunlar olmadan her tur "yeniden basladi" demekten oteye gidemiyoruz.
+  #
+  if command -v hivexregedit >/dev/null; then
+    say "WinPE registry: AutoReboot kapatiliyor"
+    HV="$W/hive"; mkdir -p "$HV"
+    if wimlib-imagex extract "$ESP/sources/boot.wim" 1 \
+         /Windows/System32/config/SYSTEM --dest-dir="$HV" --no-acls >/dev/null 2>&1; then
+      cat > "$W/crash.reg" <<'REG'
+[HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Control\CrashControl]
+"AutoReboot"=dword:00000000
+"DisplayParameters"=dword:00000001
+REG
+      if hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' \
+           "$HV/SYSTEM" "$W/crash.reg" 2>/dev/null; then
+        wimlib-imagex update "$ESP/sources/boot.wim" 1 \
+          --command="add '$HV/SYSTEM' /Windows/System32/config/SYSTEM" >/dev/null
+        wimlib-imagex optimize "$ESP/sources/boot.wim" >/dev/null
+        echo "  AutoReboot=0 yazildi, WIM guncellendi ($(du -h "$ESP/sources/boot.wim" | cut -f1))"
+      else
+        echo "  UYARI: hive duzenlenemedi, AutoReboot acik kaliyor"
+      fi
+    else
+      echo "  UYARI: SYSTEM hive cikarilamadi"
+    fi
+  else
+    echo "  hivexregedit yok -> sudo apt install -y libhivex-bin"
+    echo "  (AutoReboot acik kalir; cokunce kod gorulmez)"
+  fi
+
   # Butunluk: wimlib her dosyanin SHA1'ini saklar, verify hepsini kontrol eder.
   if wimlib-imagex verify "$ESP/sources/boot.wim" >/dev/null 2>&1; then
     echo "  butunluk: TAMAM"

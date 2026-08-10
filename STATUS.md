@@ -548,3 +548,29 @@ varyantlarıyla eleyeceğiz. `windows/bcd_olustur.cmd [varyant]`:
 | `azram` | `truncatememory 4 GB` | Çökme yüksek bellek adreslerinden mi? 8 GB'lik haritanın üst kısmı şüpheli olabilir. |
 
 Aynı anda ikisi denenmemeli; hangisinin işe yaradığı belirsiz kalır.
+
+## `numproc 1` çekirdeği başlattı — çökme SMP'de
+
+`tekcpu` varyantı (BCD `numproc 1`) ile davranış değişti:
+
+| Varyant | Görülen |
+|---|---|
+| `tani` (8 CPU) | "Loading files" → **hiçbir çıktı yok** → sıfırlama |
+| `tekcpu` (1 CPU) | "Loading files" → **Windows'un dönen dairesi** → sıfırlama |
+
+Dönen daireyi `ntoskrnl` çiziyor. Yani tek çekirdekle **çekirdek başlıyor**;
+sekiz çekirdekle hiç başlayamıyordu.
+
+**Sonuç: ilk çökme ikincil çekirdek açılırken oluyor.** MADT/PSCI yolumuz
+Linux'u tatmin ediyor ama Windows'u etmiyor. Bu artık tahmin değil, ölçülmüş
+bir fark.
+
+İki iş kaldı, sırayla:
+
+1. Tek çekirdekle ilerleyip **ikinci çökmeyi okumak**. Bunun için WinPE
+   registry'sinde `CrashControl\AutoReboot = 0` yapıldı (WIM içindeki SYSTEM
+   hive'ı `hivexregedit` ile düzenleniyor), böylece mavi ekran ekranda kalıyor
+   ve stop kodu okunabiliyor.
+2. SMP sorununu çözmek. Windows'un PSCI `CPU_ON` çağrısı Linux'unkinden farklı
+   parametreler kullanıyor olabilir; MADT'deki `Parking Protocol Version` ve
+   GICC alanları gözden geçirilecek.
