@@ -58,17 +58,33 @@ INF="$(echo "$HIT" | grep -i '\.inf$' | head -1 | sed 's|^/||')"
 
 say "cikariliyor: $INF"
 wimlib-imagex extract "$WIM" 1 "/$INF" --dest-dir="$W/out" --no-acls >/dev/null
-OUT="$W/out/$(basename "$INF")"
+RAW="$W/out/$(basename "$INF")"
 
-say "ACPI kimlikleri"
-grep -i -E 'ACPI\\|PCI\\VEN|%.*%=.*,' "$OUT" | grep -v '^;' | sed 's/^/  /'
-
-say "tam INF"
-cat "$OUT"
-
-# Depoya kopyala ki bir daha ISO gerekmesin
+#
+# Windows INF dosyalari genelde UTF-16LE. ASCII desenli grep onlarda hicbir
+# sey bulamaz - ilk denemede "ACPI kimlikleri" bolumu bos cikti. Ayrica
+# eslesme bulamayan grep 1 donuyor ve "set -e" script'i oracikta olduruyor,
+# o yuzden asagida hepsi "|| true" ile.
+#
 DEST="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/windows/storufs.inf"
 mkdir -p "$(dirname "$DEST")"
-cp "$OUT" "$DEST"
+
+case "$(od -An -tx1 -N2 "$RAW" | tr -d ' ')" in
+  fffe) echo "  (UTF-16LE tespit edildi, UTF-8'e cevriliyor)"
+        iconv -f UTF-16LE -t UTF-8 "$RAW" > "$DEST" 2>/dev/null || strings "$RAW" > "$DEST" ;;
+  *)    cp "$RAW" "$DEST" ;;
+esac
+# Windows satir sonlarini temizle
+sed -i 's/\r$//' "$DEST"
+
+say "ACPI / donanim kimlikleri"
+grep -i -E 'ACPI\\|PCI\\|_HID|HardwareID' "$DEST" | grep -v '^;' | sed 's/^/  /' || echo "  (desen eslesmedi)"
+
+say "Models bolumleri (asil kimlikler burada)"
+awk '/^\[.*\.NT|^\[Standard|^\[.*Models/{p=1} /^\[/{if(!/Models|Standard|\.NT/)p=0} p' "$DEST" | sed 's/^/  /' || true
+
+say "tam INF"
+cat "$DEST"
+
 echo
 echo "Kopyalandi: $DEST"
