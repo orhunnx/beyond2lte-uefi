@@ -454,3 +454,34 @@ ISO'nun BCD'si WinPE'yi RAM diskten açmak üzere kurulu ve `\sources\boot.wim`
 arıyor — 606 MB. CACHE bölümü 600 MB. Yani doğru BCD ile bu sefer
 `0xc0000225` (boot device bulunamadı) beklenir; o da BCD'nin ayrıştırıldığını
 kanıtlar ve bir sonraki adıma geçeriz.
+
+## Windows: yükleyici zinciri baştan sona çalışıyor
+
+Hata mesajlarının sırası, her adımın ayrı ayrı doğrulandığını gösteriyor:
+
+| Deneme | Hata | Ne öğrendik |
+|---|---|---|
+| Sadece bootmgfw | `0xc000000f` + `File: ...\BCD` | Boot Manager çalıştı, ekran çizdi, ESP'den **okudu** |
+| BCD eklendi | `0xc000000f` "required device" | BCD ayrıştırıldı; ramdisk kurulamadı |
+| boot.wim eklendi | aynı | eksik olan WIM değilmiş |
+| **boot.sdi eklendi** | `0xc0000487` + `File: ...\winload.efi` | **RAM diski kuruldu, WIM bağlandı, WIM'in içindeki dosyaya erişildi** |
+
+Yani `bootmgfw -> BCD -> boot.sdi -> ramdisk -> boot.wim -> winload.efi`
+zincirinin tamamı işliyor. Kalan tek adım `winload.efi`'nin kendisi.
+
+### `0xc0000487` — açık soru
+
+Kod herkese açık kaynaklarda belgelenmiyor. İki hipotez var:
+
+1. **WIM sıkıştırması.** `boot.wim`'i 606 MB'dan 570 MB'a indirmek için LZX ile
+   yeniden sıkıştırmıştık. `bootmgr`'ın kendi WIM okuyucusu bu biçimi yanlış
+   çözüyorsa `winload.efi` tam olarak böyle "bozuk" görünür.
+   **Test:** yeniden sıkıştırmadan küçült — ikinci indeksi sil, dosyayı yeniden
+   paketle (`delete 2` + `optimize`, `--recompress` yok). Orijinal sıkıştırılmış
+   veri olduğu gibi korunur.
+
+2. **CPU özelliği.** Windows 11 24H2 ile ARMv8.0 işlemciler (ör. Snapdragon 835)
+   desteklenmez oldu. Bizim çekirdekler ARMv8.2 ve Linux `LSE atomic
+   instructions` tespit etti, yani bu ihtimal zayıf ama elenmiş değil.
+   Eğer 1 numaralı test sonucu değiştirmezse buraya bakılacak — o durumda
+   daha eski bir Windows sürümü (23H2) denenebilir.

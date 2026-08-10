@@ -134,25 +134,47 @@ if [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
   echo "  kaynak: $(du -h "$SRCWIM" | cut -f1)"
   wimlib-imagex info "$SRCWIM" | grep -E '^(Index|Name|Description)' | sed 's/^/    /' || true
 
-  mkdir -p "$ESP/sources"
-  #
-  # "export" hedef WIM'e EKLER, uzerine yazmaz. Onceki turdan kalan dosya
-  # duruyorsa ayni isimli ikinci imaj eklenmeye calisilir ve wimlib
-  # "There is already an image named ... / error code 11" verir.
-  # O yuzden once siliyoruz.
-  #
-  rm -f "$ESP/sources/boot.wim"
-  wimlib-imagex export "$SRCWIM" 1 "$ESP/sources/boot.wim" --compress=LZX --rebuild
-  echo "  sonuc: $(du -h "$ESP/sources/boot.wim" | cut -f1)"
+  echo "  kaynagin sikistirmasi:"
+  wimlib-imagex info "$SRCWIM" 1 2>/dev/null | grep -E 'Compression|Chunk Size' | sed 's/^/    /' || true
 
-  # 600 MiB bolume sigacak mi? Kalan dosyalar icin ~10 MB pay birakiyoruz.
+  mkdir -p "$ESP/sources"
+  rm -f "$ESP/sources/boot.wim"
+
+  #
+  # YENIDEN SIKISTIRMIYORUZ.
+  #
+  # Ilk denemede "export --compress=LZX" ile 570 MB'a indirdik ve cihaz
+  # "winload.efi ... 0xc0000487" verdi. bootmgr'in kendi WIM okuyucusu
+  # bizim urettigimiz bicimi yanlis cozuyorsa winload tam olarak boyle
+  # "bozuk" gorunur. O yuzden simdi ORIJINAL sikistirilmis veriyi
+  # oldugu gibi koruyoruz:
+  #
+  #   delete 2   -> Setup indeksini kaldir (bize gereksiz)
+  #   optimize   -> dosyayi yeniden paketle, sahipsiz veriyi at
+  #                 (--recompress YOK, yani hicbir sey yeniden sikistirilmiyor)
+  #
+  cp "$SRCWIM" "$ESP/sources/boot.wim"
+  if wimlib-imagex info "$ESP/sources/boot.wim" 2>/dev/null | grep -q '^Image Count: *2'; then
+    wimlib-imagex delete "$ESP/sources/boot.wim" 2
+  fi
+  wimlib-imagex optimize "$ESP/sources/boot.wim"
+  echo "  sonuc: $(du -h "$ESP/sources/boot.wim" | cut -f1)  (yeniden sikistirilmadi)"
+
+  # Butunluk: wimlib her dosyanin SHA1'ini saklar, verify hepsini kontrol eder.
+  if wimlib-imagex verify "$ESP/sources/boot.wim" >/dev/null 2>&1; then
+    echo "  butunluk: TAMAM"
+  else
+    echo "  butunluk: BASARISIZ - WIM bozuk!"
+  fi
+
   SZB=$(stat -c%s "$ESP/sources/boot.wim")
   LIMIT=$((600*1024*1024 - 12*1024*1024))
+  echo "  boyut: $((SZB/1024/1024)) MB / sinir $((LIMIT/1024/1024)) MB"
   if [ "$SZB" -gt "$LIMIT" ]; then
     echo
-    echo "  UYARI: boot.wim ESP'ye SIGMIYOR ($((SZB/1024/1024)) MB > $((LIMIT/1024/1024)) MB)."
-    echo "  Secenekler: WIM'den dil/surucu paketleri cikarmak, ya da daha buyuk"
-    echo "  bir bolum kullanmak (SYSTEM 5.57 GB)."
+    echo "  SIGMIYOR. Yeniden sikistirma kacinilmaz olabilir:"
+    echo "    wimlib-imagex export <kaynak> 1 <hedef> --compress=LZX --rebuild"
+    echo "  ya da daha buyuk bir bolum (SYSTEM 5.57 GB)."
   fi
 else
   echo "  (boot.wim atlandi: ISO'da yok ya da wimlib-imagex kurulu degil)"
