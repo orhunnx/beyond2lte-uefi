@@ -6,10 +6,17 @@
 #
 # Argüman verilmezse Mu-Silicium build'indeki Shell.efi aranir.
 #
-# KRITIK: UFS'in mantiksal blok boyutu 4096 (log: "BlockSize : 4096").
-# EDK2 FatPkg, FAT'in BPB'sindeki sektor boyutu BlockIo'nunkiyle
-# esitlesmezse birimi REDDEDER. Bu yuzden -S 4096 sart.
-# 512 ile bicimlendirilirse bolum gorunur ama dosya sistemi hic baglanmaz.
+# IKI KISIT VAR, ikisi de zorunlu:
+#
+# 1) -S 4096 : UFS'in mantiksal blok boyutu 4096 (log: "BlockSize : 4096").
+#    FAT'in BPB'sindeki sektor boyutu BlockIo'nunkiyle esitlesmeli.
+#
+# 2) -F 16   : FAT32 DEGIL. FatPkg/EnhancedFatDxe/Init.c:
+#         if (Volume->MaxCluster < FAT_MAX_FAT16_CLUSTER) return EFI_VOLUME_CORRUPTED;
+#    FAT_MAX_FAT16_CLUSTER = 65525. CACHE 75 MB; 4K sektorle 19200 cluster
+#    cikiyor, esigin altinda -> FAT32 sessizce reddediliyor.
+#    4K sektorle FAT32 icin en az 256 MB lazim. FAT16'nin gecerli araligi
+#    4085-65525, 19200 tam ortasinda.
 #
 set -euo pipefail
 PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,7 +38,7 @@ rm -f "$IMG"
 dd if=/dev/zero of="$IMG" bs=1M count=$((SZ/1048576)) status=none
 
 # 4096 baytlik sektor - UFS BlockSize ile eslesmek zorunda
-mkfs.vfat -F 32 -S 4096 -n UEFIESP "$IMG" >/dev/null
+mkfs.vfat -F 16 -S 4096 -n UEFIESP "$IMG" >/dev/null
 
 # mtools ile mount'suz yaz (sudo gerekmez)
 if command -v mcopy >/dev/null; then
