@@ -142,16 +142,23 @@ Tek girdi — yani UFS UNIPRO clock'u **sabit**, DVFS yok. Birim kHz
 (aynı dosyadaki CPU/PLL değerleri 2.85M ve 4.26M; Hz olsa 2.85 MHz'lik bir
 CPU olurdu). EVT0 ve EVT1 tablolarında değer aynı, silikon revizyonu fark etmiyor.
 
-**`mclk_rate` = 177 667 000 Hz (177.667 MHz)**
+**`mclk_rate` = 166 000 000 Hz** — DONANIMDAN DOGRULANDI
+
+> Once bu LUT'a bakip 177.667 MHz yazmistik. **Yanlisti.** Cihaz
+> `UFS: 1US_TO_CNT bootloader=166 beklenen=177` diyerek soyledi:
+> sboot 166 programlamis. LUT'taki 177667 bolucu oncesi CMU cikisi
+> olmali. 9830 portu da 166000000 kullaniyor.
+>
+> Bu satiri tam da bu ihtimal icin koymustuk ve isini gordu.
 
 Türetilen sabitler:
 
 | Makro | Değer | Not |
 |---|---|---|
-| `UNIPRO_MCLK_PERIOD` | **5** | `1e9 / mclk` tam bölme |
+| `UNIPRO_MCLK_PERIOD` | **6** | `1e9 / mclk` tam bölme (177 varsayımıyla 5 çıkıyordu) |
 | `UNIPRO_MCLK_PERIOD_ROUND_OFF` | **6** | `DIV_ROUND_CLOSEST` |
-| `UNIPRO18_MCLK_PERIOD` | **90** | `16e9 / mclk` |
-| `HCI_1US_TO_CNT_VAL` | **177** (0xB1) | maske 0x3FF |
+| `UNIPRO18_MCLK_PERIOD` | **96** | `16e9 / mclk` (177 ile 90) |
+| `HCI_1US_TO_CNT_VAL` | **166** (0xA6) | maske 0x3FF — sboot'un yazdığı değer |
 
 > İkisinin farklı olması (5 vs 6) hata değil, kasıtlı — farklı register'lar
 > kırpılmış ve yuvarlanmış değer istiyor. Tabloları taşırken hangi girdinin
@@ -164,9 +171,9 @@ Türetilen sabitler:
 Ama gerek kalmadı — değer kaynakta sabitti.
 
 Yine de UEFI sürücüsünde **çalışma anı doğrulaması** olarak kullanışlı:
-`0x13D6110C` okunup `& 0x3FF` sonucu **177** çıkıyorsa, sboot UFS'i bizim
-beklediğimiz clock'la başlatmış demektir. Farklı çıkarsa tablo hesapları tutmaz
-ve bunu link kurulmadan önce anlarsın.
+`0x13D6110C` okunup `& 0x3FF` sonucu **166** çıkmalı. Bu kontrol işini gördü:
+177 beklerken 166 okuduk ve varsayımın yanlış olduğunu link kurulmadan önce
+öğrendik.
 
 ## Bize gerekmeyenler
 

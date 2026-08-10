@@ -20,12 +20,25 @@
 #define EXYNOS9820_EDPCSR_DUMP_EN      (1U << 0)
 
 //
-// UNIPRO clock. Kernel'de clk_get_rate("UFS_EMBD") ile aliniyor; deger
-// cal-if/exynos9820/cmucal-vclk.c icinde tek girdilik LUT olarak sabit:
-//   cmucal_vclk_clkcmu_fsys1_ufs_embd_lut[] = { {177667, ...} };   // kHz
-// DVFS yok, tek frekans.
+// UNIPRO clock.
 //
-#define UFS_SCLK                       177667000UL
+// DUZELTME: Once cal-if/exynos9820/cmucal-vclk.c icindeki
+//   cmucal_vclk_clkcmu_fsys1_ufs_embd_lut[] = { {177667, ...} }  // kHz
+// degerine bakip 177.667 MHz varsaymistik. YANLIS.
+//
+// Cihaz soyledi: UfsVsSet1usToCnt() icindeki okuma-dogrulama
+//   "UFS: 1US_TO_CNT bootloader=166 beklenen=177"
+// yazdi. sboot HCI_1US_TO_CNT_VAL'e 166 programlamis, yani gercek UNIPRO
+// clock'u 166 MHz. (9830 portu da 166000000 kullaniyor.)
+//
+// LUT'taki 177667 muhtemelen bolucu oncesi CMU cikisi; UNIPRO'ya giren deger
+// degil. Donanimdan okunan sayi kaynaktan cikarilan tahminden ustundur.
+//
+// Bu deger CAL tablolarindaki tum mclk-turevli zamanlamalari etkiliyor:
+//   UNIPRO_MCLK_PERIOD    1e9/166e6 = 6   (177 ile 5 cikiyordu - yanlisti)
+//   UNIPRO18_MCLK_PERIOD  16e9/166e6 = 96 (177 ile 90)
+//
+#define UFS_SCLK                       166000000UL
 
 #define CNT_VAL_1US_MASK               0x3FFU
 // DIKKAT: bu offsetler VsAddr'a degil IoAddr'a goredir (VS base = IoAddr + 0x1100).
