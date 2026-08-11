@@ -3976,3 +3976,51 @@ elimizdeki tek diğer yol **UEFI `ResetSystem`**, ve onu kancalıyoruz.
 
 Üçüncü ihtimal bile bilgi: ikinci satır çıkarsa, kırk turdur Windows'ta
 aradığımız şeyin orada olmadığı kesinleşir.
+
+# ★★ PSCI kapalıyken de aynı — sıfırlamayı Windows istemiyor
+
+`PSCI Compliant = 0` ile ölçüldü:
+
+```
+GetTime      0 / 0
+GetVariable  372 / 372
+ResetSystem  0            ← yine sıfır
+SetVariable  64 / 64
+TIK=0009     BUG=H        RST_STAT 0x20000000
+```
+
+Windows'un elinden PSCI'yi aldık. `ResetSystem`'i de çağırmıyor. **Elinde
+sıfırlama yolu kalmadı — ama cihaz yine aynı anda, aynı şekilde sıfırlandı.**
+
+En basit açıklama: **sıfırlamayı Windows istemiyor.** Başka biri yapıyor ve
+Windows'un ilerlemesi onu tetikliyor.
+
+Bu SoC'de "başka biri" olabilecek tek yer **EL3 — Samsung'un TrustZone'u.**
+
+## Neden bu tutarlı
+
+| Gözlem | EL3 açıklaması |
+|---|---|
+| Bugcheck yok | Kararı işletim sistemi vermiyor |
+| Çekirdek son ana kadar sağlıklı | Ölüm anlık, kademeli bozulma değil |
+| Blokaj tamamen önlüyor | Tetikleyen şey Windows'un yaptığı bir iş |
+| Süre hep 9-11 | Windows'un ilerlemesi deterministik |
+| Her yapılandırma değişikliği etkisiz | Windows tarafında zaten değil |
+| `EbsTest` 60+ s yaşıyor | Hiçbir şey yapmıyor, hiçbir şeyi tetiklemiyor |
+| Linux çalışıyor | Samsung'un kendi çekirdeği TrustZone'un beklediği çağrıları yapıyor |
+
+Son satır önemli: S-Boot normalde çekirdeği başlatmadan önce RKP hipervizörünü
+SMC ile yüklüyor. Bizim UEFI'miz yüklemiyor. TrustZone'un beklediği bir
+el sıkışma varsa, Windows onu asla yapmayacak.
+
+## Bunu doğrulamanın tek yolu
+
+SMC trafiğini görmek. Yani **EL2'ye çıkıp `HCR_EL2.TSC` ile EL1'den gelen
+SMC'leri tuzaklamak** — `B2LEl2Dxe`'nin yapmaya çalıştığı şey. O sürücü
+imzasını hiç üretmedi ve zararlı çıktığı için kaldırıldı.
+
+Ama artık çok daha iyi durumdayız: `Reserv`/`RtData` hatasını biliyoruz
+(kaydı `RtData` yapmak gerekiyordu ve o sürücü büyük ihtimalle aynı tuzağa
+düşmüştü), çalışan bir kayıt bölgemiz var, ve ölçüm aletlerimiz doğrulanmış.
+
+`PSCI Compliant` geri açıldı — görevini yaptı.
