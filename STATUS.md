@@ -2208,3 +2208,31 @@ PWM tablolarını seçiyor.
 upstream değişmişse derleme yanlış kodla geçmesin. Ayrıca `yap.sh` her
 derlemede `UfsDxe.c`'yi git'ten geri çağırdığı için yama daima temiz dosyaya
 uygulanıyor; önceki UFS yamasında düştüğümüz birikmeli hasar tuzağı yok.
+
+## Siyah ekran = ayakta duran WinPE
+
+Bizim `startnet.cmd` enjekte edilince ne yazı çıktı ne animasyon. Stock sürüm
+(tek satır `wpeinit`) ile animasyonlu kapanma geliyordu.
+
+Fark scriptin çalışıp çalışmaması değil, **çıktısının görünmemesi.**
+
+WinPE'de konsol çıktısını ekrana çizen şey `win32k` ve **görüntü sürücüsü**.
+Bizde çalışan bir görüntü sürücüsü yok — `bootvid`'in daireyi çizdiği
+framebuffer'ı Windows'un konsolu kullanamıyor. Yani `echo` satırları boşluğa
+gidiyor, sonra `pause`'a gelip sonsuza kadar bekliyor. Kabuk çıkmadığı için
+cihaz kapanmıyor ve animasyon görünmüyor.
+
+**O siyah ekran ayakta duran bir WinPE.** Sadece konuşamıyor.
+
+### Yeni `startnet.cmd`: ekrana değil dosyaya
+
+Ekrana hiç yazmıyor, hiç beklemiyor. `wpeinit` çalıştırıp her sürücü harfine
+bir iz dosyası bırakıyor ve çıkıyor.
+
+| Gözlem | Anlamı |
+|---|---|
+| Çıkışta animasyonlu sönme | Script sonuna kadar çalıştı |
+| `WINLOG.TXT` ESP'de bulunur | **`storufs` bağlı, depolama çalışıyor** |
+
+`if exist` kullanılmıyor: olmayan sürücü harfinde bekletebiliyor ve zaten
+yazma denemesinin kendisi testin ta kendisi.

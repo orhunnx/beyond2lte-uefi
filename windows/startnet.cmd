@@ -1,64 +1,46 @@
 @echo off
 ::
 :: ===========================================================================
-:: MESGUL BEKLEME KALDIRILDI - GERILEMEYI BU YAPMIS OLABILIR
+:: EKRANA YAZMIYORUZ - GORUNMUYOR
 :: ===========================================================================
+:: Onceki surumler ekrana echo'luyor ve sonunda "pause" ile bekliyordu.
+:: Sonuc: siyah ekran, hicbir yazi, ve animasyonlu kapanma da YOK.
 ::
-:: Bu dosyanin onceki surumu soyle bitiyordu:
+:: Sebep: WinPE'de konsol ciktisini ekrana cizen sey win32k ve GORUNTU
+:: SURUCUSU. Bizde calisan bir goruntu surucusu yok - bootvid'in daireyi
+:: cizdigi framebuffer'i Windows'un konsolu kullanamiyor. Yani echo satirlari
+:: bosluga gidiyor, sonra pause'a gelip SONSUZA KADAR bekliyor. Kabuk
+:: cikmadigi icin cihaz kapanmiyor ve animasyon gorunmuyor.
 ::
-::     :bekle
-::     goto bekle
+:: O siyah ekran aslinda AYAKTA DURAN BIR WinPE. Sadece konusamiyor.
 ::
-:: Tek cekirdekte (numproc 1) bu, cmd.exe'yi %100 CPU ile sonsuza kadar
-:: donduren bir mesgul bekleme. Telefonun tamami bos yere doner.
+:: KANIT: stock startnet.cmd (tek satir "wpeinit") ile animasyonlu kapanma
+:: geliyordu - cunku o ekrana hic yazmiyor ve beklemiyor, cmd cikiyor.
 ::
-:: NEDEN ONEMLI: bu dosyayi WIM'e enjekte etmeden ONCE, cihazda donen daire
-:: bir EKRAN SONME ANIMASYONUYLA kayboluyordu. STATUS.md'de o an dogru
-:: yorumlanmis: animasyon cokme degil, KABUGUN DUZGUN CIKMASI. WinPE'nin
-:: kabugu cmd.exe'dir ve ciktigi anda makine tasarim geregi yeniden baslar.
-:: Yani o anda ntoskrnl ayakta, WinPE tamamen acilmis, oturum kurulup
-:: kapanmisti. Cokme YOKTU.
+:: ===========================================================================
+:: BU SURUM
+:: ===========================================================================
+:: Ekrana hic yazmiyor, hic beklemiyor. Yaptigi tek sey her surucu harfine
+:: bir iz dosyasi birakmak ve cikmak.
 ::
-:: Enjeksiyondan sonra animasyon kayboldu, yerine sert sifirlama geldi.
-:: Yani "kabuk cikmasin" diye yazdigim sey muhtemelen onu olduren sey.
+::   cikista animasyonlu sonme  -> script sonuna kadar CALISTI
+::   WINLOG.TXT ESP'de bulunur  -> storufs bagli, DEPOLAMA CALISIYOR
 ::
-:: BU SURUM HIC DONGU KURMUYOR. Isini yapiyor, ekrana basiyor, tek bir
-:: "pause" ile bekliyor. Girdi varsa orada durur, yoksa duser ve kabuk
-:: cikar - o da animasyonlu sonme demektir, yani BASARI isareti.
+:: Ikinci madde projenin otuz turdur bekledigi cevap. UEFI linki PWM Gear
+:: 1'e cekildikten sonra ilk kez gercek bir sansi var: UniPro spec'ine gore
+:: LINKSTARTUP sonrasi link zaten PWM G1'de olur, yani storufs'un jenerik
+:: pazarligi vendor kalibrasyonu gerektirmiyor.
 ::
-:: Iki sonuc da bilgi:
-::   animasyonlu sonme  -> WinPE ayakta, is bitti, kabuk cikti
-::   sert sifirlama     -> hala gercek bir cokme var
+:: "if exist" KULLANMIYORUZ: olmayan surucu harfinde bekletebiliyor ve zaten
+:: yazma denemesinin kendisi testin ta kendisi. Hatalar nul'a gidiyor.
 ::
-:: wpeinit CAGRILMIYOR: aygit taramasi zaman aliyor ve daha once suphe
-:: cekmisti. Surucu harfleri wpeinit olmadan da atanir.
-::
-cls
-echo ================================================
-echo   beyond2lte WinPE  -  startnet calisiyor
-echo ================================================
-echo.
+wpeinit
 
-::
-:: Yazilabilir her birime iz birak. storufs baglandiysa ve SYSTEM birimi
-:: gorunuyorsa bu dosya recovery'den okunabilir - Linux'ta initramfs ile
-:: yaptigimizin aynisi.
-::
-:: "if exist" ONCE: olmayan surucu harfine yazmaya calismak cmd'yi
-:: bekletebiliyor.
-::
-for %%d in (C D E F G H I J K L) do (
-  if exist %%d:\ (
-    echo Birim bulundu: %%d:
-    echo WinPE ayakta. Kabuk calisti, dongu yok. > %%d:\WINLOG.TXT 2>nul
-  )
+for %%d in (C D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
+  echo B2L WinPE ayakta. storufs bagli, bu birim yazilabilir.> %%d:\WINLOG.TXT 2>nul
 )
 
-echo.
-echo Yukaridaki listede birim varsa depolama Windows tarafinda GORUNUYOR.
-echo Hic birim yoksa storufs baglanmamis demektir.
-echo.
-echo Bir tusa bas. Girdi yoksa kabuk cikacak ve ekran animasyonla sonecek,
-echo bu da WinPE'nin sorunsuz calistigi anlamina gelir.
-echo.
-pause
+::
+:: Burada bitiyor. cmd cikacak, WinPE tasarim geregi kapanacak ve ekran
+:: animasyonla sonecek - bu bizim "script sonuna kadar kostu" isaretimiz.
+::
