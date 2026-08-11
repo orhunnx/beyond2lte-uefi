@@ -2490,3 +2490,18 @@ Okuma çok basit:
 
 Bu ölçüm otuz turdur cevaplayamadığımız soruyu kapatıyor: Windows bu telefonda
 çalışıyor mu, çalışmıyor mu.
+
+## Bir tur kaybı: `--win` unutuldu
+
+Talimat `bash cache_esp.sh --system` şeklinde verildi, `--win` yazılmadı.
+Script görevini kusursuz yaptı: SYSTEM bölümüne bir **Linux ESP'si** yazdı.
+Cihaz `startup.nsh`'in Linux dalını çalıştırıp `vmlinuz-lts`'i açtı; Windows
+dosyaları imaja hiç girmemişti.
+
+Ekranda `MOD: Linux` yazıyordu — ama tek satır, elli satırlık çıktının içinde.
+Sessiz doğru davranış, gürültülü yanlış davranıştan tehlikeli olabiliyor.
+
+`cache_esp.sh` artık `--system` + `--win` yokken duruyor ve iki doğru komutu
+yazıyor. Kombinasyonun var olma sebebi 742 MB'lık `boot.wim`'in 600 MiB'lık
+CACHE'e sığmaması; 68 MB'lık Linux dosyaları için büyük bölüme geçmenin
+anlamı yok, yani bu kombinasyon istenerek yazılmış olamaz.

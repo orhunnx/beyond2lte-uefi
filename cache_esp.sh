@@ -64,6 +64,37 @@ if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
 if [ "$WINONLY" = 1 ]; then say "MOD: Windows"; else say "MOD: Linux"; fi
 
 #
+# GUVENLIK KILIDI: --system + Linux modu neredeyse kesin bir hata.
+#
+# BU BIR TURA MAL OLDU. Talimat "bash cache_esp.sh --system" seklinde
+# verildi, --win unutuldu. Script gorevini kusursuz yapti: SYSTEM'e bir
+# LINUX ESP'si yazdi. Cihaz da startup.nsh'in Linux dalini calistirip
+# vmlinuz-lts'i acti. Windows dosyalari imaja hic girmemisti.
+#
+# Ekranda "MOD: Linux" yaziyordu ama tek satir, elli satir cikti icinde.
+# Sessiz dogru davranis, gurultulu yanlis davranistan daha tehlikeli
+# olabiliyor - burada oyleydi.
+#
+# --system'in VAR OLMA SEBEBI 742 MB'lik boot.wim'in 600 MiB'lik CACHE'e
+# sigmamasi. Linux dosyalari 68 MB; onlar icin buyuk bolume gecmenin hicbir
+# anlami yok. Yani bu kombinasyon istenerek yazilmis olamaz.
+#
+if [ "$BIGPART" = 1 ] && [ "$WINONLY" = 0 ] && [ "$BOSALT" = 0 ]; then
+  echo
+  echo "  ###############################################################"
+  echo "  # DUR: --system verildi ama --win YOK."
+  echo "  #"
+  echo "  # Bu haliyle SYSTEM bolumune bir LINUX ESP'si yazilir ve"
+  echo "  # cihaz Windows yerine vmlinuz-lts'i acar."
+  echo "  #"
+  echo "  # Windows istiyorsan:   bash cache_esp.sh --win --system"
+  echo "  # Gercekten Linux mu:   bash cache_esp.sh            (CACHE'e)"
+  echo "  ###############################################################"
+  echo
+  exit 1
+fi
+
+#
 # --system : CACHE (600 MiB) yerine SYSTEM (5.57 GB) bolumunu hedefle.
 #
 # NEDEN GEREKTI: Windows 11 23H2'nin boot.wim'i 742 MB. LZX ile yeniden
