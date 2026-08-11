@@ -48,8 +48,13 @@ kuruldu" cevabini aliyor ve yoluna devam ediyor.
 ---------------------------------------------------------------------------
 GERI ALMAK
 ---------------------------------------------------------------------------
-yap.sh her derlemede dosyayi git'ten geri cagiriyor, yani bu yamayi
-cagirmamak yeterli. Birikmeli hasar olmuyor.
+Yama IDEMPOTENT: imza zaten varsa dosyaya dokunulmuyor. Dosya bir ALT
+MODULDE oldugu icin "git -C $MU checkout" ona ulasmiyor, o yuzden geri
+cagirmaya guvenilmiyor - tekrar tekrar calistirmak guvenli.
+
+Tamamen kapatmak icin:  B2L_WDT=0 bash yap.sh
+Elle geri almak icin:   git -C <MdeModulePkg alt modulu> checkout -- \
+                          Universal/WatchdogTimerDxe/WatchdogTimer.c
 """
 
 import sys
@@ -60,22 +65,39 @@ if len(sys.argv) < 2:
     sys.exit(1)
 
 MU = pathlib.Path(sys.argv[1])
-SRC = MU / "MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.c"
 
-if not SRC.is_file():
-    print(f"WatchdogTimer.c bulunamadi: {SRC}")
+#
+# SABIT YOL KULLANILMIYOR - ARANIYOR.
+#
+# Ilk surum "$MU/MdeModulePkg/..." diyordu ve dosya bulunamadi. Project Mu
+# depolari alt modullere boluyor; MdeModulePkg koke degil MU_BASECORE gibi
+# bir alt dizine dusuyor ve bu surumden surume degisebiliyor.
+#
+# Aramak birkac milisaniye; sabit yol yazmak bir tur.
+#
+ADAYLAR = sorted(MU.glob("**/Universal/WatchdogTimerDxe/WatchdogTimer.c"))
+
+if not ADAYLAR:
+    print(f"WatchdogTimer.c bulunamadi ({MU} altinda arandi).")
+    print("Mu-Silicium alt modulleri cekilmemis olabilir:")
+    print("  git -C <Mu-Silicium> submodule update --init --recursive")
     sys.exit(1)
 
-s = SRC.read_text()
+if len(ADAYLAR) > 1:
+    print("Birden fazla WatchdogTimer.c bulundu, hepsi yamalanacak:")
+    for a in ADAYLAR:
+        print(f"  {a.relative_to(MU)}")
 
-eski = "  mWatchdogTimerPeriod = TimerPeriod;"
-yeni = """  //
+SRC = ADAYLAR[0]
+print(f"  bulundu: {SRC.relative_to(MU)}")
+
+YENI = """  //
   // B2L: WATCHDOG ETKISIZ.
   //
-  // Gerekce tools_wdt_kapat.py basinda. Ozet: bootmgfw acilirken watchdog
-  // kuruyor, sure doluyor ve cihaz Windows'un haberi olmadan sifirlaniyor.
-  // Periyodu sifirlayinca asagidaki SetTimer cagrisi TimerCancel oluyor,
-  // yani zamanlayici hic kurulmuyor.
+  // Gerekce bu dosyanin basinda. Ozet: bootmgfw acilirken watchdog kuruyor,
+  // sure doluyor ve cihaz Windows'un haberi olmadan sifirlaniyor. Periyodu
+  // sifirlayinca asagidaki SetTimer cagrisi TimerCancel oluyor, yani
+  // zamanlayici hic kurulmuyor.
   //
   // Cagri yine EFI_SUCCESS donuyor; bootmgfw "watchdog kuruldu" cevabini
   // alip yoluna devam ediyor.
@@ -83,15 +105,20 @@ yeni = """  //
   mWatchdogTimerPeriod = 0;
   (VOID)TimerPeriod;"""
 
-if "B2L: WATCHDOG ETKISIZ" in s:
-    print("WatchdogTimer.c zaten yamali")
-    sys.exit(0)
+ESKI = "  mWatchdogTimerPeriod = TimerPeriod;"
 
-if eski not in s:
-    print("HATA: beklenen satir bulunamadi. Upstream degismis olabilir;")
-    print("yamayi kor kor birakmiyoruz.")
-    sys.exit(1)
+yamalanan = 0
+for src in ADAYLAR:
+    s = src.read_text()
+    if "B2L: WATCHDOG ETKISIZ" in s:
+        print(f"  zaten yamali: {src.relative_to(MU)}")
+        continue
+    if ESKI not in s:
+        print(f"HATA: beklenen satir yok: {src.relative_to(MU)}")
+        print("Upstream degismis olabilir; yamayi kor kor birakmiyoruz.")
+        sys.exit(1)
+    src.write_text(s.replace(ESKI, YENI, 1))
+    print(f"  yamalandi: {src.relative_to(MU)}")
+    yamalanan += 1
 
-s = s.replace(eski, yeni, 1)
-SRC.write_text(s)
-print("WatchdogTimer.c yamalandi: periyot her zaman 0 (etkisiz)")
+print(f"Watchdog etkisiz ({yamalanan} dosya yamalandi, periyot her zaman 0)")

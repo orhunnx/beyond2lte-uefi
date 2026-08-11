@@ -64,14 +64,18 @@ if [ -d "$MU/.git" ]; then
   if git -C "$MU" checkout -- Silicon/Samsung/SamsungPkg/Drivers/UfsDxe/UfsDxe.c 2>/dev/null; then
     echo "  UfsDxe.c upstream haline alindi (yama temizlendi)"
   fi
-  #
-  # WatchdogTimer.c da her derlemede temizleniyor - yama TEMIZ dosyaya
-  # uygulansin, birikmesin. Ayni tuzaga UFS yamasinda dusmustuk.
-  #
-  if git -C "$MU" checkout -- MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.c 2>/dev/null; then
-    echo "  WatchdogTimer.c upstream haline alindi"
-  fi
 fi
+#
+# WatchdogTimer.c BURADA GERI CAGRILMIYOR.
+#
+# O dosya bir ALT MODULDE (Project Mu MdeModulePkg'i ayri depoda tutuyor),
+# yani "git -C $MU checkout" ona ulasmiyor. Ilk surumde sabit yol yazmistim
+# ve dosya hic bulunamadi.
+#
+# Bunun yerine tools_wdt_kapat.py dosyayi ARIYOR ve yamayi IDEMPOTENT
+# uyguluyor: imza zaten varsa dokunmuyor. Birikmeli hasar olusmuyor,
+# geri cagirmaya gerek kalmiyor.
+#
 
 say "Overlay kopyalaniyor"
 cp -r "$PROJ/mu-silicium-overlay/." "$MU/"
