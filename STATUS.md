@@ -3938,3 +3938,41 @@ açılışta aynı 9-11 şerit, aynı temiz sıfırlama. Değiştirmediğimiz te
 Farklı bir yapı (Windows 10 ARM64 ya da Win11 23H2 WinPE) gerçekten farklı
 bir değişken. Aynı davranırsa platform tarafına kesin olarak dönebiliriz;
 farklı davranırsa sürüme özel bir şeyle uğraştığımızı öğreniriz.
+
+# ★ `ResetSystem` kesin olarak sıfır — ve bir tuzak fikri
+
+Çalıştığı kanıtlanmış kancayla ölçüldü:
+
+```
+GetTime      0 / 0
+GetVariable  372 / 372
+ResetSystem  0            ← sıfır
+SetVariable  64 / 64
+```
+
+**Windows UEFI `ResetSystem`'i hiç çağırmıyor.** Kırk tur önceki sonuç
+doğruymuş — ama o zaman kanca doğrulanmamıştı, şimdi doğrulandı.
+
+ARM64 Windows sıfırlamayı doğrudan **`PSCI SYSTEM_RESET` (SMC)** ile EL3'ten
+istiyor. `RST_STAT 0x20000000` ile birebir tutarlı.
+
+## Tuzak: gözlemleyemediğimiz yolu kapat
+
+SMC'leri göremiyoruz — EL2 tuzağı hiç çalışmadı. Ama Windows'u **göremediğimiz
+yoldan çıkmaya zorlayabiliriz.**
+
+FADT'de `PSCI Compliant` biti sıfırlandı (`ARM Flags 0001 → 0000`). Artık
+Windows PSCI'yi kullanamaz ve sıfırlamak için başka bir yol aramak zorunda —
+elimizdeki tek diğer yol **UEFI `ResetSystem`**, ve onu kancalıyoruz.
+
+| Sonuç | Anlamı |
+|---|---|
+| `+0x14` sıfırdan büyük | **Yakaladık.** `+0x18` sıfırlama türünü söylüyor (0 soğuk, 1 sıcak, 2 kapatma). Türü bilmek "neden" sorusunu daraltır |
+| Yine 10 şerit, `ResetSystem` hâlâ 0 | Sıfırlamayı Windows istemiyor. O zaman **başka biri** yapıyor ve arama Windows'un tamamen dışına çıkar |
+| Windows hiç açılmıyor | PSCI'siz çalışamıyor; bit geri açılır ve bu yol kapanır |
+
+`numproc 1` ve MADT'de tek etkin çekirdek olduğu için PSCI'nin ikincil
+çekirdek başlatma işlevine zaten ihtiyacımız yok.
+
+Üçüncü ihtimal bile bilgi: ikinci satır çıkarsa, kırk turdur Windows'ta
+aradığımız şeyin orada olmadığı kesinleşir.
