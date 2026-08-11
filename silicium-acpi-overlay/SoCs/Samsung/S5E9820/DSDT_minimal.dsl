@@ -149,11 +149,34 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
                 0x01
             })
             //
-            // _CCA ARM64'te DMA yapan her aygit icin zorunlu. DTB'de
-            // "ufs-io-coherency" node'u var ve UEFI (BoardInit.c) SYSREG'deki
-            // koherans bitlerini set ediyor, yani aygit gercekten koherent.
+            // _CCA ARM64'te DMA yapan her aygit icin zorunlu.
             //
-            Name (_CCA, One)
+            // BIR (KOHERENT) IDI, SIFIRA CEKILDI. Gerekce:
+            //
+            // DTB'de "ufs-io-coherency" node'u var ve UEFI (BoardInit.c)
+            // SYSREG'deki koherans bitlerini set ediyor. Ama koherans Exynos'ta
+            // IKI PARCALI: SYSREG biti yolun bir ucunu aciyor, digeri surucunun
+            // UTRD tanimlayicilarindaki paylasim/onbellek alanlarini dogru
+            // isaretlemesi. Samsung'un kendi surucusu ikisini de yapiyor;
+            // Windows'un JENERIK storufs.sys'i ikincisini bilmiyor.
+            //
+            // _CCA=1 derken Windows'a "onbellek bakimi yapma, tanimlayicilari
+            // dogrudan yaz" diyoruz. Koherans gercekte tam degilse tanimlayicilar
+            // CPU onbelleginde kalir, denetleyici bayat veri okur, hicbir komut
+            // tamamlanmaz ve storufs HwInitialize'da pes eder.
+            //
+            // _CCA=0 daha guvenli tarafta duruyor: Windows DMA tamponlarini
+            // onbelleklenmemis ayirir ve gereken temizleme/gecersiz kilma
+            // islemlerini kendisi yapar. Koherans gercekten calisiyorsa
+            // sadece biraz yavaslariz; calismiyorsa ise yarar.
+            //
+            // OLCUM: cekirdek disk acilisinda ~2 saniyede oluyor. Bu sure
+            // StorPort komut zaman asimi icin (30-60 s) cok kisa, ama
+            // "aygit baslatma basarisiz" icin tam yerinde. Yani storufs
+            // ILK ADIMDA dusuyor - NOP OUT / denetleyici init. Tanimlayici
+            // gorunurlugu tam o adimda belirleyici.
+            //
+            Name (_CCA, Zero)
             Method (_STA, 0, NotSerialized)
             {
                 Return (0x0F)

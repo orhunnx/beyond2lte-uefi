@@ -2358,3 +2358,74 @@ menüyü **winload çağrılmadan hemen önce** çiziyor ve kullanıcı girdisi 
 |---|---|
 | Menü çıkıp bekliyor | bootmgfw sağlam, tarama sorunsuz. Suç winload'da. Enter'a basıp aynı açılışta ikinci yarıyı da ölçüyoruz |
 | Menü yok, yine 1-2 s | bootmgfw'in kendisi ölüyor; Windows'un çekirdek tarafına hiç gelmemişiz |
+
+## `menu` varyantı: kırılma noktası tam olarak bulundu
+
+Üç ölçüm, tek açılış:
+
+1. **Windows Boot Manager menüsü çıktı ve bekledi.** Metin çizildi, geri sayım
+   işledi, Enter'a cevap verdi. `bootmgfw` sapasağlam: birimleri taradı, NTFS'i
+   okudu, BCD'yi ayrıştırdı, `winload.efi`'yi buldu.
+2. Enter'dan sonra logo ekranı, **50 saniye çembersiz**. Bu winload'un yükleme
+   safhası — PWM Gear 1'de ~150 MB'ı ~3 MB/s ile okumak tam bu kadar sürer.
+   Tek bir hata satırı yok.
+3. Sonra **2 saniye çember, ardından sıfırlama.**
+
+### Ne öğrendik
+
+| Katman | Durum |
+|---|---|
+| UEFI UFS sürücüsü | Çalışıyor — 50 saniye kesintisiz okuma |
+| `bootmgfw` NTFS okuyucusu | Çalışıyor |
+| `locate=` birim taraması | Çalışıyor |
+| `winload.efi` | Çalışıyor — çekirdeği ve tüm açılış sürücülerini yükledi |
+| **Çekirdek** | ~2 saniyede ölüyor |
+
+RAM diskten açılışta çekirdek sonuna kadar gidiyordu (sönme animasyonu). Tek
+fark açılış biriminin UFS olması. Yani geriye **tek bir suçlu** kaldı:
+`storufs.sys`.
+
+Kullanıcının fikri tam da bunu yapmak içindi ve yaptı: gözlemlenemez bir soru
+("storufs bağlanıyor mu?") ölçülebilir bir imzaya dönüştü.
+
+### 2 saniye neyi söylüyor
+
+StorPort komut zaman aşımı 30-60 saniyedir. 2 saniye onun için çok kısa ama
+"aygıt başlatma başarısız → PnP aygıtı reddetti → INACCESSIBLE_BOOT_DEVICE"
+için tam yerinde. Yani storufs **ilk adımda** düşüyor: denetleyici init /
+NOP OUT. Komut gönderip cevap beklerken değil.
+
+### Elenen: kesme numarası
+
+DTB `ufs@0x13D60000`: `interrupts = <0x00 0xf9 0x00>` → SPI 249. ACPI GSIV =
+SPI + 32 = 281 = `0x119`. DSDT'de yazan değer bu. Doğru.
+
+### Elenen: CRLF
+
+Depodaki `windows/startnet.cmd` LF satır sonlu (0 CR). Ama `tools_winboot.sh`
+satır 426 enjeksiyondan önce `sed 's/\r*$/\r/'` ile çeviriyor — cihaza giden
+dosya CRLF. "startnet'e dokunmak açılışı öldürüyor" bunun yüzünden değil.
+
+### Kayda geçen gerileme: `_CRS` dört aralığa dönmüş
+
+STATUS.md 1238: "`_CRS` tek aralığa indirilince storufs zararsızlaştı
+(5-6 s → 12 s)". Ama bilinen iyi noktaya (`43ef06c^`) dönerken bu sadeleştirme
+kayboldu; `DSDT_minimal.dsl` şu an yine dört bellek aralığı taşıyor. Şimdilik
+dokunmuyorum — tek değişkenli ölçüm bozulmasın — ama sıradaki aday bu.
+
+### Bu turun değişkeni: `_CCA` 1 → 0
+
+Exynos'ta koherans iki parçalı: SYSREG biti yolun bir ucunu açıyor, diğer uç
+sürücünün UTRD tanımlayıcılarındaki paylaşım alanlarını doğru işaretlemesi.
+Samsung'un sürücüsü ikisini de yapıyor, jenerik `storufs.sys` ikincisini
+bilmiyor. `_CCA=1` Windows'a "önbellek bakımı yapma" diyor; koherans gerçekte
+tam değilse tanımlayıcılar CPU önbelleğinde kalır, denetleyici bayat veri okur
+ve init ilk adımda düşer — gördüğümüz imzanın tam kendisi.
+
+`_CCA=0` ile Windows DMA tamponlarını önbelleklenmemiş ayırır ve temizlemeyi
+kendi yapar. Koherans zaten çalışıyorsa sadece yavaşlarız.
+
+| Ölçüm | Sonuç |
+|---|---|
+| 2 saniyeden uzun / açılıyor | Sorun tanımlayıcı görünürlüğüymüş |
+| Yine 2 saniye | DSDT ekseni tükendi; sıra `_CRS` tek aralıkta, sonra RAM diske dönüp WinPE'yi ayakta tutmakta |
