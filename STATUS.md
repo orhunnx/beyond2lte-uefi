@@ -1841,3 +1841,110 @@ değeri de basıyor:
 WIM'den geri okundu: AutoReboot=0  DisplayParameters=1
 DOGRULANDI: bugcheck olursa cihaz ekranda kalacak
 ```
+
+## Bugcheck de elendi — gözlem kanalları tükendi
+
+`AutoReboot=0` doğrulanarak uygulandı (WIM'den geri okundu) ve cihaz yine
+sıfırlıyor. Bugcheck olsaydı ekranda kalırdı. **Çöküş bir bugcheck değil.**
+
+### Ölçülmüş tablo
+
+| Bilgi | Kanıt |
+|---|---|
+| Platform EBS sonrası >60 s sağlam | `EbsTest`, 63 kare |
+| Sıfırlamayı Windows çalıştırıyor | Yukarıdakinin doğrudan sonucu |
+| `ResetSystem`'den geçmiyor | Kanca ateşlemedi; sürücünün çalıştığı `B2LI` sayacıyla doğrulandı |
+| PSCI bayrağı kapalıyken de değişmiyor | FADT `PSCI_COMPLIANT = 0` testi |
+| Bugcheck değil | `AutoReboot=0` doğrulandı, yine sıfırlıyor |
+| ACPI'nin tamamı doğru | MADT/GTDT/FADT/PPTT, stock DTB'ye karşı |
+| Hiçbir yere kayıt düşmüyor | `bootstat.dat` yok, NV değişkenler emüle |
+| WinPE sürümü/içeriği fark etmiyor | ISO 25H2, ISO 23H2, ADK WinPE — hepsi ~15 s |
+| Çekirdek sayısı fark etmiyor | MADT 1 ve 8 çekirdek |
+| storufs fark etmiyor | `_CLS` açık/kapalı, `_CRS` sade/geniş |
+
+Windows `ntoskrnl` başladıktan ~12 saniye sonra, sabit bir noktada, sessizce,
+elimizdeki her kayıt ve kanca mekanizmasını atlayarak cihazı yeniden
+başlatıyor.
+
+### Neden buradan sonrası farklı bir iş
+
+Ne yaptığını göremediğimiz sürece kör bayrak deniyoruz. Son yirmi turun büyük
+kısmı buydu ve **üçü araç hatası çıktı** (yamalı `UfsDxe.c`, SYSTEM'deki eski
+ESP, atlanan WIM içerik yamaları). Gözlem olmadan ilerleme rastlantıya kalıyor.
+
+Geriye üç gerçek yol kalıyor, üçü de tek turluk deneme değil:
+
+1. **EL2 + `HCR_EL2.TSC`** — TrustZone arka kapısıyla EL2'ye kendi kodumuzu
+   koyup Windows'un her `SMC`'sini ve istisnasını yakalamak.
+   `sleirsgoevy/exynos-kvm-patch` bunun bu SoC ailesinde yapılabildiğini
+   gösteriyor. Tek gerçek gözlem aracı.
+2. **Kalıcı NV değişkenler (FVB + FTW)** — Windows'un kendi açılış durumu
+   raporlamasını geri getirir. Gerçek bir Windows kurulumu için zaten gerekli.
+3. **UFS'i Windows altında çalıştırmak** — PHY'yi PWM Gear 1'e çekip
+   `storufs.sys`'i gerçekten bağlamak. Depolama olmadan telefon zaten
+   kullanılamaz.
+
+## EL2'ye çıkış: TrustZone arka kapısı
+
+Gözlem kanalları tükendiği için EL2'ye çıkıp Windows'un `SMC`'lerini
+tuzaklamaya karar verildi. Arayüz `sleirsgoevy/exynos-kvm-patch`'te
+belgelenmiş ve Samsung'un kendi çekirdeği RKP'yi bununla yüklüyor
+(`init/vmm.c`):
+
+```
+x0 = 0xC2000400   VMM_64BIT_SMC_CALL_MAGIC
+x1 = entry_point  EL2'de çalışacak rutinin FİZİKSEL adresi
+x2 = 4096         VMM_STACK_OFFSET
+x3 = 1            VMM_MODE_AARCH64
+x4, x5            rutine x0/x1 olarak geçer
+smc #0
+```
+
+Rutin EL2'de çalışır, `smc #0` ile `x0=0xC2000401, x1=status` diyerek döner.
+**`status` sıfır olmak zorunda** — değilse firmware HYP durumunu varsayılana
+sıfırlıyor.
+
+Üç belgelenmiş kısıt, tasarımı belirledi:
+
+1. Init yalnızca açılış çekirdeğinde çalışıyor; diğerleri EL2 durumunu
+   kopyalıyor, tek fark `sp = bootcore.sp + 4096 * çekirdek_no`. Yığın bölgesi
+   sekiz çekirdeklik ayrıldı.
+2. Firmware `vbar_el2`'yi çıkışta kaydedip rastgele noktalarda geri yüklüyor —
+   yani vektör sonradan değiştirilemez ama **koyduğumuz yerde kalıyor**, ki
+   bize gereken tam olarak bu.
+3. EL2'de MMU kapalı, adresler fiziksel. Kod ve tampon sabit fiziksel
+   adreslerde; Windows'un bu bölgeyi haritalamasına gerek yok, sadece
+   dokunmaması gerekiyor → `Reserv`, `RtData` değil.
+
+### Yerleşim (`0xCF000000`, 256 KB)
+
+| Adres | İçerik |
+|---|---|
+| `0xCF000000` | İstisna vektörü (VBAR_EL2, 2 KB hizalı) |
+| `0xCF000800` | Init rutini — SMC'ye `entry_point` olarak bu veriliyor |
+| `0xCF010000` | Yığın tepesi; çekirdek N → `+4096*N` |
+| `0xCF020000` | Bu açılışın SMC kaydı |
+| `0xCF030000` | Önceki açılışın kaydı — Shell burayı okuyor |
+
+Vektör tablosu dosyanın başında: `0xCF000000` zaten 2 KB hizalı olduğu için
+hizalama numarasına gerek kalmıyor ve yük tek parça kopyalanabiliyor.
+
+### Kayıt biçimi
+
+```
++0x00  u32  'B2L2'  (dmem'de 42 32 4C 32)
++0x04  u32  yakalanan SMC sayısı
++0x10  kayıtlar, her biri 32 bayt: x0, x1, x2, ELR_EL2
+```
+
+Aradığımız: `x0 = 0x84000009` (PSCI `SYSTEM_RESET`). Çıkarsa Windows cihazı
+kendi isteğiyle sıfırlıyor demektir ve `ELR_EL2` çağrıyı yapan kodun adresini
+verir.
+
+### İki ince nokta
+
+**`ELR_EL2` ilerletilmeli.** Tuzaklanan SMC'de `ELR_EL2` komutun kendisini
+gösterir; ilerletmezsek aynı komuta dönüp sonsuz tuzağa gireriz.
+
+**EL2'den yapılan SMC tuzaklanmaz.** `HCR_EL2.TSC` yalnızca EL1'i bağlıyor, o
+yüzden çağrıyı EL3'e iletirken sonsuz döngü oluşmuyor.

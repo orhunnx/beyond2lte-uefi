@@ -53,6 +53,25 @@ dmem 0x15860404 4
 # Ikisinden biri yaniliyor. Tahmin etmek yerine birimin kokunu okutuyoruz:
 # dosya listede varsa sorun "if exist" ifadesinde, yoksa imaja hic girmemis.
 #
+#
+# EL2 SMC KAYDI  (B2LEl2Dxe + B2LEl2Payload.S, 0xCF030000)
+#
+# TrustZone arka kapisiyla EL2'ye ciktik ve HCR_EL2.TSC ile EL1'den gelen
+# her SMC'yi tuzakliyoruz. Onceki acilista Windows'un EL3'e ne sordugu
+# burada duruyor.
+#
+#   +0x00  42 32 4C 32  = "B2L2" imzasi. YOKSA kanca hic calismadi.
+#   +0x04  yakalanan SMC sayisi
+#   +0x10  ilk kayit, 32 bayt: x0 (fonksiyon no), x1, x2, ELR_EL2
+#
+# ARADIGIMIZ: son kayitta x0 = 0x84000009 (PSCI SYSTEM_RESET). Cikarsa
+# Windows cihazi kendi istegiyle sifirliyor demektir ve ELR_EL2 cagriyi
+# yapan kodun adresini verir.
+#
+echo ================ EL2 SMC KAYDI
+dmem 0xCF030000 60
+echo .
+
 echo ================ fs0 KOKU
 ls fs0:\
 

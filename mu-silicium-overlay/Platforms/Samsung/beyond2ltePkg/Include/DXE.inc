@@ -22,6 +22,12 @@
   INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
   INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
 
+  #
+  # EL2 yuku: TrustZone arka kapisiyla EL2'ye cikip EL1'den gelen SMC'leri
+  # tuzakliyor. Windows'un EL3'e ne sordugunu gormenin tek yolu.
+  #
+  INF beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf
+
   INF SamsungPkg/Drivers/ChipInfoDxe/ChipInfoDxe.inf
   INF SamsungPkg/Drivers/GpioDxe/GpioDxe.inf
   INF SamsungPkg/Drivers/UsiDxe/UsiDxe.inf

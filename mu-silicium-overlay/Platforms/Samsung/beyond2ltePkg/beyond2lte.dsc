@@ -142,6 +142,11 @@
   beyond2ltePkg/Applications/EbsTest/EbsTest.inf
 
   #
+  # EL2 yuku yukleyici (bkz. Drivers/B2LEl2Dxe/B2LEl2Payload.S)
+  #
+  beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf
+
+  #
   # Input
   #
   SiliciumPkg/Drivers/KeypadDxe/KeypadDxe.inf

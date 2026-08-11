@@ -18,6 +18,28 @@ gMemoryDescriptor[] = {
   {"Display Reserved",   0xCA000000, 0x01400000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
   {"DXE Heap",           0xCB400000, 0x03C00000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
 
+  //
+  // B2L EL2 - EL2 yuku, yigin ve SMC kaydi. 256 KB.
+  //
+  // NEREDE: DXE Heap 0xCF000000'da bitiyor, DTB'nin bir sonraki rezervi
+  // modem_spare 0xD0000000'da basliyor. Aradaki 16 MB'lik boslugun basi;
+  // ne UEFI ne Android burayi kullaniyor.
+  //
+  // Reserv SART, RtData DEGIL: EL2'de MMU kapali, adresler fiziksel. Windows'un
+  // bu bolgeyi haritalamasina gerek yok - sadece DOKUNMAMASI gerekiyor.
+  //
+  // UNCACHED_UNBUFFERED SART: EL2 kodu onbellege ugramadan calisiyor ve
+  // kaydi sifirlamadan hemen once yaziyor; veri onbellekte kalirsa kaybolur.
+  //
+  // Ic yerlesim (B2LEl2Payload.S):
+  //   0xCF000000  istisna vektoru (VBAR_EL2, 2 KB hizali)
+  //   0xCF000800  init rutini
+  //   0xCF010000  yigin tepesi; cekirdek N -> +4096*N
+  //   0xCF020000  bu acilisin SMC kaydi
+  //   0xCF030000  onceki acilisin kaydi  <- Shell burayi okur
+  //
+  {"B2L EL2",            0xCF000000, 0x00040000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, UNCACHED_UNBUFFERED},
+
   // iRAM Regions
   {"IRAM",               0x02020000, 0x00018000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   DEVICE},
   {"NS_IRAM",            0x02038000, 0x00004000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
