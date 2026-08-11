@@ -205,6 +205,24 @@ if /i "%VAR%"=="hatagoster" (
   bcdedit /store "%BCD%" /set %G% bootstatuspolicy   IgnoreAllFailures
   if errorlevel 1 echo   ! BASARISIZ: bootstatuspolicy   IgnoreAllFailures
 )
+::
+:: TEST IMZALAMA - ARTIK HER VARYANTTA.
+::
+:: Onceden yalnizca "testimza" varyantindaydi. "menuram" ile BCD uretince
+:: dustu ve cihaz sunu verdi:
+::
+::   File: \windows\System32\drivers\b2lfb.sys
+::   Status: 0xc0000428
+::
+:: Kendi surucumuz artik her acilista yukleniyor; testsigning deneye ozel bir
+:: dugme degil, KALICI BIR GEREKLILIK. Varyanta birakmak, her yeni varyantta
+:: ayni hatayi tekrar etmek demekti.
+::
+bcdedit /store "%BCD%" /set %G% testsigning        Yes
+if errorlevel 1 echo   ! BASARISIZ: testsigning        Yes
+bcdedit /store "%BCD%" /set %G% nointegritychecks  Yes
+if errorlevel 1 echo   ! BASARISIZ: nointegritychecks  Yes
+
 bcdedit /store "%BCD%" /set %G% quietboot          No
 if errorlevel 1 echo   ! BASARISIZ: quietboot          No
 bcdedit /store "%BCD%" /set %G% sos                On
@@ -258,14 +276,11 @@ if /i "%VAR%"=="menuram" (
 ::
 :: Secure Boot'un zorlamadigi OLCULDU: imzasiz EBSTEST.EFI cihazda calisti.
 ::
+:: testimza artik yalnizca numproc 1 ekliyor; imzalama ortak bolume tasindi.
 if /i "%VAR%"=="testimza" (
-  bcdedit /store "%BCD%" /set %G% testsigning Yes
-  if errorlevel 1 echo   ! BASARISIZ: testsigning Yes
-  bcdedit /store "%BCD%" /set %G% nointegritychecks Yes
-  if errorlevel 1 echo   ! BASARISIZ: nointegritychecks Yes
   bcdedit /store "%BCD%" /set %G% numproc 1
   if errorlevel 1 echo   ! BASARISIZ: numproc 1
-  echo   AYAR: testsigning + nointegritychecks + numproc 1
+  echo   AYAR: numproc 1  ^(imzalama zaten her varyantta acik^)
 )
 if /i "%VAR%"=="azram" (
   bcdedit /store "%BCD%" /set %G% truncatememory 0x100000000
