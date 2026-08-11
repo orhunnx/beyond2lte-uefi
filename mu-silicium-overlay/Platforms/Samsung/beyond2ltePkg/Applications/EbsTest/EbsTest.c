@@ -68,6 +68,13 @@
 #define KARE      28
 #define BOSLUK     6
 
+//
+// EL gostergesinin bandi. Aşama seritlerinin ALTINDA, tik izgarasinin
+// USTUNDE ve ekranin ortasinda - kavisli kosenin uzaginda.
+//
+#define EL_Y      (SERIT_Y + 3 * SERIT_H + 40)
+#define EL_H      200
+
 #define RENK_KIRMIZI  0x00FF0000
 #define RENK_MAVI     0x000060FF
 #define RENK_SARI     0x00FFD000
@@ -204,15 +211,32 @@ UefiMain (
   Asama (0, RENK_KIRMIZI);        // 1: calisiyoruz, GOP tamam
 
   //
-  // EL'i ekrana da bas: kirmizi seridin sol ucunda EL sayisi kadar beyaz
-  // kare. Konsol kaysa bile gorunur kalir.
+  // EL'i ekrana da bas: EL sayisi kadar BUYUK beyaz kare.
+  //
+  // ILK YERLESIM EKRANIN SOL UST KOSESINDEYDI VE OKUNAMADI: bu panelin
+  // kavisli kosesi orayi yutuyor. Olcum aracinin kendisi gorunmuyorsa
+  // olcum yok demektir - ayni dersi 25 satirlik konsolda da almistik.
+  //
+  // Simdi ekranin ORTASINDA, kenarlardan uzakta ve iri. Tek bakista
+  // sayilabilsin diye aralarinda genis bosluk var.
+  //
+  //   1 kare -> EL1. Windows'un SMC'lerini tuzaklayamayiz, EL2 bos degil
+  //             ya da bize kapali.
+  //   2 kare -> EL2. HCR_EL2.TSC ile EL1'den gelen HER SMC bize duser;
+  //             TrustZone arka kapisina hic gerek kalmaz.
   //
   {
     UINTN El = ArmReadCurrentEL () >> 2;
     UINTN I;
+    UINTN Kenar = 140;
+    UINTN Ara   = 60;
+    UINTN Y     = EL_Y;
+    UINTN X0;
+
+    X0 = (mW - (El * Kenar + (El - 1) * Ara)) / 2;
 
     for (I = 0; I < El; I++) {
-      Doldur (BOSLUK + I * (KARE + BOSLUK), SERIT_Y + 4, KARE, SERIT_H - 12, 0x00FFFFFF);
+      Doldur (X0 + I * (Kenar + Ara), Y, Kenar, Kenar, 0x00FFFFFF);
     }
   }
 
@@ -270,7 +294,11 @@ UefiMain (
     SutunSay = 1;
   }
 
-  KareY0 = SERIT_Y + 3 * SERIT_H + BOSLUK;
+  //
+  // Tik izgarasi EL bandinin ALTINDAN basliyor; ustune yazsaydi gostergeyi
+  // birkac saniye icinde silerdi.
+  //
+  KareY0 = EL_Y + EL_H;
 
   Tik = 0;
   for (;;) {
