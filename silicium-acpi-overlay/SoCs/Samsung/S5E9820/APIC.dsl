@@ -52,8 +52,8 @@
 [080h 0128 002h]                    Reserved : 0000
 [082h 0130 004h]        CPU Interface Number : 00000001
 [086h 0134 004h]               Processor UID : 00000001
-[08Ah 0138 004h]       Flags (decoded below) : 00000001
-                           Processor Enabled : 1
+[08Ah 0138 004h]       Flags (decoded below) : 00000000
+                           Processor Enabled : 0
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [08Eh 0142 004h]    Parking Protocol Version : 00000000
@@ -75,8 +75,8 @@
 [0D2h 0210 002h]                    Reserved : 0000
 [0D4h 0212 004h]        CPU Interface Number : 00000002
 [0D8h 0216 004h]               Processor UID : 00000002
-[0DCh 0220 004h]       Flags (decoded below) : 00000001
-                           Processor Enabled : 1
+[0DCh 0220 004h]       Flags (decoded below) : 00000000
+                           Processor Enabled : 0
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [0E0h 0224 004h]    Parking Protocol Version : 00000000
@@ -98,8 +98,8 @@
 [124h 0292 002h]                    Reserved : 0000
 [126h 0294 004h]        CPU Interface Number : 00000003
 [12Ah 0298 004h]               Processor UID : 00000003
-[12Eh 0302 004h]       Flags (decoded below) : 00000001
-                           Processor Enabled : 1
+[12Eh 0302 004h]       Flags (decoded below) : 00000000
+                           Processor Enabled : 0
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [132h 0306 004h]    Parking Protocol Version : 00000000
@@ -121,8 +121,8 @@
 [176h 0374 002h]                    Reserved : 0000
 [178h 0376 004h]        CPU Interface Number : 00000004
 [17Ch 0380 004h]               Processor UID : 00000004
-[180h 0384 004h]       Flags (decoded below) : 00000001
-                           Processor Enabled : 1
+[180h 0384 004h]       Flags (decoded below) : 00000000
+                           Processor Enabled : 0
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [184h 0388 004h]    Parking Protocol Version : 00000000
@@ -144,8 +144,8 @@
 [1C8h 0456 002h]                    Reserved : 0000
 [1CAh 0458 004h]        CPU Interface Number : 00000005
 [1CEh 0462 004h]               Processor UID : 00000005
-[1D2h 0466 004h]       Flags (decoded below) : 00000001
-                           Processor Enabled : 1
+[1D2h 0466 004h]       Flags (decoded below) : 00000000
+                           Processor Enabled : 0
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [1D6h 0470 004h]    Parking Protocol Version : 00000000
@@ -167,8 +167,8 @@
 [21Ah 0538 002h]                    Reserved : 0000
 [21Ch 0540 004h]        CPU Interface Number : 00000006
 [220h 0544 004h]               Processor UID : 00000006
-[224h 0548 004h]       Flags (decoded below) : 00000001
-                           Processor Enabled : 1
+[224h 0548 004h]       Flags (decoded below) : 00000000
+                           Processor Enabled : 0
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [228h 0552 004h]    Parking Protocol Version : 00000000
@@ -190,8 +190,8 @@
 [26Ch 0620 002h]                    Reserved : 0000
 [26Eh 0622 004h]        CPU Interface Number : 00000007
 [272h 0626 004h]               Processor UID : 00000007
-[276h 0630 004h]       Flags (decoded below) : 00000001
-                           Processor Enabled : 1
+[276h 0630 004h]       Flags (decoded below) : 00000000
+                           Processor Enabled : 0
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [27Ah 0634 004h]    Parking Protocol Version : 00000000

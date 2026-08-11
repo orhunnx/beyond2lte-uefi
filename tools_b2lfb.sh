@@ -181,25 +181,11 @@ rm -rf "$CK"
 #
 # 6) Servis kaydi - ACILIS SURUCUSU
 #
-# Start=1  SYSTEM : CEKIRDEK yukluyor, acilis surucilerinden SONRA.
-#
-#   Onceden 0 (BOOT) idi. Iki blokaj denemesi de sifirlamayi ONLEDI:
-#     - en erken grupta bloke -> 25+ serit, sifirlama yok
-#     - butun gruplardan sonra bloke -> 20+ serit, sifirlama yok
-#
-#   Yani butun acilis surucileri sorunsuz yukleniyor ve tetikleyici daha
-#   ileride. Start=1 blokaji bir kademe otesine tasiyor: aradan PnP
-#   yoneticisinin ACPI ad alanini sayip aygitlari baslatmasi geciyor.
+# Start=0  BOOT   : winload yukluyor. BLOKAJ MERDIVENI BITTI, en erken
+#                   yuklemeye geri donuldu ki bant her acilista ciksin ve
+#                   serit sayimi bastan islesin.
 # Type=1          : cekirdek surucusu
-# Group           : BOS BIRAKILDI - surucu EN SONDA yuklensin.
-#
-#   Onceden "System Bus Extender" idi, yani en erken gruplardan biri. Orada
-#   DriverEntry'yi sonsuza kadar bloke edince sifirlama HIC olmadi (25+
-#   serit). Yani tetikleyici bizden SONRA.
-#
-#   Bos Group, gruplu butun acilis surucilerinden SONRA yuklenmek demek.
-#   Ayni engelleme numarasi, cok daha ileri bir noktada - boylece "acilis
-#   surucileri yuklenirken mi, yoksa daha sonra mi" sorusu ayriliyor.
+# Group           : "System Bus Extender" - en erken gruplardan biri.
 #
 # ErrorControl=3 (CRITICAL) - ILK SURUMDE 0 IDI VE BU BIR TASARIM HATASIYDI.
 #
@@ -232,10 +218,10 @@ wimlib-imagex extract "$WIM" 1 /Windows/System32/config/SYSTEM \
 cat > "$W/b2lfb.reg" <<'REG'
 [HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Services\b2lfb]
 "Type"=dword:00000001
-"Start"=dword:00000001
+"Start"=dword:00000000
 "ErrorControl"=dword:00000003
 "ImagePath"=str(2):"\\SystemRoot\\System32\\drivers\\b2lfb.sys"
-"Group"=""
+"Group"="System Bus Extender"
 "DisplayName"="beyond2lte framebuffer"
 REG
 hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$W/SYSTEM" "$W/b2lfb.reg"

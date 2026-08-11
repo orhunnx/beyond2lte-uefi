@@ -38,7 +38,7 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             Name (_UID, One)  // _UID: Unique ID
             Method (_STA, 0, NotSerialized)  // _STA: Status
             {
-                Return (0x0F)
+                Return (Zero)
             }
         }
 
@@ -48,7 +48,7 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             Name (_UID, 0x02)  // _UID: Unique ID
             Method (_STA, 0, NotSerialized)  // _STA: Status
             {
-                Return (0x0F)
+                Return (Zero)
             }
         }
 
@@ -58,7 +58,7 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             Name (_UID, 0x03)  // _UID: Unique ID
             Method (_STA, 0, NotSerialized)  // _STA: Status
             {
-                Return (0x0F)
+                Return (Zero)
             }
         }
 
@@ -68,7 +68,7 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             Name (_UID, 0x04)  // _UID: Unique ID
             Method (_STA, 0, NotSerialized)  // _STA: Status
             {
-                Return (0x0F)
+                Return (Zero)
             }
         }
 
@@ -78,7 +78,7 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             Name (_UID, 0x05)  // _UID: Unique ID
             Method (_STA, 0, NotSerialized)  // _STA: Status
             {
-                Return (0x0F)
+                Return (Zero)
             }
         }
 
@@ -88,7 +88,7 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             Name (_UID, 0x06)  // _UID: Unique ID
             Method (_STA, 0, NotSerialized)  // _STA: Status
             {
-                Return (0x0F)
+                Return (Zero)
             }
         }
 
@@ -98,7 +98,7 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             Name (_UID, 0x07)  // _UID: Unique ID
             Method (_STA, 0, NotSerialized)  // _STA: Status
             {
-                Return (0x0F)
+                Return (Zero)
             }
         }
 

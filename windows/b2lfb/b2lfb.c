@@ -426,32 +426,20 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   KeSetTimerEx ((PVOID)gTimer, -10000000LL, 1000, (PVOID)gDpc);
 
   /*
-   * DONMEYEN DONGU - IKINCI TUR, BU SEFER EN SONDAN
+   * BLOKAJ KALDIRILDI - MERDIVEN GOREVINI TAMAMLADI.
    *
-   * Ilk turda surucu EN ERKEN gruptaydi ("System Bus Extender") ve burada
-   * durunca sifirlama HIC olmadi. Yani tetikleyici bizden SONRA.
+   *   Start=0, en erken grup      -> 25+ serit, sifirlama YOK
+   *   Start=0, en son (gruppsuz)  -> 20+ serit, sifirlama YOK
+   *   Start=1                     -> bant HIC CIKMADI, 10 saniyede sifirlama
    *
-   * Simdi servis kaydindaki Group bos birakildi: surucu butun gruplu acilis
-   * surucilerinden SONRA yukleniyor. Ayni yerde tekrar duruyoruz ama bu kez
-   * cok daha ilerideyiz.
+   * Ucuncu satir tetikleyiciyi iki nokta arasina sikistirdi: acilis
+   * surucileri bittikten sonra, Start=1 surucileri yuklenmeden once. Orada
+   * olan tek sey PnP yoneticisinin ACPI ad alanini sayip aygitlari
+   * baslatmasi.
    *
-   *   Macenta bant cikip sifirlama OLMUYORSA
-   *       -> Butun acilis surucileri sorunsuz yuklendi. Tetikleyici daha
-   *          ileride: PnP aygit sayimi ya da cekirdegin Faz 1 devami.
-   *
-   *   Macenta bant HIC CIKMIYOR ve ~10 saniyede sifirliyorsa
-   *       -> Sifirlama acilis surucileri yuklenirken, BIZDEN ONCE oluyor.
-   *          O zaman suclu o listede ve tek tek kapatarak daraltilir.
-   *
-   * Bant cikip yine de sifirliyorsa tetikleyici tam bizim yuklenme
-   * anımızda demektir - o da dar bir pencere.
+   * Simdi acilisin ilerlemesi gerekiyor, o yuzden blokaj yok ve surucu
+   * tekrar en erken acilis surucusu.
    */
-  {
-    volatile UINT64 I = 0;
-    for (;;) {
-      I++;
-    }
-  }
 
   /*
    * STATUS_SUCCESS SART. Bir acilis surucusu basarisiz donerse ve

@@ -3575,3 +3575,47 @@ sürücüleri bundan sonra yükleniyor.
 
 Üçüncüsü en olası ve en ilginç olurdu: DSDT'de işlemciler ve UFS0 var, ve
 PnP tam orayı geziyor.
+
+# ★ Tetikleyici izole edildi: PnP / ACPI aygıt sayımı
+
+Blokaj merdiveni:
+
+| Nerede bloke edildi | Sonuç |
+|---|---|
+| `Start=0`, en erken grup | 25+ şerit, sıfırlama **yok** |
+| `Start=0`, en son (grupsuz) | 20+ şerit, sıfırlama **yok** |
+| `Start=1` (SYSTEM) | **Bant hiç çıkmadı**, 10 saniyede sıfırlama |
+
+Üçüncü satır tetikleyiciyi iki nokta arasına sıkıştırdı: **açılış sürücüleri
+bittikten sonra, `Start=1` sürücüleri yüklenmeden önce.** Orada olan tek şey
+PnP yöneticisinin ACPI ad alanını sayıp aygıtları başlatması.
+
+## Ad alanında ne var
+
+DSDT'de yalnızca iki şey: **sekiz işlemci aygıtı** ve `UFS0`. `UFS0`'ın `_CLS`'i
+zaten kapalı ve sonucu değiştirmemişti. Geriye işlemciler kalıyor.
+
+## Ve tabloların çeliştiği ortaya çıktı
+
+MADT'de **sekiz çekirdeğin sekizi de `Processor Enabled = 1`**. DSDT'de de
+sekizinin `_STA`'sı `0x0F`. Yani Windows'a "sekiz çalışan çekirdek var"
+diyoruz, BCD'de `numproc 1` ile de "ama birini kullan".
+
+`numproc` Windows'un kaç çekirdek **kullanacağını** sınırlıyor, kaç tane
+**gördüğünü** değil.
+
+Projenin en eski ve hiç takip edilmemiş anomalisi tam buydu:
+
+> `numproc 1` olmadan Windows çekirdeği hiç başlamıyor. İkincil çekirdek
+> açılışı Windows'u anında öldürüyor.
+
+Yani bu platformda ikincil çekirdek başlatmanın öldürücü olduğunu zaten
+biliyorduk — ve PnP işlemci sayımı tam olarak izole ettiğimiz pencerede.
+
+## Değişiklik: iki tablo birbiriyle tutarlı hale getirildi
+
+- MADT: UID 1..7 → `Processor Enabled = 0`
+- DSDT: `CPU1`..`CPU7` → `_STA` `Return (Zero)`
+
+Artık Windows tek çekirdekli bir makine görüyor ve iki tablo aynı şeyi
+söylüyor. Blokaj kaldırıldı, sürücü tekrar en erken açılış sürücüsü.
