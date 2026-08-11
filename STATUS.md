@@ -1787,3 +1787,34 @@ yamalanmadığı hiç doğrulanmadı.
 - Yazdıktan sonra hive'ı WIM'den **geri okuyup** `CrashControl\AutoReboot`
   değerini ekrana basıyor
 - `hivexregedit` yoksa sessiz geçmiyor, çerçeveli bir uyarı basıyor
+
+## Script hatası: WIM içerik yamaları hiç çalışmıyordu
+
+`tools_winboot.sh` çıktısında hiçbir doğrulama satırı çıkmadı. Sebep yapısal:
+
+`hivexregedit` hive yaması ve `startnet.cmd` enjeksiyonu, **WIM'i yeniden üreten
+dalın içindeydi**. `--wim-yenile` verilmediğinde script "boot.wim hazir,
+atlaniyor" deyip o dalın tamamını geçiyordu. Sonuç:
+
+- `AutoReboot=0` hive yaması **hiç uygulanmıyordu**
+- `--stok` bayrağı **hiçbir iş yapmıyordu** — stock `startnet.cmd` hiç yazılmadı
+- Doğrulama satırları basılmıyordu, ekranda "hiçbir şey yazmıyor"
+
+WIM'i yeniden üretmek ile içeriğine dokunmak bağımsız işler; ikisini aynı koşula
+bağlamak birkaç turluk ölçümü şüpheli hale getirdi. Blok dışarı taşındı, artık
+`boot.wim` varsa her çalıştırmada uygulanıyor.
+
+Bu, aynı sınıftan **üçüncü** hata:
+
+| Hata | Ortak yanı |
+|---|---|
+| `yap.sh` yamayı kapattı ama `$MU/UfsDxe.c` yamalı kaldı | "Kapattım" demek yetmedi |
+| SYSTEM'deki eski ESP silinmedi, Shell onu çalıştırdı | Eski durum sessizce hayatta kaldı |
+| `--stok` ve hive yaması atlanan dalın içindeydi | Bayrak vardı ama etkisi yoktu |
+
+Üçünde de araç "yaptım" diyordu, cihaz eskisini kullanıyordu. Bundan sonra her
+yamanın **geri okunarak doğrulanması** kural.
+
+Taşıma sırasında bir tuzak: blok içinde `<<'REG'` here-doc var; girintisi
+değişirse kabuk sonlandırıcıyı göremiyor (`unexpected end of file`). Girinti
+korunarak taşındı.

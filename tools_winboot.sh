@@ -242,6 +242,39 @@ elif [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
     *) echo "  UYARI: Boot Index 1 degil, WinPE yine acilmaz." ;;
   esac
 
+
+  SZB=$(stat -c%s "$ESP/sources/boot.wim")
+  LIMIT=$((600*1024*1024 - 12*1024*1024))
+  echo "  boyut: $((SZB/1024/1024)) MB / sinir $((LIMIT/1024/1024)) MB"
+  if [ "$SZB" -gt "$LIMIT" ]; then
+    echo
+    echo "  SIGMIYOR. Yeniden sikistirma kacinilmaz olabilir:"
+    echo "    wimlib-imagex export <kaynak> 1 <hedef> --compress=LZX --rebuild"
+    echo "  ya da daha buyuk bir bolum (SYSTEM 5.57 GB)."
+  fi
+else
+  echo "  (boot.wim atlandi: ISO'da yok ya da wimlib-imagex kurulu degil)"
+fi
+
+#
+# ---------------------------------------------------------------------------
+# WIM ICERIK YAMALARI - WIM YENIDEN URETILSIN YA DA URETILMESIN CALISIR
+# ---------------------------------------------------------------------------
+#
+# BU BLOK ONCEDEN 'WIM'i isle' DALININ ICINDEYDI VE GERCEK BIR HATAYDI.
+#
+# '--wim-yenile' verilmediginde script 'boot.wim hazir, atlaniyor' deyip o
+# dalin TAMAMINI geciyordu. Yani:
+#   - AutoReboot=0 hive yamasi hic uygulanmiyordu
+#   - '--stok' bayragi hicbir is yapmiyordu (stock startnet.cmd yazilmiyordu)
+#   - dogrulama satirlari hic basilmiyordu, ekranda 'hicbir sey yazmiyor'
+#
+# WIM'i YENIDEN URETMEK ile ICERIGINE DOKUNMAK bagimsiz islerdir; ikisini
+# ayni kosula baglamak birkac turluk olcumu supheli hale getirdi.
+#
+# Artik boot.wim varsa her calistirmada uygulaniyor.
+#
+if [ -s "$ESP/sources/boot.wim" ] && command -v wimlib-imagex >/dev/null; then
   #
   # MAVI EKRANI EKRANDA TUT.
   #
@@ -378,19 +411,8 @@ REG
   else
     echo "  butunluk: BASARISIZ - WIM bozuk!"
   fi
-
-  SZB=$(stat -c%s "$ESP/sources/boot.wim")
-  LIMIT=$((600*1024*1024 - 12*1024*1024))
-  echo "  boyut: $((SZB/1024/1024)) MB / sinir $((LIMIT/1024/1024)) MB"
-  if [ "$SZB" -gt "$LIMIT" ]; then
-    echo
-    echo "  SIGMIYOR. Yeniden sikistirma kacinilmaz olabilir:"
-    echo "    wimlib-imagex export <kaynak> 1 <hedef> --compress=LZX --rebuild"
-    echo "  ya da daha buyuk bir bolum (SYSTEM 5.57 GB)."
-  fi
-else
-  echo "  (boot.wim atlandi: ISO'da yok ya da wimlib-imagex kurulu degil)"
 fi
+
 
 say "ESP agacina yerlestiriliyor"
 rm -rf "$ESP/EFI/Microsoft/Boot/Fonts"   # onceki turdan kalan 83 MB CJK font
