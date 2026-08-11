@@ -181,7 +181,15 @@ rm -rf "$CK"
 #
 # 6) Servis kaydi - ACILIS SURUCUSU
 #
-# Start=0  BOOT   : winload yukluyor, cekirdekten once
+# Start=1  SYSTEM : CEKIRDEK yukluyor, acilis surucilerinden SONRA.
+#
+#   Onceden 0 (BOOT) idi. Iki blokaj denemesi de sifirlamayi ONLEDI:
+#     - en erken grupta bloke -> 25+ serit, sifirlama yok
+#     - butun gruplardan sonra bloke -> 20+ serit, sifirlama yok
+#
+#   Yani butun acilis surucileri sorunsuz yukleniyor ve tetikleyici daha
+#   ileride. Start=1 blokaji bir kademe otesine tasiyor: aradan PnP
+#   yoneticisinin ACPI ad alanini sayip aygitlari baslatmasi geciyor.
 # Type=1          : cekirdek surucusu
 # Group           : BOS BIRAKILDI - surucu EN SONDA yuklensin.
 #
@@ -224,7 +232,7 @@ wimlib-imagex extract "$WIM" 1 /Windows/System32/config/SYSTEM \
 cat > "$W/b2lfb.reg" <<'REG'
 [HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Services\b2lfb]
 "Type"=dword:00000001
-"Start"=dword:00000000
+"Start"=dword:00000001
 "ErrorControl"=dword:00000003
 "ImagePath"=str(2):"\\SystemRoot\\System32\\drivers\\b2lfb.sys"
 "Group"=""

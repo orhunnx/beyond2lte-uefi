@@ -3548,3 +3548,30 @@ bir noktada.
 | Bant çıkıyor ama yine sıfırlıyor | Tetikleyici tam bizim yüklenme anımızda — çok dar bir pencere |
 
 Üç okumanın üçü de arama alanını bölüyor.
+
+## İkinci blokaj: açılış sürücülerinin tamamı temiz
+
+`Group=""` ile en sonda yüklenip bloke edildi: **20+ şerit, sıfırlama yok.**
+
+Yani bütün açılış sürücüleri sorunsuz yükleniyor ve tetikleyici daha ileride.
+
+### Blokaj merdiveni
+
+| Nerede bloke edildi | Sonuç |
+|---|---|
+| `Start=0`, en erken grup | 25+ şerit, sıfırlama **yok** |
+| `Start=0`, en son (gruppsuz) | 20+ şerit, sıfırlama **yok** |
+| `Start=1` (SYSTEM) | ← bu tur |
+
+Aradan geçen aşama: çekirdek açılış sürücülerini bitirip PnP yöneticisini
+çalıştırıyor, ACPI ad alanını sayıyor, aygıtları başlatıyor. `Start=1`
+sürücüleri bundan sonra yükleniyor.
+
+| Ekranda | Sonuç |
+|---|---|
+| Bant çıkıyor, sıfırlama yok | Tetikleyici daha da ileride: `smss` öncesi son aşamalar |
+| Bant çıkıyor, sonra sıfırlama | Tetikleyici `Start=1` sürücülerinin arasında |
+| Bant hiç çıkmıyor, ~10 s sıfırlama | **Tetikleyici PnP/ACPI sayımında** — iki blokaj noktası arasında kalan tek şey |
+
+Üçüncüsü en olası ve en ilginç olurdu: DSDT'de işlemciler ve UFS0 var, ve
+PnP tam orayı geziyor.
