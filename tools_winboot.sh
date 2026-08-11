@@ -187,6 +187,37 @@ elif [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
   wimlib-imagex optimize "$ESP/sources/boot.wim"
 
   #
+  # SIGMIYORSA LZX ILE YENIDEN SIKISTIR.
+  #
+  # 23H2'nin boot.wim'i 745 MB cikti; CACHE bolumu 600 MB. Delete+optimize
+  # yetmiyor cunku Setup ile WinPE dosyalarin cogunu PAYLASIYOR, 2. indeksi
+  # silmek az yer kazandiriyor.
+  #
+  # YENIDEN SIKISTIRMADAN NEDEN KACINMISTIM: bir tur "export --compress=LZX"
+  # yaptiktan sonra cihaz "winload.efi ... 0xc0000487" verdi ve sucu
+  # sikistirmaya attim. YANLISTI - certutil o kodun STATUS_WIM_NOT_BOOTABLE
+  # oldugunu soyledi, yani Boot Index isaretiydi. LZX'in hicbir suclulugu
+  # yoktu ve bootmgr'in WIM okuyucusu XPRESS ile LZX'i sorunsuz aciyor.
+  # (Acamadigi sey LZMS ve solid arsivler; onlari kullanmiyoruz.)
+  #
+  # "export 1" sadece 1. indeksin GERCEKTEN kullandigi dosyalari yaziyor,
+  # yani silinen Setup indeksinden artakalan paylasilmayan veri de gidiyor.
+  #
+  # rm -f SART: wimlib export hedefe EKLER, uzerine yazmaz. Bir tur bu
+  # yuzden iki indeksli bir dosya olustu.
+  #
+  SZM=$(( $(stat -c%s "$ESP/sources/boot.wim") / 1024 / 1024 ))
+  if [ "$SZM" -gt 500 ]; then
+    say "boot.wim ${SZM} MB, bolume sigmaz -> LZX ile yeniden sikistiriliyor"
+    echo "  (bu birkac dakika surer)"
+    rm -f "$W/small.wim"
+    wimlib-imagex export "$ESP/sources/boot.wim" 1 "$W/small.wim" --compress=LZX
+    rm -f "$ESP/sources/boot.wim"
+    mv "$W/small.wim" "$ESP/sources/boot.wim"
+    echo "  ${SZM} MB -> $(( $(stat -c%s "$ESP/sources/boot.wim") / 1024 / 1024 )) MB"
+  fi
+
+  #
   # ACILABILIR OLARAK ISARETLE. IKI TUR BUNUN YUZUNDEN GITTI.
   #
   # WIM basliginda "Boot Index" alani var; hangi imajin acilabilir oldugunu
@@ -338,5 +369,5 @@ echo
 echo "Toplam: $(du -sh "$ESP" | cut -f1)  (CACHE bolumu 600 MB, imaj 75 MB)"
 echo
 echo "Sonra:"
-echo "  bash cache_esp.sh"
+echo "  bash cache_esp.sh --win"
 echo "  cache'i flasla, ac, startup.nsh Windows Boot Manager'i baslatacak"

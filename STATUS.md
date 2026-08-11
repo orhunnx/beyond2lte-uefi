@@ -1391,3 +1391,21 @@ hepsinde `Windows Boot ❌`. Project Silicium'un `Guides` deposunda da
 
 Kopyalanacak çalışan bir ACPI yok. Ama net bir sonraki adım var:
 **Windows 11 23H2 ARM64.**
+
+### 23H2'nin `boot.wim`'i sığmıyor → LZX yeniden sıkıştırma açıldı
+
+23H2 ISO'sundan çıkan `boot.wim` 745 MB, CACHE bölümü 600 MB. `delete 2` +
+`optimize` yetmiyor çünkü Setup ile WinPE dosyaların çoğunu **paylaşıyor**;
+ikinci indeksi silmek az yer kazandırıyor.
+
+Yeniden sıkıştırmadan kaçınmam yanlış bir çıkarıma dayanıyordu. Bir tur
+`export --compress=LZX` yapmıştım ve cihaz `winload.efi ... 0xc0000487`
+vermişti; suçu sıkıştırmaya atmıştım. `certutil -error` o kodun
+`STATUS_WIM_NOT_BOOTABLE` olduğunu söyledi — Boot Index işaretiydi. LZX'in
+hiçbir suçu yoktu ve `bootmgr`'ın WIM okuyucusu XPRESS ile LZX'i sorunsuz
+açıyor (açamadığı LZMS ve solid arşivler, onları kullanmıyoruz).
+
+`tools_winboot.sh` artık 500 MB'ı aşan bir `boot.wim` görürse `export 1
+--compress=LZX` ile yeniden üretiyor. `export` yalnızca 1. indeksin gerçekten
+kullandığı dosyaları yazıyor, yani silinen Setup indeksinden artakalan
+paylaşılmayan veri de gidiyor.
