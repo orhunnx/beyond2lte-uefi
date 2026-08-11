@@ -552,6 +552,39 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   }
 
   /*
+   * BIRAKMA ANI ISARETLENIYOR - GECEN TUR BU EKSIKTI.
+   *
+   * Toplam 65 serit ciktı ama bunun kaci bekleme, kaci bekleme SONRASI,
+   * ayiramadik. Gecikme dongusunun gercek suresi de kalibre degil, yani
+   * "65" tek basina hicbir sey soylemiyor.
+   *
+   * Artik birakma anindaki serit sayisi kayda yaziliyor. Sonraki acilista
+   * iki sayiyi yan yana okuyoruz:
+   *
+   *     TIK=0065 ... REL=0055    ->  birakildiktan sonra 10 saniye
+   *     TIK=0065 ... REL=0035    ->  birakildiktan sonra 30 saniye
+   *
+   * Fark, "acilis serbest kaldiktan sonra tetikleyiciye ulasmak icin gereken
+   * sure". Aradigimiz tek sayi bu.
+   *
+   * Ayrica bant BEYAZA donuyor: canli olarak da birakma ani gorulebilsin,
+   * kaydi okumak icin yeniden baslatmayi beklemeye gerek kalmasin.
+   */
+  if (gLog != 0) {
+    UINT8 *R = (UINT8 *)gLog + 32;
+    UINT32 T = (UINT32)gTik;
+
+    R[0] = 'R'; R[1] = 'E'; R[2] = 'L'; R[3] = '=';
+    R[4] = (UINT8)('0' + ((T / 1000) % 10));
+    R[5] = (UINT8)('0' + ((T /  100) % 10));
+    R[6] = (UINT8)('0' + ((T /   10) % 10));
+    R[7] = (UINT8)('0' + ( T         % 10));
+  }
+  if (gFb != 0) {
+    FillDword (gFb, BANT_BYTES, 0x00FFFFFF);
+  }
+
+  /*
    * STATUS_SUCCESS SART. Bir acilis surucusu basarisiz donerse ve
    * ErrorControl uygunsa winload butun acilisi iptal eder. Bu surucu
    * hicbir seyi sahiplenmiyor; her kosulda basarili donuyor.

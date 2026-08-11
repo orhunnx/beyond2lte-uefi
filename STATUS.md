@@ -3701,3 +3701,36 @@ boyunca işlemeye devam ediyor, yani şerit sayısı hem beklemeyi hem sonrasın
 | ~40 | **(b)** — on saniyelik gerçek iş var, tetikleyici çok daha ileride |
 
 Bu aralığı hiç ölçmedik ve iki sonuç tamamen farklı yerlere baktırıyor.
+
+## Süreli blokaj: 65 şerit — ama okunamıyor
+
+Toplam 65. Ne beklenen ~31-32, ne ~40.
+
+Sorun sonuçta değil, **ölçümün okunabilirliğinde**: bırakma anını
+işaretlemedim. 65'in kaçı bekleme, kaçı bekleme sonrası, ayıramıyoruz.
+Gecikme döngüsünün gerçek süresi de kalibre değil (`EbsTest`'ten alınan
+"500 milyon ≈ 1 saniye" sabiti hiç doğrulanmamıştı).
+
+Aynı sınıftan hata: ölçüyorum ama okunabilir kılmıyorum.
+
+### Düzeltme
+
+Bırakma anındaki şerit sayısı kayda yazılıyor. Sonraki açılışta iki sayı yan
+yana okunuyor:
+
+```
+TIK=0065  BUG=H     REL=0055
+```
+
+| Okuma | Anlamı |
+|---|---|
+| `TIK - REL ≈ 10` | Bırakıldıktan sonra 10 saniyelik iş gerekiyor. Tetikleyici ileride |
+| `TIK - REL ≈ 1-2` | Tetikleyici açılış sürücülerinin hemen ardında; 65'in tamamı beklemeydi |
+
+Fark, aradığımız tek sayı: **açılış serbest kaldıktan sonra tetikleyiciye
+ulaşmak için gereken süre.**
+
+Bant bırakma anında **beyaza** dönüyor, böylece canlı olarak da görülebiliyor —
+kaydı okumak için yeniden başlatmayı beklemeye gerek yok.
+
+`startup.nsh` dökümü `0x40` bayta çıkarıldı ki `REL=` alanı ekrana girsin.
