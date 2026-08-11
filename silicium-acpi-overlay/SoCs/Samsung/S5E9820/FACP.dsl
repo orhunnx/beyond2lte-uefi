@@ -95,8 +95,34 @@
 [078h 0120 008h]                     Address : 00000000009020B4
 
 [080h 0128 001h]        Value to cause reset : 01
-[081h 0129 002h]   ARM Flags (decoded below) : 0001
-                              PSCI Compliant : 1
+//
+// PSCI KAPATILDI - TEK DEGISKENLI DENEY.
+//
+// Eleme buraya kadar geldi. EbsTest ExitBootServices'ten sonra mesgul
+// dongude 30+ saniye yasiyor: yani platformda servis bekleyen bir sey de
+// yok, isinma/guc sorunu da yok. Bosta kalma da elendi - b2lfb'nin bosta
+// dongusu 11 milyon tur dondu (SPN=00AA4A64), CPU hic bosa dusmedi ve
+// sifirlama yine oldu.
+//
+// EbsTest'in yapmayip Windows'un yaptigi seylerden geriye cok az sey
+// kaldi, en gozdesi bu: PSCI SMC'leri. RST_STAT yazilim sifirlamasi
+// diyor, PMU'nun o yazmacini yazabilecek olan EL3, EL3 kendiliginden
+// yapmiyor (EbsTest kanit), Windows da UEFI ResetSystem'i cagirmiyor
+// (sayac 0). Geriye Windows'un dogrudan yaptigi bir SMC kaliyor.
+//
+// Bu bit 0 olunca Windows PSCI'yi hic kullanmiyor. Ikincil cekirdekler
+// zaten MADT'de kapali ve bosta yol WFI'ya dusuyor, yani acilisin
+// baska bir yerinin bozulmasi beklenmiyor.
+//
+// NOT: bu daha once bir kez denenmisti ve "degismedi" diye kaydedilmisti.
+// O donemde ne surum damgamiz vardi ne de olctugumuzu dogrulayan bir
+// zincir; ayni turda "beyan edilen RAM'i kestik" sanip deligi
+// isaretlemistik. Dogrulanabilir hale gelen her seyi yeniden olcuyoruz.
+//
+// GERI ALMAK ICIN: 0001 / 1 yaz.
+//
+[081h 0129 002h]   ARM Flags (decoded below) : 0000
+                              PSCI Compliant : 0
                        Must use HVC for PSCI : 0
 
 [083h 0131 001h]         FADT Minor Revision : 00
