@@ -124,7 +124,7 @@
 //
 // Yerlesimi degistiren her degisiklikte BU SAYIYI ARTIR.
 //
-#define B2L_SURUM  4
+#define B2L_SURUM  5
 
 #define SEH_LOG      0xCF041000ULL   // yakalanan EL3 baglami
 #define SEH_STATUS   0xCF041080ULL   // SMC donusleri

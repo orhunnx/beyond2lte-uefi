@@ -97,6 +97,36 @@ gMemoryDescriptor[] = {
   // dinamik olanlar (ion, abox_rmem) atlandi cunku adresleri calisma aninda
   // belirleniyor ve UEFI'de karsiligi yok.
   //
+  //
+  // 3 GB USTU RAM WINDOWS'A KAPATILDI - TEK DEGISKENLI DENEY.
+  //
+  // EbsTest bir sinifi tamamen eledi: ExitBootServices'ten sonra hicbir sey
+  // kurmayan bir dongu 30+ saniye yasiyor. Servis edilmeyi bekleyen bir sey
+  // (watchdog, EL3 kilitlenme dedektoru, periyodik ping) olsaydi onu da
+  // oldururdu. Yani sifirlamaya yol acan sey Windows'un YAPMADIGI degil,
+  // YAPTIGI bir sey. EbsTest'in yapmayip Windows'un yaptiklarindan biri:
+  // giderek daha fazla RAM'e yazmak.
+  //
+  // Beyan edilen bellegin bir kismi gercekte erisilemez ya da TZASC
+  // korumaliysa, ayirici oraya vardigi anda veri yolu hatasi olur -
+  // Windows'a haber verilmeden, bugcheck uretilmeden, tam gordugumuz
+  // imzayla. ~10 saniye de ayiricinin yukari yayilmasi kadar.
+  //
+  // ONCE PCD ILE DENENDI VE OLMADI: beyond2lte.dsc'ye
+  // PcdSystemMemorySize|0xC0000000 yazildi, cihazda harita hala 7977 MB
+  // gosterdi. Boyut o PCD'den gelmiyor. Bu yuzden kesme burada yapiliyor -
+  // bu tablonun haritayi ezdigi zaten kanitli (dss_log bolgeleri memmap'te
+  // Reserved olarak cikiyor).
+  //
+  // 0x140000000 = taban 0x80000000 + 3 GB. Uzunluk 5 GB, yani ~8 GB'lik
+  // DRAM'in tepesine kadar. 3 GB secildi cunku daha asagisi deneyi baska
+  // sebeple bozardi: 23H2'nin boot.wim'i acilmis halde 1650 MiB ve WinPE
+  // onu RAM diskine aliyor.
+  //
+  // GERI ALMAK ICIN: bu tek satiri sil. Sonuc degismezse bellek aklanir.
+  //
+  {"3GB ustu kapali",   0x140000000, 0x140000000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
+
   {"sec_debug_magic",    0x80000000, 0x00001000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
   {"mm_debug",           0x91200000, 0x00001000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
   {"seclog",             0xC0000000, 0x00080000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
