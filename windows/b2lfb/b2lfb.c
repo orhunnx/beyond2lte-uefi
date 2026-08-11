@@ -255,12 +255,44 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
    * calismis olur. Bu turun asil sorusu geri cagrida degil, ama onun
    * ugruna calisan bir seyi riske atmiyoruz.
    */
-  KeRegisterBugCheckCallback (
-    (PVOID)gCallbackRecord,
-    (PVOID)BugCheckCallback,
-    gLog,
-    16,
-    gComponent);
+  /*
+   * KAYIT SONUCU EKRANA YANSITILIYOR - BU ADIM ATLANAMAZ.
+   *
+   * Ilk denemede ekran macenta kaldi, yesil hic gelmedi. Bunun iki okumasi
+   * var ve ayirmadan devam etmek hatali olur:
+   *
+   *   (a) Gercekten bugcheck degil
+   *   (b) Kayit hic tutmadi, dolayisiyla sessizligin bir anlami yok
+   *
+   * Bu proje ayni dersi defalarca aldi: bir aracin SESSIZLIGINE guvenmeden
+   * once aracin CALISTIGINI dogrulamak gerekiyor. B2LEl2Dxe "cikti
+   * uretmedi" diye zararsiz sanildi ve turlarca olcum kirletti.
+   *
+   * KeRegisterBugCheckCallback basarili olursa TRUE donuyor. Donuse gore
+   * bolgenin ilk sekizde birini BEYAZA boyuyoruz:
+   *
+   *   Macenta + ustte BEYAZ SERIT -> kayit TUTTU. Yesil gelmiyorsa cokme
+   *                                  gercekten bugcheck degil.
+   *   Serit YOK                   -> kayit tutmadi; onceki turun sessizligi
+   *                                  hicbir sey kanitlamiyor.
+   */
+  {
+    UINT8 Ok = KeRegisterBugCheckCallback (
+                 (PVOID)gCallbackRecord,
+                 (PVOID)BugCheckCallback,
+                 gLog,
+                 16,
+                 gComponent);
+
+    if (gLog != 0) {
+      ((UINT8 *)gLog)[9]  = Ok;   /* +0x09: kayit donusu */
+      ((UINT8 *)gLog)[8]  = 3;    /* asama: kayit denendi */
+    }
+
+    if (Ok && (gFb != 0)) {
+      FillDword (gFb, FB_BYTES / 8, 0x00FFFFFF);
+    }
+  }
 
   /*
    * STATUS_SUCCESS SART. Bir acilis surucusu basarisiz donerse ve

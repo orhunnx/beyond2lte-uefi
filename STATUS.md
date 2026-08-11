@@ -2793,3 +2793,39 @@ Haritalanmış adresler global tutuluyor. Sebebi kritik: bugcheck anında IRQL
 çok yüksek ve `MmMapIoSpace` dahil çekirdek API'lerinin neredeyse tamamı
 yasak. `DriverEntry`'de bir kez haritalayıp işaretçileri saklıyoruz; geri
 çağrıda yalnızca hafızaya yazıyoruz.
+
+## Yeşil gelmedi — ama önce aracı doğrulamak gerekiyor
+
+Bugcheck geri çağrısı ateşlemedi. İki okuması var:
+
+- (a) Çökme gerçekten bir bugcheck değil
+- (b) Kayıt hiç tutmadı, dolayısıyla sessizliğin bir anlamı yok
+
+Bu projede aynı ders defalarca alındı. `B2LEl2Dxe` "çıktı üretmedi" diye
+zararsız sanıldı ve turlarca ölçüm kirletti. `ErrorControl=0` en bilgilendirici
+hatayı sessizliğe çevirdi. **Bir aracın sessizliğine güvenmeden önce aracın
+çalıştığı doğrulanmalı.**
+
+`KeRegisterBugCheckCallback` başarılıysa TRUE dönüyor. Dönüş ekrana
+yansıtılıyor: kayıt tuttuysa bölgenin ilk sekizde biri beyaza boyanıyor.
+
+| Ekranda | Sonuç |
+|---|---|
+| Macenta + üstte **beyaz şerit** | Kayıt tuttu. Yeşil gelmiyorsa çökme **gerçekten bugcheck değil** |
+| Şerit yok | Kayıt tutmadı; önceki turun sessizliği hiçbir şey kanıtlamıyor |
+
+### Eğer bugcheck değilse ne demek
+
+Windows'un haberi olmadan SoC sıfırlanıyor demek. Ama burada dikkat edilecek
+bir ayrıntı var: `EbsTest` `ExitBootServices`'ten sonra **63 saniye** hiçbir
+şey yapmadan hayatta kaldı. Serbest çalışan bir watchdog olsa orada da
+ölürdü. Yani "watchdog" ilk akla gelen ama ölçüyle çelişen açıklama.
+
+Geriye daha ilginç bir ihtimal kalıyor: **çökme değil, kasıtlı yeniden
+başlatma.** WinPE'nin tasarımı gereği `startnet.cmd` bitince kabuk çıkıyor ve
+makine kendini yeniden başlatıyor. `--stok` ile `startnet.cmd` tek satır
+(`wpeinit`) — yani WinPE ~10 saniyede açılıp işini bitirip **düzgün biçimde**
+yeniden başlıyor olabilir.
+
+Bu doğruysa ortada arıza yok ve proje sandığımızdan çok daha ileride.
+Beyaz şerit sorusu bunun ön koşulu: önce aracın çalıştığını bilelim.
