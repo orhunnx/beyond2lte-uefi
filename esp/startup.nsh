@@ -9,6 +9,10 @@
 # Burada firmware'e hic dokunmuyoruz: PMU registerini Shell okuyor ve
 # ekranda EN SONDA kaliyor.
 #
+# NOT: ilk denemede "mem 0x... 4 ;MMIO" yazilmisti, cihaz "dmem: Too many
+# arguments" verdi. Bu Shell surumu ";MMIO" ekini kabul etmiyor ve komutun
+# asil adi "dmem". Eksiz kullaniyoruz.
+#
 # PMU (system-controller@15860000, DTB'den):
 #   +0x404  RST_STAT   son sifirlamanin KAYNAGI, sifirlamayi asar
 #   +0x500  SEQUENCER
@@ -30,11 +34,11 @@ echo ================ PMU SIFIRLAMA DURUMU
 echo .
 
 echo RST_STAT  (0x15860404):
-mem 0x15860404 4 ;MMIO
+dmem 0x15860404 4
 
 echo .
 echo SEQUENCER (0x15860500):
-mem 0x15860500 4 ;MMIO
+dmem 0x15860500 4
 
 echo .
 echo Aranan bitler:  0x10000000 = WARM (yazilim istedi)
