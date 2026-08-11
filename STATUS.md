@@ -1347,3 +1347,47 @@ adb shell "dd if=/dev/block/by-name/cache of=/tmp/c.img bs=4096 count=153600"
 adb pull /tmp/c.img cache_read.img
 bash tools_bootstat.sh cache_read.img
 ```
+
+## Upstream'in belgelenmiş kısıtı: 23H2 ve altı
+
+`bootstat.dat` da çıkmadı — cache imajında Windows'un yazdığı **hiçbir şey**
+yok, sadece bizim koyduklarımız. İki kanal da boş: değişkenler emüle olduğu
+için buharlaşıyor, dosya hiç yazılmıyor. Windows başarısızlığı kaydedecek
+noktaya ulaşmıyor.
+
+Kör bayrak denemek yerine upstream'e bakıldı. Mu-Silicium'un `Status.md`
+dosyası, **Exynos 9820** bölümünün başında:
+
+> **Only 23H2 Windows Builds and Lower are able to Boot.**
+
+Aynı uyarı Exynos 9830 bölümünde de var. Biz `Win11_25H2` kullanıyoruz, ADK'nın
+WinPE'si de aynı nesil.
+
+Bu, Linux'un çok önce verdiği bir ipucuyla örtüşüyor:
+
+```
+SANITY CHECK: Unexpected variation in SYS_ID_AA64ISAR0_EL1
+Boot CPU: 0x10305400   CPU6: 0x10305410
+```
+
+Açılışın yapıldığı A55 ile M4 çekirdekleri farklı özellik kümesi bildiriyor.
+Windows özellikleri açılış işlemcisinden okuyup tüm sisteme uyguluyor;
+çekirdekler arasında tutarsızlık olan bir makinede yeni Windows'un kırılması
+beklenen davranış.
+
+### Referans portun neresindeyiz
+
+Kardeş cihaz `beyond1lte`'nin upstream durumu:
+
+| | Upstream `beyond1lte` | Bizim `beyond2lte` |
+|---|---|---|
+| Dahili depolama | ❌ | ✅ UEFI'de çalışıyor |
+| Linux açılışı | ❌ | ✅ 8 çekirdek, kendi ACPI'mizle, DTB'siz |
+| Windows açılışı | ❌ | `ntoskrnl` başlıyor, ~12 s |
+
+Exynos'ta Windows'u açan kimse yok — durum tablosunda 9810/9820/9830/2400'ün
+hepsinde `Windows Boot ❌`. Project Silicium'un `Guides` deposunda da
+"Exynos Guides: No Guides yet."
+
+Kopyalanacak çalışan bir ACPI yok. Ama net bir sonraki adım var:
+**Windows 11 23H2 ARM64.**
