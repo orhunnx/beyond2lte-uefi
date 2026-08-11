@@ -19,8 +19,10 @@
 
 [Packages]
   MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
 
 [LibraryClasses]
+  ArmLib
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
   UefiLib

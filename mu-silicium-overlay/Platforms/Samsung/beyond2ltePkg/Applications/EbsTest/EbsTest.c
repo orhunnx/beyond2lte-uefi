@@ -55,6 +55,7 @@
 
 #include <Uefi.h>
 
+#include <Library/ArmLib.h>
 #include <Library/UefiApplicationEntryPoint.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
@@ -167,12 +168,43 @@ UefiMain (
   // Butun Print'ler BURADA bitiyor. Bundan sonra ekrana kendimiz yaziyoruz;
   // once yazsak GraphicsConsoleDxe uzerine basardi.
   //
+  //
+  // HANGI EXCEPTION LEVEL'DAYIZ?
+  //
+  // Impalabs'in RKP incelemesi: "SBOOT boots the Linux kernel in EL1, with a
+  // backdoor in TrustZone implemented to load and execute custom code in EL2.
+  // Samsung's kernel uses init/vmm.c to load the proprietary RKP hypervisor
+  // through an SMC call interface."
+  //
+  // Yani RKP kendiliginden yuklenmiyor - Samsung'un CEKIRDEGI yukluyor. Bizim
+  // UEFI'miz yuklemiyor, Windows da yuklemiyor. Mu-Silicium'un SEC kodu da
+  // (Sec/AArch64/ModuleEntryPoint.S, EL1_OR_EL2 makrosu) bir seviye
+  // dayatmiyor, S-Boot hangi seviyede birakirsa ona gore vektor kuruyor.
+  //
+  // Ikisi birlestiginde EL1 bekliyoruz ve EL2'nin BOS olmasi gerekiyor.
+  // Olcum bunu dogruluyor: EL1 cikarsa ortada hipervizor yok, RKP hipotezi
+  // tamamen kapanir. EL2 cikarsa varsayimlarimizin ikisi de yanlis demektir.
+  //
   Print (L"\nEbsTest %ux%u @ 0x%lx\n", (UINT32)mW, (UINT32)mH, (UINT64)(UINTN)mFb);
+  Print (L"CurrentEL = EL%u\n", (UINT32)(ArmReadCurrentEL () >> 2));
   Print (L"Seritler: kirmizi=basladi mavi=harita sari=EBS gecti, sonra kareler.\n");
   Print (L"Kareleri say. Ekran temizleniyor...\n");
 
   Doldur (0, 0, mW, mH, RENK_SIYAH);
   Asama (0, RENK_KIRMIZI);        // 1: calisiyoruz, GOP tamam
+
+  //
+  // EL'i ekrana da bas: kirmizi seridin sol ucunda EL sayisi kadar beyaz
+  // kare. Konsol kaysa bile gorunur kalir.
+  //
+  {
+    UINTN El = ArmReadCurrentEL () >> 2;
+    UINTN I;
+
+    for (I = 0; I < El; I++) {
+      Doldur (BOSLUK + I * (KARE + BOSLUK), SERIT_Y + 4, KARE, SERIT_H - 12, 0x00FFFFFF);
+    }
+  }
 
   //
   // Bellek haritasi. Iki asamali: ilk cagri boyutu veriyor, AllocatePool

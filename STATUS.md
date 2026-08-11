@@ -1660,3 +1660,66 @@ ifadede, yoksa imaja hiç girmemiş demektir.
 Aynı turda `KANCA` dökümü kaldırıldı — `B2LResetHookDxe` geri alındığı için
 `0xCF000000` artık bellek haritasında yok, o adresi okumanın anlamı kalmadı.
 `map` de `map fs0` oldu; tam liste ekranı taşırıyordu.
+
+## Araştırma: Exynos'ta Windows'u açan kimse yok
+
+- `sonic011gamer/Mu-Samsung` — tam bu iş için kurulmuş ("Project Mu UEFI
+  Implementation for Samsung Exynos Devices"), geliştirme Mu-Silicium'a
+  taşınmış.
+- Mu-Silicium `Status.md`: Exynos 9810 / 9820 / 9830 / 2400 ailelerinin
+  **hepsinde** `Windows Boot ❌`.
+- `Project-Silicium/Guides`: "Exynos Guides: No Guides yet."
+- Basındaki "Samsung'a Windows kuruldu" haberlerinin tamamı **Snapdragon**
+  modelleri (S8 ve diğer 835'liler).
+
+Kopyalanacak çalışan bir referans yok. Bulduğumuz her hata yeni.
+
+### RKP hipotezi: kuruldu ve aynı turda elendi
+
+Astarasikov'un 9820 tersine mühendislik yazısı RKP hipervizörünün bu yongada
+var olduğunu doğruluyor ve PIT'te `UH` (2 MB) / `UHCFG` (4 MB) bölümleri
+duruyor. EL2'de bir hipervizörün sayfa tablosu ihlalinde cihazı sıfırlaması,
+gözlemlerimizin hepsiyle örtüşüyordu.
+
+Ama Impalabs'in RKP incelemesi bunu kapatıyor:
+
+> "SBOOT boots the Linux kernel in **EL1**, with a backdoor in TrustZone
+> implemented to load and execute custom code in EL2. Samsung's kernel uses
+> `init/vmm.c` to load the proprietary RKP hypervisor **through an SMC call
+> interface**."
+
+RKP kendiliğinden yüklenmiyor — **Samsung'un çekirdeği onu kendisi
+yüklüyor.** Bizim UEFI'miz yüklemiyor, Windows da yüklemiyor. Linux'un
+"started at EL1" demesinin sebebi RKP değil, S-Boot'un zaten EL1'de teslim
+etmesi.
+
+Mu-Silicium'un kendi kodu da bunu destekliyor:
+`Sec/AArch64/ModuleEntryPoint.S` `EL1_OR_EL2` makrosuyla bir seviye
+dayatmıyor, S-Boot hangi seviyede bırakırsa ona göre vektör kuruyor.
+Bellek haritasındaki `EL2 Code` bölgesi diğer portlardan miras bir rezerv.
+
+**Sonuç: ortada çalışan bir hipervizör yok, EL2 boş. RKP sıfırlamayı yapmıyor.**
+
+`EbsTest` yine de `CurrentEL`'i hem konsola hem ekrana basıyor (kırmızı şeridin
+solunda EL sayısı kadar beyaz kare) — akıl yürütmeyi ölçümle kapatmak için.
+
+### Yan kazanç: EL2'ye çıkmanın belgelenmiş bir yolu var
+
+Aynı kaynak, TrustZone'da EL2'ye kod yükleyen bir arka kapı olduğunu ve
+Samsung'un bunu SMC arayüzüyle kullandığını söylüyor.
+`sleirsgoevy/exynos-kvm-patch` aynı yolu Exynos telefonlarda KVM açmak için
+kullanıyor — yani çalışan örnek kod mevcut.
+
+Bu, daha önce "EL1'deyiz, yapamayız" diye kapattığım planı geri açıyor: EL2'ye
+kendi kodumuzu koyabilirsek `HCR_EL2.TSC` ile Windows'un her `SMC`'sini ve
+istisnasını yakalayabiliriz. Büyük iş ama artık imkânsız değil.
+
+### Diğer 9820 projeleri (donanım referansı olarak değerli)
+
+| Proje | Ne işe yarar |
+|---|---|
+| `exynos9820-mainline/linux` | Mainline Linux portu — UFS, PHY, saat sürücüleri için referans |
+| `exynos9820-mainline/uniLoader` (ivoszbg) | Alternatif önyükleyici |
+| `exynos9820-mainline/kexec-boot-tools` | kexec ile açılış |
+| `ExtremeXT/android_kernel_samsung_exynos9820` | Stock çekirdek kaynağı |
+| `sleirsgoevy/exynos-kvm-patch` | **EL2 erişimi**, TrustZone arka kapısı |
