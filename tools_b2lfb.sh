@@ -183,7 +183,15 @@ rm -rf "$CK"
 #
 # Start=0  BOOT   : winload yukluyor, cekirdekten once
 # Type=1          : cekirdek surucusu
-# Group           : "System Bus Extender" en erken yuklenen gruplardan biri.
+# Group           : BOS BIRAKILDI - surucu EN SONDA yuklensin.
+#
+#   Onceden "System Bus Extender" idi, yani en erken gruplardan biri. Orada
+#   DriverEntry'yi sonsuza kadar bloke edince sifirlama HIC olmadi (25+
+#   serit). Yani tetikleyici bizden SONRA.
+#
+#   Bos Group, gruplu butun acilis surucilerinden SONRA yuklenmek demek.
+#   Ayni engelleme numarasi, cok daha ileri bir noktada - boylece "acilis
+#   surucileri yuklenirken mi, yoksa daha sonra mi" sorusu ayriliyor.
 #
 # ErrorControl=3 (CRITICAL) - ILK SURUMDE 0 IDI VE BU BIR TASARIM HATASIYDI.
 #
@@ -219,7 +227,7 @@ cat > "$W/b2lfb.reg" <<'REG'
 "Start"=dword:00000000
 "ErrorControl"=dword:00000003
 "ImagePath"=str(2):"\\SystemRoot\\System32\\drivers\\b2lfb.sys"
-"Group"="System Bus Extender"
+"Group"=""
 "DisplayName"="beyond2lte framebuffer"
 REG
 hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$W/SYSTEM" "$W/b2lfb.reg"

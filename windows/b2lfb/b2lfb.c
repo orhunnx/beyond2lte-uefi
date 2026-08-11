@@ -426,17 +426,32 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   KeSetTimerEx ((PVOID)gTimer, -10000000LL, 1000, (PVOID)gDpc);
 
   /*
-   * DONMEYEN DONGU KALDIRILDI - GOREVINI YAPTI.
+   * DONMEYEN DONGU - IKINCI TUR, BU SEFER EN SONDAN
    *
-   * Sonuc: acilisi durdurunca sifirlama da olmadi (25+ serit, devam
-   * ediyordu). Yani ~10 saniye MUTLAK BIR SAYAC DEGIL; sifirlama Windows'un
-   * DriverEntry'mizden SONRAKI ilerlemesine bagli.
+   * Ilk turda surucu EN ERKEN gruptaydi ("System Bus Extender") ve burada
+   * durunca sifirlama HIC olmadi. Yani tetikleyici bizden SONRA.
    *
-   * UEFI, TrustZone ve PMIC eksenleri boylece kapandi.
+   * Simdi servis kaydindaki Group bos birakildi: surucu butun gruplu acilis
+   * surucilerinden SONRA yukleniyor. Ayni yerde tekrar duruyoruz ama bu kez
+   * cok daha ilerideyiz.
    *
-   * Simdi "sonra ne oluyor" sorusunu daraltiyoruz, o yuzden acilisin
-   * ilerlemesi gerekiyor.
+   *   Macenta bant cikip sifirlama OLMUYORSA
+   *       -> Butun acilis surucileri sorunsuz yuklendi. Tetikleyici daha
+   *          ileride: PnP aygit sayimi ya da cekirdegin Faz 1 devami.
+   *
+   *   Macenta bant HIC CIKMIYOR ve ~10 saniyede sifirliyorsa
+   *       -> Sifirlama acilis surucileri yuklenirken, BIZDEN ONCE oluyor.
+   *          O zaman suclu o listede ve tek tek kapatarak daraltilir.
+   *
+   * Bant cikip yine de sifirliyorsa tetikleyici tam bizim yuklenme
+   * anımızda demektir - o da dar bir pencere.
    */
+  {
+    volatile UINT64 I = 0;
+    for (;;) {
+      I++;
+    }
+  }
 
   /*
    * STATUS_SUCCESS SART. Bir acilis surucusu basarisiz donerse ve

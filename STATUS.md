@@ -3525,3 +3525,26 @@ ilerleyebilsin.
 |---|---|
 | Şeritler belirgin biçimde artıyor | **`storufs` tetikliyor.** Sırada onun tam olarak neyi tetiklediği |
 | Yine ~10 şerit | UFS0 değil; tetikleyici kalan açılış sürücülerinde ya da çekirdeğin kendi Faz 1 işlerinde |
+
+## `_CLS` kapalı: yine 9 — storufs de değil
+
+UFS0'a hiçbir sürücü bağlanmıyor ve süre değişmedi. `storufs` tetikleyici
+değil.
+
+Elenenler artık: `startnet.cmd`, WinPE kabuğu, boot menüsü, UEFI watchdog,
+LPS0, `ErrorControl`, depolama hızı, DTB'nin ayrılmış bellek bölgeleri,
+`storufs`. Ve blokaj deneyi UEFI/TrustZone/PMIC eksenlerini kapattı.
+
+## İkinci blokaj: bu sefer en sondan
+
+Sürücü `Group=""` ile **bütün gruplu açılış sürücülerinden sonra**
+yükleniyor, ve orada yine sonsuza kadar duruyor. Aynı numara, çok daha ileri
+bir noktada.
+
+| Ekranda | Sonuç |
+|---|---|
+| Macenta bant çıkıyor, sıfırlama **yok** | Bütün açılış sürücüleri sorunsuz yüklendi. Tetikleyici daha ileride: PnP aygıt sayımı ya da çekirdeğin Faz 1 devamı |
+| Macenta bant **hiç çıkmıyor**, ~10 s'de sıfırlama | Sıfırlama açılış sürücüleri yüklenirken, **bizden önce** oluyor. Suçlu o listede; tek tek kapatarak daraltılır |
+| Bant çıkıyor ama yine sıfırlıyor | Tetikleyici tam bizim yüklenme anımızda — çok dar bir pencere |
+
+Üç okumanın üçü de arama alanını bölüyor.
