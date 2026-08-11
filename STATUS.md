@@ -1994,3 +1994,28 @@ Her yama WIM'e konduktan sonra **geri okunup doğrulanıyor**; bu projede üç k
 
 EL2 kaydı ekranın en üstündeydi ve üstteki bölümler taşırdığı için
 okunamıyordu. Artık `pause`'dan hemen önce.
+
+## TrustZone sürücüleri elendi
+
+`WindowsTrustedRT`, `WindowsTrustedRTProxy`, `TPM`, `QcTrEE_i`, `qcgpio_i`
+kapatıldı — süre yine 15 saniye.
+
+Bu, "doğrudan `SMC`" hipotezini de **zayıflatıyor**. Mantık zinciri
+sıfırlamanın EL3'e giden bir `SMC`'den gelmesi gerektiğini söylüyordu ve
+Windows'ta `SMC` atan açılış sürücüleri bunlardı. Kapatınca hiçbir şey
+değişmedi.
+
+### Sıradaki: hepsini birden kapat
+
+Grupları ayrı ayrı denemek her biri için bir Odin flaşı. `hepsi-kapat`
+korumalı olmayan otuz dokuz sürücünün tamamını devre dışı bırakıyor:
+
+| Gözlem | Sonuç |
+|---|---|
+| Süre değişiyor | Suçlu açılış sürücülerinin arasında; ikiye bölerek birkaç flaşta tek isme inilir |
+| 15 saniye aynı | **Açılış sürücüleri masum.** Çöküş `winload`'un sürücü yükleme aşamasında değil, `ntoskrnl`'in kendi iç işleyişinde. Bütün kategori tek flaşla kapanır |
+
+Korumalı liste dışarıda: `ACPI`, `acpiex`, `CNG`, `Wdf01000`, `FltMgr`,
+`volmgr`, `partmgr`, `disk`, `mountmgr`, `pdc`, `vdrvroot`, `spaceport`,
+`volume`, `volsnap`. Onlarsız çekirdek hiç başlamaz ve elimizde "açılmadı"dan
+başka bilgi kalmaz.

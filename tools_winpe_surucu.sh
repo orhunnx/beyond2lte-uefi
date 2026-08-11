@@ -5,6 +5,7 @@
 #   bash tools_winpe_surucu.sh liste            <- once bunu calistir
 #   bash tools_winpe_surucu.sh kapat a b c ...  <- adi verilenleri devre disi birak
 #   bash tools_winpe_surucu.sh ac    a b c ...  <- geri ac
+#   bash tools_winpe_surucu.sh hepsi-kapat      <- korumali olmayan hepsi
 #
 # ---------------------------------------------------------------------------
 # FIKIR NEREDEN GELDI
@@ -97,6 +98,37 @@ liste)
   echo "  bash tools_winpe_surucu.sh kapat <isim> <isim> ..."
   ;;
 
+hepsi-kapat)
+  #
+  # KORUMALI OLMAYAN BUTUN ACILIS SURUCULERINI KAPAT.
+  #
+  # NEDEN TEK TEK DEGIL: gruplari ayri ayri denemek her biri icin bir Odin
+  # flasi demek. Hepsini birden kapatmak tek hamlede ya butun kategoriyi
+  # ELER ya da elimize hedef verir:
+  #
+  #   sure DEGISIRSE  -> suclu acilis suruculerinin arasinda, ikiye bolerek
+  #                      birkac flasta tek isme inilir
+  #   15 saniye AYNI  -> acilis surucileri MASUM. Cokme winload'un surucu
+  #                      yukleme asamasinda degil, ntoskrnl'in kendi ic
+  #                      isleyisinde. Butun kategori tek flasla kapanir.
+  #
+  # Korumali liste disarida: onlarsiz cekirdek hic baslamaz ve elimizde
+  # "acilmadi"dan baska bilgi kalmaz. Bilgi uretmeyen deney yapmiyoruz.
+  #
+  say "Korumali olmayan TUM acilis surucileri kapatiliyor"
+  LISTE=""
+  while IFS= read -r S; do
+    [ -n "$S" ] || continue
+    ST="$(hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start 2>/dev/null || true)"
+    case "$ST" in 0|0x0|0x00000000) ;; *) continue ;; esac
+    echo " $KORUMALI " | grep -qi " $S " && continue
+    LISTE="$LISTE $S"
+  done < <(servisler)
+  echo "  hedef:$LISTE"
+  echo
+  exec bash "$0" kapat $LISTE
+  ;;
+
 kapat|ac)
   [ "$#" -gt 0 ] || { echo "En az bir servis adi ver."; exit 1; }
   if [ "$KOMUT" = "kapat" ]; then DEGER="dword:4"; SOZ="DEVRE DISI"; else DEGER="dword:0"; SOZ="ACILIS"; fi
@@ -149,7 +181,7 @@ HSH
 
 *)
   echo "Bilinmeyen komut: $KOMUT"
-  echo "  liste | kapat <isim>... | ac <isim>..."
+  echo "  liste | hepsi-kapat | kapat <isim>... | ac <isim>..."
   exit 1
   ;;
 esac
