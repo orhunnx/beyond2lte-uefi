@@ -34,11 +34,13 @@ ESP="$HERE/esp"
 #
 FORCE_WIM=0
 STOK_STARTNET=0
+DISK_MODU=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
     --wim-yenile) FORCE_WIM=1 ;;
     --stok)       STOK_STARTNET=1 ;;
+    --disk)       DISK_MODU=1 ;;
     *) ARGS+=("$a") ;;
   esac
 done
@@ -449,6 +451,20 @@ HSH
   fi
 fi
 
+
+#
+# --disk : WinPE gercek bir NTFS bolumden aciliyor, RAM diski yok.
+#
+# boot.wim ve boot.sdi ESP'de GEREKSIZ - hatta zararli: 600 MiB'lik CACHE'e
+# 600 MB'lik WIM sigmiyor ve bosuna kopyalaniyor. BCD zaten "locate=" ile
+# bolumu kendisi buluyor.
+#
+if [ "$DISK_MODU" = 1 ]; then
+  say "DISK MODU: boot.wim ve boot.sdi ESP'den cikariliyor"
+  rm -f "$ESP/sources/boot.wim" "$ESP/boot/boot.sdi"
+  rmdir "$ESP/sources" "$ESP/boot" 2>/dev/null || true
+  echo "  ESP artik yalnizca bootmgfw + BCD + fontlar tasiyor"
+fi
 
 say "ESP agacina yerlestiriliyor"
 rm -rf "$ESP/EFI/Microsoft/Boot/Fonts"   # onceki turdan kalan 83 MB CJK font

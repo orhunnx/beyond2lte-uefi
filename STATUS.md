@@ -2273,3 +2273,50 @@ Script ayrıca minimum tutuldu: `@echo off` yok, `::` yorum yok, parantezli
 anında ölüyordu; hangisinin öldürdüğünü bilmiyoruz, o yüzden hepsini birden
 çıkardık. Yalnızca `if exist`, `goto` ve `ping` kaldı — üçü de `wpeinit`
 sonrasında güvenli.
+
+## Diskten açılış: sessizliği görünür hataya çevirmek
+
+Fikir kullanıcıdan geldi ve ben önce yanlış eledim:
+
+> "Diske erişip erişemediğini tek tek test ediyoruz. Diske yazsak ve sürücü
+> başarısız olsa açılmaz ve çalışmadığını anlarız."
+
+İtiraz doğru — **başarısızlığın kendisi sinyal.** RAM diskten açarken
+`storufs`'un bağlanıp bağlanmaması hiçbir şeyi değiştirmiyor; Windows yine
+açılıyor, sadece depolama görmüyor ve bunu bize söyleyemiyor. Otuz turdur bu
+sessizlikle boğuşuyoruz.
+
+Diskten açarken bağlanmazsa `winload` açılış birimini bulamaz ve **ekrana hata
+basar.** Bunun çalıştığını biliyoruz: `ws2ifsl.sys` denemesinde
+`0xc0000428 / digital signature couldn't be verified` ekranını gördük.
+`winload`'un hata yolu sağlam; eksik olan ona ulaşacak bir hataydı.
+
+### Üç parça
+
+`tools_windisk.sh` — 3 GiB NTFS imajı üretip `boot.wim` index 1'i içine
+açıyor, SYSTEM bölümü için sparse tar veriyor.
+
+- NTFS sektör ve küme boyutu **4096**: UFS'in mantıksal blok boyutu bu ve
+  `bootmgr` blok G/Ç üzerinden okuyacak.
+- `wimlib-imagex apply` doğrudan NTFS imajına yazıyor; klasöre açıp
+  kopyalamak güvenlik tanımlayıcılarını ve yeniden ayırma noktalarını
+  kaybettirir, Windows açılmaz.
+- UEFI'de NTFS sürücüsü olmaması sorun değil — `bootmgr`'ın kendi NTFS
+  okuyucusu var.
+
+`bcd_olustur.cmd disk` — `ramdisk=` yerine
+`locate=\Windows\System32\winload.efi`. `bootmgr` birimleri kendisi tarayıp
+yolu buluyor, GPT bölüm GUID'ini elle yazmak gerekmiyor.
+
+`tools_winboot.sh --disk` — ESP'den `boot.wim` ve `boot.sdi`'yi çıkarıyor;
+disk modunda gereksizler ve 600 MiB'lik CACHE'e sığmıyorlar.
+
+### Beklenen okuma
+
+| Sonuç | Anlamı |
+|---|---|
+| Windows açılıyor | `storufs` bağlı, depolama çalışıyor |
+| "Inaccessible boot device" | `storufs` bağlanmıyor — ama **artık görünür** |
+| Başka bir `0xc0000...` | `winload` neyi bulamadığını tam olarak söylüyor |
+
+Üçü de sessizlikten iyi.

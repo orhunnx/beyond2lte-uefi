@@ -33,6 +33,12 @@ setlocal enabledelayedexpansion
 ::                          N+1. acilista okuyoruz.
 ::                          Iki kez ustuste ac: ilki coksun, ikincisi raporlasin.
 ::
+:: 
+::   disk     WinPE'yi RAM diskten degil GERCEK BIR NTFS BOLUMDEN acar.
+::            ramdisk yerine locate= kullaniyor. storufs baglanmazsa winload
+::            ekrana hata basar - RAM diskteki sessizligin panzehiri.
+::            Once: bash tools_windisk.sh  (SYSTEM bolumu icin NTFS imaji)
+::
 :: Ikisini AYNI ANDA deneme; hangisinin ise yaradigini bilemezsin.
 ::
 :: Cikti: Masaustunde "BCD" dosyasi. Onu WSL'deki depoya kopyala:
@@ -96,8 +102,29 @@ for /f "tokens=2 delims={}" %%g in ('bcdedit /store "%BCD%" /create /d "beyond2l
 if not defined G goto :hata
 echo   osloader GUID: %G%
 
-bcdedit /store "%BCD%" /set %G% device   ramdisk=[boot]\sources\boot.wim,{ramdiskoptions} >nul || goto :hata
-bcdedit /store "%BCD%" /set %G% osdevice ramdisk=[boot]\sources\boot.wim,{ramdiskoptions} >nul || goto :hata
+::
+:: RAM DISK MI, GERCEK BOLUM MU
+::
+:: "disk" varyanti WinPE'yi RAM diskten degil NTFS bir bolumden aciyor.
+:: Fikir kullanicidan geldi ve haklıydı: RAM diskte storufs'un baglanip
+:: baglanmamasi hicbir seyi degistirmiyor, o yuzden sessiz. Diskten acarken
+:: baglanmazsa winload ACILIS BIRIMINI BULAMAZ ve EKRANA HATA BASAR.
+::
+:: winload'un hata yolunun calistigini biliyoruz: ws2ifsl.sys denemesinde
+:: "0xc0000428 / digital signature couldn't be verified" ekranini gorduk.
+::
+:: "locate=" KULLANIYORUZ, "partition=" DEGIL: bootmgr birimleri kendisi
+:: tarayip verilen yolu buluyor. Boylece GPT bolum GUID'ini elle yazmak
+:: zorunda kalmiyoruz ve hangi boluma yazarsak yazalim calisiyor.
+::
+if /i "%VAR%"=="disk" (
+  bcdedit /store "%BCD%" /set %G% device   locate=\Windows\System32\winload.efi >nul || goto :hata
+  bcdedit /store "%BCD%" /set %G% osdevice locate=\Windows\System32\winload.efi >nul || goto :hata
+  echo   AYAR: gercek bolumden acilis ^(locate^), RAM disk YOK
+) else (
+  bcdedit /store "%BCD%" /set %G% device   ramdisk=[boot]\sources\boot.wim,{ramdiskoptions} >nul || goto :hata
+  bcdedit /store "%BCD%" /set %G% osdevice ramdisk=[boot]\sources\boot.wim,{ramdiskoptions} >nul || goto :hata
+)
 bcdedit /store "%BCD%" /set %G% path       \windows\system32\boot\winload.efi >nul || goto :hata
 bcdedit /store "%BCD%" /set %G% systemroot \windows >nul || goto :hata
 bcdedit /store "%BCD%" /set %G% detecthal  Yes
@@ -153,6 +180,11 @@ if /i "%VAR%"=="zamanlayici" (
   bcdedit /store "%BCD%" /set %G% useplatformclock Yes
   if errorlevel 1 echo   ! BASARISIZ: useplatformclock Yes
   echo   AYAR: numproc 1 + disabledynamictick + useplatformclock
+)
+if /i "%VAR%"=="disk" (
+  bcdedit /store "%BCD%" /set %G% numproc 1
+  if errorlevel 1 echo   ! BASARISIZ: numproc 1
+  echo   AYAR: numproc 1
 )
 if /i "%VAR%"=="azram" (
   bcdedit /store "%BCD%" /set %G% truncatememory 0x100000000
