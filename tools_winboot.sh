@@ -508,6 +508,29 @@ if [ "$DISK_MODU" = 1 ]; then
   fi
 fi
 
+#
+# SIRA KORUMASI: b2lfb WIM'den dusmus mu?
+#
+# tools_winboot.sh WIM'e dokunuyor; --wim-yenile ile onu bastan uretiyor.
+# tools_b2lfb.sh'ten SONRA calisirsa surucu de SYSTEM hive'indaki servis
+# kaydi da ucar ve cihazda hicbir sey gorunmez - ki bu "surucu yuklenmedi"
+# diye yanlis yorumlanir.
+#
+# Dogru sira: once tools_winboot.sh, EN SON tools_b2lfb.sh.
+#
+if [ -s "$(dirname "$ESP")/out/b2lfb/b2lfb.sys" ]; then
+  if ! wimlib-imagex dir "$ESP/sources/boot.wim" 1 2>/dev/null | grep -qi 'b2lfb\.sys'; then
+    echo
+    echo "  ###############################################################"
+    echo "  # b2lfb.sys derlenmis ama BU WIM'DE YOK."
+    echo "  #"
+    echo "  # tools_b2lfb.sh HER ZAMAN EN SON calisir:"
+    echo "  #     bash tools_b2lfb.sh"
+    echo "  #     bash cache_esp.sh --win --system"
+    echo "  ###############################################################"
+  fi
+fi
+
 say "Sonuc"
 find "$ESP/EFI/Microsoft" "$ESP/boot" "$ESP/sources" -type f 2>/dev/null -exec ls -lh {} \; | awk '{print "  "$5"\t"$9}'
 echo
