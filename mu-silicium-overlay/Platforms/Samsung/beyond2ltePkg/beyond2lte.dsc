@@ -57,10 +57,13 @@
 
   #
   # Ekrandaki debug log'unun akis hizi (satir basina gecikme, mikrosaniye).
-  # SiliciumPkg varsayilani 10000 (10 ms). Bir ara fotograflayabilmek icin
-  # 100000 (100 ms!) yapilmisti - her debug satiri icin onda bir saniye,
-  # acilis dakikalara cikiyordu. Windows denemelerinde her tur bu bekleniyor.
-  # Artik logu ekrandan okumuyoruz; sifir.
+  # SiliciumPkg varsayilani 10000 (10 ms). Fotograflayabilmek icin yavaslatildi.
+  # Fotograf cekmen bitince 10000'e geri al - yoksa boot cok uzun surer.
+  #
+  #
+  # 0 = her DEBUG satiri icin bekleme yok. Varsayilan 100000 (100 ms/satir)
+  # acilisi dakikalara cikariyor. Bu, geri alinan tek sey degil - bilerek
+  # korunuyor cunku Windows'un gordugu hicbir seyi degistirmiyor.
   #
   gSiliciumPkgTokenSpaceGuid.PcdFrameBufferDelay|0
   #
@@ -127,11 +130,6 @@
       gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
       gEfiMdePkgTokenSpaceGuid.PcdUefiLibMaxPrintBufferSize|8000
   }
-
-  #
-  # ResetSystem kancasi (bkz. Drivers/B2LResetHookDxe/B2LResetHookDxe.c)
-  #
-  beyond2ltePkg/Drivers/B2LResetHookDxe/B2LResetHookDxe.inf
 
   #
   # Input

@@ -24,41 +24,6 @@
 [028h 0040 004h]       Flags (decoded below) : 00000000
                          PC-AT Compatibility : 0
 
-//
-// ===========================================================================
-// TEK CEKIRDEK - IKIYE BOLME TESTI
-// ===========================================================================
-// UID 1..7 "Processor Enabled : 0". Sadece UID 0 etkin.
-//
-// NEDEN BURADAN BASLIYORUZ: projedeki en guclu ama hic takip edilmemis
-// anomali su - "numproc 1" OLMADAN Windows cekirdegi HIC baslamiyor. Yani
-// ikincil cekirdek acilisi Windows'u aninda olduruyor. Ama "numproc 1"
-// Windows'un kac cekirdek KULLANACAGINI sinirliyor, MADT'de kac cekirdek
-// GORDUGUNU degil. Windows hala sekiz islemcilik yapi kuruyor, PSCI ile
-// onlari acmaya calisiyor ve zaman asimlarini bekliyor.
-//
-// Bu degisiklik ikincil cekirdek boyutunu denklemden tamamen cikariyor.
-//
-// TUKENEN TANI KANALLARI (hepsi olculdu, hicbiri tahmin degil):
-//   sos / bootstatuspolicy      sessiz
-//   bootstat.dat                yazilamiyor
-//   ResetSystem kancasi         hic cagrilmiyor (kilitlenme moduyla dogrulandi)
-//   PSCI_COMPLIANT = 0          degistirmedi
-//   RST_STAT                    yazilim sifirlamasi, watchdog degil
-//   GTDT                        DTB ile birebir dogru
-//   EL                          EL1, EL2 degil
-//
-// Geriye tek olcum kaldi: SURE. Ve bir kez gercekten hareket etti -
-// DSDT'den _CLS kaldirilinca 5-6 saniyeden 12 saniyeye cikti. Demek ki
-// Windows'a verdigimiz ACPI icerigi sureyi degistiriyor. O yuzden artik
-// tahmin etmiyoruz, ikiye boluyoruz.
-//
-// BEKLENEN OKUMA:
-//   sure DEGISIRSE  -> sorun cekirdek acilisinda, MADT/PSCI tarafi
-//   12 saniye AYNI  -> cekirdekler masum, cekirdek disi bir seye bakariz
-//
-// GERI ALMAK ICIN: UID 1..7 icin Flags 00000001, Processor Enabled : 1.
-//
 [02Ch 0044 001h]               Subtable Type : 0B [Generic Interrupt Controller]
 [02Dh 0045 001h]                      Length : 52
 [02Eh 0046 002h]                    Reserved : 0000
@@ -87,8 +52,8 @@
 [080h 0128 002h]                    Reserved : 0000
 [082h 0130 004h]        CPU Interface Number : 00000001
 [086h 0134 004h]               Processor UID : 00000001
-[08Ah 0138 004h]       Flags (decoded below) : 00000000
-                           Processor Enabled : 0
+[08Ah 0138 004h]       Flags (decoded below) : 00000001
+                           Processor Enabled : 1
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [08Eh 0142 004h]    Parking Protocol Version : 00000000
@@ -110,8 +75,8 @@
 [0D2h 0210 002h]                    Reserved : 0000
 [0D4h 0212 004h]        CPU Interface Number : 00000002
 [0D8h 0216 004h]               Processor UID : 00000002
-[0DCh 0220 004h]       Flags (decoded below) : 00000000
-                           Processor Enabled : 0
+[0DCh 0220 004h]       Flags (decoded below) : 00000001
+                           Processor Enabled : 1
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [0E0h 0224 004h]    Parking Protocol Version : 00000000
@@ -133,8 +98,8 @@
 [124h 0292 002h]                    Reserved : 0000
 [126h 0294 004h]        CPU Interface Number : 00000003
 [12Ah 0298 004h]               Processor UID : 00000003
-[12Eh 0302 004h]       Flags (decoded below) : 00000000
-                           Processor Enabled : 0
+[12Eh 0302 004h]       Flags (decoded below) : 00000001
+                           Processor Enabled : 1
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [132h 0306 004h]    Parking Protocol Version : 00000000
@@ -156,8 +121,8 @@
 [176h 0374 002h]                    Reserved : 0000
 [178h 0376 004h]        CPU Interface Number : 00000004
 [17Ch 0380 004h]               Processor UID : 00000004
-[180h 0384 004h]       Flags (decoded below) : 00000000
-                           Processor Enabled : 0
+[180h 0384 004h]       Flags (decoded below) : 00000001
+                           Processor Enabled : 1
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [184h 0388 004h]    Parking Protocol Version : 00000000
@@ -179,8 +144,8 @@
 [1C8h 0456 002h]                    Reserved : 0000
 [1CAh 0458 004h]        CPU Interface Number : 00000005
 [1CEh 0462 004h]               Processor UID : 00000005
-[1D2h 0466 004h]       Flags (decoded below) : 00000000
-                           Processor Enabled : 0
+[1D2h 0466 004h]       Flags (decoded below) : 00000001
+                           Processor Enabled : 1
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [1D6h 0470 004h]    Parking Protocol Version : 00000000
@@ -202,8 +167,8 @@
 [21Ah 0538 002h]                    Reserved : 0000
 [21Ch 0540 004h]        CPU Interface Number : 00000006
 [220h 0544 004h]               Processor UID : 00000006
-[224h 0548 004h]       Flags (decoded below) : 00000000
-                           Processor Enabled : 0
+[224h 0548 004h]       Flags (decoded below) : 00000001
+                           Processor Enabled : 1
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [228h 0552 004h]    Parking Protocol Version : 00000000
@@ -225,8 +190,8 @@
 [26Ch 0620 002h]                    Reserved : 0000
 [26Eh 0622 004h]        CPU Interface Number : 00000007
 [272h 0626 004h]               Processor UID : 00000007
-[276h 0630 004h]       Flags (decoded below) : 00000000
-                           Processor Enabled : 0
+[276h 0630 004h]       Flags (decoded below) : 00000001
+                           Processor Enabled : 1
           Performance Interrupt Trigger Mode : 0
           Virtual GIC Interrupt Trigger Mode : 0
 [27Ah 0634 004h]    Parking Protocol Version : 00000000

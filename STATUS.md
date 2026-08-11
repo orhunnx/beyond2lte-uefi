@@ -1506,3 +1506,28 @@ bash cache_esp.sh --win --system
 |---|---|
 | Animasyonlu sönme geri geldi | Suçlu bizim script; WinPE sağlam, oradan ilerlenir |
 | Yine sert sıfırlama | Gerileme başka bir değişiklikte — `_CLS`, `numproc`, ESP konumu ya da 23H2 |
+
+## Bilinen iyi noktaya dönüş (`43ef06c`)
+
+"O zaman neyi farklı yapmıştık?" sorusunun cevabı: **yedi sekiz şeyi.**
+`git diff 43ef06c HEAD` ile çıkarıldı.
+
+| Değişiklik | Animasyon anında | Şimdi (geri alındı) |
+|---|---|---|
+| FADT `Low Power S0 Idle` | 1 | 1 |
+| MADT UID 1..7 | Etkin | Etkin |
+| DSDT `_CLS` | Var | Var |
+| DSDT `_CRS` | 4 aralık | 4 aralık |
+| `B2LResetHookDxe` | Yok | Yok |
+| Bellek haritasında `B2L Log` (`0xCF000000`, RtData) | Yok | Yok |
+
+Son iki satır önemli: kanca sürücüsü Windows'un gördüğü **bellek haritasına
+yeni bir çalışma zamanı bölgesi** ekliyordu. Kanca zaten hiç ateşlemedi, yani
+bize hiçbir şey kazandırmadan Windows'a yeni bir şey gösteriyordu.
+
+`PcdFrameBufferDelay|0` bilerek korundu — Windows'un gördüğü hiçbir şeyi
+değiştirmiyor, sadece açılışı hızlandırıyor.
+
+Windows tarafında da geri dönülecekler var: o gün **25H2** vardı ve ESP
+**CACHE**'te FAT16'ydı; şu an 23H2 ve SYSTEM'de FAT32. `startnet.cmd` ise
+`--stok` ile devre dışı.

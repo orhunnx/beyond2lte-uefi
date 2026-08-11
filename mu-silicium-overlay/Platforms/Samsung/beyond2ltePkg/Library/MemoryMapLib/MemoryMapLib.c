@@ -18,30 +18,6 @@ gMemoryDescriptor[] = {
   {"Display Reserved",   0xCA000000, 0x01400000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
   {"DXE Heap",           0xCB400000, 0x03C00000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
 
-  //
-  // B2L Log - SIFIRLAMAYI ATLATAN KAYIT ALANI. 64 KB.
-  //
-  // NEREDE: DXE Heap 0xCF000000'da bitiyor, DTB'nin bir sonraki rezervi
-  // modem_spare 0xD0000000'da basliyor. Aradaki 16 MB'lik boslugun basi.
-  // Ne UEFI ne Android burayi kullaniyor.
-  //
-  // NEDEN VAR: B2LResetHookDxe, Windows'un cagirdigi ResetSystem'i
-  // kancaliyor ve ResetType + ResetStatus'u buraya yaziyor. Kanca
-  // ExitBootServices'ten SONRA calisiyor, yani ekrana yazamaz - ama DRAM
-  // sicak sifirlamayi atlatiyor (Android'in ramoops'u tam olarak buna
-  // dayanir). Sonraki acilista EFI Shell "dmem 0xCF000000" ile okuyor.
-  //
-  // RtData SART: MemoryInitPei RtData'yi ozel olarak ele alip Memory
-  // Allocation HOB uretiyor, ve EFI_MEMORY_RUNTIME isaretli oldugu icin
-  // isletim sistemi SetVirtualAddressMap'te bu bolgeye sanal adres veriyor.
-  // Reserv olsaydi Windows haritalamaz, kanca yazmaya calisinca fault olurdu.
-  //
-  // UNCACHED_UNBUFFERED SART: kanca yazdiktan hemen sonra cihaz sifirlaniyor;
-  // veri onbellekte kalirsa kaybolur. Onbelleksiz yazma dogrudan DRAM'e gider,
-  // boylece kanca icinde cache bakimi yapmak zorunda kalmiyoruz.
-  //
-  {"B2L Log",            0xCF000000, 0x00010000, AddMem, SYS_MEM, SYS_MEM_CAP, RtData, UNCACHED_UNBUFFERED},
-
   // iRAM Regions
   {"IRAM",               0x02020000, 0x00018000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   DEVICE},
   {"NS_IRAM",            0x02038000, 0x00004000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},

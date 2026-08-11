@@ -22,13 +22,6 @@
   INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
   INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
 
-  #
-  # ResetSystem kancasi. Windows'un sifirlama cagrisini yakalayip
-  # ResetType + ResetStatus'u 0xCF000000'a yaziyor; sonraki acilista
-  # EFI Shell "dmem 0xCF000000 192" ile okunuyor.
-  #
-  INF beyond2ltePkg/Drivers/B2LResetHookDxe/B2LResetHookDxe.inf
-
   INF SamsungPkg/Drivers/ChipInfoDxe/ChipInfoDxe.inf
   INF SamsungPkg/Drivers/GpioDxe/GpioDxe.inf
   INF SamsungPkg/Drivers/UsiDxe/UsiDxe.inf
