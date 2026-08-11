@@ -2019,3 +2019,33 @@ Korumalı liste dışarıda: `ACPI`, `acpiex`, `CNG`, `Wdf01000`, `FltMgr`,
 `volmgr`, `partmgr`, `disk`, `mountmgr`, `pdc`, `vdrvroot`, `spaceport`,
 `volume`, `volsnap`. Onlarsız çekirdek hiç başlamaz ve elimizde "açılmadı"dan
 başka bilgi kalmaz.
+
+## Sayı ilk kez oynadı: 15 → 5 saniye
+
+`hepsi-kapat` ile korumalı olmayan 39 açılış sürücüsü kapatıldı ve süre
+**15 saniyeden 5 saniyeye düştü.** Yirmi beş turdur sabit duran sayı ilk kez
+değişti — sürücü kümesi gerçekten etkili, mekanizma çalışıyor.
+
+Ama yön yanlış: daha erken ölüyor, daha geç değil. Sebep korumalı listenin
+eksik olması. **WinPE RAM diskteki bir WIM'den çalışıyor** ve o WIM'i bağlayan
+sürücüleri de kapatmışız:
+
+| Sürücü | İşi |
+|---|---|
+| `WimFsf` | WIM dosya sistemi filtresi — açılış birimi bununla görülüyor |
+| `FBWF` | File-Based Write Filter, WinPE'nin RAM üzeri yazma katmanı |
+| `Wof` | Windows Overlay Filter |
+| `Fs_Rec` | Dosya sistemi tanımlayıcı |
+| `Mup` | G/Ç yığınının üst katmanı |
+| `FileInfo` | Filtre yöneticisi bağlantısı |
+| `CLFS` | Çekirdeğin günlük altyapısı |
+| `KSecDD` / `KSecPkg` | Çekirdek güvenlik sürücüleri |
+| `pcw` | Performans sayaçları, çekirdek erken istiyor |
+
+Bunlar korumalıya eklendi. Geriye **sadece donanım sürücüleri** kalıyor —
+`DXGKrnl`, `pci`, `Tcpip`, `NDIS`, `storahci`, `stornvme`, `storufs`, `TPM`,
+`vmbus`, `vpci` gibi. Asıl şüpheliler zaten onlar; küme hem küçüldü hem
+anlamlandı.
+
+Not: `0xCF030000`'daki EL2 kaydında `B2L2` imzası yok, döküm çöp. EL2 arka
+kapısı henüz çalışmıyor — ayrı bir iş olarak duruyor.

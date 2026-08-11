@@ -43,9 +43,30 @@ WIM="$HERE/esp/sources/boot.wim"
 KOMUT="${1:-liste}"; shift || true
 
 #
-# Bunlar olmadan cekirdek hic baslamaz. Kapatmak bilgi degil sessizlik uretir.
+# KORUMALI KUME - kapatmak bilgi degil sessizlik uretir.
 #
-KORUMALI="ACPI acpiex CNG Wdf01000 WudfPf FltMgr Null volmgr partmgr disk mountmgr msisadrv pdc vdrvroot spaceport volume volsnap"
+# ILK LISTE EKSIKTI VE OLCUMU BOZDU: hepsi kapatilinca sure 15 -> 5 saniyeye
+# DUSTU. Daha erken olmek "suclu bulundu" demek degil; Windows acilis birimini
+# hic goremeden pes etti demek.
+#
+# Sebep: WinPE RAM diskteki bir WIM'den calisiyor ve o WIM'i baglayan
+# suruculeri de kapatmisiz.
+#
+#   WimFsf    WIM dosya sistemi filtresi - acilis birimi bununla goruluyor
+#   FBWF      File-Based Write Filter, WinPE'nin RAM uzeri yazma katmani
+#   Wof       Windows Overlay Filter, WIM destekli dosyalar
+#   Fs_Rec    dosya sistemi tanimlayici
+#   Mup       G/C yigininin ust katmani
+#   FileInfo  filtre yoneticisi baglantisi
+#   CLFS      cekirdegin gunluk altyapisi
+#   KSecDD    cekirdek guvenlik surucusu - CNG'nin karsiligi
+#   KSecPkg   ayni ailenin paketi
+#   pcw       performans sayaclari, cekirdek erken istiyor
+#
+# Bunlar eklendikten sonra geriye SADECE DONANIM surucileri kaliyor - asil
+# supheliler zaten onlar. Kume boylece hem daha kucuk hem daha anlamli.
+#
+KORUMALI="ACPI acpiex CNG Wdf01000 WudfPf FltMgr Null volmgr partmgr disk mountmgr msisadrv pdc vdrvroot spaceport volume volsnap WimFsf FBWF Wof Fs_Rec Mup FileInfo CLFS KSecDD KSecPkg pcw"
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
