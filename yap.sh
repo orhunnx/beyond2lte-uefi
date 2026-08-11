@@ -49,6 +49,23 @@ if [ "$DO_ACPI" = 1 ]; then
 fi
 
 # ---------------------------------------------------------------- overlay
+#
+# ONCE UPSTREAM DOSYALARI GERI AL.
+#
+# tools_ufs_patch.py yamayi $MU icindeki UfsDxe.c'ye KALICI olarak
+# uyguluyor. Scripti cagirmayi birakmak yamayi geri ALMIYOR - dosya orada
+# yamali duruyor ve "B2L UFS:" satirlari cikmaya devam ediyor. Bilinen iyi
+# noktaya donerken tam olarak bu oldu ve geri donusu eksik birakti.
+#
+# Overlay o dosyayi kopyalamadigi icin (sadece .inf var) tek yol upstream
+# surumu git'ten geri cagirmak.
+#
+if [ -d "$MU/.git" ]; then
+  if git -C "$MU" checkout -- Silicon/Samsung/SamsungPkg/Drivers/UfsDxe/UfsDxe.c 2>/dev/null; then
+    echo "  UfsDxe.c upstream haline alindi (yama temizlendi)"
+  fi
+fi
+
 say "Overlay kopyalaniyor"
 cp -r "$PROJ/mu-silicium-overlay/." "$MU/"
 echo "  Platforms/Samsung/beyond2ltePkg"
@@ -172,4 +189,18 @@ else
   echo "Derleme gecti ama Mu-beyond2lte*.img bulunamadi."
   echo "Bulunanlar:"; ls -la "$MU"/*.img 2>/dev/null || echo "  hic .img yok"
   exit 1
+fi
+
+#
+# EbsTest.efi'yi disari cikar. Firmware'e gomulu degil; testi yapmak
+# isteyince esp/ icine elle kopyalanacak.
+#
+EBS="$(find "$MU/Build" -name 'EbsTest.efi' 2>/dev/null | head -1)"
+if [ -n "$EBS" ]; then
+  mkdir -p "$PROJ/out"
+  cp -f "$EBS" "$PROJ/out/EbsTest.efi"
+  echo
+  echo "EbsTest hazir: out/EbsTest.efi"
+  echo "  Denemek icin:  cp out/EbsTest.efi esp/EBSTEST.EFI && bash cache_esp.sh --win"
+  echo "  Geri almak icin: rm esp/EBSTEST.EFI"
 fi

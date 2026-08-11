@@ -132,6 +132,16 @@
   }
 
   #
+  # EbsTest - ExitBootServices sonrasi kalp atisi.
+  #
+  # SADECE DERLENIYOR, FDF'ye EKLENMIYOR: firmware'e gomulmedigi icin
+  # normal acilis yolunu hic etkilemiyor. Uretilen .efi out/ altina
+  # kopyalaniyor; test etmek isteyince esp/ icine elle konuyor,
+  # startup.nsh varsa calistiriyor, yoksa Windows'a geciyor.
+  #
+  beyond2ltePkg/Applications/EbsTest/EbsTest.inf
+
+  #
   # Input
   #
   SiliciumPkg/Drivers/KeypadDxe/KeypadDxe.inf

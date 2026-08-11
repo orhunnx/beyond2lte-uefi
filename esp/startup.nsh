@@ -54,6 +54,29 @@ echo ================ Fotografla, sonra tusa bas.
 pause
 
 #
+# 0) EbsTest - varsa HER SEYDEN ONCE.
+#
+# ExitBootServices cagirip HICBIR SEY kurmayan bir kalp atisi. Boot
+# servisleri kapandiktan sonra geriye yalnizca framebuffer'a kare cizen bir
+# dongu kaliyor: ne zamanlayici, ne kesme, ne surucu. Her tik bir kare,
+# yani kendi kendini zamanliyor - cihaz sifirlanirsa kareleri saymak
+# yetiyor, kronometreye gerek yok.
+#
+# NEDEN: Linux ExitBootServices cagirip 120 saniye yasiyor ama her seyi
+# kuruyor. Windows cagirip 15 saniyede oluyor. Aradaki ucuncu durum hic
+# denenmedi. ~15 saniyede sifirlarsa sorun Windows'ta DEGIL demektir ve
+# ACPI'de aramayi tamamen birakiriz.
+#
+# Dosya esp/ icinde yoksa bu blok atlanir ve normal acilis surer.
+#
+if exist fs0:\EBSTEST.EFI then
+    echo EbsTest calisiyor. Kareleri say.
+    fs0:\EBSTEST.EFI
+    echo EbsTest geri dondu.
+    pause
+endif
+
+#
 # 3) Linux once: bayraksiz cache_esp.sh acikca Linux modu.
 #
 if exist fs0:\initramfs-test.gz then

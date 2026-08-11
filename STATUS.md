@@ -1581,3 +1581,33 @@ Windows çağırıp 15 saniyede ölüyor. Aradaki üçüncü durum hiç denenmed
 | Dakikalarca yaşıyor | Sıfırlama gerçekten Windows'a özel |
 
 Geri dönüş de tutmazsa sıradaki adım bu.
+
+### Geri dönüş eksikti: `UfsDxe.c` yamalı kalmıştı
+
+Cihazda `B2L UFS:` satırları çıkmaya devam etti. Sebep: `tools_ufs_patch.py`
+yamayı `$MU` içindeki `UfsDxe.c`'ye **kalıcı olarak** uyguluyor. Scripti
+çağırmayı bırakmak yamayı geri almıyor — dosya orada yamalı duruyor. Overlay
+o dosyayı kopyalamadığı için (sadece `.inf` var) tek yol upstream sürümü
+git'ten geri çağırmak.
+
+`yap.sh` artık overlay kopyalamadan önce şunu yapıyor:
+
+```bash
+git -C "$MU" checkout -- Silicon/Samsung/SamsungPkg/Drivers/UfsDxe/UfsDxe.c
+```
+
+Bu, "yamayı kapattım" demenin yeterli olmadığı ikinci durum. İlki `yap.sh`'in
+`ACPI.inc`'i depoda kirletmesiydi.
+
+### `EbsTest` derlemeye bağlandı
+
+Sadece `.dsc`'de, **FDF'ye eklenmedi** — firmware'e gömülmediği için normal
+açılış yolunu hiç etkilemiyor. `yap.sh` üretilen `.efi`'yi `out/` altına
+kopyalıyor; test etmek isteyince `esp/` içine elle konuyor.
+
+```bash
+cp out/EbsTest.efi esp/EBSTEST.EFI && bash cache_esp.sh --win   # test
+rm esp/EBSTEST.EFI                                              # geri al
+```
+
+`startup.nsh` her şeyden önce `EBSTEST.EFI`'ye bakıyor; dosya yoksa atlıyor.
