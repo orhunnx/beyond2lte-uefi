@@ -110,6 +110,24 @@ __declspec(dllimport) UINT8 KeRegisterBugCheckCallback (
  * yaziyor, bize yeterince buyuk ve hizali alan lazim. Ikisi de 64 bitte
  * 0x40 bayt; 128 bayt fazlasiyla yeterli.
  */
+/*
+ * SUREC SAYACI - 9 saniyede kullanici moduna cikiyor muyuz?
+ *
+ * startnet.cmd artik dogrulanmis olarak WIM'e giriyor ve sure yine 9. Yani
+ * yeniden baslatmayi isteyen sey kabuk degil. Geriye iki cok farkli ihtimal
+ * kaliyor:
+ *
+ *   - 9 saniye tamamen CEKIRDEK baslatmasi; kullanici moduna hic cikilmiyor
+ *   - smss/csrss/winpeshl calisiyor, is daha ileride bitiyor
+ *
+ * PsSetCreateProcessNotifyRoutine her surec yaratiminda cagriliyor. Sayisi
+ * bu ikisini tek bakista ayiriyor.
+ *
+ * "Ex" surumu DEGIL: o, imajda FORCE_INTEGRITY bayragi istiyor. Duz surumun
+ * boyle bir sarti yok ve bize sadece sayi lazim.
+ */
+__declspec(dllimport) long PsSetCreateProcessNotifyRoutine (PVOID Routine, UINT8 Remove);
+
 __declspec(dllimport) void KeInitializeDpc (PVOID Dpc, PVOID Routine, PVOID Context);
 __declspec(dllimport) void KeInitializeTimer (PVOID Timer);
 __declspec(dllimport) UINT8 KeSetTimerEx (PVOID Timer, long long DueTime, int Period, PVOID Dpc);
@@ -206,6 +224,20 @@ __declspec(align(16)) static UINT64 gTimer[16];
 __declspec(align(16)) static UINT64 gDpc[16];
 
 static UINT64 gTik = 0;
+static UINT32 gSurec = 0;
+
+/*
+ * Her surec yaratiminda cagriliyor. Yalnizca sayiyoruz; isim okumak icin
+ * daha fazla API gerekir ve bu turda sayinin kendisi yetiyor.
+ */
+static void SurecBildirimi (PVOID ParentId, PVOID ProcessId, UINT8 Create)
+{
+  (void)ParentId; (void)ProcessId;
+
+  if (Create) {
+    gSurec++;
+  }
+}
 
 /*
  * Saniyede bir. Her tik bir sonraki parcayi boyuyor ve rengi degistiriyor,
@@ -254,6 +286,15 @@ static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
       S[13] = 'H';
     }
     S[14] = ' '; S[15] = ' ';
+
+    /* +0x20: kac surec yaratildi. Kullanici moduna ciktik mi? */
+    S[16] = 'P'; S[17] = 'R'; S[18] = 'C'; S[19] = '=';
+    S[20] = (UINT8)('0' + ((gSurec / 1000) % 10));
+    S[21] = (UINT8)('0' + ((gSurec /  100) % 10));
+    S[22] = (UINT8)('0' + ((gSurec /   10) % 10));
+    S[23] = (UINT8)('0' + ( gSurec         % 10));
+    S[24] = ' '; S[25] = ' '; S[26] = ' '; S[27] = ' ';
+    S[28] = ' '; S[29] = ' '; S[30] = ' '; S[31] = ' ';
   }
 }
 
@@ -405,6 +446,9 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
    * DueTime negatif = GORELI, 100 ns birimi. -10000000 = 1 saniye.
    * Period = 1000 ms, yani saniyede bir tekrar.
    */
+  /* Surec bildirimi - kullanici moduna cikip cikmadigimizi soyleyecek */
+  PsSetCreateProcessNotifyRoutine ((PVOID)SurecBildirimi, 0);
+
   KeInitializeDpc ((PVOID)gDpc, (PVOID)HeartbeatDpc, 0);
   KeInitializeTimer ((PVOID)gTimer);
   KeSetTimerEx ((PVOID)gTimer, -10000000LL, 1000, (PVOID)gDpc);

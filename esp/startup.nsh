@@ -91,7 +91,7 @@ echo .
 # 0x20 bayt yetiyor: geri kalani zaten FF. Kisa tutmak PMU'yu ekranda
 # tutuyor.
 #
-dmem 0xCF030000 20
+dmem 0xCF030000 30
 echo .
 
 #
