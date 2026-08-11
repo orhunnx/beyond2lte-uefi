@@ -247,6 +247,23 @@ static void BostaDongu (PVOID Ctx)
 
   KeSetPriorityThread (KeGetCurrentThread (), 1);
 
+  /*
+   * CALISTIGINI KANITLA.
+   *
+   * Ilk denemede sonuc degismedi, ama is parcaciginin gercekten
+   * yaratildigini ve onceliginin tuttugunu DOGRULAMADIK. Bu projede
+   * dogrulanmamis bir aletin sessizligine guvenmek dort kez yanilttı.
+   *
+   * Bant hemen ardindan gelen alani turkuaza boyuyoruz: gorunuyorsa
+   * is parcacigi calisti, gorunmuyorsa bu deney hicbir sey kanitlamiyor.
+   */
+  if (gFb != 0) {
+    FillDword ((PVOID)((UINT8 *)gFb + BANT_BYTES), TIK_BYTES / 2, 0x0000FFFF);
+  }
+  if (gLog != 0) {
+    ((UINT8 *)gLog)[10] = 'T';
+  }
+
   for (;;) {
     I++;
   }

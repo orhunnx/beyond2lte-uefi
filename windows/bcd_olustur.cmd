@@ -124,7 +124,22 @@ bcdedit /createstore "%BCD%" || goto :hata
 bcdedit /store "%BCD%" /create {globalsettings}     /d "Global" >nul 2>&1
 bcdedit /store "%BCD%" /create {bootloadersettings} /d "Loader" >nul 2>&1
 bcdedit /store "%BCD%" /set {bootloadersettings} inherit {globalsettings} >nul 2>&1
-bcdedit /store "%BCD%" /set {globalsettings} bootux Disabled >nul 2>&1
+::
+:: DOGRU OGE ADI "bootuxdisabled" - "bootux" DIYE BIR SEY YOK.
+::
+:: Onceki satir soyleydi:
+::     bcdedit /set {globalsettings} bootux Disabled >nul 2>&1
+:: Hem oge adi yanlisti hem de hata ciktisi bastiriliyordu, dolayisiyla
+:: basarisiz oldugunu hic gormedik. "sos On" acikken tek satir metin
+:: gormememizin sebebi buyuk ihtimalle bu: grafik acilis deneyimi kapanmadigi
+:: icin cekirdek metin cikisi hic cizilmiyor.
+::
+:: Bu duzelirse Windows yukledigi HER SURUCUNUN ADINI ekrana yazar ve son
+:: isim dogrudan tetikleyiciyi soyler. Yirmi turluk bisection'i tek acilista
+:: bitirebilir.
+::
+bcdedit /store "%BCD%" /set {globalsettings} bootuxdisabled on
+if errorlevel 1 echo   ! BASARISIZ: bootuxdisabled on
 
 :: --- ramdisk tanimi -------------------------------------------------------
 :: boot.sdi'yi burasi isaret ediyor. "boot" = bootmgr'in yuklendigi birim.
@@ -225,6 +240,15 @@ if errorlevel 1 echo   ! BASARISIZ: nointegritychecks  Yes
 
 bcdedit /store "%BCD%" /set %G% quietboot          No
 if errorlevel 1 echo   ! BASARISIZ: quietboot          No
+::
+:: bootuxdisabled DOGRUDAN YUKLEYICI GIRDISINE DE YAZILIYOR.
+::
+:: {globalsettings} uzerinden miras zincirine guveniyoruz ama o zincir bu
+:: projede bir kez zaten kopmustu. Ayni degeri hedefe dogrudan yazmak bir
+:: satir; miras calismasa bile "sos" ciktisi gorunur.
+::
+bcdedit /store "%BCD%" /set %G% bootuxdisabled     on
+if errorlevel 1 echo   ! BASARISIZ: bootuxdisabled     on
 bcdedit /store "%BCD%" /set %G% sos                On
 if errorlevel 1 echo   ! BASARISIZ: sos                On
 :: Legacy boot deneyimi: grafik yerine METIN. Donen daire yerine surucu
