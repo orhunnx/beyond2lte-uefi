@@ -65,6 +65,36 @@ __declspec(dllimport) PVOID MmMapIoSpace (
   UINT64           NumberOfBytes,
   UINT32           CacheType);
 
+/*
+ * BUGCHECK GERI CAGRISI - FAZ 2'NIN TEK AMACI
+ *
+ * Otuz turdur cevaplayamadigimiz soru: 10 saniyelik olum bir bugcheck mi,
+ * yoksa SoC'yi sifirlayan baska bir sey mi?
+ *
+ * Ikisi ekranda AYNI gorunuyor cunku Windows'un kendi mavi ekrani bu
+ * platformda cizilmiyor. Ama cekirdek, bugcheck sirasinda kayitli geri
+ * cagrilari CAGIRIYOR - ve biz o an framebuffer'a yazabiliyoruz.
+ *
+ * Ayrim kesin:
+ *   Ekran YESILE donuyor -> bugcheck. Windows cokuyor ve bunu biliyor.
+ *   Macenta kaliyor      -> bugcheck DEGIL. Bir sey SoC'yi disaridan
+ *                           sifirliyor; cekirdegin haberi bile yok.
+ *
+ * Ikisi tamamen farkli yerlere baktiriyor ve bu ayrimi ilk kez yapabiliyoruz.
+ *
+ * KBUGCHECK_CALLBACK_RECORD'un ic yapisini bildirmiyoruz: cekirdek icine
+ * yaziyor, bize sadece yeterince buyuk ve SIFIRLANMIS, sayfalanamaz bir
+ * alan lazim. Surucunun .data bolumu zaten sayfalanamaz. Sifir olmasi
+ * onemli - KeInitializeCallbackRecord'un yaptigi tek is State alanini
+ * BufferEmpty (0) yapmak.
+ */
+__declspec(dllimport) UINT8 KeRegisterBugCheckCallback (
+  PVOID  CallbackRecord,
+  PVOID  CallbackRoutine,
+  PVOID  Buffer,
+  UINT32 Length,
+  UINT8 *Component);
+
 /* ------------------------------------------------------------------------ */
 
 /*
@@ -109,6 +139,46 @@ static void FillDword (PVOID Base, UINT64 Bytes, UINT32 Value)
 
   for (I = 0; I < N; I++) {
     P[I] = Value;
+  }
+}
+
+/*
+ * Haritalanmis adresler global tutuluyor.
+ *
+ * SEBEBI KRITIK: bugcheck aninda IRQL cok yuksek ve cekirdek API'lerinin
+ * neredeyse tamami yasak - MmMapIoSpace dahil. O an haritalama YAPAMAYIZ.
+ * Bu yuzden DriverEntry'de bir kez haritalayip isaretcileri sakliyoruz;
+ * geri cagrida yalnizca hafizaya yaziyoruz, ki o serbest.
+ */
+static PVOID gFb  = 0;
+static PVOID gLog = 0;
+
+/* Cekirdek bu alanin icine yaziyor; sifir olmasi ve sayfalanamaz olmasi yeter */
+static UINT64 gCallbackRecord[16];
+
+static UINT8 gComponent[8] = { 'b','2','l','f','b',0,0,0 };
+
+/*
+ * Bugcheck oldu. Tek isi haber vermek.
+ */
+static void BugCheckCallback (PVOID Buffer, UINT32 Length)
+{
+  (void)Buffer;
+  (void)Length;
+
+  /*
+   * Yesil. Macenta 0x00FF00FF idi (B=FF, G=00, R=FF) ve ekranda macenta
+   * cikti - yani bicim BGRA. 0x0000FF00 her iki yorumda da yesil veriyor,
+   * dolayisiyla piksel bicimini yeniden tartismaya gerek yok.
+   */
+  if (gFb != 0) {
+    FillDword (gFb, FB_BYTES, 0x0000FF00);
+  }
+
+  /* Olum sonrasi kayit: sicak sifirlamayi asan kanit */
+  if (gLog != 0) {
+    UINT8 *B = (UINT8 *)gLog;
+    B[12] = 'B'; B[13] = 'U'; B[14] = 'G'; B[15] = 'C';
   }
 }
 
@@ -161,8 +231,11 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   /*
    * 2) FRAMEBUFFER - canli kanal.
    */
+  gLog = Log;
+
   Pa.QuadPart = (long long)FB_PHYS;
   Fb = MmMapIoSpace (Pa, FB_BYTES, MmNonCached);
+  gFb = Fb;
   if (Fb != 0) {
     /*
      * Parlak macenta. Bilerek UEFI'nin ya da Windows'un kullandigi hicbir
@@ -174,6 +247,20 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
       ((UINT8 *)Log)[8] = 2;   /* asama: framebuffer'a yazildi */
     }
   }
+
+  /*
+   * 3) BUGCHECK GERI CAGRISINI KAYDET.
+   *
+   * En sona birakildi: kayit basarisiz olsa bile yukaridaki iki kanal
+   * calismis olur. Bu turun asil sorusu geri cagrida degil, ama onun
+   * ugruna calisan bir seyi riske atmiyoruz.
+   */
+  KeRegisterBugCheckCallback (
+    (PVOID)gCallbackRecord,
+    (PVOID)BugCheckCallback,
+    gLog,
+    16,
+    gComponent);
 
   /*
    * STATUS_SUCCESS SART. Bir acilis surucusu basarisiz donerse ve

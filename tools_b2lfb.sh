@@ -62,6 +62,7 @@ cat > "$OUT/ntoskrnl.def" <<'DEF'
 LIBRARY ntoskrnl.exe
 EXPORTS
 MmMapIoSpace
+KeRegisterBugCheckCallback
 DEF
 llvm-dlltool -m arm64 -d "$OUT/ntoskrnl.def" -l "$OUT/ntoskrnl.lib"
 echo "  $(basename "$OUT/ntoskrnl.lib") hazir"

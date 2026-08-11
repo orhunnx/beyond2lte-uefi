@@ -2748,3 +2748,48 @@ Yol düzelince sürücü gerçekten okunacak ve **imza kontrolü ilk kez
 |---|---|
 | Ekran macenta | Sürücü yüklendi ve çalıştı. Canlı çıkış kanalı AÇIK |
 | `0xc0000428` | İmza reddedildi. Sertifika WinPE güven deposuna eklenecek |
+
+# ★ EKRAN MACENTA — Windows çekirdeğinin içinden ilk çıktı
+
+`b2lfb.sys` yüklendi, çalıştı ve framebuffer'ı boyadı. Tekerlek macentanın
+**üstünde** dönüyor.
+
+Tek fotoğraf beş şeyi birden kanıtlıyor:
+
+1. **Test imzalı sürücümüz kabul edildi.** `0xc0000428` yok — kendi
+   sertifikamız + `testsigning` yeterliymiş. İmza engeli aşıldı ve WinPE'nin
+   güven deposuna sertifika eklemek gerekmedi.
+2. Sürücü **açılış sürücüsü** olarak (`Start=0`) yükleniyor.
+3. Framebuffer `0xCA000000` doğru adres.
+4. **Windows çekirdeğinden framebuffer'a yazabiliyoruz.**
+5. Tekerleğin üstte dönmesi Windows'un da aynı tampona çizdiğini gösteriyor.
+
+Piksel biçimi de belli oldu: `0x00FF00FF` yazdık, macenta çıktı → **BGRA**.
+
+Otuz turluk sessizlik bitti. Faz 1 tamam.
+
+## Faz 2: bugcheck mi, değil mi?
+
+Kanal artık var; ilk işi otuz turdur cevaplayamadığımız soruya harcıyoruz.
+
+10 saniyelik ölüm bir **bugcheck** mi, yoksa SoC'yi dışarıdan sıfırlayan
+başka bir şey mi? İkisi ekranda aynı görünüyor çünkü Windows'un kendi mavi
+ekranı bu platformda çizilmiyor. Ama çekirdek bugcheck sırasında **kayıtlı
+geri çağrıları çağırıyor** ve biz o an ekrana yazabiliyoruz.
+
+`KeRegisterBugCheckCallback` ile kaydoluyoruz; geri çağrı ekranı yeşile
+boyuyor ve `0xCF030000+0x0C`'ye `BUGC` yazıyor.
+
+| Ekranda | Sonuç |
+|---|---|
+| **Yeşile dönüyor** | Bugcheck. Windows çöküyor ve bunu biliyor. Suç Windows'ta, stop kodunu okumaya çalışırız |
+| **Macenta kalıyor** | Bugcheck **değil**. Bir şey SoC'yi dışarıdan sıfırlıyor, çekirdeğin haberi bile yok. Suç platformda — PMU, watchdog, TrustZone |
+
+İkisi tamamen farklı yerlere baktırıyor ve bu ayrımı ilk kez yapabiliyoruz.
+
+### Tasarım notu
+
+Haritalanmış adresler global tutuluyor. Sebebi kritik: bugcheck anında IRQL
+çok yüksek ve `MmMapIoSpace` dahil çekirdek API'lerinin neredeyse tamamı
+yasak. `DriverEntry`'de bir kez haritalayıp işaretçileri saklıyoruz; geri
+çağrıda yalnızca hafızaya yazıyoruz.
