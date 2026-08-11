@@ -4058,3 +4058,59 @@ durmuş.
 Karşılaştırma kaynağı olarak duruyor — ACPI tabloları ve bellek haritası için
 ikinci bir bağımsız görüş. Ama Windows sorununa dair hazır bir cevap yok;
 o repo da Exynos'ta Windows açtığını iddia etmiyor.
+
+## Donanım watchdog'ları: ölçüldü, kapalı
+
+```
+WTCON 0x10050000 : 00 00 00 00
+WTCON 0x10060000 : 00 00 00 00
+```
+
+Bit 5 (watchdog enable) her ikisinde de sıfır. **Donanım watchdog'ları
+çalışmıyor.** Çıkarım doğruymuş — ama artık ölçümle biliyoruz, ve bu proje
+farkın ne kadar önemli olduğunu defalarca gösterdi.
+
+Watchdog ekseni kesin kapandı.
+
+# Günün sonu: tek hipotez kaldı
+
+## Kanıtlanmış tablo
+
+| Gözlem | Durum |
+|---|---|
+| Çekirdek ~10 saniye sağlıklı çalışıyor | DPC'ler son ana kadar düzenli |
+| Ölüm temiz yazılım sıfırlaması | `RST_STAT 0x20000000` |
+| Bugcheck **değil** | Geri çağrı iki yönde de doğrulandı |
+| Kullanıcı moduna hiç çıkılmıyor | `wpeutil shutdown` çalışmıyor |
+| Açılışı bloke edince **hiç olmuyor** | 25+ şerit, sıfırlama yok |
+| Bırakıldıktan sonra tam 10 saniye | `REL=0053 / TIK=0063` |
+| Windows `ResetSystem` çağırmıyor | Doğrulanmış kancayla, PSCI kapalıyken bile |
+| Windows'un mavi ekranı çiziliyor | Stop kodu okunabiliyor |
+
+## Elenenler
+
+`startnet.cmd`, WinPE kabuğu, boot menüsü, EDK2 watchdog'u, **donanım
+watchdog'ları**, LPS0, `ErrorControl`, depolama hızı, `storufs`, DTB ayrılmış
+bellek bölgeleri, SMP tabloları, `BasicDisplay`, bütün `Start=0` sürücüleri,
+`Start=1` sürücüleri, `acpi.sys`, ACPI ad alanının tamamı, boşta CPU, UEFI
+çalışma zamanı servisleri, GIC sürümü, Windows sürümü (23H2 = 25H2).
+
+## Kalan tek aktör: EL3
+
+Windows istemiyor, UEFI yapmıyor, watchdog kapalı, güç kesilmiyor. Bu SoC'de
+sıfırlayabilecek geriye tek yer kalıyor.
+
+Ve Linux'un çalışması buna uyuyor: S-Boot çekirdeği başlatmadan önce RKP'yi
+SMC ile yüklüyor, Samsung'un çekirdeği TrustZone'un beklediği çağrıları
+yapıyor. Windows hiçbirini yapmayacak.
+
+## Sıradaki iş
+
+SMC trafiğini görmek — EL2'ye çıkıp `HCR_EL2.TSC` ile EL1'den gelen SMC'leri
+tuzaklamak. `B2LEl2Dxe` bunu deniyordu ve imzasını hiç üretmedi.
+
+**Not:** bugün keşfettiğimiz `Reserv`/`RtData` hatası oraya **uygulanmıyor** —
+EL2 yükü MMU kapalı çalışıyor ve fiziksel adres kullanıyor, Shell de fiziksel
+okuyor. Yani o sürücünün sessizliğinin başka bir sebebi var ve gerçek hata
+ayıklama gerektiriyor: TrustZone arka kapısı isteği reddetmiş olabilir, ya da
+yük kopyalama/SMC çağrısı yanlış.
