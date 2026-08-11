@@ -2505,3 +2505,52 @@ Sessiz doğru davranış, gürültülü yanlış davranıştan tehlikeli olabili
 yazıyor. Kombinasyonun var olma sebebi 742 MB'lık `boot.wim`'in 600 MiB'lık
 CACHE'e sığmaması; 68 MB'lık Linux dosyaları için büyük bölüme geçmenin
 anlamı yok, yani bu kombinasyon istenerek yazılmış olamaz.
+
+## `startnet.cmd` suçlusu bulundu: `ping`, `goto` değil
+
+`menuram` + üç satırlık `startnet.cmd` (etiket ve `goto` yok) yine öldürdü:
+daire dönerken kesiliyor, sönme animasyonu yok.
+
+Üç sürüm yan yana:
+
+| İçerik | Sonuç |
+|---|---|
+| `wpeinit` (stok) | Sonuna kadar gidiyor, **sönme animasyonu** |
+| `wpeinit` + `goto`/etiket + **`ping`** | Ölüyor, animasyon yok |
+| `wpeinit` + **`ping`** + `pause`, etiket yok | Ölüyor, animasyon yok |
+
+`goto` iki başarısızlığın yalnızca birinde var; **`ping` ikisinde de var.**
+Değişken izolasyonu suçluyu isimlendiriyor.
+
+Sebep makul: `ping` TCP/IP yığınını gerektiriyor. Bu cihazda hiç ağ donanımı
+yok ve `wpeinit` yine de yığını ayağa kaldırmaya çalışıyor. Sert sıfırlama +
+animasyon yokluğu temiz çıkış değil, çöküş demek.
+
+Daha önceki iki tur bu yüzden boşa gitti ve yanlış sonuç çıkarmıştık:
+"startnet.cmd'ye dokunmak açılışı öldürüyor" doğru değilmiş — **`ping`
+çağırmak öldürüyormuş.**
+
+### Ayrıca elenen: CRLF ve enjeksiyon mekanizması
+
+`--stok` da aynı `wimlib-imagex update --command=add` yolundan geçiyor ve o
+sürüm çalışıyor. Yani WIM'e dosya enjekte etmek sorunsuz; mesele yalnızca
+dosyanın içeriği. Satır sonları da zaten CRLF'e çevriliyor (tools_winboot.sh
+satır 426).
+
+### Yeni sürüm: ağa hiç dokunmuyor
+
+```
+wpeinit
+pause
+for /l %%i in (1,1,2000000000) do @rem
+```
+
+`pause` ve `for /l` **cmd.exe yerleşikleri** — harici çalıştırılabilir yok,
+ağ yok, dosya sistemi yok. `pause` konsol girdisi bekliyor; konsol
+çizilmiyorsa da sonsuza kadar bloke kalıyor. Dönerse `for` döngüsü devralıyor.
+
+| Ekranda | Sonuç |
+|---|---|
+| Cihaz açık kalıyor | **WinPE çalışıyor.** Otuz turluk soru kapanıyor |
+| Sönme animasyonu | WinPE çalışıyor ama ikisi de anında dönüyor — yine de çalıştığı kanıtlanmış olur |
+| Sert sıfırlama | Suçlu `ping` değilmiş, `wpeinit` sonrası herhangi bir komut öldürüyor |

@@ -1,3 +1,3 @@
 wpeinit
-ping -n 999 127.0.0.1 >nul
 pause
+for /l %%i in (1,1,2000000000) do @rem
