@@ -176,7 +176,11 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             // ILK ADIMDA dusuyor - NOP OUT / denetleyici init. Tanimlayici
             // gorunurlugu tam o adimda belirleyici.
             //
-            Name (_CCA, Zero)
+            // GERI ALINDI: _CCA=0 hicbir seyi degistirmedi (yine 1-2 saniye)
+            // ve temel cizgiyi geri kurarken tek UEFI degisikligi buydu.
+            // Ise yaramayan bir degisikligi tasimak, sonraki her olcumu
+            // kirletir.
+            Name (_CCA, One)
             Method (_STA, 0, NotSerialized)
             {
                 Return (0x0F)

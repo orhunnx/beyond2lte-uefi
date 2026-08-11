@@ -82,6 +82,60 @@ aygıta bağlanmıyor, sadece yükleniyor.
 
 İki ihtimalin ikisi de bilgi. Şu ana kadarki sessiz turlardan farkı bu.
 
+### Faz 1b — ayrılmış RAM'e halka tampon (ölüm sonrası kayıt)
+
+Öneri kullanıcıdan geldi: *"madem sıfırdan driver yazacağız USB serial
+driver'ı yazalım ki işimiz sonrasında kolaylaşsın."* Amaç doğru — kopyalanabilir
+log, ekran fotoğrafından kat kat iyi. Ama USB'nin maliyeti çok yüksek:
+
+Windows'ta pratik bir USB **device/gadget** modu yok. Linux'un gadget
+çatısının karşılığı UFX (`Ufx01000.sys`) ve WinPE'de bulunmuyor; olsa bile
+DWC3 için UFX istemci sürücüsü yazmak endpoint yönetimi, descriptor'lar ve
+CDC-ACM sınıfı demek. Hepsi de çıktı kanalı **olmadan** yazılacak.
+
+Aynı faydanın ucuz hali: **`0xCF000000`'daki ayrılmış bölgeye halka tampon.**
+
+- Bölge hafıza haritamızda zaten ayrılmış (`B2L EL2`, `Reserv`,
+  `UNCACHED_UNBUFFERED`)
+- **DRAM'in sıfırlamayı hayatta geçirdiğini ölçtük**: `B2LResetHookDxe`
+  sayacı 0x403'ten 0x404'e geçti
+- `startup.nsh` zaten `dmem` ile o adresi döküyor
+
+Yani sürücü çöküş anında oraya yazar, cihaz sıfırlanır, sonraki açılışta
+Shell logu ekrana basar. **Çöküş anındaki kaydı çöküşten sonra okumak** —
+framebuffer'ın yapamayacağı şey, ve yirmi satır kod.
+
+İkisi birlikte tam bir hata ayıklama düzeni kuruyor:
+
+| Kanal | Ne için |
+|---|---|
+| Framebuffer | Canlı durum, ilerleme |
+| Ayrılmış RAM | Ölüm sonrası; çöküşün son satırları |
+
+#### "DRAM cihaz kapanıp açılınca silinmez mi?"
+
+Silinir. Ama ihtiyacımız olan senaryoda silinmiyor, ve bu ölçüldü.
+
+| Sıfırlama türü | DRAM | `RST_STAT` |
+|---|---|---|
+| **Sıcak** — SoC resetlenir, DRAM'e güç kesilmez | **Kalıyor** | `0x20000000` |
+| **Soğuk** — batarya/güç kesilir | Gidiyor (hücreler saniyeler içinde bozulur) | `0x40010000` |
+
+Windows'un çöküşü her seferinde `0x20000000` veriyor — yani sıcak. Ve
+`B2LResetHookDxe` sayacının sıfırlama boyunca `0x403` → `0x404` geçtiğini
+gördük: S-Boot o bölgeyi ne siliyor ne üzerine yazıyor.
+
+**Tek kural: çöküşten sonra cihazı elle kapatma.** Zaten kendisi yeniden
+başlıyor ve `startup.nsh` açılışta adresi döküyor. Araya güç kesintisi ya da
+Odin flaşı girerse kayıt gider.
+
+Bu, USB seriye göre gerçek bir dezavantaj: USB'de log gerçek zamanlı akar ve
+güç durumundan bağımsızdır. Ama tek çöküş senaryosunda ikisi de aynı bilgiyi
+veriyor ve biri yirmi satır.
+
+USB seri kapatılmadı, üçüncü sıraya alındı. Faz 2'den sonra hâlâ gerekiyorsa
+o zaman değerlendirilir — ama muhtemelen gerekmeyecek.
+
 ### Faz 2 — framebuffer konsolu
 
 Aynı sürücüye gömülü 8x16 bitmap font ve bir `FbPrint()`. Artık Windows'un

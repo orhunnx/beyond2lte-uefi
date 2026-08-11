@@ -2589,3 +2589,40 @@ Ayrıca ölçülecek: Enter'dan sıfırlamaya kadar geçen süre. RAM diskten a�
 `boot.wim`'i belleğe almak ve winload'un yüklemesi zaman alıyor; "anında"
 sıfırlama winload'un hiç çalışmadığını, uzun süre ise çekirdeğe kadar
 gidildiğini gösterir. İki durum tamamen farklı yerlere bakmayı gerektiriyor.
+
+### Temel çizgi de kırık: `startnet.cmd` hiç suçlu değilmiş
+
+Stok `startnet.cmd` (tek satır `wpeinit`) ile de sönme yok — 10 saniye tekerlek,
+sonra doğrudan kesilme. İki turluk `startnet.cmd` bisection'ı tamamen boşa
+gitti, ama artık bunu **kesin** biliyoruz. Gerileme başka bir eksende.
+
+### En güçlü aday: WIM'in hive'ında biriken sürücü deneyleri
+
+`tools_winpe_surucu.sh` ile 33 açılış sürücüsünü kapatmıştık. Son `liste`
+çıktısı `acik: 24 kapali: 33` diyordu ve **`hepsi-ac` çalıştırdığımıza dair
+kayıt yok.** `esp/sources/boot.wim` o günden beri yeniden üretilmediyse o 33
+sürücü hâlâ `Start=4`.
+
+Kapalı açılış sürücüleriyle WinPE'nin sakat açılması beklenen davranış — ve
+"10 saniye tekerlek, sonra sert kesilme" tam da o profil.
+
+Bu, `startnet.cmd`'yi suçlarken gözden kaçırdığımız şey: WIM her turda
+değişiyordu ama biz sadece tek bir dosyaya bakıyorduk.
+
+### Tam geri dönüş
+
+Tek tek geri almak yerine hepsini birden temel çizgiye çekiyoruz. Geri alma
+bisection değil, restorasyon — birden fazla değişkeni aynı anda geri almak
+burada doğru.
+
+| Eksen | Geri dönüş |
+|---|---|
+| `boot.wim` | `--wim-yenile` ile ISO'dan **sıfırdan** üretiliyor, bütün hive düzenlemeleri siliniyor |
+| `startnet.cmd` | `--stok`, tek satır |
+| DSDT `_CCA` | `Zero` → `One` (işe yaramamıştı, taşımanın anlamı yok) |
+| BCD | `menuram` → `tekcpu` (menü yok, `numproc 1` var) |
+
+| Sonuç | Anlamı |
+|---|---|
+| Sönme animasyonu geri geliyor | Temel çizgi sağlam. Değişiklikler tek tek geri eklenir; ilk şüpheli hive |
+| Yine sert kesilme | Gerileme UEFI derlemesinde ya da ISO sürümünde; `yap.sh` ve ISO ekseni açılır |
