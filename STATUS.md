@@ -2088,3 +2088,34 @@ bash tools_winpe_surucu.sh hepsi-ac               # temel duruma dön
 
 Elle yapmak otuz üç isim yazmak demekti; her deneme için tekrar, hata payı
 yüksek.
+
+## Windows ilk kez konuştu — ve bu bir araç hatasından çıktı
+
+```
+File:   \windows\System32\Drivers\ws2ifsl.sys
+Status: 0xc0000428          (STATUS_INVALID_IMAGE_HASH)
+Info:   the digital signature of a file or one of its dependencies
+        couldn't be verified
+```
+
+`sadece-kapat`'ın ilk sürümü "korumalı olmayan ve `Start` değeri 0 **ya da 4**
+olan her şeyi aç" diyordu. Ama `cdfs`, `udfs` ve `ws2ifsl` WinPE'de
+**Microsoft tarafından zaten kapalı** gelir — hiç açılış sürücüsü değiller.
+Açınca `ws2ifsl.sys` imza zinciri doğrulanamadı ve `winload` açılışı durdurdu.
+
+### Asıl kazanç
+
+Otuz turdur "Windows sessizce yeniden başlıyor, hiçbir şey söylemiyor"
+diyorduk. **Hata bildirme yolu bozuk değilmiş.** `winload` aşamasında bir
+sorun olduğunda ekranı gayet düzgün basıyor: dosya adı, NTSTATUS, açıklama.
+
+Bu şunu kanıtlıyor: sessiz 15 saniyelik çöküş, `winload`'un hata yakalama
+alanının **dışında** — yani `ntoskrnl` çalışmaya başladıktan sonra, artık
+`winload`'un rapor edemeyeceği bir noktada. Aramayı orada daraltmak gerekiyor.
+
+### Araç düzeltildi
+
+- `TEMEL_ACIK`: ilk `liste` çıktısındaki 54 isim sabit olarak kaydedildi.
+  Artık yalnızca bu listeye dokunuluyor; listede olmayan hiçbir servisin
+  `Start` değeri değiştirilmiyor.
+- `cdfs`, `udfs`, `ws2ifsl` her çalıştırmada açıkça `Start=4`'e çekiliyor.

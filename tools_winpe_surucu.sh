@@ -68,6 +68,32 @@ KOMUT="${1:-liste}"; shift || true
 # Bunlar eklendikten sonra geriye SADECE DONANIM surucileri kaliyor - asil
 # supheliler zaten onlar. Kume boylece hem daha kucuk hem daha anlamli.
 #
+#
+# ORIJINALDE ACILIS SURUCUSU OLANLAR (ilk "liste" ciktisindan, 54 isim).
+#
+# BU LISTE BIR HATADAN DOGDU. "sadece-kapat" ilk surumu "korumali olmayan ve
+# Start degeri 0 YA DA 4 olan her seyi ac" diyordu. Ama WinPE'de cdfs, udfs
+# ve ws2ifsl MICROSOFT TARAFINDAN ZATEN KAPALI gelir - hic acilis surucusu
+# degillerdir. Onlari acinca cihaz sunu verdi:
+#
+#   File: \windows\System32\Drivers\ws2ifsl.sys
+#   Status: 0xc0000428  (STATUS_INVALID_IMAGE_HASH)
+#   "the digital signature of a file or one of its dependencies couldn't
+#    be verified"
+#
+# Yani Microsoft'un kapatmasinin sebebi var: o dosya WinPE'de acilis
+# suruculeri icin gereken imza zincirine sahip degil.
+#
+# ONEMLI YAN KAZANC: bu ekran otuz turdur goremedigimiz seydi. Windows'un
+# hata bildirme yolu BOZUK DEGILMIS - winload asamasinda bir sorun olunca
+# gayet duzgun rapor ediyor. Demek ki sessiz 15 saniyelik cokus, winload'un
+# hata yakalama alaninin DISINDA, daha ileride oluyor.
+#
+# Artik yalnizca bu listedeki isimlere dokunuyoruz. Listede olmayan hicbir
+# servisin Start degeri degistirilmiyor.
+#
+TEMEL_ACIK="ACPI acpiex atapi cdrom CLFS CNG disk DXGKrnl EhStorClass EhStorTcgDrv FBWF FileInfo FltMgr Fs_Rec fvevol GenPass intelide KSecDD KSecPkg mountmgr Mup NDIS nvdimm nvmedisk partmgr pci pciide pcw pdc pmem PRM qcgpio_i QcTrEE_i sacdrv scmbus spaceport storahci stornvme storufs storvsc Tcpip TPM vdrvroot vmbus volmgr volmgrx volsnap volume vpci Wdf01000 WimFsf WindowsTrustedRT WindowsTrustedRTProxy Wof"
+
 KORUMALI="ACPI acpiex CNG Wdf01000 WudfPf FltMgr Null volmgr partmgr disk mountmgr msisadrv pdc vdrvroot spaceport volume volsnap WimFsf FBWF Wof Fs_Rec Mup FileInfo CLFS KSecDD KSecPkg pcw"
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
@@ -186,11 +212,13 @@ sadece-kapat|hepsi-ac)
     say "Hepsi aciliyor, sadece sunlar kapali kalacak: $*"
   fi
 
+  #
+  # SADECE TEMEL LISTEDEKILERE DOKUNUYORUZ. Hive'i tarayip "0 ya da 4 olan
+  # her sey" demek, Microsoft'un bilerek kapattigi surucileri de aciyordu ve
+  # ws2ifsl.sys imza hatasiyla acilisi tamamen durdurdu.
+  #
   KAPANAN=""; ACILAN=0
-  while IFS= read -r S; do
-    [ -n "$S" ] || continue
-    ST="$(hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start 2>/dev/null || true)"
-    case "$ST" in 0|0x0|0x00000000|4|0x4|0x00000004) ;; *) continue ;; esac
+  for S in $TEMEL_ACIK; do
     echo " $KORUMALI " | grep -qi " $S " && continue
 
     if echo "$HEDEFLER" | grep -qi " $S "; then
@@ -206,9 +234,27 @@ Start
 $D
 commit
 HSH
-  done < <(servisler)
+  done
 
   echo "  acilan: $ACILAN    kapali kalan:${KAPANAN:- yok}"
+
+  #
+  # MICROSOFT'UN KAPALI BIRAKTIKLARINI ZORLA KAPALI TUT.
+  #
+  # Onceki tur bunlari acti ve cihaz "ws2ifsl.sys / 0xc0000428 / imza
+  # dogrulanamadi" verip acilisi durdurdu. Bir daha o duruma dusmeyelim:
+  # temel liste disinda kalsalar bile burada acikca 4'e cekiliyorlar.
+  #
+  for S in cdfs udfs ws2ifsl; do
+    hivexsh -w "$HV/SYSTEM" >/dev/null 2>&1 <<HSH || true
+cd \\ControlSet001\\Services\\$S
+setval 1
+Start
+dword:4
+commit
+HSH
+  done
+  echo "  Microsoft varsayilani korundu: cdfs udfs ws2ifsl kapali"
 
   say "Hive WIM'e geri konuyor"
   wimlib-imagex update "$WIM" 1 \
