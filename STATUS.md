@@ -1258,3 +1258,41 @@ uzadı). Duvar ACPI içeriğinden bağımsız hale geldi.
 ### Sıradaki: ADK'nın çıplak WinPE'si
 
 Diğer eksen. On altı turdur Windows tarafını hiç değiştirmedik.
+
+## Desen değişti: bu bir zaman aşımı
+
+ADK'nın çıplak WinPE'si (Windows 11 ADK, yani WinPE 11 — dönen çember ondan)
+şunu gösterdi: **daire çıkana kadar geçen süre değişiyor, daire çıktıktan
+sonraki süre değişmiyor.**
+
+Ve o ikinci süreyi şimdiye kadar hiçbir şey oynatmadı:
+
+| Değiştirilen | Daire sonrası süre |
+|---|---|
+| WIM içeriği (570 MB → 250 MB) | ~12 s |
+| WinPE derlemesi (ISO → ADK) | ~12 s |
+| storufs açık / kapalı | ~12 s |
+| MADT'de 1 / 8 çekirdek | ~12 s |
+| PSCI açık / kapalı | ~12 s |
+
+Sabit bir noktadan itibaren sabit süre. Bu "iş yapıp çöküyor" deseni değil —
+**bekliyor ve süresi doluyor.**
+
+### FADT'de 9830'dan miras kalmış bayrak
+
+`Flags = 0x00300000`: bit 20 Hardware Reduced + **bit 21 Low Power S0 Idle
+Capable**.
+
+İkincisi Windows'a "bu platform Modern Standby destekliyor" diyor. Windows
+bunu görünce güç yönetimini S3 yerine S0ix üzerine kuruyor ve platformdan
+destek bekliyor: bir PEP (Power Engine Plugin) sürücüsü, işlemciler için
+`_LPI` ya da `_CST`, aygıtlar için `_DSM` güç metotları. **Bizde bunların
+hiçbiri yok** — DSDT'de sekiz işlemci ve UFS0 var, tek bir güç metodu bile
+tanımlı değil.
+
+Linux bu bayrağı yalnızca "s2idle uygun mu" sorusunda kullanıyor, yoksa da
+normal çalışıyor. Windows için ise güç altyapısının temeli. Tam olarak
+aradığımız sınıfta bir fark: **Linux hoşgörüyor, Windows hoşgörmüyor.**
+
+Yeni değer `0x00100000` — Hardware Reduced kalıyor (ARM64'te zorunlu), Low
+Power S0 Idle gidiyor.

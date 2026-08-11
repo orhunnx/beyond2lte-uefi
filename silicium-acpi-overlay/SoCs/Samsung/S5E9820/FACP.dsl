@@ -63,7 +63,42 @@
                 PCIe ASPM Not Supported (V4) : 0
                    CMOS RTC Not Present (V5) : 0
 [06Fh 0111 001h]                    Reserved : 00
-[070h 0112 004h]       Flags (decoded below) : 00300000
+//
+// ===========================================================================
+// "Low Power S0 Idle Capable" KAPATILDI  (bit 21, 0x00200000)
+// ===========================================================================
+//
+// Bu alan 00300000 idi: bit 20 Hardware Reduced + bit 21 Low Power S0 Idle.
+// Yeni degeri 00100000 - Hardware Reduced kaliyor (ARM64'te zorunlu),
+// Low Power S0 Idle gidiyor.
+//
+// NEDEN SUPHELI:
+//
+// Bu bayrak Windows'a "bu platform Modern Standby destekliyor" diyor.
+// Windows bunu gorunce guc yonetimini S3 yerine S0ix uzerine kuruyor ve
+// platformdan destek bekliyor: bir PEP (Power Engine Plugin) surucusu,
+// islemciler icin _LPI ya da _CST, aygitlar icin _DSM guc metotlari.
+// BIZDE BUNLARIN HICBIRI YOK. DSDT'de sadece sekiz islemci ve UFS0 var,
+// tek bir guc metodu bile tanimli degil.
+//
+// Bayrak 9830'un tablolarindan miras kaldi ve hic sorgulanmadi.
+//
+// OLCUMLE NEDEN ORTUSUYOR:
+//
+// Donen daire CIKTIKTAN SONRAKI sure hicbir seyle degismiyor - WIM icerigi,
+// WinPE surumu, storufs acik/kapali, MADT'de bir ya da sekiz cekirdek,
+// PSCI acik/kapali. Sabit bir noktadan itibaren sabit ~12 saniye. Bu "is
+// yapip cokuyor" degil, "bekliyor ve suresi doluyor" desenidir.
+//
+// LINUX NEDEN ETKILENMIYOR:
+//
+// Linux bu bayragi yalnizca "s2idle uygun mu" sorusunda kullaniyor; yoksa
+// da normal calisiyor. Windows icin ise guc altyapisinin temeli. Tam olarak
+// aradigimiz sinifta bir fark: LINUX HOSGORUYOR, WINDOWS HOSGORMUYOR.
+//
+// GERI ALMAK ICIN: 00300000 yaz.
+//
+[070h 0112 004h]       Flags (decoded below) : 00100000
       WBINVD instruction is operational (V1) : 0
               WBINVD flushes all caches (V1) : 0
                     All CPUs support C1 (V1) : 0
@@ -85,7 +120,7 @@
                  Use APIC Cluster Model (V4) : 0
      Use APIC Physical Destination Mode (V4) : 0
                        Hardware Reduced (V5) : 1
-                      Low Power S0 Idle (V5) : 1
+                      Low Power S0 Idle (V5) : 0
 
 [074h 0116 00Ch]              Reset Register : [Generic Address Structure]
 [074h 0116 001h]                    Space ID : 03 [EmbeddedControl]
