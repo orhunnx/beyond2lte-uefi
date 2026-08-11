@@ -3283,3 +3283,47 @@ Tek bakışta iki bilgi:
 |---|---|
 | 9 şerit, üst bant **macenta** | Temel çizgi geri geldi. Suçlu eklediğim üç şeyden biriydi; teker teker geri konur |
 | 1 şerit, üst bant yeşil | Sürücü de değil. O zaman geriye WIM/hive tarafı kalıyor |
+
+## Menü de elendi — sayaç çekirdekle başlıyor
+
+Temiz sürücüyle menüde bir dakika beklendi: yine 9 şerit. Bekleme bütçeden
+düşmüyor. Önceki "menüde beklemek ömrü tüketiyor" sonucu gerçekten bozuk
+sürücünün eseriymiş; `bootmgfw` ve watchdog ekseni tamamen kapandı.
+
+### Kalan tablo
+
+| Gözlem | Durum |
+|---|---|
+| Ölüm çekirdek başlangıcından ~10 s sonra | Sabit |
+| Temiz yazılım sıfırlaması (`0x20000000`) | Kasıtlı istek |
+| Bugcheck yok (`BUG=H`, doğrulanmış geri çağrı) | Çökme değil |
+| Kalp atışı son ana kadar düzenli | Çekirdek sağlıklı |
+| `startnet.cmd`, menü, watchdog, depolama hızı | Hepsi elendi |
+
+## Ayrılamayan iki ihtimal
+
+En doğal açıklama hâlâ: **WinPE işini bitirdi, kabuk çıktı, tasarım gereği
+yeniden başlattı.** Ama kabuğu ayakta tutma denemeleri sonucu değiştirmedi.
+Bunun tek makul açıklaması **kabuğun hiç başlamaması** — o zaman `startnet.cmd`
+ne yazarsa yazsın fark etmez.
+
+İkisi de aynı görünüyor. `PsSetCreateProcessNotifyRoutine` bunu çözecekti ama
+bugcheck verdi.
+
+### Risksiz ayırıcı: `wpeutil shutdown`
+
+`startnet.cmd` tek satır:
+
+```
+wpeutil shutdown
+```
+
+Yeniden başlatma değil **kapatma** seçildi çünkü ikisi görsel olarak
+tamamen ayrılıyor. Çekirdek API'si yok, ağ yok, sadece WinPE'nin kendi aracı.
+
+| Gözlem | Sonuç |
+|---|---|
+| Cihaz **kapanıyor**, geri gelmiyor | Kullanıcı moduna çıkılıyor, `startnet.cmd` çalışıyor. Yani WinPE **açılıyor** ve 10 saniyelik yeniden başlatma kabuğun bitmesiymiş — ortada arıza yok |
+| Yine yeniden başlıyor, ~10 şerit | Kabuk hiç başlamıyor. Ölüm kullanıcı modundan önce ve `startnet.cmd` ekseni kalıcı olarak kapanıyor |
+
+Bu ölçüm, aylardır ayıramadığımız iki dünyayı ayırıyor.
