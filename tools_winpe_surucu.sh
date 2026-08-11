@@ -6,6 +6,8 @@
 #   bash tools_winpe_surucu.sh kapat a b c ...  <- adi verilenleri devre disi birak
 #   bash tools_winpe_surucu.sh ac    a b c ...  <- geri ac
 #   bash tools_winpe_surucu.sh hepsi-kapat      <- korumali olmayan hepsi
+#   bash tools_winpe_surucu.sh sadece-kapat X   <- hepsini ac, SADECE X kapali
+#   bash tools_winpe_surucu.sh hepsi-ac         <- temel duruma don
 #
 # ---------------------------------------------------------------------------
 # FIKIR NEREDEN GELDI
@@ -157,6 +159,84 @@ hepsi-kapat)
   exec bash "$0" kapat $LISTE
   ;;
 
+sadece-kapat|hepsi-ac)
+  #
+  # TEK SUCLU DENEMESI: hepsini ac, SADECE adi verilenleri kapat.
+  #
+  # NEDEN GEREKTI: "hepsini kapat" yontemi bir tuzaga dustu. O yontem
+  # "hangi surucu cokertiyor"u degil, "hangisi olmadan Windows daha erken
+  # pes ediyor"u buluyor - 15 saniyeyi GECEN hicbir yapilandirma cikmadi,
+  # sadece daha kotusunu bulduk (15 -> 5 -> 6 saniye).
+  #
+  # Dogru yon tersi: tam calisan kumeden TEK BIR surucuyu cikarmak. O zaman
+  # sure uzarsa suclu odur; degismezse masumdur ve temiz elenir.
+  #
+  # Elle yapmak otuz uc isim yazmak demekti; hata payi yuksek ve her
+  # deneme icin tekrarlanmasi gerekiyordu.
+  #
+  #   bash tools_winpe_surucu.sh sadece-kapat DXGKrnl
+  #   bash tools_winpe_surucu.sh hepsi-ac
+  #
+  HEDEFLER=" $* "
+  if [ "$KOMUT" = "hepsi-ac" ]; then
+    HEDEFLER=" "
+    say "Korumali olmayan TUM acilis surucileri ACILIYOR (temel duruma donus)"
+  else
+    [ "$#" -gt 0 ] || { echo "Kapatilacak en az bir isim ver."; exit 1; }
+    say "Hepsi aciliyor, sadece sunlar kapali kalacak: $*"
+  fi
+
+  KAPANAN=""; ACILAN=0
+  while IFS= read -r S; do
+    [ -n "$S" ] || continue
+    ST="$(hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start 2>/dev/null || true)"
+    case "$ST" in 0|0x0|0x00000000|4|0x4|0x00000004) ;; *) continue ;; esac
+    echo " $KORUMALI " | grep -qi " $S " && continue
+
+    if echo "$HEDEFLER" | grep -qi " $S "; then
+      D="dword:4"; KAPANAN="$KAPANAN $S"
+    else
+      D="dword:0"; ACILAN=$((ACILAN+1))
+    fi
+
+    hivexsh -w "$HV/SYSTEM" >/dev/null 2>&1 <<HSH || echo "  ! $S yazilamadi"
+cd \\ControlSet001\\Services\\$S
+setval 1
+Start
+$D
+commit
+HSH
+  done < <(servisler)
+
+  echo "  acilan: $ACILAN    kapali kalan:${KAPANAN:- yok}"
+
+  say "Hive WIM'e geri konuyor"
+  wimlib-imagex update "$WIM" 1 \
+    --command="add '$HV/SYSTEM' /Windows/System32/config/SYSTEM" >/dev/null
+  wimlib-imagex optimize "$WIM" >/dev/null
+
+  #
+  # GERI OKUYUP DOGRULA - bu projede uc kez "arac yaptim dedi, cihaz
+  # eskisini kullandi" yasandi.
+  #
+  DV="$W/dv"; mkdir -p "$DV"
+  wimlib-imagex extract "$WIM" 1 /Windows/System32/config/SYSTEM \
+    --dest-dir="$DV" --no-acls >/dev/null
+  say "WIM'den geri okundu: KAPALI kalanlar"
+  BULUNAN=0
+  while IFS= read -r S; do
+    [ -n "$S" ] || continue
+    ST="$(hivexget "$DV/SYSTEM" "ControlSet001\\Services\\$S" Start 2>/dev/null || true)"
+    case "$ST" in
+      4|0x4|0x00000004) printf '  %-28s Start=4\n' "$S"; BULUNAN=$((BULUNAN+1)) ;;
+    esac
+  done < <(servisler)
+  [ "$BULUNAN" = 0 ] && echo "  (hicbiri - hepsi acik)"
+
+  echo
+  echo "Simdi: bash cache_esp.sh --win"
+  ;;
+
 kapat|ac)
   [ "$#" -gt 0 ] || { echo "En az bir servis adi ver."; exit 1; }
   if [ "$KOMUT" = "kapat" ]; then DEGER="dword:4"; SOZ="DEVRE DISI"; else DEGER="dword:0"; SOZ="ACILIS"; fi
@@ -209,7 +289,7 @@ HSH
 
 *)
   echo "Bilinmeyen komut: $KOMUT"
-  echo "  liste | hepsi-kapat | kapat <isim>... | ac <isim>..."
+  echo "  liste | hepsi-ac | hepsi-kapat | sadece-kapat <isim>... | kapat <isim>... | ac <isim>..."
   exit 1
   ;;
 esac

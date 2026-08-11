@@ -2062,3 +2062,29 @@ etiketiyle gösteriyor ve sayıları basıyor.
 
 Bu arada WIM istenen durumda: donanım sürücüleri kapalı, WinPE'nin dosya
 sistemi katmanı (`WimFsf`, `FBWF`, `Wof`, ...) açık. Ölçüm yapılabilir.
+
+### `sadece-kapat`: doğru yöndeki bisection
+
+"Hepsini kapat" yöntemi bir tuzağa düştü. O yöntem **"hangi sürücü
+çökertiyor"u** değil, **"hangisi olmadan Windows daha erken pes ediyor"u**
+buluyor:
+
+| Yapılandırma | Süre |
+|---|---|
+| Hepsi açık (temel) | 15 s |
+| Hepsi kapalı (WinPE katmanı dahil) | 5 s |
+| Hepsi kapalı (WinPE katmanı açık) | 6 s |
+| TrustZone beşlisi kapalı | 15 s |
+
+**15 saniyeyi geçen hiçbir yapılandırma yok.** Sadece daha kötüsünü bulduk.
+
+Doğru yön tersi: tam çalışan kümeden **tek bir sürücüyü** çıkarmak. Süre
+uzarsa suçlu odur; değişmezse masumdur ve temiz elenir.
+
+```bash
+bash tools_winpe_surucu.sh sadece-kapat DXGKrnl   # hepsi açık, sadece bu kapalı
+bash tools_winpe_surucu.sh hepsi-ac               # temel duruma dön
+```
+
+Elle yapmak otuz üç isim yazmak demekti; her deneme için tekrar, hata payı
+yüksek.
