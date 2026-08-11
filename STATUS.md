@@ -3327,3 +3327,48 @@ tamamen ayrılıyor. Çekirdek API'si yok, ağ yok, sadece WinPE'nin kendi arac�
 | Yine yeniden başlıyor, ~10 şerit | Kabuk hiç başlamıyor. Ölüm kullanıcı modundan önce ve `startnet.cmd` ekseni kalıcı olarak kapanıyor |
 
 Bu ölçüm, aylardır ayıramadığımız iki dünyayı ayırıyor.
+
+## Kullanıcı moduna hiç çıkılmıyor
+
+`startnet.cmd` tek satır `wpeutil shutdown` yapıldı. Cihaz **kapanmadı** —
+yine 10 şerit, yeniden başlatma, `TIK=0010 BUG=H`, `RST_STAT 0x20000000`.
+
+Kabuk başlamıyor, `startnet.cmd` çalışmıyor. O eksen kalıcı olarak kapandı;
+`goto`, `ping`, `pause`, sonsuz döngü — hiçbiri cihaza ulaşsa da ulaşmasa da
+fark etmiyormuş, çünkü hiç çalıştırılmıyorlar.
+
+### Daralan tablo
+
+Ölüm **çekirdek başlatması sırasında**, kullanıcı modundan önce, ~10 saniyede,
+**temiz bir yeniden başlatma isteği** olarak geliyor.
+
+Bu önemli: çekirdek init'inde bir şey ters giderse Windows **bugcheck verir**,
+yeniden başlatmaz. Yeniden başlatmak için birinin *istemesi* gerekiyor.
+
+## FADT incelemesi
+
+İki şey dikkat çekti.
+
+**`Reset Register`** `EmbeddedControl` uzayında `0x9020B4` gösteriyor — tablo
+başka bir karttan uyarlanmış ve o adres bu SoC'de hiçbir şey. Ama
+`Reset Register Supported` bayrağı `0`, yani Windows kullanmıyor. Şimdilik
+zararsız, ileride temizlenmeli.
+
+**`Low Power S0 Idle = 1`** — asıl aday. Bu bayrak Windows'a "bu platform
+Modern Standby yapar" diyor; Windows da `PNP0D80` LPS0 aygıtını ve `_DSM`
+metodunu arayıp bağlantılı bekleme altyapısını kuruyor. Bizim DSDT'mizde ne o
+aygıt var, ne `_LPI`, ne `_CST`, ne tek bir güç metodu. Üstüne
+`PM Profile: Tablet` — Windows cihazı telefon sınıfı bağlantılı bekleme
+makinesi sanıyor.
+
+Bir platformun yapamadığı bir güç modelini ilan etmesi, güç yöneticisinin
+erken devreye girip cihazı düşük güce ya da yeniden başlatmaya sürüklemesi
+için makul bir sebep.
+
+Değişiklik tek bit: `Flags 0x00300000` → `0x00100000`
+(`Hardware Reduced` kalıyor, `Low Power S0 Idle` gidiyor).
+
+| Sonuç | Anlamı |
+|---|---|
+| Şeritler 10'u geçiyor | LPS0'mış. Windows yapamadığımız bir güç modelini deniyormuş |
+| Yine ~10 şerit | LPS0 değil; sırada `PM Profile` ve FADT'nin diğer devralınmış alanları |
