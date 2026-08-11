@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    2
+#define B2L_SURUM    3
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 2"
+#define SURUM_METNI  L"SURUM 3"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -249,9 +249,7 @@ B2LGosterEntry (
   if (Durum[0] != 0x52484553) {
     Yaz (L"SEH SURUCUSU YUKLENMEDI", 0x00FF4040);
   } else {
-    Deger (L"SEH KAYIT=", Durum[2],
-           (Durum[2] == 0) ? L"KABUL" : L"RET",
-           (Durum[2] == 0) ? 0x0040FF40 : 0x00FF4040);
+    Yaz (L"SEH KAYDI SANALA BIRAKILDI", 0x00808080);
     //
     // SANAL degeri BU acilistan degil ONCEKINDEN okunuyor. Yazan olay
     // (SetVirtualAddressMap) kabuktan sonra calisiyor; bu acilisin degeri
@@ -270,10 +268,18 @@ B2LGosterEntry (
     // olcum sanilir. Bu tur tam olarak o oldu.
     //
     if (Onc[0] == 0x52484553 && Onc[15] == B2L_SURUM) {
-      Deger (L"SANAL ONC=", Onc[3],
-             (Onc[3] == 0)            ? L"KABUL" :
-             (Onc[3] == 0xFFFFFFFEUL) ? L"CALISMADI" : L"RET",
-             (Onc[3] == 0) ? 0x0040FF40 : 0x00FF4040);
+      //
+      // Olayin calistigi SMC'den BAGIMSIZ damgayla dogrulaniyor. Onceki
+      // turda bunu donus degerinden cikarmaya calistik ve nobetci deger
+      // EL3'un cevabiyla cakisti.
+      //
+      if (Onc[12] != 0x4E414C53UL) {
+        Yaz (L"SANAL OLAY HIC CALISMADI", 0x00FF4040);
+      } else {
+        Deger (L"SANAL ONC=", Onc[3],
+               (Onc[3] == 0) ? L"KABUL" : L"RET",
+               (Onc[3] == 0) ? 0x0040FF40 : 0x00FF4040);
+      }
       Deger (L"LOCKUP ONC=", Onc[6], NULL, 0x00C0C0C0);
 
       //

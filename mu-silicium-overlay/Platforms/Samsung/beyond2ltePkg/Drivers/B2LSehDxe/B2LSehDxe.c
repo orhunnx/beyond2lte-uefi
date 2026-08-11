@@ -99,7 +99,16 @@
 // degil "henuz calismadi" demekti. Sifirin iki anlama geldigi bir gosterge,
 // gostergesizlikten kotudur.
 //
-#define SANAL_CALISMADI  0xFFFFFFFEUL
+//
+// NOBETCI DEGERI OLCTUGU SEYLE CAKISMAMALI.
+//
+// Ilk secim 0xFFFFFFFE idi ve tam da EL3'un dondugu deger cikti (-2).
+// Ekranda "olay calismadi" yazdi, oysa olay calismisti ve okudugumuz sey
+// EL3'un CEVABIYDI. Bir SMC'nin asla donmeyecegi bir degeri seciyoruz ve
+// ayrica olayin calistigini SMC'den BAGIMSIZ bir damgayla isaretliyoruz.
+//
+#define SANAL_CALISMADI  0xB2B2B2B2UL
+#define OLAY_DAMGASI     0x4E414C53UL   // "SLAN"
 
 //
 // SURUM DAMGASI - "onceki acilis" degerleri ne zaman guvenilir?
@@ -115,7 +124,7 @@
 //
 // Yerlesimi degistiren her degisiklikte BU SAYIYI ARTIR.
 //
-#define B2L_SURUM  2
+#define B2L_SURUM  3
 
 #define SEH_LOG      0xCF041000ULL   // yakalanan EL3 baglami
 #define SEH_STATUS   0xCF041080ULL   // SMC donusleri
@@ -266,6 +275,12 @@ VirtualAddressChange (
   Status = mStatus;
   Metin  = mMetin;
 
+  //
+  // OLAYIN CALISTIGINI SMC'DEN BAGIMSIZ ISARETLE. Onceki turda bunu
+  // SMC'nin donus degerinden cikarmaya calistik ve yanildik.
+  //
+  Status[12] = OLAY_DAMGASI;
+
   C1 = EfiConvertPointer (0, (VOID **)&mSehLog);
        EfiConvertPointer (0, (VOID **)&mStatus);
        EfiConvertPointer (0, (VOID **)&mMetin);
@@ -370,9 +385,23 @@ B2LSehEntry (
   HexYaz (mMetin + 4, mStatus[1]);
 
   //
-  // 2) SEH adresi. Su an kimlik haritalamasindayiz, fiziksel adres gecerli.
+  // 2) SEH ADRESI BURADA KAYDEDILMIYOR - BILEREK.
   //
-  mStatus[2] = SehKaydet ((UINT64)(UINTN)SmartExceptionHandler);
+  // Onceki olcum: DriverEntry'deki kayit 0 (kabul), AYNI acilis icindeki
+  // ikinci kayit -2 (ret) dondu. Bu, EL3'un SEH'i acilis basina yalnizca
+  // BIR KEZ kabul ettigini dusunduruyor.
+  //
+  // Eger oyleyse tek hakkimizi dogru ana saklamak zorundayiz. Fiziksel
+  // adresle simdi kaydetmek, Windows devraldiginda ise yaramayan bir adresi
+  // EL3'e vermek ve hakki harcamak demek. Kaydi SetVirtualAddressMap
+  // olayina birakiyoruz; orada isleyicinin Windows'ta gecerli olacak sanal
+  // adresi elimizde oluyor (olculdu: 0xFFFFF803406BD570).
+  //
+  // Bu ayni zamanda soruyu da ayiriyor:
+  //   olaydaki kayit 0 donerse  -> once "zaten kayitli" diye reddediliyordu
+  //   yine -2 donerse           -> EL3 adresin KENDISINI begenmiyor
+  //
+  mStatus[2] = SANAL_CALISMADI;
   HexYaz (mMetin + 17, mStatus[2]);
 
   //
