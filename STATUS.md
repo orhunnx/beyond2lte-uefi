@@ -2974,3 +2974,48 @@ döngüsü yakalıyor.
 | Yine 9'da duruyor | Sıfırlama kabuktan bağımsız, dışarıdan geliyor. O zaman PMU/watchdog eksenine geçilir |
 
 Bu, projenin başından beri sorduğumuz sorunun cevabı.
+
+## Ölüm sonrası kanal doğrulandı — ama PMU ekrandan kaydı
+
+`dmem 0xCF030000` dökümünde `B2LF` görünüyor. İki şey birden kanıtlandı:
+
+1. Sürücü ayrılmış RAM'e yazıyor
+2. **Kayıt sıcak sıfırlamayı aşıyor** — Windows'un içinden yazılan veriyi
+   sıfırlamadan sonra UEFI'de okuyabiliyoruz
+
+`BUGC` hiçbir yerde yok: bugcheck olmadığı bağımsız olarak ikinci kez
+doğrulandı.
+
+### Ama aradığımız değer ekranda değildi
+
+`RST_STAT` `startup.nsh`'in en başında basılıyordu; altındaki `ls`, `map` ve
+0x60 baytlık `dmem` çıktısı 25 satırlık ekranı aşıp onu yukarı kaydırmıştı.
+Ölçüm aleti doğruydu, çıktısı görünmüyordu.
+
+Düzeltme:
+
+- `PMU RST_STAT` **en sona** alındı
+- `ls fs0:\` ve `map fs0` kaldırıldı — ikisi de görevini çoktan yaptı
+  (`EBSTEST.EFI` imajda mı, `fs0` hangi LUN). Her gereksiz satır, görmek
+  istediğimiz satırı aşağı itiyor.
+- RAM dökümü `0x60` → `0x20`
+
+### Kayıt artık ASCII
+
+Önceki sürümde sayaçlar ikili yazılıyordu ve bulanık bir fotoğraftan hex
+çözmek zorunda kalıyorduk; hangi baytın hangi alan olduğu tartışma konusu
+oldu. `dmem`'in sağ sütunundaki ASCII görünümü bedava.
+
+Artık doğrudan şu okunuyor:
+
+```
+B2LF........TIK=0010 BUG=H
+```
+
+| Alan | Anlamı |
+|---|---|
+| `B2LF` | Sürücü çalıştı |
+| `TIK=nnnn` | Çekirdek kaç saniye yaşadı |
+| `BUG=H` | Bugcheck yok. `E` olursa var |
+
+Hex çözme, bayt sayma, tahmin yok.

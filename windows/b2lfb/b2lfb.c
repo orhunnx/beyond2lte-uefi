@@ -228,9 +228,32 @@ static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
 
   gTik++;
 
-  /* Olum sonrasi kayit: +0x10'da saniye sayaci */
+  /*
+   * Olum sonrasi kayit ASCII yaziliyor.
+   *
+   * NEDEN: onceki surumde sayaclar ikili yaziliyordu ve cihazdaki "dmem"
+   * dokumunu bulanik bir fotograftan hex olarak cozmek zorunda kaliyorduk -
+   * hangi baytin hangi alan oldugu tartisma konusu oldu. dmem'in sag
+   * sutunundaki ASCII gorunumu bedava; ondan yararlanmamak sacma.
+   *
+   * +0x10'dan itibaren tam olarak sunu okuyacagiz:  TIK=0010 BUG=N
+   */
   if (gLog != 0) {
-    *(UINT32 *)((UINT8 *)gLog + 16) = (UINT32)gTik;
+    UINT8 *S = (UINT8 *)gLog + 16;
+    UINT32 T = (UINT32)gTik;
+
+    S[0] = 'T'; S[1] = 'I'; S[2] = 'K'; S[3] = '=';
+    S[4] = (UINT8)('0' + ((T / 1000) % 10));
+    S[5] = (UINT8)('0' + ((T /  100) % 10));
+    S[6] = (UINT8)('0' + ((T /   10) % 10));
+    S[7] = (UINT8)('0' + ( T         % 10));
+    S[8] = ' ';
+    S[9] = 'B'; S[10] = 'U'; S[11] = 'G'; S[12] = '=';
+    /* Bugcheck geri cagrisi bunu 'E' yapiyor; dokunmuyorsak 'H' kaliyor */
+    if (S[13] != 'E') {
+      S[13] = 'H';
+    }
+    S[14] = ' '; S[15] = ' ';
   }
 }
 
@@ -251,10 +274,14 @@ static void BugCheckCallback (PVOID Buffer, UINT32 Length)
     FillDword (gFb, FB_BYTES, 0x0000FF00);
   }
 
-  /* Olum sonrasi kayit: sicak sifirlamayi asan kanit */
+  /*
+   * Olum sonrasi kayit: sicak sifirlamayi asan kanit.
+   * +0x0C'ye "BUGC", ve ASCII satirindaki BUG= alanini 'E'ye cekiyoruz.
+   */
   if (gLog != 0) {
     UINT8 *B = (UINT8 *)gLog;
     B[12] = 'B'; B[13] = 'U'; B[14] = 'G'; B[15] = 'C';
+    B[16 + 13] = 'E';
   }
 }
 

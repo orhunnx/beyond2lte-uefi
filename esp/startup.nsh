@@ -34,8 +34,18 @@ mode 80 25
 #    0x40010000 guc cevrimi  /  0x20000000 yazilim istedi
 #    Windows cokusu her seferinde 0x20000000 veriyor.
 #
-echo ================ PMU
-dmem 0x15860404 4
+#
+# PMU DOKUMU EN SONA TASINDI - VE BU BIR TURA MAL OLDU.
+#
+# En basta basiliyordu; altindaki "ls", "map" ve 0x60 baytlik dmem ciktisi
+# 25 satirlik ekrani asip PMU'yu yukari kaydiriyordu. Aradigimiz tek deger
+# ekranda hic gorunmuyordu.
+#
+# "ls fs0:\" ve "map fs0" da kaldirildi: ikisi de gorevini coktan yapti
+# (EBSTEST.EFI'nin imajda olup olmadigi ve fs0'in hangi LUN oldugu
+# sorulari kapandi). Her satir, gormek istedigimiz satiri asagi itiyor.
+#
+echo ================ B2LFB KAYDI
 
 #
 # 2) ResetSystem kancasi (B2LResetHookDxe, 0xCF000000)
@@ -53,12 +63,6 @@ dmem 0x15860404 4
 # Ikisinden biri yaniliyor. Tahmin etmek yerine birimin kokunu okutuyoruz:
 # dosya listede varsa sorun "if exist" ifadesinde, yoksa imaja hic girmemis.
 #
-echo ================ fs0 KOKU
-ls fs0:\
-
-echo ================ BIRIMLER
-map fs0
-
 echo .
 #
 # EL2 SMC KAYDI  (B2LEl2Dxe + B2LEl2Payload.S, 0xCF030000)
@@ -75,9 +79,33 @@ echo .
 # Windows cihazi kendi istegiyle sifirliyor demektir ve ELR_EL2 cagriyi
 # yapan kodun adresini verir.
 #
-echo ================ EL2 SMC KAYDI
-dmem 0xCF030000 60
+#
+# B2LFB'nin olum sonrasi kaydi. Windows'un icinden yazildi ve sicak
+# sifirlamayi asti.
+#
+#   +0x00  "B2LF"        surucu calisti
+#   +0x0C  "BUGC"        bugcheck oldu (yoksa olmadi)
+#   +0x10  "TIK=nnnn"    cekirdek kac saniye yasadi
+#          "BUG=H/E"     H = hayir, E = evet
+#
+# 0x20 bayt yetiyor: geri kalani zaten FF. Kisa tutmak PMU'yu ekranda
+# tutuyor.
+#
+dmem 0xCF030000 20
 echo .
+
+#
+# PMU RST_STAT - ONCEKI KAPANISIN SEBEBI
+#
+# EN SONDA, cunku aradigimiz tek deger bu ve yukarida kalirsa kayiyor.
+#
+#   0x20000000  yazilim sifirlamasi - Windows PSCI ile kendi istemis
+#   0x40010000  guc cevrimi - cihaz gercekten kapanmis
+#   baskasi     Exynos RST_STAT'ta watchdog bitleri var; farkli bir bit
+#               cikarsa cevap PMU yapilandirmasinda demektir
+#
+echo ================ PMU RST_STAT
+dmem 0x15860404 4
 
 echo ================ Fotografla, sonra tusa bas.
 pause
