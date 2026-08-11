@@ -64,6 +64,13 @@ if [ -d "$MU/.git" ]; then
   if git -C "$MU" checkout -- Silicon/Samsung/SamsungPkg/Drivers/UfsDxe/UfsDxe.c 2>/dev/null; then
     echo "  UfsDxe.c upstream haline alindi (yama temizlendi)"
   fi
+  #
+  # WatchdogTimer.c da her derlemede temizleniyor - yama TEMIZ dosyaya
+  # uygulansin, birikmesin. Ayni tuzaga UFS yamasinda dusmustuk.
+  #
+  if git -C "$MU" checkout -- MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.c 2>/dev/null; then
+    echo "  WatchdogTimer.c upstream haline alindi"
+  fi
 fi
 
 say "Overlay kopyalaniyor"
@@ -121,6 +128,21 @@ echo "  UFS enstrumantasyon yamasi ATLANDI"
 # karsiligi olmadan. HS Gear 3'e donmek gelistirme dongusunu elli kat
 # hizlandiriyor ve kaybettigimiz hicbir sey yok.
 #
+#
+# WATCHDOG ETKISIZLESTIRME
+#
+# Gerekce tools_wdt_kapat.py basinda. Kisaca: bes bagimsiz olcum
+# "bootmgfw'nin kurdugu bir UEFI watchdog'u suresi dolunca cihazi
+# sifirliyor" aciklamasina oturuyor.
+#
+# Kapatmak icin:  B2L_WDT=0 bash yap.sh
+#
+if [ "${B2L_WDT:-1}" = "1" ]; then
+  python3 "$PROJ/tools_wdt_kapat.py" "$MU"
+else
+  echo "  Watchdog yamasi ATLANDI (B2L_WDT=0)"
+fi
+
 if [ "${B2L_UFS_PWM:-0}" = "1" ]; then
   python3 "$PROJ/tools_ufs_pwm.py" "$MU"
 else

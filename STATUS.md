@@ -3196,3 +3196,51 @@ Menüde bir dakika bekleyip sonra Enter'a basıyoruz:
 | Şerit yok / hemen ölüm | Sayaç **daha erken** başlamış (UEFI ya da güç). O zaman `EbsTest`'in yaşaması açıklanması gereken çelişki olur |
 
 Sürücüdeki 5 saniyelik gecikme kapatıldı — referans noktası temiz kalsın.
+
+# ★ Sayaç bootmgfw ile başlıyor — suçlu UEFI watchdog'u
+
+Boot menüsünde ~30 saniye beklendi. Sürücüde gecikme yok, yani normalde 9
+şerit beklenirdi. **Tek şerit çıktı.** Menüde geçen süre Windows'un ömründen
+düştü.
+
+Yani sayaç çekirdekle başlamıyor, **daha erken** başlıyor ve `bootmgfw`'nin
+menüde harcadığı süre de ona dahil.
+
+## Bu, en garip ölçümü açıklıyor
+
+Diskten açılışta `winload` 50 saniye yükleme yapmıştı ve çekirdek 2 saniyede
+ölmüştü. O turda `storufs`'u suçlamış ve "kapı yapısal olarak kapalı" demiştim.
+
+**Yanlıştı.** Bütçe yükleme sırasında tükenmişti. `storufs` hiç test
+edilmemiş; sadece sırası gelmemiş.
+
+## Beş gözlem, tek açıklama
+
+| Gözlem | Uyum |
+|---|---|
+| Ölüm anı sabit, gecikme öteleyemiyor | Zamanlı sıfırlama |
+| Menüde beklemek ömrü tüketiyor | Sayaç `bootmgfw` ile başlıyor |
+| Disk açılışında 50 s yükleme → 2 s ömür | Aynı bütçe |
+| Bugcheck yok, temiz yazılım sıfırlaması | Windows'un haberi yok |
+| `EbsTest` 60+ s yaşıyor | **EFI Shell watchdog'u kendisi kapatıyor**; `bootmgfw` yeniden kuruyor |
+
+Sonuncusu belirleyici. `EbsTest`'in yaşaması aylardır çelişki gibi duruyordu;
+aslında hipotezi doğruluyormuş.
+
+## Yama: watchdog periyodu her zaman 0
+
+`MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.c` içinde
+`mWatchdogTimerPeriod = TimerPeriod;` → `= 0`.
+
+Sürücü **çıkarılmıyor**: `WatchdogTimer` bir mimari protokol ve DxeCore
+hepsini kurulmuş görmeden BDS'e geçmiyor. Protokol duruyor, çağrılar
+`EFI_SUCCESS` dönüyor, ama zamanlayıcı hiç kurulmuyor. `bootmgfw` "watchdog
+kuruldu" cevabını alıp yoluna devam ediyor.
+
+`yap.sh` dosyayı her derlemede git'ten geri çağırıyor — yama temiz dosyaya
+uygulanıyor, birikmiyor. `B2L_WDT=0 bash yap.sh` ile kapatılabiliyor.
+
+| Sonuç | Anlamı |
+|---|---|
+| Şeritler 9'u geçip devam ediyor | **Watchdog'muş.** Aylardır aradığımız şey bu |
+| Yine ~9 şerit | Watchdog değil; sayaç `bootmgfw`'nin başka bir yerinde |
