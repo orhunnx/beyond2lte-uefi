@@ -2928,3 +2928,49 @@ zamanlayıcı işletmez.
 | Kareler artıyor + **sönme animasyonu** | Çökme yok. WinPE işini bitirip düzgünce yeniden başlıyor |
 | Kareler artıyor, animasyon yok, sert kesilme | Çekirdek sağlıklı ama dışarıdan sıfırlanıyor |
 | Kareler bir yerde duruyor | Çekirdek orada ölüyor — kaç kare saydıysak o kadar saniye yaşadı |
+
+## Kalp atışı: 9 çizgi, hepsi düzenli
+
+Çekirdek dokuz saniye yaşadı ve **zamanlayıcı son saniyeye kadar işledi.**
+Hiçbir yerde takılma, yavaşlama, duraklama yok.
+
+Çöken bir sistem DPC işletmez. Yani çekirdek öldüğü ana kadar sağlıklıydı.
+
+Elimizdeki tablo:
+
+| Gözlem | Ne eliyor |
+|---|---|
+| Bugcheck yok (doğrulanmış geri çağrı) | Çökme, panik, sürücü hatası |
+| Kalp atışı son ana kadar düzenli | Takılma, kilitlenme, kademeli bozulma |
+| Tam 9 saniye | Rastgelelik yok — bir iş bitiyor |
+| Bir anda yok oluş | Kapanma süreci değil, tek adımda gidiş |
+
+Bunların hepsi tek bir şeye işaret ediyor: **kasıtlı ve temiz yeniden
+başlatma.** WinPE `startnet.cmd` bitince kabuğu kapatır ve makineyi yeniden
+başlatır — tasarım böyle.
+
+## Ölçüm: kabuk çıkmazsa yeniden başlatma da olmamalı
+
+Artık bunu gözle animasyon arayarak değil **sayarak** sınayabiliriz. Kalp
+atışı nesnel bir sayaç; kimsenin "sönme oldu mu olmadı mı" diye bakmasına
+gerek yok.
+
+Yeni `startnet.cmd` iki satır:
+
+```
+pause
+for /l %%i in (1,1,2000000000) do @rem
+```
+
+`wpeinit` bilerek çıkarıldı. Bu turda tek soru "kabuk çıkmazsa ne olur";
+aygıt sayımı ve ağ başlatma o soruya hiçbir şey katmıyor, sadece değişken
+ekliyor. `pause` ve `for /l` cmd.exe yerleşikleri — harici çalıştırılabilir
+yok, ağ yok, dosya sistemi yok. `pause` beklenmedik biçimde dönerse `for`
+döngüsü yakalıyor.
+
+| Ölçüm | Sonuç |
+|---|---|
+| **Çizgiler 9'u geçiyor ve devam ediyor** | Ortada arıza yok. **Windows bu telefonda çalışıyor.** 9 saniyelik "çökme" WinPE'nin işini bitirmesiymiş |
+| Yine 9'da duruyor | Sıfırlama kabuktan bağımsız, dışarıdan geliyor. O zaman PMU/watchdog eksenine geçilir |
+
+Bu, projenin başından beri sorduğumuz sorunun cevabı.
