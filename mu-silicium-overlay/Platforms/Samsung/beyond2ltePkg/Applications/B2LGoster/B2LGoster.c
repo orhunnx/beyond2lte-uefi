@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    7
+#define B2L_SURUM    8
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 7"
+#define SURUM_METNI  L"SURUM 8"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -440,6 +440,20 @@ B2LGosterEntry (
 
     for (K = 0; K < 16; K++) {
       Tik[K] = (CHAR16)FbLog[16 + K];
+      if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
+        Tik[K] = L' ';
+      }
+    }
+
+    Tik[16] = L'\0';
+    Yaz (Tik, 0x00FFFF40);
+
+    //
+    // +0x20: bosta dongusunun tur sayaci. "CPU hic bosa dusmedi" iddiasinin
+    // tek kaniti bu - turkuaz bant yalnizca dongunun BASLADIGINI soyluyor.
+    //
+    for (K = 0; K < 16; K++) {
+      Tik[K] = (CHAR16)FbLog[32 + K];
       if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
         Tik[K] = L' ';
       }

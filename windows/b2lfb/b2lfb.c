@@ -236,6 +236,21 @@ __declspec(align(16)) static UINT64 gDpc[16];
 static UINT64 gTik = 0;
 
 /*
+ * Bosta donguisunun tur sayaci.
+ *
+ * NEDEN AYRI BIR SAYAC: turkuaz bant ve gLog[10]='T' yalnizca is
+ * parcaciginin BASLADIGINI kanitliyor. Iddia ise baska: "CPU hic bosa
+ * dusmedi". Bunun icin dongunun sifirlama anina KADAR dondugunu gostermek
+ * gerekiyor. Baslayip sonra hic zamanlanmamis bir is parcacigi da ayni
+ * bandi birakirdi.
+ *
+ * Bu ayrimi es gecmenin bedelini bu projede zaten odedik: sanal SEH
+ * kaydini "calismadi" diye okuduk, oysa olay calismisti ve gordugumuz sey
+ * EL3'un cevabiydi.
+ */
+static volatile UINT64 gSpin = 0;
+
+/*
  * Bosta is parcaciginin yerine gecen dongu. Oncelik 1: bosta is parcacigi
  * (0) disinda HER SEY bundan once calisir, dolayisiyla acilis yavaslamaz.
  */
@@ -266,6 +281,7 @@ static void BostaDongu (PVOID Ctx)
 
   for (;;) {
     I++;
+    gSpin++;
   }
 }
 
@@ -317,6 +333,33 @@ static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
     }
     S[14] = ' '; S[15] = ' ';
 
+    /*
+     * +0x20:  SPN=xxxxxxxx
+     *
+     * Her tikte bosta dongusunun o ana kadarki tur sayisi. Sifirlamadan
+     * sonra okundugunda:
+     *
+     *   sayi buyuk ve tikler boyunca ARTIYOR -> CPU hic bosa dusmedi,
+     *       yani sifirlama bosta kalmayla (ve dolayisiyla PSCI
+     *       CPU_SUSPEND ile) ilgili DEGIL
+     *   sifir ya da sabit -> dongu zamanlanmamis, bu deney hicbir sey
+     *       kanitlamiyor ve once onu duzeltmek gerekir
+     */
+    {
+      UINT8 *P = (UINT8 *)gLog + 32;
+      UINT32 V = (UINT32)gSpin;
+      int    K;
+
+      P[0] = 'S'; P[1] = 'P'; P[2] = 'N'; P[3] = '=';
+
+      for (K = 7; K >= 0; K--) {
+        UINT8 D = (UINT8)(V & 0xF);
+        P[4 + K] = (UINT8)((D < 10) ? ('0' + D) : ('A' + D - 10));
+        V >>= 4;
+      }
+
+      P[12] = ' '; P[13] = ' '; P[14] = ' '; P[15] = ' ';
+    }
   }
 }
 
