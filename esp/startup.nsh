@@ -107,6 +107,24 @@ echo .
 echo ================ PMU RST_STAT
 dmem 0x15860404 4
 
+#
+# BELLEK HARITASI - EKLEDIGIMIZ BOLGELER GERCEKTEN GIRDI MI
+#
+# MemoryMapLib'e stock DTB'den 16 "reserved-memory" bolgesi eklendi ve sonuc
+# degismedi. Ama "degismedi" iki anlama gelebilir:
+#   (a) bolgeler masum
+#   (b) ekledigim girdiler haritaya hic girmedi
+#
+# Bu projede (b) uc kez basimiza geldi (hivexsh setval, .reg ters bolukleri,
+# wimlib add). Once aleti dogrula, sonra sonucuna guven.
+#
+# memmap ciktisi uzun ama OZETI EN ALTTA - ekranda kalan kisim tam olarak
+# ihtiyacimiz olan yer. "Reserved" satirindaki sayfa sayisi, eklenen ~45 MB'i
+# yansitmali.
+#
+echo ================ BELLEK HARITASI
+memmap
+
 echo ================ Fotografla, sonra tusa bas.
 pause
 

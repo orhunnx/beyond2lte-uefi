@@ -3416,3 +3416,34 @@ Tek `.reg` dosyası, tek merge — servis başına ayrı çağrı yüzlerce
 |---|---|
 | Şeritler 10'u geçiyor | Mekanizma **doğrulandı**. Sırada suçlu sürücüyü bulmak |
 | Yine ~10 şerit | `ErrorControl` değil; bu eksen de kapanır |
+
+## Bellek haritası eklendi, sonuç değişmedi — önce aleti doğrula
+
+DTB'den 16 `reserved-memory` bölgesi `MemoryMapLib`'e eklendi. Yine 9 şerit.
+
+"Değişmedi" iki anlama geliyor ve ayırmadan devam etmek hata olur:
+
+- (a) Bölgeler masum
+- (b) Eklediğim girdiler haritaya hiç girmedi
+
+Bu projede (b) üç kez oldu: `hivexsh setval` diğer değerleri siliyordu,
+`.reg` ters bölükleri yutuluyordu, `wimlib add` üzerine yazmıyordu. Her
+seferinde ders aynıydı: **önce aleti doğrula, sonra sessizliğine güven.**
+
+`startup.nsh`'e `memmap` eklendi. Çıktı uzun ama özeti en altta — ekranda
+kalan kısım tam da ihtiyacımız olan yer. Eklenen bölgeler ~45 MB tutuyor;
+`Reserved` satırındaki sayfa sayısı bunu yansıtmalı.
+
+## "Minimum RAM" fikri ve sınırı
+
+Kullanıcının önerisi: Windows'a yetecek kadar küçük bir RAM penceresi ver,
+sorunlu bölgelere hiç dokunmasın.
+
+Doğru içgüdü ama `truncatememory` yalnızca **üstten** kesiyor. Baş şüpheli
+`seclog` `0xC0000000`'da, yani DRAM tabanının (`0x80000000`) sadece 1 GB
+üstünde. Onu dışarıda bırakmak Windows'u 1 GB'a hapsetmek demek — ve 742
+MB'lık `boot.wim`'i RAM diske alıp üstüne WinPE çalıştırmak oraya sığmaz.
+
+Yani bu yol önce `tools_winpe_adk.sh` ile ~250 MB'lık çıplak WinPE üretmeyi
+gerektiriyor. Sırada o var; ama harita doğrulaması ondan önce geliyor, çünkü
+harita tutmuyorsa küçük WinPE de aynı duvara çarpar.
