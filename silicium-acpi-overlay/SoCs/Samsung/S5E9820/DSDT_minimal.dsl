@@ -129,93 +129,122 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
         // uretiyor. O yuzden _HID satici kimligi olarak kaliyor, esleme _CLS
         // uzerinden oluyor.
         //
-        Device (UFS0)
-        {
-            //
-            // Satici kimligi. Gecerli ACPI bicimi (4 harf + 4 hane).
-            // Eslemeyi bu degil, asagidaki _CLS sagliyor.
-            //
-            Name (_HID, "SMSN9820")
-            Name (_UID, Zero)
-            //
-            // Windows'un storufs.sys'e baglanmasini saglayan sey.
-            // Package { BaseClass, SubClass, ProgrammingInterface }
-            //   0x01 Mass Storage / 0x09 UFS / 0x01 UFSHCI  ->  ACPI\CC_010901
-            //
-            //
-            // _CLS GECICI OLARAK KAPALI - storufs BAGLANMASIN.
-            //
-            // Neden simdi: acilisi DriverEntry'de sonsuza kadar durdurunca
-            // sifirlama HIC OLMADI (25+ serit ve devam ediyordu). Yani sayac
-            // mutlak degil; sifirlama Windows'un bizden SONRAKI ilerlemesine
-            // bagli. UEFI/TrustZone/PMIC eksenleri kapandi.
-            //
-            // Bizden sonra ne oluyor? Kalan acilis surucileri, sonra PnP
-            // ACPI aygitlarini sayip suruculerini basliyor. Ve DSDT'de tek
-            // aygit var: UFS0.
-            //
-            // Eski bir olcum de tam buraya isaret ediyordu: _CLS acikken
-            // 5-6 saniye, kapaliyken 12 saniye. O zaman guvenilir bir
-            // olcum aletimiz yoktu - simdi var.
-            //
-            // _CLS olmadan Windows bu dugume hicbir surucu baglamiyor;
-            // aygit gorunur ama olu kaliyor.
-            //
-            // Name (_CLS, Package (0x03)
-            // {
-            //     0x01,
-            //     0x09,
-            //     0x01
-            // })
-            //
-            // _CCA ARM64'te DMA yapan her aygit icin zorunlu.
-            //
-            // BIR (KOHERENT) IDI, SIFIRA CEKILDI. Gerekce:
-            //
-            // DTB'de "ufs-io-coherency" node'u var ve UEFI (BoardInit.c)
-            // SYSREG'deki koherans bitlerini set ediyor. Ama koherans Exynos'ta
-            // IKI PARCALI: SYSREG biti yolun bir ucunu aciyor, digeri surucunun
-            // UTRD tanimlayicilarindaki paylasim/onbellek alanlarini dogru
-            // isaretlemesi. Samsung'un kendi surucusu ikisini de yapiyor;
-            // Windows'un JENERIK storufs.sys'i ikincisini bilmiyor.
-            //
-            // _CCA=1 derken Windows'a "onbellek bakimi yapma, tanimlayicilari
-            // dogrudan yaz" diyoruz. Koherans gercekte tam degilse tanimlayicilar
-            // CPU onbelleginde kalir, denetleyici bayat veri okur, hicbir komut
-            // tamamlanmaz ve storufs HwInitialize'da pes eder.
-            //
-            // _CCA=0 daha guvenli tarafta duruyor: Windows DMA tamponlarini
-            // onbelleklenmemis ayirir ve gereken temizleme/gecersiz kilma
-            // islemlerini kendisi yapar. Koherans gercekten calisiyorsa
-            // sadece biraz yavaslariz; calismiyorsa ise yarar.
-            //
-            // OLCUM: cekirdek disk acilisinda ~2 saniyede oluyor. Bu sure
-            // StorPort komut zaman asimi icin (30-60 s) cok kisa, ama
-            // "aygit baslatma basarisiz" icin tam yerinde. Yani storufs
-            // ILK ADIMDA dusuyor - NOP OUT / denetleyici init. Tanimlayici
-            // gorunurlugu tam o adimda belirleyici.
-            //
-            // GERI ALINDI: _CCA=0 hicbir seyi degistirmedi (yine 1-2 saniye)
-            // ve temel cizgiyi geri kurarken tek UEFI degisikligi buydu.
-            // Ise yaramayan bir degisikligi tasimak, sonraki her olcumu
-            // kirletir.
-            Name (_CCA, One)
-            Method (_STA, 0, NotSerialized)
-            {
-                Return (0x0F)
-            }
-            Name (_CRS, ResourceTemplate ()
-            {
-                Memory32Fixed (ReadWrite, 0x13D60000, 0x00000200)  // HCI
-                Memory32Fixed (ReadWrite, 0x13D61100, 0x00000200)  // VS_HCI
-                Memory32Fixed (ReadWrite, 0x13D50000, 0x00008000)  // UNIPRO
-                Memory32Fixed (ReadWrite, 0x13D64000, 0x00000800)  // PHY PMA
-                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
-                {
-                    0x00000119
-                }
-            })
-        }
+        //
+        // ==================================================================
+        // UFS0 TAMAMEN KALDIRILDI - AD ALANINDA SADECE CPU0 KALIYOR
+        // ==================================================================
+        //
+        // Blokaj merdiveni tetikleyiciyi su pencereye sikistirdi: acilis
+        // surucileri bittikten SONRA, Start=1 surucileri yuklenmeden ONCE.
+        // Orada olan tek sey PnP'nin ACPI ad alanini sayip aygitlari
+        // baslatmasi.
+        //
+        // _CLS'i kapatmak yetmedi: surucu baglanmasa da PnP o dugum icin bir
+        // aygit olusturuyor ve _CRS'teki dort MMIO araligini ve 281 numarali
+        // kesmeyi tahsis ediyor. Ustelik UEFI, UFS denetleyicisini CALISIR
+        // durumda birakiyor - kesmesi acik bir denetleyici, ISR'i olmayan bir
+        // kesme hattina baglanmis olabilir.
+        //
+        // Aygiti tamamen cikarmak bu ihtimallerin hepsini birden eliyor.
+        // Ad alaninda geriye yalnizca CPU0 kaliyor, yani PnP'nin sayacagi
+        // neredeyse hicbir sey yok.
+        //
+        //   Seritler 10'u geciyorsa -> suclu UFS0 dugumu. Sirada hangi parcasi
+        //                              (kesme mi, MMIO tahsisi mi) daraltilir.
+        //   Yine ~10 serit          -> ad alani masum; tetikleyici PnP'nin
+        //                              KOK aygitlarinda ya da Faz 1'in ACPI
+        //                              disi islerinde.
+        //
+        // Tam metin asagida, geri koymak icin yorumu kaldirmak yeterli.
+        //
+        // Device (UFS0)
+        // {
+        // //
+        // // Satici kimligi. Gecerli ACPI bicimi (4 harf + 4 hane).
+        // // Eslemeyi bu degil, asagidaki _CLS sagliyor.
+        // //
+        // Name (_HID, "SMSN9820")
+        // Name (_UID, Zero)
+        // //
+        // // Windows'un storufs.sys'e baglanmasini saglayan sey.
+        // // Package { BaseClass, SubClass, ProgrammingInterface }
+        // //   0x01 Mass Storage / 0x09 UFS / 0x01 UFSHCI  ->  ACPI\CC_010901
+        // //
+        // //
+        // // _CLS GECICI OLARAK KAPALI - storufs BAGLANMASIN.
+        // //
+        // // Neden simdi: acilisi DriverEntry'de sonsuza kadar durdurunca
+        // // sifirlama HIC OLMADI (25+ serit ve devam ediyordu). Yani sayac
+        // // mutlak degil; sifirlama Windows'un bizden SONRAKI ilerlemesine
+        // // bagli. UEFI/TrustZone/PMIC eksenleri kapandi.
+        // //
+        // // Bizden sonra ne oluyor? Kalan acilis surucileri, sonra PnP
+        // // ACPI aygitlarini sayip suruculerini basliyor. Ve DSDT'de tek
+        // // aygit var: UFS0.
+        // //
+        // // Eski bir olcum de tam buraya isaret ediyordu: _CLS acikken
+        // // 5-6 saniye, kapaliyken 12 saniye. O zaman guvenilir bir
+        // // olcum aletimiz yoktu - simdi var.
+        // //
+        // // _CLS olmadan Windows bu dugume hicbir surucu baglamiyor;
+        // // aygit gorunur ama olu kaliyor.
+        // //
+        // // Name (_CLS, Package (0x03)
+        // // {
+        // //     0x01,
+        // //     0x09,
+        // //     0x01
+        // // })
+        // //
+        // // _CCA ARM64'te DMA yapan her aygit icin zorunlu.
+        // //
+        // // BIR (KOHERENT) IDI, SIFIRA CEKILDI. Gerekce:
+        // //
+        // // DTB'de "ufs-io-coherency" node'u var ve UEFI (BoardInit.c)
+        // // SYSREG'deki koherans bitlerini set ediyor. Ama koherans Exynos'ta
+        // // IKI PARCALI: SYSREG biti yolun bir ucunu aciyor, digeri surucunun
+        // // UTRD tanimlayicilarindaki paylasim/onbellek alanlarini dogru
+        // // isaretlemesi. Samsung'un kendi surucusu ikisini de yapiyor;
+        // // Windows'un JENERIK storufs.sys'i ikincisini bilmiyor.
+        // //
+        // // _CCA=1 derken Windows'a "onbellek bakimi yapma, tanimlayicilari
+        // // dogrudan yaz" diyoruz. Koherans gercekte tam degilse tanimlayicilar
+        // // CPU onbelleginde kalir, denetleyici bayat veri okur, hicbir komut
+        // // tamamlanmaz ve storufs HwInitialize'da pes eder.
+        // //
+        // // _CCA=0 daha guvenli tarafta duruyor: Windows DMA tamponlarini
+        // // onbelleklenmemis ayirir ve gereken temizleme/gecersiz kilma
+        // // islemlerini kendisi yapar. Koherans gercekten calisiyorsa
+        // // sadece biraz yavaslariz; calismiyorsa ise yarar.
+        // //
+        // // OLCUM: cekirdek disk acilisinda ~2 saniyede oluyor. Bu sure
+        // // StorPort komut zaman asimi icin (30-60 s) cok kisa, ama
+        // // "aygit baslatma basarisiz" icin tam yerinde. Yani storufs
+        // // ILK ADIMDA dusuyor - NOP OUT / denetleyici init. Tanimlayici
+        // // gorunurlugu tam o adimda belirleyici.
+        // //
+        // // GERI ALINDI: _CCA=0 hicbir seyi degistirmedi (yine 1-2 saniye)
+        // // ve temel cizgiyi geri kurarken tek UEFI degisikligi buydu.
+        // // Ise yaramayan bir degisikligi tasimak, sonraki her olcumu
+        // // kirletir.
+        // Name (_CCA, One)
+        // Method (_STA, 0, NotSerialized)
+        // {
+        // Return (0x0F)
+        // }
+        // Name (_CRS, ResourceTemplate ()
+        // {
+        // Memory32Fixed (ReadWrite, 0x13D60000, 0x00000200)  // HCI
+        // Memory32Fixed (ReadWrite, 0x13D61100, 0x00000200)  // VS_HCI
+        // Memory32Fixed (ReadWrite, 0x13D50000, 0x00008000)  // UNIPRO
+        // Memory32Fixed (ReadWrite, 0x13D64000, 0x00000800)  // PHY PMA
+        // Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+        // {
+        // 0x00000119
+        // }
+        // })
+        // }
+        //
     }
 }
 
