@@ -91,6 +91,7 @@
 
 #define SEH_LOG      0xCF041000ULL   // yakalanan EL3 baglami
 #define SEH_STATUS   0xCF041080ULL   // SMC donusleri
+#define SEH_ONCEKI   0xCF041100ULL   // BIR ONCEKI acilisin yakalamasi
 #define SEH_METIN    0xCF0410C0ULL   // SMC donusleri, okunabilir ASCII
 #define SEH_DBGMEM   0xCF042000ULL   // EL3'un GPR dokumu, 2 sayfa
 #define SEH_DBGSIZE  0x2000ULL
@@ -251,6 +252,18 @@ B2LSehEntry (
   mSehLog = (UINT64 *)(UINTN)SEH_LOG;
   mStatus = (UINT32 *)(UINTN)SEH_STATUS;
   mMetin  = (UINT8  *)(UINTN)SEH_METIN;
+
+  //
+  // ONCE KOPYALA, SONRA TEMIZLE.
+  //
+  // Ilk surumde canli kayit dogrudan sifirlaniyordu ve bu, olcmek
+  // istedigimiz seyi imha ediyordu: DXE surucileri kabuktan ONCE calisiyor,
+  // yani onceki acilista yakalanmis bir istisna biz onu okuyamadan
+  // siliniyordu. Ayni sinif hatayi daha once ErrorControl=0 ile de
+  // yapmistik - "guvenli" gorunen bir ayar en bilgilendirici olcumu
+  // korlestirmisti.
+  //
+  CopyMem ((VOID *)(UINTN)SEH_ONCEKI, mSehLog, 0x80);
 
   ZeroMem (mSehLog, 0x80);
   ZeroMem (mStatus, 0x40);

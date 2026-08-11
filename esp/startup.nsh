@@ -45,6 +45,32 @@ mode 80 25
 # (EBSTEST.EFI'nin imajda olup olmadigi ve fs0'in hangi LUN oldugu
 # sorulari kapandi). Her satir, gormek istedigimiz satiri asagi itiyor.
 #
+#
+# B2LGOSTER - kayitlari BUYUK harflerle ve YORUMLANMIS olarak cizer.
+#
+# Konsolun yazi tipi 8x19'a sabit ve buyutulemez (EFI_GLYPH_WIDTH MdePkg'de
+# sabit, glif bitmapleri de o boyutta uretiliyor). Bu uygulama glifleri HII
+# font protokolunden alip her pikseli 4x4 blok olarak framebuffer'a basiyor.
+#
+# Ayrica onaltilik dokum yerine anlamini yaziyor: "SEH KAYIT=00000000 KABUL".
+#
+# Ekrani temizleyip cizdikten sonra tus bekliyor. Tusa basinca asagidaki
+# dmem dokumleri her zamanki gibi devam ediyor - biri digerinin yerine
+# gecmiyor, ham veri yedek olarak duruyor.
+#
+if exist fs0:\B2LGOSTR.EFI then
+    fs0:\B2LGOSTR.EFI
+endif
+if exist fs1:\B2LGOSTR.EFI then
+    fs1:\B2LGOSTR.EFI
+endif
+if exist fs2:\B2LGOSTR.EFI then
+    fs2:\B2LGOSTR.EFI
+endif
+if exist fs3:\B2LGOSTR.EFI then
+    fs3:\B2LGOSTR.EFI
+endif
+
 echo ================ B2LFB KAYDI
 
 #
@@ -129,7 +155,7 @@ echo .
 #
 # EL3 SMART EXCEPTION HANDLER (B2LSehDxe)
 #
-#   0xCF041000  "SEH!" imzasi varsa EL3 ISTISNASI YAKALANDI
+#   0xCF041100  "SEH!" imzasi varsa (ONCEKI acilisin kopyasi; EL3 ISTISNASI YAKALANDI
 #     +0x08 Id     0 = EL3 monitorunun kendisi, degilse LDFW smc id
 #     +0x10 elr_el3   istisnanin olustugu adres
 #     +0x18 esr_el3   ISTISNA SINIFI - aradigimiz asil deger
@@ -146,7 +172,7 @@ echo .
 #   0x0E -> illegal state    0x16      -> HVC
 #
 echo ================ EL3 SEH
-dmem 0xCF041000 48
+dmem 0xCF041100 48
 echo .
 echo ================ EL3 SEH KAYIT DURUMU
 dmem 0xCF041080 80

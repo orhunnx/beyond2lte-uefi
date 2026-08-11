@@ -248,6 +248,19 @@ fi
 # EbsTest.efi'yi disari cikar. Firmware'e gomulu degil; testi yapmak
 # isteyince esp/ icine elle kopyalanacak.
 #
+#
+# B2LGoster.efi - buyuk puntolu tani ekrani. esp/ icine SABIT konuyor
+# (EbsTest gibi opsiyonel degil): her olcumde ise yariyor ve firmware'e
+# gomulu olmadigi icin acilis yolunu hic etkilemiyor.
+#
+GOS="$(find "$MU/Build" -name 'B2LGoster.efi' 2>/dev/null | head -1)"
+if [ -n "$GOS" ]; then
+  mkdir -p "$PROJ/out"
+  cp -f "$GOS" "$PROJ/out/B2LGoster.efi"
+  cp -f "$GOS" "$PROJ/esp/B2LGOSTR.EFI"
+  echo "B2LGoster hazir: esp/B2LGOSTR.EFI"
+fi
+
 EBS="$(find "$MU/Build" -name 'EbsTest.efi' 2>/dev/null | head -1)"
 if [ -n "$EBS" ]; then
   mkdir -p "$PROJ/out"

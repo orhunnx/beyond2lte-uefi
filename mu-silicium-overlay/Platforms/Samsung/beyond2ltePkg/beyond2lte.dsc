@@ -140,6 +140,12 @@
   # startup.nsh varsa calistiriyor, yoksa Windows'a geciyor.
   #
   beyond2ltePkg/Applications/EbsTest/EbsTest.inf
+
+  #
+  # B2LGoster - tani kayitlarini buyuk harflerle cizer. EbsTest gibi FDF'ye
+  # girmiyor; out/ altina cikip esp/ icine elle konuyor.
+  #
+  beyond2ltePkg/Applications/B2LGoster/B2LGoster.inf
   beyond2ltePkg/Drivers/B2LRtHookDxe/B2LRtHookDxe.inf
   beyond2ltePkg/Drivers/B2LSehDxe/B2LSehDxe.inf
 
