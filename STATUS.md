@@ -3158,3 +3158,41 @@ Yeniden başlatma yok, `dmem` yok, hex yok. Ekranda kaç şerit varsa çekirdek
 o kadar saniye yaşamış.
 
 DRAM kaydı yerinde duruyor ama artık ona bağımlı değiliz.
+
+## `EbsTest` kronometreyle: platform 60+ saniye yaşıyor
+
+Kırmızı/mavi/sarı şeritler sabit, sağ üstteki işaret yanıp sönüyor, yeşil
+kareler bir dakikayı geçtikten sonra hâlâ artıyor.
+
+**Watchdog teorisi kesin olarak öldü.** `ExitBootServices`'ten sonra platform
+hiçbir şey kurulmadan dakikalarca yaşıyor. Eski "63 kare" ölçümü de doğruymuş;
+kalibrasyon şüphem yersizdi — ama şüphe etmek doğruydu, çünkü o sabit gerçekten
+hiç doğrulanmamıştı.
+
+## Elimizdeki tablo
+
+| Gözlem | Sonuç |
+|---|---|
+| Platform EBS sonrası 60+ s yaşıyor | Ölüm **Windows'a özel** |
+| 5 s gecikme ölümü ötelemedi (tek şerit) | Ölüm anı **sabit** |
+| Bugcheck yok (normal durumda) | Temiz, kasıtlı yeniden başlatma |
+| Kalp atışı son ana kadar düzenli | Çekirdek sağlıklı |
+| UFS 50× hızlandı, süre değişmedi | Yapılan işten bağımsız |
+
+Yani Windows'un içinde, çekirdek başlangıcından sabit ~9-10 saniye sonra
+dolan bir sayaç var.
+
+## Sıradaki soru: sayaç ne zaman başlıyor
+
+Çekirdek başlarken mi, yoksa daha erken — cihaz açılırken mi? İkisi tamamen
+farklı yerlere baktırıyor ve **kod yazmadan** ölçülebiliyor.
+
+Boot menüsü (`menuram`, `timeout 30`) Windows'u istediğimiz kadar bekletiyor.
+Menüde bir dakika bekleyip sonra Enter'a basıyoruz:
+
+| Sonuç | Anlamı |
+|---|---|
+| Yine ~9 şerit | Sayaç **çekirdekle** başlıyor. Windows-içi bir zaman aşımı; menüde geçen dakika onu hiç etkilemedi |
+| Şerit yok / hemen ölüm | Sayaç **daha erken** başlamış (UEFI ya da güç). O zaman `EbsTest`'in yaşaması açıklanması gereken çelişki olur |
+
+Sürücüdeki 5 saniyelik gecikme kapatıldı — referans noktası temiz kalsın.

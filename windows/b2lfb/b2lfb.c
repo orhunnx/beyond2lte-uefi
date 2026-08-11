@@ -358,6 +358,16 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   (void)RegistryPath;
 
   /*
+   * GECIKME KAPATILDI - gorevini yapti.
+   *
+   * Sonuc: tek serit. Yani cekirdek DriverEntry biter bitmez oldu ve
+   * gecikme olumu OTELEYEMEDI. Olum ani sabit.
+   *
+   * Simdi sayacin NEREDEN basladigini oluyoruz ve bunun icin gecikmenin
+   * sifir olmasi gerekiyor - referans noktasi temiz kalsin.
+   */
+#if 0
+  /*
    * BASLANGIC GECIKMESI - REFERANS NOKTASINI KAYDIRAN DENEY
    *
    * Elimizdeki en guclu ipucu: UFS'i PWM G1'den HS G3'e cekip depolamayi
@@ -383,6 +393,7 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
     for (I = 0; I < 2500000000ULL; I++) {
     }
   }
+#endif
 
   /*
    * 1) OLUM SONRASI KAYIT ONCE.
