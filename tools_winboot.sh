@@ -33,10 +33,12 @@ ESP="$HERE/esp"
 # yolu saniliyor ve "ISO bulunamadi" hatasi veriyordu.
 #
 FORCE_WIM=0
+STOK_STARTNET=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
     --wim-yenile) FORCE_WIM=1 ;;
+    --stok)       STOK_STARTNET=1 ;;
     *) ARGS+=("$a") ;;
   esac
 done
@@ -289,7 +291,28 @@ REG
   #
   # Bizimki asla cikmiyor ve icerideki durumu hem ekrana hem ESP'ye yaziyor.
   #
-  SN="$(dirname "$ESP")/windows/startnet.cmd"
+  #
+  # --stok : BIZIM startnet.cmd'MIZI HIC KOYMA, STOCK ICERIGI GERI YAZ.
+  #
+  # Stock WinPE'nin startnet.cmd'i tek satirdir: "wpeinit". Cihazda donen
+  # dairenin EKRAN SONME ANIMASYONUYLA kayboldugu tek an, tam olarak o
+  # haldeydik - henuz hicbir sey enjekte etmemistik. Animasyon cokme degil,
+  # kabugun DUZGUN CIKISI: wpeinit biter, winpeshl cmd.exe'yi baslatir,
+  # konsol girdisi olmadigi icin cmd hemen cikar ve WinPE tasarim geregi
+  # yeniden baslatir. Yani o an her sey calisiyordu.
+  #
+  # ENJEKSIYONU ATLAMAK YETMEZ: esp/sources/boot.wim'in icinde bizim
+  # dosyamiz zaten duruyor ve atlamak onu SILMEZ. O yuzden stock icerigi
+  # geri YAZIYORUZ - WIM'i bastan uretmeye (LZX, dakikalar) gerek kalmiyor.
+  #
+  STOKTMP="$W/stok_startnet.cmd"
+  if [ "$STOK_STARTNET" = 1 ]; then
+    printf 'wpeinit\r\n' > "$STOKTMP"
+    SN="$STOKTMP"
+    say "STOK startnet.cmd geri yaziliyor (tek satir: wpeinit)"
+  else
+    SN="$(dirname "$ESP")/windows/startnet.cmd"
+  fi
   if [ -f "$SN" ]; then
     say "startnet.cmd enjekte ediliyor"
     # CRLF ZORUNLU. Batch yorumlayicisi LF ile etiketleri ve "goto"yu

@@ -1483,3 +1483,26 @@ işareti.
 Bu turda ayrıca `_CLS` açık ve `_CRS` sadeleştirilmiş durumda, ESP de SYSTEM
 bölümünde. `WINLOG.TXT` bir birime düşerse `storufs.sys` gerçekten bağlanmış
 demektir — o da uzun süredir açık olan sorunun cevabı.
+
+### `--stok`: kendi `startnet.cmd`'imizi tamamen devre dışı bırak
+
+Döngüsüz sürüm de sert sıfırlama verdi (16 s, ilki 5 s tekerleksiz, animasyon
+yok). Yani meşgul bekleme tek suçlu değil.
+
+Sıradaki adım en temizi: **hiç dokunmamak.** Stock WinPE'nin `startnet.cmd`'i
+tek satır — `wpeinit`. Animasyonlu sönmeyi gördüğümüz an tam olarak o
+haldeydik, henüz hiçbir şey enjekte etmemiştik.
+
+Enjeksiyonu atlamak yetmiyor: `esp/sources/boot.wim`'in içinde bizim dosyamız
+zaten duruyor ve atlamak onu silmiyor. `--stok` bayrağı stock içeriği geri
+yazıyor, böylece WIM'i baştan üretmeye (LZX, dakikalar) gerek kalmıyor.
+
+```bash
+bash tools_winboot.sh ~/Win11_23H2_Arm64.iso --stok
+bash cache_esp.sh --win --system
+```
+
+| Gözlem | Sonuç |
+|---|---|
+| Animasyonlu sönme geri geldi | Suçlu bizim script; WinPE sağlam, oradan ilerlenir |
+| Yine sert sıfırlama | Gerileme başka bir değişiklikte — `_CLS`, `numproc`, ESP konumu ya da 23H2 |
