@@ -110,24 +110,6 @@ __declspec(dllimport) UINT8 KeRegisterBugCheckCallback (
  * yaziyor, bize yeterince buyuk ve hizali alan lazim. Ikisi de 64 bitte
  * 0x40 bayt; 128 bayt fazlasiyla yeterli.
  */
-/*
- * SUREC SAYACI - 9 saniyede kullanici moduna cikiyor muyuz?
- *
- * startnet.cmd artik dogrulanmis olarak WIM'e giriyor ve sure yine 9. Yani
- * yeniden baslatmayi isteyen sey kabuk degil. Geriye iki cok farkli ihtimal
- * kaliyor:
- *
- *   - 9 saniye tamamen CEKIRDEK baslatmasi; kullanici moduna hic cikilmiyor
- *   - smss/csrss/winpeshl calisiyor, is daha ileride bitiyor
- *
- * PsSetCreateProcessNotifyRoutine her surec yaratiminda cagriliyor. Sayisi
- * bu ikisini tek bakista ayiriyor.
- *
- * "Ex" surumu DEGIL: o, imajda FORCE_INTEGRITY bayragi istiyor. Duz surumun
- * boyle bir sarti yok ve bize sadece sayi lazim.
- */
-__declspec(dllimport) long PsSetCreateProcessNotifyRoutine (PVOID Routine, UINT8 Remove);
-
 __declspec(dllimport) void KeInitializeDpc (PVOID Dpc, PVOID Routine, PVOID Context);
 __declspec(dllimport) void KeInitializeTimer (PVOID Timer);
 __declspec(dllimport) UINT8 KeSetTimerEx (PVOID Timer, long long DueTime, int Period, PVOID Dpc);
@@ -224,20 +206,6 @@ __declspec(align(16)) static UINT64 gTimer[16];
 __declspec(align(16)) static UINT64 gDpc[16];
 
 static UINT64 gTik = 0;
-static UINT32 gSurec = 0;
-
-/*
- * Her surec yaratiminda cagriliyor. Yalnizca sayiyoruz; isim okumak icin
- * daha fazla API gerekir ve bu turda sayinin kendisi yetiyor.
- */
-static void SurecBildirimi (PVOID ParentId, PVOID ProcessId, UINT8 Create)
-{
-  (void)ParentId; (void)ProcessId;
-
-  if (Create) {
-    gSurec++;
-  }
-}
 
 /*
  * Saniyede bir. Her tik bir sonraki parcayi boyuyor ve rengi degistiriyor,
@@ -287,14 +255,6 @@ static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
     }
     S[14] = ' '; S[15] = ' ';
 
-    /* +0x20: kac surec yaratildi. Kullanici moduna ciktik mi? */
-    S[16] = 'P'; S[17] = 'R'; S[18] = 'C'; S[19] = '=';
-    S[20] = (UINT8)('0' + ((gSurec / 1000) % 10));
-    S[21] = (UINT8)('0' + ((gSurec /  100) % 10));
-    S[22] = (UINT8)('0' + ((gSurec /   10) % 10));
-    S[23] = (UINT8)('0' + ( gSurec         % 10));
-    S[24] = ' '; S[25] = ' '; S[26] = ' '; S[27] = ' ';
-    S[28] = ' '; S[29] = ' '; S[30] = ' '; S[31] = ' ';
   }
 }
 
@@ -312,29 +272,21 @@ static void BugCheckCallback (PVOID Buffer, UINT32 Length)
    * dolayisiyla piksel bicimini yeniden tartismaya gerek yok.
    */
   if (gFb != 0) {
-    UINT64 I;
-
-    FillDword (gFb, FB_BYTES, 0x0000FF00);
-
     /*
-     * SAYIYI EKRANA CIZ - DRAM'E GUVENME.
+     * YALNIZCA UST BANT YESILE BOYANIYOR - TAMAMI DEGIL.
      *
-     * Kullanici dogru bir sey fark etti: bugcheck'ten sonra cihaz KAPANMIYOR
-     * (AutoReboot=0 calisiyor), ama sayiyi okumak icin cihazi elle kapatmak
-     * gerekirse guc cevrimi olur ve DRAM'deki kayit silinir. Olcumu almak
-     * icin olcumu yok etmek zorunda kalmak, kotu bir tasarim.
+     * Onceki surum butun ekrani yesile boyuyor, sonra TIK sayisi kadar
+     * beyaz serit ciziyordu. Ama kalp atisinin kendi mavi/sari seritleri
+     * zaten sayilabilir bir ilerleme cubugu; ustune yesil basmak once
+     * bilgiyi siliyor, sonra geri cizmeye calisiyordu.
      *
-     * Cozum: TIK sayisi kadar beyaz serit ciziyoruz. Ekranda kac serit
-     * varsa cekirdek o kadar saniye yasamis. Yeniden baslatma yok, dmem yok,
-     * hex yok - sayacaksin.
-     *
-     * Her seridin sonunda dortte birlik yesil bosluk kaliyor ki seritler
-     * birbirine yapisip tek blok gorunmesin.
+     * Simdi bugcheck yalnizca ust bandi yesile ceviriyor. Kalp atisi
+     * seritleri OLDUGU GIBI kaliyor. Tek bakista iki bilgi:
+     *   ust bant yesil  -> bugcheck oldu
+     *   serit sayisi    -> cekirdek kac saniye yasadi
      */
-    for (I = 0; (I < gTik) && (I < TIK_AZAMI); I++) {
-      UINT8 *P = (UINT8 *)gFb + BANT_BYTES + (I * TIK_BYTES);
-      FillDword ((PVOID)P, (TIK_BYTES * 3) / 4, 0x00FFFFFF);
-    }
+    FillDword (gFb, BANT_BYTES, 0x0000FF00);
+
   }
 
   /*
@@ -357,43 +309,6 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   (void)DriverObject;
   (void)RegistryPath;
 
-  /*
-   * GECIKME KAPATILDI - gorevini yapti.
-   *
-   * Sonuc: tek serit. Yani cekirdek DriverEntry biter bitmez oldu ve
-   * gecikme olumu OTELEYEMEDI. Olum ani sabit.
-   *
-   * Simdi sayacin NEREDEN basladigini oluyoruz ve bunun icin gecikmenin
-   * sifir olmasi gerekiyor - referans noktasi temiz kalsin.
-   */
-#if 0
-  /*
-   * BASLANGIC GECIKMESI - REFERANS NOKTASINI KAYDIRAN DENEY
-   *
-   * Elimizdeki en guclu ipucu: UFS'i PWM G1'den HS G3'e cekip depolamayi
-   * elli kat hizlandirdik, ama olum suresi 9-10'da kaldi. Windows'un NE
-   * KADAR IS YAPTIGI sureyi degistirmiyor. Bu sabit bir sayac kokusu.
-   *
-   * Sinamak icin surucunun basinda ~5 saniye bekliyoruz. Kalp atisi
-   * beklemeden SONRA basliyor, yani sayacin sifir noktasi 5 saniye
-   * ileri kayiyor:
-   *
-   *   TIK ~4 cikarsa  -> olum ani SABIT. Gecikme onu oteleyemedi; bir yerde
-   *                      calisan bir zamanlayici var ve bizden bagimsiz.
-   *   TIK ~9 kalirsa  -> olum OLAYA BAGLI. Windows bir isi bitirince
-   *                      oluyor ve biz o isi 5 saniye geciktirdik.
-   *
-   * Tek degisken, iki tamamen farkli sonuc. Yeni API yok, risk yok.
-   *
-   * Sabit deneysel: EbsTest'te 500 milyon volatile artirma ~1 saniye
-   * suruyordu; 2.5 milyar ~5 saniye eder.
-   */
-  {
-    volatile UINT64 I;
-    for (I = 0; I < 2500000000ULL; I++) {
-    }
-  }
-#endif
 
   /*
    * 1) OLUM SONRASI KAYIT ONCE.
@@ -506,20 +421,6 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
    * DueTime negatif = GORELI, 100 ns birimi. -10000000 = 1 saniye.
    * Period = 1000 ms, yani saniyede bir tekrar.
    */
-  /*
-   * SUREC BILDIRIMI GERI ALINDI - EKRANI YESILE CEVIRDI.
-   *
-   * PsSetCreateProcessNotifyRoutine eklendigi anda cihaz BUGCHECK verdi.
-   * Sebebini kesin bilmiyoruz ve arastirmak tur harciyor; bilgi degeri de
-   * asagidaki deneyin yaninda kucuk kaliyor.
-   *
-   * AMA BEDAVA BIR KAZANC BIRAKTI: yesil ekran cizildi. Yani bugcheck
-   * dedektoru OLUMLU yonde de dogrulandi. Onceki turlarda "yesil yok"
-   * demek gercekten "bugcheck yok" demekmis - alet arizasi degil.
-   *
-   * PsSetCreateProcessNotifyRoutine ((PVOID)SurecBildirimi, 0);
-   */
-
   KeInitializeDpc ((PVOID)gDpc, (PVOID)HeartbeatDpc, 0);
   KeInitializeTimer ((PVOID)gTimer);
   KeSetTimerEx ((PVOID)gTimer, -10000000LL, 1000, (PVOID)gDpc);

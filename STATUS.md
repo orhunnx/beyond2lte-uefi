@@ -3244,3 +3244,42 @@ uygulanıyor, birikmiyor. `B2L_WDT=0 bash yap.sh` ile kapatılabiliyor.
 |---|---|
 | Şeritler 9'u geçip devam ediyor | **Watchdog'muş.** Aylardır aradığımız şey bu |
 | Yine ~9 şerit | Watchdog değil; sayaç `bootmgfw`'nin başka bir yerinde |
+
+## Eleme tamamlandı: suçlu sürücünün kendisi
+
+Üç tur boyunca tek tek elendi:
+
+| Şüpheli | Test | Sonuç |
+|---|---|---|
+| Boot menüsü (`menuram`) | `testimza`'ya dönüldü | Yine yeşil + tek şerit — **masum** |
+| Watchdog | `tools_wdt_kapat.py` | Değişiklik yok — **etkisiz** |
+| Kendi `startnet.cmd`'imiz | `--stok` | Yine yeşil + tek şerit — **masum** |
+
+Geriye sürücü kalıyor. Dokuz şerit gördüğümüzden beri ona üç şey eklendi ve
+hepsi hâlâ içerideydi:
+
+1. `PsSetCreateProcessNotifyRoutine` bildirimi, `SurecBildirimi`, `gSurec`
+   — çağrı yorumlanmıştı ama kod duruyordu
+2. `PRC=` ASCII yazımı (kayıt +0x20)
+3. Bugcheck geri çağrısında bütün ekranı yeşile boyayıp üstüne şerit çizme
+
+Üçü de temizlendi. Sürücü artık dokuz şerit gördüğümüz hâline eşit.
+
+### Bir iyileştirme korundu
+
+Bugcheck artık **yalnızca üst bandı** yeşile boyuyor. Önceki sürüm bütün
+ekranı boyayıp sayıyı yeniden çizmeye çalışıyordu — önce bilgiyi siliyor,
+sonra geri koymaya uğraşıyordu. Kalp atışının kendi mavi/sarı şeritleri
+zaten sayılabilir bir ilerleme çubuğu.
+
+Tek bakışta iki bilgi:
+
+| Ekranda | Anlamı |
+|---|---|
+| Üst bant yeşil | Bugcheck oldu |
+| Şerit sayısı | Çekirdek kaç saniye yaşadı |
+
+| Sonuç | Anlamı |
+|---|---|
+| 9 şerit, üst bant **macenta** | Temel çizgi geri geldi. Suçlu eklediğim üç şeyden biriydi; teker teker geri konur |
+| 1 şerit, üst bant yeşil | Sürücü de değil. O zaman geriye WIM/hive tarafı kalıyor |

@@ -118,3 +118,18 @@ depolama cihazının arkasında çalışan bir sürücü olması gerekiyor.
 
 DDR base `0x80000000`. S10+ 8/12 GB varyantlarında bu düşük bölge değişmiyor,
 dokunmaya gerek yok.
+
+## Download mode ekranından doğrulananlar
+
+Odin/download mode ekranı birkaç şeyi tahminden ölçüme çevirdi.
+
+| Alan | Değer | Neden önemli |
+|---|---|---|
+| `EVT` | **1.1** | Çip revizyonu. UFS CAL tabloları EVT'ye göre filtreleniyor (`UfsInitCal` → `CalParam->EvtVer = MajorChipRev`). Açılışta `UFS EVT version` satırı **1** göstermeli |
+| `LPDDR4 size` | **8gb** | Bellek haritasındaki 8 GB varsayımı doğrulandı. `truncatememory` denemelerinde bu tahmindi |
+| `RP SWREV` | **B:16 K:16 S:16** | Anti-rollback. Stok firmware'e dönerken 16'dan eski binary'ler reddedilir — yanlış sürüm cihazı kurtarılamaz hale getirebilir |
+| `PMIC_ID` | 12 (c4), trimmed | PMIC revizyonu; güç yolu ya da PMIC watchdog gündeme gelirse gerekir |
+| `OEM LOCK` | OFF(U) | Beklenen, yeni bilgi değil |
+
+**Kaydedilmeyenler:** `DID` ve `CHIP_ID` cihaza özel benzersiz kimlikler.
+`ORTAM.md`'deki kural gereği depoya yazılmıyor.
