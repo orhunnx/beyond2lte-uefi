@@ -144,7 +144,12 @@
   #
   # EL2 yuku yukleyici (bkz. Drivers/B2LEl2Dxe/B2LEl2Payload.S)
   #
-  beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf
+  # DERLEMEDEN CIKARILDI. Asil kaldirma DXE.inc'te (firmware imajina girmiyor);
+  # burada da kapatiliyor ki "derleniyor ama yuklenmiyor" gibi kafa karistirici
+  # bir ara durum kalmasin. Gerekce icin DXE.inc'teki uzun nota bak: sessiz
+  # kalan bir SMC, TrustZone'un istegi reddettigi anlamina gelmiyor.
+  #
+  # beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf
 
   #
   # Input

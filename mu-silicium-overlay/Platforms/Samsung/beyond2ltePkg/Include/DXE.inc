@@ -23,11 +23,32 @@
   INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
 
   #
-  # EL2 yuku: TrustZone arka kapisiyla EL2'ye cikip EL1'den gelen SMC'leri
-  # tuzakliyor. Windows'un EL3'e ne sordugunu gormenin tek yolu.
+  # B2LEl2Dxe DERLEMEDEN CIKARILDI.  Kaynagi duruyor, sadece yuklenmiyor.
   #
-  INF beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf
-
+  # NE YAPIYORDU: Samsung'un TrustZone arka kapisina smc #0 / x0=0xC2000400
+  # gonderip "su kodu EL2'de calistir" diyordu. Amac HCR_EL2.TSC ile EL1'den
+  # gelen SMC'leri tuzaklayip Windows'un EL3'e ne sordugunu gormekti.
+  #
+  # NEDEN CIKTI: kendi "B2L2" imzasini hicbir zaman uretmedi, biz de
+  # "calismiyor, zarari yok" diye birakmistik. BU VARSAYIM YANLISTI.
+  # TrustZone'a EL2'de kod calistirmasini soylemek asla no-op degil:
+  #
+  #   - Yuk kabul edildiyse EL2'de YARIM CALISAN bir hipervizor oturuyor
+  #   - HCR_EL2.TSC acik demek EL1'den gelen HER SMC bizim vektorumuze
+  #     dusuyor demek. Windows PSCI icin SMC yapiyor.
+  #   - Vektorumuz beklenmedik bir durumda donerse ya da hic donmezse
+  #     sistem oracikta kilitlenir
+  #
+  # OLCUM BUNU DESTEKLIYOR: son denemede cihaz SIFIRLAMADI, DONDU - komple
+  # kapatmadan yeniden baslatilamadi. Sonsuza kadar donen bir istisna
+  # tuzaginin imzasi tam olarak budur. Ve sonme animasyonunu gordugumuzden
+  # beri UEFI'ye eklenen tek bilesen buydu.
+  #
+  # Bellek haritasindaki "B2L EL2" bolgesi YERINDE BIRAKILDI: kod
+  # yuklenmedigi icin calismiyor, ama ayrilmis RAM olarak duruyor ve
+  # Windows surucusunun olum sonrasi halka tamponu icin zaten oraya
+  # yazilacak (bkz. WINDOWS_SURUCU_PLANI.md, Faz 1b).
+  #
   INF SamsungPkg/Drivers/ChipInfoDxe/ChipInfoDxe.inf
   INF SamsungPkg/Drivers/GpioDxe/GpioDxe.inf
   INF SamsungPkg/Drivers/UsiDxe/UsiDxe.inf

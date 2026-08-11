@@ -2626,3 +2626,40 @@ burada doğru.
 |---|---|
 | Sönme animasyonu geri geliyor | Temel çizgi sağlam. Değişiklikler tek tek geri eklenir; ilk şüpheli hive |
 | Yine sert kesilme | Gerileme UEFI derlemesinde ya da ISO sürümünde; `yap.sh` ve ISO ekseni açılır |
+
+## Gerileme bulundu: `B2LEl2Dxe` her açılışta TrustZone'a SMC atıyordu
+
+Tam geri dönüş (WIM sıfırdan, `--stok`, `_CCA=One`, BCD `tekcpu`) sönmeyi geri
+getirmedi. Yani gerileme WIM'de, `startnet`'te, `_CCA`'da veya BCD'de değil —
+**UEFI derlemesinde.**
+
+Ve yeni bir belirti var: cihaz bu sefer **sıfırlamadı, dondu.** Komple
+kapatmadan yeniden başlatılamadı.
+
+`DXE.inc` incelenince görüldü ki `B2LEl2Dxe` hâlâ derlemede ve her açılışta
+çalışıyor. Yaptığı iş: Samsung'un TrustZone arka kapısına `smc #0` /
+`x0=0xC2000400` gönderip **"şu kodu EL2'de çalıştır"** demek.
+
+Kendi `B2L2` imzasını hiçbir zaman üretmediği için "çalışmıyor, zararı yok"
+diye bırakmıştık. **Bu varsayım yanlıştı.** TrustZone'a EL2'de kod
+çalıştırmasını söylemek asla no-op değil:
+
+- Yük kabul edildiyse EL2'de **yarım çalışan** bir hipervizör oturuyor
+- `HCR_EL2.TSC` açık demek, EL1'den gelen **her SMC** bizim vektörümüze
+  düşüyor demek. Windows PSCI için SMC yapıyor.
+- Vektör beklenmedik bir durumda dönmezse sistem oracıkta kilitlenir
+
+Donma belirtisi tam olarak bunun imzası. Ve sönme animasyonunu gördüğümüzden
+beri UEFI'ye eklenen tek bileşen buydu.
+
+### Ders
+
+"Çıktı üretmedi" ile "hiçbir şey yapmadı" aynı şey değil. Bir SMC'nin sessiz
+kalması, TrustZone'un isteği reddettiği anlamına gelmiyor — kabul edip yarım
+bıraktığı anlamına da gelebilir. Sonuç vermeyen bir deneyi derlemede
+bırakmak, sonraki her ölçümü kirletiyor.
+
+`B2LEl2Dxe` derlemeden çıkarıldı; kaynağı duruyor. Bellek haritasındaki
+`B2L EL2` bölgesi yerinde bırakıldı — kod yüklenmediği için çalışmıyor ve o
+ayrılmış RAM, Windows sürücüsünün ölüm sonrası halka tamponu için zaten
+gerekecek.
