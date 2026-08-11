@@ -53,6 +53,13 @@ dmem 0x15860404 4
 # Ikisinden biri yaniliyor. Tahmin etmek yerine birimin kokunu okutuyoruz:
 # dosya listede varsa sorun "if exist" ifadesinde, yoksa imaja hic girmemis.
 #
+echo ================ fs0 KOKU
+ls fs0:\
+
+echo ================ BIRIMLER
+map fs0
+
+echo .
 #
 # EL2 SMC KAYDI  (B2LEl2Dxe + B2LEl2Payload.S, 0xCF030000)
 #
@@ -72,13 +79,6 @@ echo ================ EL2 SMC KAYDI
 dmem 0xCF030000 60
 echo .
 
-echo ================ fs0 KOKU
-ls fs0:\
-
-echo ================ BIRIMLER
-map fs0
-
-echo .
 echo ================ Fotografla, sonra tusa bas.
 pause
 

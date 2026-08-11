@@ -1948,3 +1948,49 @@ gösterir; ilerletmezsek aynı komuta dönüp sonsuz tuzağa gireriz.
 
 **EL2'den yapılan SMC tuzaklanmaz.** `HCR_EL2.TSC` yalnızca EL1'i bağlıyor, o
 yüzden çağrıyı EL3'e iletirken sonsuz döngü oluşmuyor.
+
+## Windows zincirini azaltmak: açılış sürücüleri
+
+Soru: "boot zincirindeki Windows aşamalarını tek tek azaltsak sorunu neyin
+çıkardığına gitmez miyiz?"
+
+`bootmgfw → winload → ntoskrnl` üçlüsü atlanamaz; biri olmadan diğeri
+çalışmıyor. Ama `winload`'un `ntoskrnl`'i başlatırken yaptığı bir iş var ve tam
+şüpheli pencereye denk geliyor: **açılış sürücülerini yüklemek.**
+
+`SYSTEM` hive'ında `ControlSet001\Services` altında her sürücünün `Start`
+değeri var:
+
+| Değer | Anlamı |
+|---|---|
+| 0 | BOOT — `winload` yüklüyor, çekirdekten önce |
+| 1 | SYSTEM — çekirdek açılırken |
+| 2 | AUTO | 
+| 3 | DEMAND |
+| 4 | DISABLED |
+
+Sıfır olanları kapatarak ikiye bölebiliriz. Desen bunu destekliyor: daire
+çıktıktan sonraki ~12 saniye hiçbir şeyle değişmiyor — WIM içeriği, WinPE
+sürümü, çekirdek sayısı, PSCI, storufs. Yani sabit bir iş yapılıyor ve o işin
+içinde bir şey oluyor. PnP'nin aygıtları tarayıp sürücü bağladığı pencere tam
+orası.
+
+`tools_winpe_surucu.sh`:
+
+```bash
+bash tools_winpe_surucu.sh liste              # önce bu
+bash tools_winpe_surucu.sh kapat a b c        # ikiye böl
+bash tools_winpe_surucu.sh ac    a b c        # geri al
+```
+
+Korumalı liste var (`ACPI`, `Wdf01000`, `volmgr`, `partmgr`, `disk`, `CNG`...)
+— onlarsız çekirdek hiç başlamaz ve elimizde "açılmadı"dan başka bilgi kalmaz.
+`kapat` bunlara dokunmuyor.
+
+Her yama WIM'e konduktan sonra **geri okunup doğrulanıyor**; bu projede üç kez
+"araç yaptım dedi, cihaz eskisini kullandı" yaşandı.
+
+### `startup.nsh`: EL2 dökümü `pause`'un önüne alındı
+
+EL2 kaydı ekranın en üstündeydi ve üstteki bölümler taşırdığı için
+okunamıyordu. Artık `pause`'dan hemen önce.
