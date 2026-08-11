@@ -4,47 +4,53 @@
   ----------------------------------------------------------------------------
   NEDEN
   ----------------------------------------------------------------------------
-  Windows ~12-15 saniye sonra sessizce sifirlaniyor. Bugune kadar sorunun
-  Windows'ta oldugunu varsaydik ve ACPI'yi didik didik ettik: MADT, GTDT,
-  FADT, PPTT, DSDT - hepsi stock DTB'ye karsi dogrulandi, hepsi dogru cikti.
-  Kanca hic atesmedi, hicbir log kanali calismadi, bilinen iyi noktaya
-  donmek bile davranisi geri getirmedi.
+  Windows ~15 saniye sonra sessizce sifirlaniyor. ACPI'nin her parcasi stock
+  DTB'ye karsi dogrulandi ve dogru cikti; kanca hic atesmedi; hicbir log
+  kanali calismadi; bilinen iyi noktaya (43ef06c^) tam donus bile davranisi
+  geri getirmedi.
 
-  Hic sormadigimiz soru su: SIFIRLAMA WINDOWS'LA ILGILI MI?
+  Hic sormadigimiz soru: SIFIRLAMA WINDOWS'LA ILGILI MI?
 
-  Windows'un yaptigi ozel sey ExitBootServices cagirip platformu devralmak.
-  Linux da bunu yapiyor ve 120 saniye yasiyor - AMA Linux zamanlayiciyi,
-  GIC'i, kesme yonlendirmesini, hepsini kuruyor. Arada ucuncu bir durum var
-  ve hic denenmedi:
+  Linux ExitBootServices cagirip 120 saniye yasiyor - ama zamanlayiciyi,
+  GIC'i, kesme yonlendirmesini hepsini kuruyor. Windows cagirip 15 saniyede
+  oluyor. Arada ucuncu bir durum var ve hic denenmedi:
 
       ExitBootServices cagir, SONRA HICBIR SEY KURMA.
 
-  Bu uygulama tam olarak onu yapiyor. Boot servisleri kapandiktan sonra
-  geriye yalnizca framebuffer'a yazan bir dongu kaliyor. Ne zamanlayici, ne
-  kesme, ne surucu.
+  ----------------------------------------------------------------------------
+  ILK DENEMEDE HIC KARE GORULMEDI - IKI HATA
+  ----------------------------------------------------------------------------
+  1) Bekleme dongusu cok kisaydi. 8 milyon volatile artirma bu cekirdekte
+     saniye degil ~10 ms surer; kareler goz acip kapayana kadar ekrani
+     doldurup biterdi. Sabit 60 kat buyutuldu.
+
+  2) Daha onemlisi: uygulamanin ExitBootServices'ten ONCE mi SONRA mi
+     durdugunu ayirt edemiyorduk. Print() kullanmak ise ise yaramiyor -
+     EBS'ten sonra konsol yok.
+
+     Cozum: her asama icin EKRANDA SABIT YERDE BIR RENK SERIDI. Konsola hic
+     bagli degil, ve ekranda ne kaldiysa uygulamanin tam olarak nereye kadar
+     geldigini soyluyor.
 
   ----------------------------------------------------------------------------
-  OKUMA
+  EKRAN OKUMASI - yukaridan asagiya
   ----------------------------------------------------------------------------
-  Cihaz 15 saniyede SIFIRLARSA -> sorun Windows'ta DEGIL. Platform,
-      ExitBootServices'ten sonra servis edilmeyen bir seye takiliyor ve
-      Linux onu tesadufen tatmin ediyor. Bu, projenin yonunu tamamen
-      degistirir: ACPI'de arayacak bir sey kalmaz.
-
-  Dakikalarca YASARSA -> sifirlama gercekten Windows'a ozel. ACPI ve surucu
-      tarafina odaklanmaya devam ederiz, ama artik bunu BILEREK.
+    KIRMIZI serit yok        -> uygulama hic calismadi ya da GOP bulunamadi
+    KIRMIZI var, MAVI yok    -> GetMemoryMap patladi
+    MAVI var, SARI yok       -> ExitBootServices BASARISIZ (konsol hala var,
+                                ekranda hata metni de olmali)
+    SARI var, kare yok       -> EBS gecti ama hemen sonrasinda oluyoruz
+    SARI + kareler           -> EBS gecti, dongu donuyor. KARELERI SAY.
 
   ----------------------------------------------------------------------------
-  KENDI KENDINI ZAMANLIYOR
+  SONUC
   ----------------------------------------------------------------------------
-  ExitBootServices'ten sonra Print() yok, gBS yok, konsol yok. O yuzden
-  sayaci EKRANA CIZIYORUZ: her tik bir kare. Cihaz sifirlandiginda ekranda
-  kalan kare sayisi, gecen saniyeyi veriyor. Fotografini cekip saymak
-  yetiyor - kronometreye gerek yok ve "sanirim 15 saniye" belirsizligi
-  ortadan kalkiyor.
+    ~15 karede sifirliyor -> sorun Windows'ta DEGIL. Platform, EBS'ten sonra
+        servis edilmeyen bir seye takiliyor ve Linux onu tesadufen tatmin
+        ediyor. ACPI'de arayacak bir sey kalmaz.
 
-  Ust serit ayrica her tikte renk degistiriyor: ekran donarsa (sifirlama
-  degil, kilitlenme) bunu da ayirt edebiliyoruz.
+    Kareler dolmaya devam ediyor -> sifirlama gercekten Windows'a ozel.
+        Ilk kez tahminle degil olcumle soyleyebiliriz.
 **/
 
 #include <Uefi.h>
@@ -55,9 +61,16 @@
 
 #include <Protocol/GraphicsOutput.h>
 
-#define KARE      24    // kare kenari, piksel
-#define BOSLUK     4
-#define UST_SERIT 40
+#define SERIT_Y   0     // asama seritleri burada baslar
+#define SERIT_H   28    // her seridin yuksekligi
+#define KARE      28
+#define BOSLUK     6
+
+#define RENK_KIRMIZI  0x00FF0000
+#define RENK_MAVI     0x000060FF
+#define RENK_SARI     0x00FFD000
+#define RENK_YESIL    0x0000FF00
+#define RENK_SIYAH    0x00000000
 
 STATIC UINT32 *mFb;
 STATIC UINTN   mPps;
@@ -83,10 +96,26 @@ Doldur (
 }
 
 /**
+  Asama seridi. Sirayla asagi dogru diziliyor; ekranda hangi seritler kaldiysa
+  uygulama oraya kadar gelmis demektir.
+**/
+STATIC
+VOID
+Asama (
+  IN UINTN  Sira,
+  IN UINT32 Renk)
+{
+  Doldur (0, SERIT_Y + Sira * SERIT_H, mW, SERIT_H - 4, Renk);
+}
+
+/**
   Kaba gecikme. Zamanlayici yok, kesme yok - elimizde yalnizca mesgul dongu
-  var. Sabit deneysel: cihazda bir kare yaklasik bir saniye surecek sekilde
-  ayarlanacak. Tam olmasi gerekmiyor; onemli olan kare SAYISININ denemeler
-  arasinda karsilastirilabilir olmasi.
+  var. Sabit deneysel; tam olmasi gerekmiyor, onemli olan kare SAYISININ
+  denemeler arasinda karsilastirilabilir olmasi.
+
+  ILK SURUMDE 8000000 IDI VE COK KISAYDI. volatile bir UINT64 artirma
+  yaklasik uc cevrim; 8 milyon ~2 GHz'de 10 ms bile etmiyor. 500 milyon
+  saniye mertebesine getiriyor.
 **/
 STATIC
 VOID
@@ -95,7 +124,7 @@ Bekle (
 {
   volatile UINT64 Index;
 
-  for (Index = 0; Index < 8000000ULL; Index++) {
+  for (Index = 0; Index < 500000000ULL; Index++) {
   }
 }
 
@@ -115,10 +144,12 @@ UefiMain (
   UINTN                         Tik;
   UINTN                         Sutun;
   UINTN                         Satir;
+  UINTN                         SutunSay;
+  UINTN                         KareY0;
 
   Status = gBS->LocateProtocol (&gEfiGraphicsOutputProtocolGuid, NULL, (VOID **)&Gop);
   if (EFI_ERROR (Status) || (Gop == NULL)) {
-    Print (L"GOP bulunamadi, test yapilamaz.\n");
+    Print (L"EbsTest: GOP bulunamadi (%r). Test yapilamaz.\n", Status);
     return Status;
   }
 
@@ -127,69 +158,100 @@ UefiMain (
   mW   = Gop->Mode->Info->HorizontalResolution;
   mH   = Gop->Mode->Info->VerticalResolution;
 
-  Print (L"\n");
-  Print (L"EbsTest: ExitBootServices cagrilacak, sonra HICBIR SEY kurulmayacak.\n");
-  Print (L"Her kare yaklasik bir saniye. Cihaz sifirlanirsa kareleri say.\n");
-  Print (L"Framebuffer %ux%u @ 0x%lx\n", (UINT32)mW, (UINT32)mH, (UINT64)(UINTN)mFb);
-  Print (L"\n");
+  if ((mFb == NULL) || (mW == 0) || (mH == 0)) {
+    Print (L"EbsTest: framebuffer gecersiz (0x%lx %ux%u)\n", (UINT64)(UINTN)mFb, (UINT32)mW, (UINT32)mH);
+    return EFI_DEVICE_ERROR;
+  }
 
   //
-  // Bellek haritasini al ve cik. Iki kez deniyoruz: ilk GetMemoryMap'ten
-  // sonra AllocatePool haritayi degistirebiliyor ve MapKey bayatliyor.
+  // Butun Print'ler BURADA bitiyor. Bundan sonra ekrana kendimiz yaziyoruz;
+  // once yazsak GraphicsConsoleDxe uzerine basardi.
+  //
+  Print (L"\nEbsTest %ux%u @ 0x%lx\n", (UINT32)mW, (UINT32)mH, (UINT64)(UINTN)mFb);
+  Print (L"Seritler: kirmizi=basladi mavi=harita sari=EBS gecti, sonra kareler.\n");
+  Print (L"Kareleri say. Ekran temizleniyor...\n");
+
+  Doldur (0, 0, mW, mH, RENK_SIYAH);
+  Asama (0, RENK_KIRMIZI);        // 1: calisiyoruz, GOP tamam
+
+  //
+  // Bellek haritasi. Iki asamali: ilk cagri boyutu veriyor, AllocatePool
+  // haritayi degistirebildigi icin ikinci cagri sart ve MapKey ondan
+  // aliniyor.
   //
   Status = gBS->GetMemoryMap (&Boyut, Harita, &Anahtar, &TanimBoy, &Surum);
   Boyut += 8 * TanimBoy;
+
   Status = gBS->AllocatePool (EfiLoaderData, Boyut, (VOID **)&Harita);
   if (EFI_ERROR (Status)) {
-    Print (L"AllocatePool basarisiz: %r\n", Status);
+    Print (L"EbsTest: AllocatePool %r\n", Status);
     return Status;
   }
 
   Status = gBS->GetMemoryMap (&Boyut, Harita, &Anahtar, &TanimBoy, &Surum);
   if (EFI_ERROR (Status)) {
-    Print (L"GetMemoryMap basarisiz: %r\n", Status);
+    Print (L"EbsTest: GetMemoryMap %r\n", Status);
     return Status;
   }
+
+  Asama (1, RENK_MAVI);           // 2: harita alindi
 
   Status = gBS->ExitBootServices (ImageHandle, Anahtar);
   if (EFI_ERROR (Status)) {
     //
-    // Anahtar bayatladiysa bir kez daha. Basarisiz olursa Print hala
-    // calisiyor, cunku boot servisleri kapanmadi.
+    // Anahtar bayatladiysa bir kez daha dene. Basarisiz olursa boot
+    // servisleri hala acik demektir; Print calisir.
     //
-    Boyut  = 0;
-    Harita = NULL;
-    gBS->GetMemoryMap (&Boyut, Harita, &Anahtar, &TanimBoy, &Surum);
+    Boyut = 0;
+    gBS->GetMemoryMap (&Boyut, NULL, &Anahtar, &TanimBoy, &Surum);
     Boyut += 8 * TanimBoy;
     gBS->AllocatePool (EfiLoaderData, Boyut, (VOID **)&Harita);
-    gBS->GetMemoryMap (&Boyut, Harita, &Anahtar, &TanimBoy, &Surum);
-    Status = gBS->ExitBootServices (ImageHandle, Anahtar);
+    Status = gBS->GetMemoryMap (&Boyut, Harita, &Anahtar, &TanimBoy, &Surum);
+    if (!EFI_ERROR (Status)) {
+      Status = gBS->ExitBootServices (ImageHandle, Anahtar);
+    }
+
     if (EFI_ERROR (Status)) {
-      Print (L"ExitBootServices basarisiz: %r\n", Status);
+      Print (L"EbsTest: ExitBootServices %r  (MAVI var, SARI yok)\n", Status);
       return Status;
     }
   }
 
   //
   // BURADAN SONRA HICBIR SERVIS YOK. Ne gBS, ne Print, ne konsol.
-  // Yalnizca framebuffer'a yaziyoruz.
+  // Yalnizca framebuffer.
   //
-  Doldur (0, 0, mW, mH, 0x00000000);
+  Asama (2, RENK_SARI);           // 3: EBS gecti
+
+  SutunSay = (mW - BOSLUK) / (KARE + BOSLUK);
+  if (SutunSay == 0) {
+    SutunSay = 1;
+  }
+
+  KareY0 = SERIT_Y + 3 * SERIT_H + BOSLUK;
 
   Tik = 0;
   for (;;) {
-    // Ust serit her tikte renk degistiriyor: dongu donuyor mu, gorunur olsun.
-    Doldur (0, 0, mW, UST_SERIT, ((Tik & 1) != 0) ? 0x00202020 : 0x00808080);
+    Sutun = Tik % SutunSay;
+    Satir = Tik / SutunSay;
 
-    // Sayac: her tik bir kare, soldan saga, satir satir.
-    Sutun = Tik % ((mW - BOSLUK) / (KARE + BOSLUK));
-    Satir = Tik / ((mW - BOSLUK) / (KARE + BOSLUK));
     Doldur (
       BOSLUK + Sutun * (KARE + BOSLUK),
-      UST_SERIT + BOSLUK + Satir * (KARE + BOSLUK),
+      KareY0 + Satir * (KARE + BOSLUK),
       KARE,
       KARE,
-      0x0000FF00);
+      RENK_YESIL);
+
+    //
+    // Sari seridin sag ucunda yanip sonen bir isaret: dongu donuyor mu,
+    // kareler ekrandan tastiktan sonra da gorunsun.
+    //
+    Doldur (
+      mW - 2 * KARE,
+      SERIT_Y + 2 * SERIT_H,
+      KARE,
+      SERIT_H - 4,
+      ((Tik & 1) != 0) ? RENK_SIYAH : RENK_KIRMIZI);
 
     Bekle ();
     Tik++;

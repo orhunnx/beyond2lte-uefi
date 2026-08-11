@@ -1611,3 +1611,35 @@ rm esp/EBSTEST.EFI                                              # geri al
 ```
 
 `startup.nsh` her şeyden önce `EBSTEST.EFI`'ye bakıyor; dosya yoksa atlıyor.
+
+### `EbsTest` ilk deneme: hiç kare görülmedi — iki hata
+
+**Bekleme döngüsü çok kısaydı.** 8 milyon `volatile` artırma bu çekirdekte
+saniye değil ~10 ms sürer; kareler göz açıp kapayana kadar ekranı doldurup
+biterdi. 500 milyona çıkarıldı.
+
+**Daha önemlisi: nerede durduğunu ayırt edemiyorduk.** `ExitBootServices`'ten
+önce mi sonra mı öldüğü belli değildi ve `Print()` işe yaramıyor — EBS'ten
+sonra konsol yok.
+
+Çözüm: her aşama için ekranda sabit yerde bir renk şeridi. Konsola hiç bağlı
+değil; ekranda ne kaldıysa uygulamanın tam olarak nereye kadar geldiğini
+söylüyor.
+
+| Ekranda | Anlamı |
+|---|---|
+| Kırmızı yok | Uygulama hiç çalışmadı ya da GOP bulunamadı |
+| Kırmızı var, mavi yok | `GetMemoryMap` patladı |
+| Mavi var, sarı yok | `ExitBootServices` **başarısız** (konsol hâlâ var, hata metni de olmalı) |
+| Sarı var, kare yok | EBS geçti ama hemen sonrasında ölüyoruz |
+| Sarı + kareler | EBS geçti, döngü dönüyor — **kareleri say** |
+
+Sarı şeridin sağ ucunda yanıp sönen bir işaret de var: kareler ekrandan
+taştıktan sonra döngünün hâlâ döndüğü görülebilsin diye.
+
+### Ayrıca doğrulandı: LBA 0 yazma denemesi upstream'den geliyor
+
+Yama temizlendikten sonra `B2L UFS:` satırları kayboldu ama
+`UFS OCS=0x07 response=0x01 type=0x21` üç kez çıkmaya devam etti. O satır
+`UfsDxe.c`'nin kendi uyarısı. Yani LUN 2 LBA 0'a yazma denemesi bizim
+enstrümantasyonumuzdan değil, upstream UEFI'nin kendi davranışından geliyor.
