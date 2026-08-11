@@ -1234,3 +1234,27 @@ donanımında çalıştırmanın bilinen yolu bu.
 `copype arm64 C:\WinPE_arm64`, sonra
 `bash tools_winpe_adk.sh /mnt/c/WinPE_arm64/media`. ISO'nun 570 MB'lık
 `boot.wim`'i yerine ~250 MB'lık çıplak WinPE. storufs turundan sonra sıra onda.
+
+### Sonuç: `_CRS` gerçekten önemliymiş, storufs artık zararsız
+
+| Yapılandırma | Süre |
+|---|---|
+| `_CLS` açık, `_CRS` 4 aralık | 5-6 s |
+| `_CLS` kapalı (storufs hiç bağlanmıyor) | 12 s |
+| **`_CLS` açık, `_CRS` tek aralık** | **12 s** |
+
+storufs bağlanabilir durumdayken bile artık altı saniyeye mal olmuyor. Dört
+aralıklı `_CRS` aktif olarak zarar veriyormuş — jenerik sürücü kaynakları
+sırayla haritalayıp anlamadığı bloklara yazıyordu.
+
+Ayıramadığımız şey: storufs şimdi düzgün mü çalışıyor, yoksa sessizce pes mi
+ediyor? İkisi de aynı süreyi verir. Ama pratikte fark etmiyor — `_CLS` açık
+kalıyor, depolama için zaten gerekli, ve artık bedeli yok.
+
+**12 saniye duvarı yerinde duruyor ve artık depolamayla ilgili olmadığı
+kesin.** Çekirdek sayısıyla da neredeyse ilgisiz (MADT tek çekirdekte çok az
+uzadı). Duvar ACPI içeriğinden bağımsız hale geldi.
+
+### Sıradaki: ADK'nın çıplak WinPE'si
+
+Diğer eksen. On altı turdur Windows tarafını hiç değiştirmedik.
