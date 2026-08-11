@@ -33,11 +33,33 @@ setlocal enabledelayedexpansion
 ::                          N+1. acilista okuyoruz.
 ::                          Iki kez ustuste ac: ilki coksun, ikincisi raporlasin.
 ::
-:: 
+::
 ::   disk     WinPE'yi RAM diskten degil GERCEK BIR NTFS BOLUMDEN acar.
 ::            ramdisk yerine locate= kullaniyor. storufs baglanmazsa winload
 ::            ekrana hata basar - RAM diskteki sessizligin panzehiri.
 ::            Once: bash tools_windisk.sh  (SYSTEM bolumu icin NTFS imaji)
+::
+::   menu     "disk" + ACILIS MENUSU + 30 saniye bekleme.
+::            TEK ACILISTA IKI SORUYU BIRDEN AYIRIR.
+::
+::            Disk denemesinde cihaz cemberi gosterip 1-2 saniyede
+::            sifirladi (RAM diskte 16 saniyeydi). Cemberi hem bootmgfw
+::            hem winload ciziyor, dolayisiyla ikisini ayirt edemiyoruz:
+::              (a) bootmgfw birimleri tararken mi oluyor
+::              (b) winload'u bulup calistirdi da winload mi oluyor
+::
+::            Menu tam bu noktada, winload cagrilmadan HEMEN ONCE ciziliyor
+::            ve kullanici girdisi bekliyor. Yani:
+::              Menu cikip BEKLIYOR  -> bootmgfw saglam, NTFS/UFS taramasi
+::                                      sorunsuz. Sucu winload'da. Enter'a
+::                                      basip ayni acilista ikinci yariyi
+::                                      da olcuyoruz.
+::              Menu YOK, yine 1-2 s -> bootmgfw'in kendisi oluyor; sorun
+::                                      birim taramasinda, Windows'un
+::                                      cekirdek tarafina hic gelmemisiz.
+::
+::            bootmenupolicy zaten Legacy: menu metin modunda ciziliyor,
+::            grafik yigina bagimli degil.
 ::
 :: Ikisini AYNI ANDA deneme; hangisinin ise yaradigini bilemezsin.
 ::
@@ -117,7 +139,11 @@ echo   osloader GUID: %G%
 :: tarayip verilen yolu buluyor. Boylece GPT bolum GUID'ini elle yazmak
 :: zorunda kalmiyoruz ve hangi boluma yazarsak yazalim calisiyor.
 ::
-if /i "%VAR%"=="disk" (
+set "DISKMOD="
+if /i "%VAR%"=="disk" set "DISKMOD=1"
+if /i "%VAR%"=="menu" set "DISKMOD=1"
+
+if defined DISKMOD (
   bcdedit /store "%BCD%" /set %G% device   locate=\Windows\System32\winload.efi >nul || goto :hata
   bcdedit /store "%BCD%" /set %G% osdevice locate=\Windows\System32\winload.efi >nul || goto :hata
   echo   AYAR: gercek bolumden acilis ^(locate^), RAM disk YOK
@@ -181,7 +207,7 @@ if /i "%VAR%"=="zamanlayici" (
   if errorlevel 1 echo   ! BASARISIZ: useplatformclock Yes
   echo   AYAR: numproc 1 + disabledynamictick + useplatformclock
 )
-if /i "%VAR%"=="disk" (
+if defined DISKMOD (
   bcdedit /store "%BCD%" /set %G% numproc 1
   if errorlevel 1 echo   ! BASARISIZ: numproc 1
   echo   AYAR: numproc 1
@@ -198,8 +224,25 @@ bcdedit /store "%BCD%" /set {bootmgr} device boot
 if errorlevel 1 echo   ! BASARISIZ: device boot
 bcdedit /store "%BCD%" /set {bootmgr} default %G%
 if errorlevel 1 echo   ! BASARISIZ: default %G%
-bcdedit /store "%BCD%" /set {bootmgr} timeout 0
-if errorlevel 1 echo   ! BASARISIZ: timeout 0
+::
+:: MENU VARYANTI: bootmgfw'i winload'u cagirmadan ONCE durdurup bekletiyoruz.
+::
+:: Menunun ciziliyor olmasi tek basina bir olcum: bootmgfw o noktaya kadar
+:: birimleri taramis, BCD'yi okumus ve ekrani kurmus demektir. Cizilmiyorsa
+:: sorun daha geride.
+::
+:: timeout 30 - kullanici fotografi cekip Enter'a basacak kadar zaman.
+::
+if /i "%VAR%"=="menu" (
+  bcdedit /store "%BCD%" /set {bootmgr} displaybootmenu Yes
+  if errorlevel 1 echo   ! BASARISIZ: displaybootmenu Yes
+  bcdedit /store "%BCD%" /set {bootmgr} timeout 30
+  if errorlevel 1 echo   ! BASARISIZ: timeout 30
+  echo   AYAR: acilis menusu ACIK, 30 saniye bekliyor
+) else (
+  bcdedit /store "%BCD%" /set {bootmgr} timeout 0
+  if errorlevel 1 echo   ! BASARISIZ: timeout 0
+)
 bcdedit /store "%BCD%" /displayorder %G% /addlast  >nul
 
 echo.

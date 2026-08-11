@@ -2320,3 +2320,41 @@ disk modunda gereksizler ve 600 MiB'lik CACHE'e sığmıyorlar.
 | Başka bir `0xc0000...` | `winload` neyi bulamadığını tam olarak söylüyor |
 
 Üçü de sessizlikten iyi.
+
+## Diskten açılış: ilk okuma — 1-2 saniye
+
+`tools_windisk.sh` ile `boot.wim` içeriği 3 GiB'lık bir NTFS imajına açıldı
+(24932 dosya, 1381 MiB) ve SYSTEM bölümüne flaşlandı. ESP `--disk` ile CACHE'e
+döndü; `boot.wim`/`boot.sdi` çıkarıldığı için artık 600 MiB'a rahat sığıyor.
+
+İlk denemede `startup.nsh` "Acilacak bir sey bulunamadi" dedi: tetikleyici
+`sources\boot.wim` idi ve o dosyayı bilerek silmiştik. `EFI\Microsoft\Boot\BCD`
+ile değiştirildi — bootmgfw'in tek zorunlu yoldaşı, iki varyantta da var.
+
+İkinci denemede bootmgfw yüklendi, çember döndü, **1-2 saniyede** sıfırladı.
+RAM diskle bu süre 16 saniyeydi. Aradaki on dört saniye WinPE'nin gerçekten
+çalıştığı kısımdı; artık ondan öncesinde ölüyoruz.
+
+### `UFS OCS=0x07` yeni değil
+
+Ekrandaki üç `UFS OCS=0x07 response=0x01 type=0x21` satırı bu turun bulgusu
+değil. Yukarıda iki kez kayıtlı: `bootmgfw` her açılışta LUN 2 LBA 0'a yazmayı
+deniyor, Samsung o boot LU'sunu `bLUWriteProtect` ile kilitlemiş, aygıt
+reddediyor ve bootmgfw yoluna devam ediyor. Upstream `UfsDxe.c`'nin kendi
+uyarısı, bizim enstrümantasyonumuz değil. Gürültü.
+
+### Ayrılamayan iki ihtimal
+
+Çemberi hem `bootmgfw` hem `winload` çiziyor. Dolayısıyla 1-2 saniyelik ölüm
+şu ikisinden hangisi, ekrandan anlaşılmıyor:
+
+- (a) `bootmgfw` birimleri tararken ölüyor — NTFS/UFS okumasında
+- (b) `winload.efi`'yi bulup çalıştırdı, ölen winload
+
+`menu` varyantı bunu tek açılışta ayırıyor: `displaybootmenu Yes` + `timeout 30`
+menüyü **winload çağrılmadan hemen önce** çiziyor ve kullanıcı girdisi bekliyor.
+
+| Ekranda | Sonuç |
+|---|---|
+| Menü çıkıp bekliyor | bootmgfw sağlam, tarama sorunsuz. Suç winload'da. Enter'a basıp aynı açılışta ikinci yarıyı da ölçüyoruz |
+| Menü yok, yine 1-2 s | bootmgfw'in kendisi ölüyor; Windows'un çekirdek tarafına hiç gelmemişiz |
