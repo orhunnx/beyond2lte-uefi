@@ -38,7 +38,28 @@ gMemoryDescriptor[] = {
   //   0xCF020000  bu acilisin SMC kaydi
   //   0xCF030000  onceki acilisin kaydi  <- Shell burayi okur
   //
-  {"B2L EL2",            0xCF000000, 0x00050000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, UNCACHED_UNBUFFERED},
+  {"B2L EL2",            0xCF000000, 0x00040000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, UNCACHED_UNBUFFERED},
+
+  //
+  // B2L RT LOG - CALISMA ZAMANI KANCASININ KAYDI
+  //
+  // "Reserv" DEGIL "RtData" OLMAK ZORUNDA, VE BU BIR BUGCHECK'E MAL OLDU.
+  //
+  // Ilk surumde kayit 0xCF040000'daydi ama bolge Reserv (EfiReservedMemoryType)
+  // isaretliydi. SetVirtualAddressMap'ten sonra Reserv bolgeler SANAL HARITAYA
+  // HIC GIRMIYOR; dolayisiyla EfiConvertPointer isaretciyi ceviremedi ve kanca
+  // ilk cagrida fiziksel adrese yazmaya calisti. Sonuc:
+  //
+  //     SYSTEM_THREAD_EXCEPTION_NOT_HANDLED (0x7E)
+  //
+  // RtData (EfiRuntimeServicesData) bolgeler sanal haritaya giriyor ve
+  // EfiConvertPointer onlari cevirebiliyor. EFI Shell tarafindan FIZIKSEL
+  // adresten okumak yine calisiyor - bellegin kendisi ayni yerde.
+  //
+  // WRITE_BACK yeterli: bu bolgeye EL2 kodu degil, normal cekirdek modu
+  // kodu yaziyor ve sicak sifirlamada icerik zaten kaliyor.
+  //
+  {"B2L RT Log",         0xCF040000, 0x00010000, AddMem, SYS_MEM, SYS_MEM_CAP, RtData, WRITE_BACK},
 
   //
   // ==========================================================================

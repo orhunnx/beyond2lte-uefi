@@ -3817,3 +3817,50 @@ biz üretmiş oluruz — `B2LResetHookDxe`'de aynı tuzak vardı.
 | giriş > çıkış | **Sıfırlama o çağrının içinde.** Bulduk |
 | giriş == çıkış | Çağrılar dönüyor; sıfırlama başka yerde |
 | hepsi sıfır | Windows bu servisleri hiç çağırmıyor |
+
+# ★★ WINDOWS'UN MAVİ EKRANI ÇİZİLDİ
+
+```
+Your device ran into a problem and needs to restart.
+Stop code: SYSTEM_THREAD_EXCEPTION_NOT_HANDLED   (0x7E)
+```
+
+Üstte bizim **yeşil bandımız** — bugcheck geri çağrımız da ateşledi. İkisi
+birbirini doğruluyor.
+
+## Neden bu kadar önemli
+
+Kırk turdur "çekirdek metin çizemiyor, o yüzden her arıza sessiz" varsayımıyla
+çalışıyorduk. **Yanlışmış.** Windows'un kendi hata ekranı bu platformda
+çiziliyor.
+
+Bundan sonra her bugcheck bize **stop kodunu** verecek. Projenin en büyük
+kısıtı kalktı.
+
+## Bu bugcheck'in sebebi: kendi kancam
+
+`B2LRtHookDxe`'nin kaydı `0xCF040000`'daydı ama bölge `Reserv`
+(`EfiReservedMemoryType`) işaretliydi. `SetVirtualAddressMap`'ten sonra
+`Reserv` bölgeler **sanal haritaya hiç girmiyor**; `EfiConvertPointer`
+işaretçiyi çeviremedi ve kanca ilk çağrıda fiziksel adrese yazmaya çalıştı →
+sistem iş parçacığında yakalanmamış istisna → `0x7E`.
+
+Düzeltme: ayrı bir `B2L RT Log` bölgesi, `RtData`
+(`EfiRuntimeServicesData`). O bölgeler sanal haritaya giriyor ve
+`EfiConvertPointer` onları çevirebiliyor. Shell tarafından fiziksel adresten
+okumak yine çalışıyor — bellek aynı yerde.
+
+## İki yan bulgu
+
+**Windows UEFI çalışma zamanı servislerini gerçekten çağırıyor** — kancamıza
+ulaştı. Bu, hipotezin ön koşuluydu ve doğrulandı.
+
+**Çalışma zamanı çağrısı içindeki bir hata bugcheck üretiyor**, sessiz
+sıfırlama değil. Yani kırk turdur kovaladığımız sessiz sıfırlama bir runtime
+hatası **değil** — ama artık onu ararken körlemesine değiliz.
+
+## Not: kullanıcı ek olarak vbmeta ve up_param disabler kurdu
+
+Bootloader kilidi uyarısını kaldırmak için. Açılış zincirini değiştiriyor;
+sonraki ölçümlerde değişken olarak akılda tutulmalı, ama BSOD'un çizilmesiyle
+ilgisi olması beklenmez.
