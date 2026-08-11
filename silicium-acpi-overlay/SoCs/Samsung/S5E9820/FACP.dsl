@@ -95,8 +95,46 @@
 [078h 0120 008h]                     Address : 00000000009020B4
 
 [080h 0128 001h]        Value to cause reset : 01
-[081h 0129 002h]   ARM Flags (decoded below) : 0001
-                              PSCI Compliant : 1
+//
+// ===========================================================================
+// PSCI GECICI OLARAK KAPATILDI - TANI TESTI
+// ===========================================================================
+//
+// GECMIS: bu alan once 0003'tu (PSCI Compliant + HVC). HVC'yi kapatip 0001
+// yapinca Linux 1 cekirdekten 8'e cikti - PSCI cagrilari SMC ile EL3'e,
+// Samsung'un monitorune gidiyor.
+//
+// SIMDIKI SORUN: Windows ~12 saniye sonra sessizce sifirlaniyor.
+// ResetSystem kancasi (B2LResetHookDxe) HIC CAGRILMIYOR - kanca hicbir
+// bellege dokunmadan kilitlenecek sekilde kuruldugu halde cihaz yine
+// yeniden basladi. Yani sifirlama UEFI'yi tamamen atliyor.
+//
+// LINUX'UN VERDIGI IPUCU:
+//     psci: PSCIv65535.65535 detected in firmware.
+//
+// 65535.65535 = 0xFFFFFFFF, yani PSCI_VERSION cagrisi "bu fonksiyon yok"
+// donuyor. Ama CPU_ON calisiyor (8 cekirdek aciliyor). Samsung'un EL3
+// monitoru PSCI'yi KISMEN uygulamis. Linux bunu gorup omuz silkiyor ve
+// standart v0.2 numaralariyla devam ediyor; Windows omuz silkmez.
+//
+// HIPOTEZ: Windows bu bayragi gorup sifirlama icin dogrudan SMC ile
+// PSCI SYSTEM_RESET cagiriyor, bizim ResetSystem'imize hic ugramadan.
+// Kancanin bos kalmasinin sebebi bu.
+//
+// TEST: bayragi sifirla. Windows'un elinde sifirlamak icin tek yol kalir,
+// o da bizim ResetSystem'imiz - ve kanca ates eder.
+//
+// IKI SONUC DA BILGI:
+//   kanca ates ederse -> ResetStatus elimize gecer, cokusun kodu okunur
+//   yine sessizse     -> sifirlama Windows yazilimindan gelmiyor
+//
+// MALIYETI YOK: numproc 1 ile zaten tek cekirdek kullaniyoruz, CPU_ON'a
+// ihtiyacimiz yok. Linux tarafi bu imajla tek cekirdege duser, normal.
+//
+// GERI ALMAK ICIN: 0001 yaz, PSCI Compliant : 1.
+//
+[081h 0129 002h]   ARM Flags (decoded below) : 0000
+                              PSCI Compliant : 0
                        Must use HVC for PSCI : 0
 
 [083h 0131 001h]         FADT Minor Revision : 00

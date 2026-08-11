@@ -988,3 +988,74 @@ EFI Shell'in `echo`'su kelime başındaki `/` karakterini de bayrak sanıyor
 `cache_esp.sh` bayraksız çalıştırıldı (Linux modu) ama `startup.nsh`'te Linux
 dalı kalmamıştı; cihaz Windows'u arayıp bulamadı. Script artık iki modu da
 destekliyor, Linux'a önce bakıyor.
+
+## Linux'un cevapları ve yeni ana hipotez: PSCI
+
+`linux_test/init`'in Windows bölümü üç şey söyledi, üçü de bakmadığımız yerdi.
+
+```
+CPU: All CPU(s) started at EL1
+arch_timer: cp15 timer(s) running at 26.00MHz (virt)
+psci: PSCIv65535.65535 detected in firmware.
+psci: Using standard PSCI v0.2 function IDs
+```
+
+**EL1.** EL2'de değiliz. `HCR_EL2.TSC` ile `SMC` tuzaklama planı geçersiz —
+o ayrıcalık bizde yok. Bellek haritasındaki `EL2 Code` bölgesi sadece bir
+geçiş kodu; çalışma anında EL2'yi tutan biz değiliz.
+
+**Zamanlayıcı doğrulandı, hipotez kapandı.** GTDT'yi stock DTB'ye karşı
+kontrol ettim:
+
+| | GTDT | DTB (`arm,armv8-timer`) |
+|---|---|---|
+| Secure EL1 | GSIV 29 | PPI 13 → 29 |
+| Non-secure EL1 | GSIV 30 | PPI 14 → 30 |
+| Virtual | GSIV 27 | PPI 11 → 27 |
+| Non-secure EL2 | GSIV 26 | PPI 10 → 26 |
+| Frekans | — | `clock-frequency` 0x18CBA80 = 26 MHz |
+
+Hepsi tutuyor, bayraklar da (level, active-low). Linux'un ölçtüğü 26.00 MHz
+DTB ile aynı. GTDT'de düzeltilecek bir şey yok.
+
+**PSCI kırık.** `PSCIv65535.65535` = `0xFFFFFFFF`, yani `PSCI_VERSION`
+çağrısı "bu fonksiyon yok" dönüyor. Ama `CPU_ON` çalışıyor — sekiz çekirdek
+açılıyor. Samsung'un EL3 monitörü PSCI'yi **kısmen** uygulamış: çekirdek
+açma var, sürüm sorgusu yok. Linux bunu görüp omuz silkiyor ve standart v0.2
+numaralarıyla devam ediyor. Windows omuz silkmez.
+
+### Yeni ana hipotez
+
+Windows FADT'deki `PSCI_COMPLIANT` bayrağını görüyor ve sıfırlama için
+doğrudan `SMC` ile `PSCI SYSTEM_RESET` çağırıyor — UEFI'nin `ResetSystem`'ine
+hiç uğramadan. Kancanın boş kalmasının sebebi bu.
+
+**Test: bayrağı sıfırla.** `FACP.dsl` → `ARM Flags 0001` → `0000`. Windows'un
+elinde sıfırlamak için tek yol kalır, o da bizim `ResetSystem`'imiz.
+
+Maliyeti yok: `numproc 1` ile zaten tek çekirdek kullanıyoruz, `CPU_ON`'a
+ihtiyacımız yok.
+
+| Gözlem | Sonuç |
+|---|---|
+| Cihaz donuyor | Kanca ateşledi. Kapat–aç, `+0x80`'de `ResetStatus` duruyor |
+| Yine sıfırlıyor | Sıfırlama Windows yazılımının dışından geliyor |
+
+`B2L_HOOK_HANG` artık kaydı **yazdıktan sonra** kilitleniyor. Sıra önemli:
+"hiçbir şeye dokunmadan hemen kilitlen" turu koşuldu ve cihaz yine yeniden
+başladı — bu, "kanca çağrıldı ama yazarken fault verdi" ihtimalini eledi.
+Geriye kancanın hiç çağrılmaması kalmıştı.
+
+### Elenen hipotezler (güncel)
+
+| Hipotez | Durum |
+|---|---|
+| WIM sıkıştırma / `WIM_NOT_BOOTABLE` | Çözüldü |
+| ARMv8.1 gereksinimi | Elendi |
+| Zamanlayıcı / dynamic tick | Elendi (GTDT doğrulandı) |
+| UEFI → UFS yazma | Çalışıyor (LBA 0 hariç, o da başka LU) |
+| `storufs.sys` UFS'i bozuyor | Doğrulandı, `_CLS` kapalı (5-6 s → 12 s) |
+| Watchdog / donanım sıfırlaması | Elendi (`RST_STAT`) |
+| Windows `ResetSystem` çağırıyor | **Elendi** (kanca hiç ateşlemedi) |
+| EL2'de açılıyoruz | Elendi (EL1) |
+| **Windows doğrudan PSCI SMC ile sıfırlıyor** | **Test ediliyor** |

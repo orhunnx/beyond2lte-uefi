@@ -70,33 +70,35 @@
 
 //
 // ==========================================================================
-// KILITLENME MODU - SU AN ACIK
+// KILITLENME MODU - ACIK, AMA ARTIK YAZMADAN SONRA
 // ==========================================================================
-// Ilk turda kanca kaydi BOS geldi (+0x80 bastan sona FF), ama +0x40'ta
-// "B2LI" duruyordu ve acilis sayaci 0x403 -> 0x404 diye tam bir artmisti.
-// Yani surucu her acilista calisiyor ve bolge sifirlamayi atlatiyor;
-// negatif sonuc guvenilir.
+// 1. TUR: kanca kaydi bos geldi (+0x80 bastan sona FF), ama +0x40'ta "B2LI"
+//         vardi ve acilis sayaci 0x403 -> 0x404 diye tam bir artmisti.
+//         Surucu her acilista calisiyor, bolge sifirlamayi atlatiyor;
+//         negatif sonuc guvenilir.
 //
-// Geriye TEK belirsizlik kaldi:
-//   (a) kanca hic cagrilmadi                                    ya da
-//   (b) cagrildi ama 0xCF000000'a yazarken fault verdi
-//       (SetVirtualAddressMap sonrasi isaretci cevrimi tutmadiysa)
+// 2. TUR: kanca HICBIR BELLEGE DOKUNMADAN en basta kilitlenecek sekilde
+//         kuruldu. Cihaz YINE yeniden basladi. Bu, "kanca cagrildi ama
+//         yazarken fault verdi" ihtimalini ELEDI.
 //
-// Ikisi de ekranda AYNI gorunur: cihaz sessizce yeniden baslar.
+// KALAN TEK ACIKLAMA: Windows ResetSystem'i hic cagirmiyor. Linux'un
+// verdigi ipucu bunu tamamliyor:
+//     psci: PSCIv65535.65535 detected in firmware.
+// yani PSCI_VERSION 0xFFFFFFFF donuyor (fonksiyon yok) ama CPU_ON
+// calisiyor - Samsung'un EL3 monitoru PSCI'yi kismen uygulamis. Windows
+// FADT'deki PSCI_COMPLIANT bayragini gorup sifirlama icin dogrudan SMC ile
+// PSCI SYSTEM_RESET cagiriyor olmali, UEFI'ye hic ugramadan.
 //
-// Bu mod ayrimi kesiyor. Kanca HICBIR BELLEGE DOKUNMADAN hemen sonsuz
-// donguye giriyor - ne mLog, ne mOldReset, hicbir sey:
+// 3. TUR: FACP'de PSCI_COMPLIANT sifirlandi. Windows'un elinde sifirlamak
+//         icin tek yol kaliyor: bizim ResetSystem'imiz.
 //
-//   cihaz 12. saniyede DONUYOR (yeniden baslamiyor)  -> (b): kanca
-//        cagriliyor, sorun bizim yazmada. Haritalama duzeltilir.
-//   cihaz yine yeniden basliyor                      -> (a): Windows
-//        ResetSystem'i hic cagirmiyor. Sifirlama UEFI'yi tamamen
-//        atlatiyor, muhtemelen dogrudan SMC ile PSCI SYSTEM_RESET.
-//        O zaman tek gorus noktasi EL2 kalir.
+// Kilitlenme artik kayit YAZILDIKTAN SONRA, cunku kayit lazim:
+//   cihaz DONARSA   -> kanca ates etti. Guc + ses kisma ile kapat, ac;
+//                      +0x80 dokumunde ResetStatus duruyor.
+//   yine sifirlarsa -> kanca yine cagrilmadi, sifirlama Windows
+//                      yaziliminin disindan geliyor.
 //
-// Kilitlenirse cihazi guc + ses kisma ile kapatman gerekir.
-//
-// Ayrimi ogrendikten sonra bunu 0 yap: kayit yeniden calisir.
+// Ayrim netlestikten sonra 0 yap: cihaz normal sifirlanir, kayit yine kalir.
 //
 #define B2L_HOOK_HANG     1
 
@@ -147,15 +149,6 @@ B2LResetSystem (
   UINTN                      Copy;
   UINTN                      Index;
 
-#if B2L_HOOK_HANG
-  //
-  // EN BASTA, hicbir seye dokunmadan. Buraya gelirsek cihaz donar ve
-  // "kanca cagriliyor mu" sorusu ekranda cevaplanmis olur.
-  //
-  while (TRUE) {
-  }
-#endif
-
   Rec = (volatile B2L_RESET_RECORD *)(mLog + B2L_OFF_CURRENT);
 
   Rec->Seq         = Rec->Seq + 1;
@@ -185,6 +178,24 @@ B2LResetSystem (
   // Imza EN SON. Yarim kalmis bir kayit gecerli gorunmesin.
   //
   Rec->Magic = B2L_MAGIC_RESET;
+
+#if B2L_HOOK_HANG
+  //
+  // KAYIT YAZILDIKTAN SONRA KILITLEN, gercek sifirlamayi yapma.
+  //
+  // Kilitlenme artik yazmadan ONCE degil SONRA. Sirasi onemli: "hicbir
+  // seye dokunmadan hemen kilitlen" turu zaten kosuldu ve cihaz yine
+  // yeniden basladi, yani kancanin cagrilip yazarken fault vermesi
+  // ihtimali ELENDI. Geriye kancanin hic cagrilmamasi kalmisti.
+  //
+  // Bu yuzden simdi once yaziyoruz (kayit lazim), sonra kilitleniyoruz:
+  //   cihaz DONARSA  -> kanca ates etti. Guc + ses kisma ile kapat, ac,
+  //                     ekrandaki +0x80 dokumunde ResetStatus duruyor.
+  //   yine sifirlarsa-> kanca yine cagrilmadi.
+  //
+  while (TRUE) {
+  }
+#endif
 
   //
   // Gercek sifirlamayi yap. Cihazi burada kilitlemiyoruz: kaydi okumak
