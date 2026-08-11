@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    5
+#define B2L_SURUM    6
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 5"
+#define SURUM_METNI  L"SURUM 6"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -253,10 +253,14 @@ B2LGosterEntry (
     UINTN                  Boyut, Anahtar, TanimBoy, I;
     UINT32                 Surum2;
     UINT64                 Sayfa;
+    UINT64                 Tepe;
+    UINT32                 Parca;
 
     Harita = NULL;
     Boyut  = 0;
     Sayfa  = 0;
+    Tepe   = 0;
+    Parca  = 0;
 
     gBS->GetMemoryMap (&Boyut, Harita, &Anahtar, &TanimBoy, &Surum2);
     Boyut += 8 * TanimBoy;
@@ -268,7 +272,15 @@ B2LGosterEntry (
 
         D = (EFI_MEMORY_DESCRIPTOR *)((UINT8 *)Harita + I * TanimBoy);
         if (D->Type != EfiReservedMemoryType && D->Type != EfiMemoryMappedIO) {
+          UINT64 Son;
+
           Sayfa += D->NumberOfPages;
+          Parca++;
+
+          Son = D->PhysicalStart + D->NumberOfPages * 4096;
+          if (Son > Tepe) {
+            Tepe = Son;
+          }
         }
       }
 
@@ -276,6 +288,20 @@ B2LGosterEntry (
     }
 
     Deger (L"RAM MB  =", (UINT32)((Sayfa * 4) / 1024), NULL, 0x0060C0FF);
+
+    //
+    // EN YUKSEK RAM ADRESI - bu turun asil sorusu.
+    //
+    //   ~0x000280000000 -> UEFI 0x80000000'dan DUZ devam etmis. DTB'ye gore
+    //                      0x100000000-0x880000000 arasi delik, yani
+    //                      Windows'a var olmayan ~6 GB beyan ediliyor.
+    //                      Ayirici oraya vardiginda veri yolu hatasi olur:
+    //                      bugcheck yok, ResetSystem yok, temiz sifirlama.
+    //   ~0x000980000000 -> bankalar dogru kurulmus, bellek aklanir.
+    //
+    Deger (L"TEPE HI =", (UINT32)(Tepe >> 32), NULL, 0x0060C0FF);
+    Deger (L"TEPE LO =", (UINT32)Tepe, NULL, 0x0060C0FF);
+    Deger (L"PARCA   =", Parca, NULL, 0x0060C0FF);
   }
   mSatir += 12;
 
