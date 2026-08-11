@@ -2876,3 +2876,55 @@ Windows tarafında ADK gerekiyor.
 UFS hızı değiştiği için "10 saniye" gibi süreler bu turdan öncesiyle
 karşılaştırılamaz. Beyaz şerit ölçümü etkilenmiyor — o bir dönüş değeri,
 zamanlamaya bağlı değil.
+
+# ★ Kesin sonuç: çökme bir BUGCHECK DEĞİL
+
+Beyaz şerit çıktı → `KeRegisterBugCheckCallback` **tuttu**. Yeşil gelmedi →
+sessizlik bu kez gerçek bir ölçüm:
+
+**Windows kernel'i çökmüyor. Ölürken bunun farkında bile değil.**
+
+Bu, otuz turdur açık olan en büyük soruyu kapatıyor ve arama alanını ikiye
+bölüyor. Artık `numproc`, MADT, PSCI, sürücü listesi gibi "Windows çöküyor,
+neden" eksenlerinin hiçbirinde iş yok.
+
+## Geriye iki açıklama kalıyor
+
+**Watchdog / dış sıfırlama** — ama ölçüyle çelişiyor: `EbsTest`
+`ExitBootServices`'ten sonra **63 saniye** hiçbir şey kurmadan yaşadı.
+Serbest çalışan bir watchdog olsa orada da ölürdü.
+
+**Ortada arıza yok** — WinPE açılıyor, `wpeinit` çalışıyor, `startnet.cmd`
+bitiyor, kabuk kapanıyor ve WinPE **tasarımı gereği** kendini yeniden
+başlatıyor. Temiz kapanış hiçbir bugcheck üretmez. Süre de tutuyor.
+
+İkincisi çok daha güçlü. Doğruysa **Windows bu telefonda çalışıyor** ve
+aylardır aradığımız hata hiç var olmadı.
+
+## Bu turun iki ölçümü
+
+### 1. Ekranı bırakıyoruz — sönme animasyonu geri gelsin
+
+Macenta ekran işini gördü ama Windows'un kendi görsellerini örttü, özellikle
+**sönme animasyonunu**. O animasyon bu projede zaten bir ölçüydü: "kabuk
+düzgün çıktı, çökme yok" (commit `43ef06c`). Şimdi tam da onu sınamamız
+gerekiyor.
+
+Artık yalnızca ince bir şerit boyanıyor (`FB_BYTES/32`), gerisi Windows'a
+kalıyor.
+
+### 2. Kalp atışı — çekirdek kaç saniye yaşadı
+
+Saniyede bir kare çizen bir `KTIMER` + `KDPC`. Kareler sayılabiliyor ve
+renk değiştirdiği için tek tek ayırt ediliyor. Sayaç `0xCF030000+0x10`'a da
+yazılıyor.
+
+Asıl söylediği şey süre değil: **kareler son ana kadar artıyorsa** çekirdek
+ölene dek zamanlayıcı işletiyordu, yani sağlıklıydı — çöken bir sistem
+zamanlayıcı işletmez.
+
+| Ekranda | Sonuç |
+|---|---|
+| Kareler artıyor + **sönme animasyonu** | Çökme yok. WinPE işini bitirip düzgünce yeniden başlıyor |
+| Kareler artıyor, animasyon yok, sert kesilme | Çekirdek sağlıklı ama dışarıdan sıfırlanıyor |
+| Kareler bir yerde duruyor | Çekirdek orada ölüyor — kaç kare saydıysak o kadar saniye yaşadı |

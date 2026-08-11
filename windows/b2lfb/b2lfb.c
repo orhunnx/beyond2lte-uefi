@@ -95,6 +95,25 @@ __declspec(dllimport) UINT8 KeRegisterBugCheckCallback (
   UINT32 Length,
   UINT8 *Component);
 
+/*
+ * KALP ATISI - cekirdek kac saniye yasadi?
+ *
+ * Bugcheck olmadigini ogrendik ama "ne kadar sure ayakta kaldi" sorusu hala
+ * kronometreyle olculuyor. Saniyede bir kare cizen bir zamanlayici bunu
+ * ekranda sayilabilir hale getiriyor - EbsTest'te ayni fikir ise yaramisti.
+ *
+ * Ayrica cok daha onemli bir sey soyluyor: kareler SON ANA KADAR artiyorsa
+ * cekirdek olene dek zamanlayici isletiyordu, yani saglikliydi. Belli bir
+ * noktada donuyorsa is orada bitiyor.
+ *
+ * KTIMER ve KDPC yapilarinin ic duzenini bildirmiyoruz; cekirdek iceri
+ * yaziyor, bize yeterince buyuk ve hizali alan lazim. Ikisi de 64 bitte
+ * 0x40 bayt; 128 bayt fazlasiyla yeterli.
+ */
+__declspec(dllimport) void KeInitializeDpc (PVOID Dpc, PVOID Routine, PVOID Context);
+__declspec(dllimport) void KeInitializeTimer (PVOID Timer);
+__declspec(dllimport) UINT8 KeSetTimerEx (PVOID Timer, long long DueTime, int Period, PVOID Dpc);
+
 /* ------------------------------------------------------------------------ */
 
 /*
@@ -122,6 +141,30 @@ __declspec(dllimport) UINT8 KeRegisterBugCheckCallback (
  */
 #define FB_PHYS   0xCA000000ULL
 #define FB_BYTES  0x01400000ULL   /* bolgenin TAMAMI - 20 MB */
+
+/*
+ * ARTIK EKRANIN TAMAMINI BOYAMIYORUZ.
+ *
+ * Macenta ekran isini gordu: surucunun calistigini kanitladi. Ama Windows'un
+ * KENDI gorsellerini de orturttu - ozellikle SONME ANIMASYONUNU. O animasyon
+ * bu projede zaten bir olcuydu: "kabuk duzgun cikti, cokme yok" demekti
+ * (commit 43ef06c).
+ *
+ * Simdi bugcheck OLMADIGINI biliyoruz ve en guclu aciklama "cokme degil,
+ * WinPE isini bitirip kendini yeniden baslatiyor". O aciklamayi sinamanin
+ * yolu tam da sonme animasyonunu gorebilmek.
+ *
+ * Bu yuzden yalnizca ince bir serit boyuyoruz; gerisi Windows'a kaliyor.
+ */
+#define BANT_BYTES  (FB_BYTES / 32)
+
+/*
+ * Kalp atisi kareleri seridin hemen ardindan basliyor ve her tik bir
+ * parca ilerliyor. Ekran geometrisini bilmeye gerek yok: buyuyen bir alan
+ * zaten sayilabilir bir ilerleme cubugu.
+ */
+#define TIK_BYTES   (64ULL * 1024ULL)
+#define TIK_AZAMI   ((FB_BYTES - BANT_BYTES) / TIK_BYTES)
 
 /*
  * Olum sonrasi kayit. startup.nsh su an tam olarak burayi dokuyor:
@@ -157,6 +200,39 @@ static PVOID gLog = 0;
 static UINT64 gCallbackRecord[16];
 
 static UINT8 gComponent[8] = { 'b','2','l','f','b',0,0,0 };
+
+/* Cekirdek bunlarin icine yaziyor - 128 bayt, 16 bayt hizali */
+__declspec(align(16)) static UINT64 gTimer[16];
+__declspec(align(16)) static UINT64 gDpc[16];
+
+static UINT64 gTik = 0;
+
+/*
+ * Saniyede bir. Her tik bir sonraki parcayi boyuyor ve rengi degistiriyor,
+ * boylece tikler tek tek sayilabiliyor.
+ */
+static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
+{
+  UINT8 *P;
+
+  (void)Dpc; (void)Ctx; (void)A1; (void)A2;
+
+  if ((gFb == 0) || (gTik >= TIK_AZAMI)) {
+    return;
+  }
+
+  P = (UINT8 *)gFb + BANT_BYTES + (gTik * TIK_BYTES);
+
+  /* Tek/cift tikler farkli renk: kareler birbirinden ayirt ediliyor */
+  FillDword ((PVOID)P, TIK_BYTES, (gTik & 1) ? 0x0000FFFF : 0x00FFFF00);
+
+  gTik++;
+
+  /* Olum sonrasi kayit: +0x10'da saniye sayaci */
+  if (gLog != 0) {
+    *(UINT32 *)((UINT8 *)gLog + 16) = (UINT32)gTik;
+  }
+}
 
 /*
  * Bugcheck oldu. Tek isi haber vermek.
@@ -241,7 +317,8 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
      * Parlak macenta. Bilerek UEFI'nin ya da Windows'un kullandigi hicbir
      * renge benzemiyor - ekranda gorursek kaynagi tartisilmaz.
      */
-    FillDword (Fb, FB_BYTES, 0x00FF00FF);
+    /* Yalnizca ince serit - gerisi Windows'a kaliyor ki animasyonu gorelim */
+    FillDword (Fb, BANT_BYTES, 0x00FF00FF);
 
     if (Log != 0) {
       ((UINT8 *)Log)[8] = 2;   /* asama: framebuffer'a yazildi */
@@ -289,10 +366,21 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
       ((UINT8 *)gLog)[8]  = 3;    /* asama: kayit denendi */
     }
 
+    /* Kayit tuttuysa seridin ilk ceyregi beyaz - kanit yerinde kalsin */
     if (Ok && (gFb != 0)) {
-      FillDword (gFb, FB_BYTES / 8, 0x00FFFFFF);
+      FillDword (gFb, BANT_BYTES / 4, 0x00FFFFFF);
     }
   }
+
+  /*
+   * 4) KALP ATISI - saniyede bir kare.
+   *
+   * DueTime negatif = GORELI, 100 ns birimi. -10000000 = 1 saniye.
+   * Period = 1000 ms, yani saniyede bir tekrar.
+   */
+  KeInitializeDpc ((PVOID)gDpc, (PVOID)HeartbeatDpc, 0);
+  KeInitializeTimer ((PVOID)gTimer);
+  KeSetTimerEx ((PVOID)gTimer, -10000000LL, 1000, (PVOID)gDpc);
 
   /*
    * STATUS_SUCCESS SART. Bir acilis surucusu basarisiz donerse ve
