@@ -91,11 +91,38 @@
 
 #define SEH_LOG      0xCF041000ULL   // yakalanan EL3 baglami
 #define SEH_STATUS   0xCF041080ULL   // SMC donusleri
+#define SEH_METIN    0xCF0410C0ULL   // SMC donusleri, okunabilir ASCII
 #define SEH_DBGMEM   0xCF042000ULL   // EL3'un GPR dokumu, 2 sayfa
 #define SEH_DBGSIZE  0x2000ULL
 
 STATIC UINT64   *mSehLog;
 STATIC UINT32   *mStatus;
+STATIC UINT8    *mMetin;
+
+/**
+  SMC donuslerini ASCII yaz.
+
+  NEDEN: ilk denemede kayit alaninda yalnizca "SEHR" gorunuyordu ve asil
+  onemli iki sayiyi (SMC donusleri) bulanik bir fotograftan hex olarak
+  cozmek gerekiyordu. Ayni dersi TIK= sayacinda da almistik: dmem'in sag
+  sutunundaki ASCII gorunumu bedava, kullanmamak sacma.
+
+  Ekranda tam olarak su okunacak:  DBG=00002000 SEH=00000000 SV=00000000
+**/
+STATIC
+VOID
+HexYaz (
+  IN UINT8  *Hedef,
+  IN UINT32  Deger)
+{
+  INTN I;
+
+  for (I = 7; I >= 0; I--) {
+    UINT8 D = (UINT8)(Deger & 0xF);
+    Hedef[I] = (UINT8)((D < 10) ? ('0' + D) : ('A' + D - 10));
+    Deger >>= 4;
+  }
+}
 STATIC EFI_EVENT mVirtualAddressChangeEvent;
 
 /**
@@ -198,6 +225,7 @@ VirtualAddressChange (
 
   EfiConvertPointer (0, (VOID **)&mSehLog);
   EfiConvertPointer (0, (VOID **)&mStatus);
+  EfiConvertPointer (0, (VOID **)&mMetin);
   EfiConvertPointer (0, (VOID **)&Handler);
 
   //
@@ -207,6 +235,8 @@ VirtualAddressChange (
   Status[3] = SehKaydet ((UINT64)(UINTN)Handler);
   Status[4] = (UINT32)((UINT64)(UINTN)Handler);
   Status[5] = (UINT32)(((UINT64)(UINTN)Handler) >> 32);
+
+  HexYaz (mMetin + 26, Status[3]);
 }
 
 EFI_STATUS
@@ -220,12 +250,19 @@ B2LSehEntry (
 
   mSehLog = (UINT64 *)(UINTN)SEH_LOG;
   mStatus = (UINT32 *)(UINTN)SEH_STATUS;
+  mMetin  = (UINT8  *)(UINTN)SEH_METIN;
 
   ZeroMem (mSehLog, 0x80);
   ZeroMem (mStatus, 0x40);
+  ZeroMem (mMetin, 0x40);
   ZeroMem ((VOID *)(UINTN)SEH_DBGMEM, SEH_DBGSIZE);
 
   mStatus[0] = 0x52484553;   // "SEHR" - surucu yuklendi
+
+  //
+  // ASCII sablon. Rakamlar asagida dolduruluyor.
+  //
+  CopyMem (mMetin, "DBG=xxxxxxxx SEH=xxxxxxxx SV=xxxxxxxx  ", 39);
 
   //
   // 1) EL3'e GPR dokumu icin bellek ver. FIZIKSEL adres istiyor, o yuzden
@@ -238,11 +275,13 @@ B2LSehEntry (
   Args.Arg3 = 0;
   ArmCallSmc (&Args);
   mStatus[1] = (UINT32)Args.Arg0;
+  HexYaz (mMetin + 4, mStatus[1]);
 
   //
   // 2) SEH adresi. Su an kimlik haritalamasindayiz, fiziksel adres gecerli.
   //
   mStatus[2] = SehKaydet ((UINT64)(UINTN)SmartExceptionHandler);
+  HexYaz (mMetin + 17, mStatus[2]);
 
   DEBUG ((EFI_D_ERROR, "B2LSeh: dbgmem=0x%x seh=0x%x\n", mStatus[1], mStatus[2]));
 

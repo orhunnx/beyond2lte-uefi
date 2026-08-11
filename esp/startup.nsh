@@ -149,7 +149,7 @@ echo ================ EL3 SEH
 dmem 0xCF041000 48
 echo .
 echo ================ EL3 SEH KAYIT DURUMU
-dmem 0xCF041080 18
+dmem 0xCF041080 80
 echo .
 
 echo ================ WATCHDOG WTCON
