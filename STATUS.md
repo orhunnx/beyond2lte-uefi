@@ -1444,3 +1444,42 @@ seçersek "device not accessible" ile geri döneriz.
 
 `for` döngüsü bilerek kullanılmadı — bu Shell sürümünün script içindeki
 davranışı test edilmedi ve her deneme bir Odin flaşına mal oluyor.
+
+## Gerileme: meşgul bekleme döngüsü
+
+Kullanıcı hatırlattı: **en başlarda daire bir ekran sönme animasyonuyla
+kayboluyordu.** Kayıtta duruyor — commit `43ef06c`, "Ekran sönme animasyonu =
+çökme değil, düzgün kapanma" başlığı altında doğru yorumlanmış:
+
+> WinPE'de bunun tek anlamı var: **kabuk sonlandı.** WinPE'nin kabuğu
+> `cmd.exe` ve çıktığı anda makine yeniden başlar — tasarım böyle.
+> Yani `ntoskrnl` ayakta, WinPE başlıyor, oturum açılıp kapanıyor. Çökme yok.
+
+O an WinPE **tamamen çalışıyordu**. Sonra "kabuk çıkmasın" diye kendi
+`startnet.cmd`'imiz WIM'e enjekte edildi ve şöyle bitiyordu:
+
+```
+:bekle
+goto bekle
+```
+
+Tek çekirdekte (`numproc 1`) bu, `cmd.exe`'yi %100 CPU ile sonsuza kadar
+döndüren bir meşgul bekleme — telefonun tamamı boş yere dönüyor. Enjeksiyondan
+sonra animasyon kayboldu, yerine sert sıfırlama geldi.
+
+**Yani en ileri noktamız on beş tur önceydi ve oraya bizim müdahalemiz zarar
+verdi.** ACPI'de aradığımız hatanın bir kısmı hiç orada olmayabilir.
+
+Yeni `startnet.cmd` hiç döngü kurmuyor: birimleri tarıyor, `WINLOG.TXT`
+bırakmayı deniyor, ekrana basıyor, tek bir `pause` ile bekliyor. Girdi varsa
+orada durur; yoksa düşer ve kabuk çıkar — o da animasyonlu sönme, yani başarı
+işareti.
+
+| Gözlem | Sonuç |
+|---|---|
+| Animasyonlu sönme | WinPE ayakta, iş bitti, kabuk çıktı |
+| Sert sıfırlama | Gerçek bir çökme var |
+
+Bu turda ayrıca `_CLS` açık ve `_CRS` sadeleştirilmiş durumda, ESP de SYSTEM
+bölümünde. `WINLOG.TXT` bir birime düşerse `storufs.sys` gerçekten bağlanmış
+demektir — o da uzun süredir açık olan sorunun cevabı.

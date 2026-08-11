@@ -1,35 +1,64 @@
 @echo off
 ::
-:: EN SADE HALI - wpeinit YOK.
+:: ===========================================================================
+:: MESGUL BEKLEME KALDIRILDI - GERILEMEYI BU YAPMIS OLABILIR
+:: ===========================================================================
 ::
-:: NEDEN: _CLS kapatilinca (storufs.sys artik UFS0'a baglanmiyor) cihaz
-:: 5-6 saniye yerine 12 SANIYE dayandi. Sure ikiye katlandi, yani storufs
-:: supheli dogrulandi.
+:: Bu dosyanin onceki surumu soyle bitiyordu:
 ::
-:: 12 saniye ayrica sunu soyluyor: bu script muhtemelen CALISIYOR. Ilk
-:: beklememiz 20 saniyeydi; ona ulassaydik daha uzun dayanirdik. Demek ki
-:: "timeout" aninda donuyor (WinPE'de ag yokken oluyor) ve hemen wpeinit'e
-:: geciyoruz - wpeinit'in aygit taramasi tam olarak bu kadar suruyor.
+::     :bekle
+::     goto bekle
 ::
-:: Bu surum wpeinit'i HIC CAGIRMIYOR. Sonuc ikiye ayiriyor:
-::   cihaz ARTIK YENIDEN BASLAMIYORSA  -> sucllu wpeinit, WinPE ayakta demektir
-::   yine ~12 saniyede sifirliyorsa    -> script hic calismiyor, baska yerde
+:: Tek cekirdekte (numproc 1) bu, cmd.exe'yi %100 CPU ile sonsuza kadar
+:: donduren bir mesgul bekleme. Telefonun tamami bos yere doner.
 ::
-:: Hicbir dis komut cagirmiyoruz; timeout, ping, diskpart hepsi disarida.
+:: NEDEN ONEMLI: bu dosyayi WIM'e enjekte etmeden ONCE, cihazda donen daire
+:: bir EKRAN SONME ANIMASYONUYLA kayboluyordu. STATUS.md'de o an dogru
+:: yorumlanmis: animasyon cokme degil, KABUGUN DUZGUN CIKMASI. WinPE'nin
+:: kabugu cmd.exe'dir ve ciktigi anda makine tasarim geregi yeniden baslar.
+:: Yani o anda ntoskrnl ayakta, WinPE tamamen acilmis, oturum kurulup
+:: kapanmisti. Cokme YOKTU.
+::
+:: Enjeksiyondan sonra animasyon kayboldu, yerine sert sifirlama geldi.
+:: Yani "kabuk cikmasin" diye yazdigim sey muhtemelen onu olduren sey.
+::
+:: BU SURUM HIC DONGU KURMUYOR. Isini yapiyor, ekrana basiyor, tek bir
+:: "pause" ile bekliyor. Girdi varsa orada durur, yoksa duser ve kabuk
+:: cikar - o da animasyonlu sonme demektir, yani BASARI isareti.
+::
+:: Iki sonuc da bilgi:
+::   animasyonlu sonme  -> WinPE ayakta, is bitti, kabuk cikti
+::   sert sifirlama     -> hala gercek bir cokme var
+::
+:: wpeinit CAGRILMIYOR: aygit taramasi zaman aliyor ve daha once suphe
+:: cekmisti. Surucu harfleri wpeinit olmadan da atanir.
 ::
 cls
 echo ================================================
 echo   beyond2lte WinPE  -  startnet calisiyor
-echo   wpeinit CAGIRILMADI
 echo ================================================
 echo.
-echo Bu ekran kaliciysa WinPE bu telefonda AYAKTA.
+
+::
+:: Yazilabilir her birime iz birak. storufs baglandiysa ve SYSTEM birimi
+:: gorunuyorsa bu dosya recovery'den okunabilir - Linux'ta initramfs ile
+:: yaptigimizin aynisi.
+::
+:: "if exist" ONCE: olmayan surucu harfine yazmaya calismak cmd'yi
+:: bekletebiliyor.
+::
+for %%d in (C D E F G H I J K L) do (
+  if exist %%d:\ (
+    echo Birim bulundu: %%d:
+    echo WinPE ayakta. Kabuk calisti, dongu yok. > %%d:\WINLOG.TXT 2>nul
+  )
+)
+
 echo.
-
-:: Depolama gorunuyorsa ESP'ye iz birak (storufs bagli degil, muhtemelen yok)
-for %%d in (C D E F G H I J) do if exist %%d:\EFI\Microsoft\Boot\bootmgfw.efi echo WinPE ayakta, wpeinit yok > %%d:\WINLOG.TXT
-
-echo Bekleme dongusune giriliyor.
-
-:bekle
-goto bekle
+echo Yukaridaki listede birim varsa depolama Windows tarafinda GORUNUYOR.
+echo Hic birim yoksa storufs baglanmamis demektir.
+echo.
+echo Bir tusa bas. Girdi yoksa kabuk cikacak ve ekran animasyonla sonecek,
+echo bu da WinPE'nin sorunsuz calistigi anlamina gelir.
+echo.
+pause
