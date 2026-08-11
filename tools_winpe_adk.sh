@@ -40,15 +40,22 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ESP="$HERE/esp"
 
+ADKPE="/mnt/c/Program Files (x86)/Windows Kits/10/Assessment and Deployment Kit/Windows Preinstallation Environment/arm64"
+
 MEDIA="${1:-}"
 if [ -z "$MEDIA" ]; then
-  for c in /mnt/c/WinPE_arm64/media /mnt/c/WinPE_amd64/media "$HOME"/WinPE_arm64/media; do
+  for c in /mnt/c/WinPE_arm64/media "$HOME"/WinPE_arm64/media "$ADKPE/Media"; do
     [ -d "$c" ] && { MEDIA="$c"; break; }
   done
 fi
 [ -d "$MEDIA" ] || {
-  echo "Media klasoru bulunamadi. Yolu argüman olarak ver:"
-  echo "  bash tools_winpe_adk.sh /mnt/c/WinPE_arm64/media"
+  echo "Media klasoru bulunamadi. Yolu argüman olarak ver, iki secenek de olur:"
+  echo
+  echo "  copype ciktisi:"
+  echo "    bash tools_winpe_adk.sh /mnt/c/WinPE_arm64/media"
+  echo
+  echo "  copype hic calismadiysa, dogrudan ADK kurulumu:"
+  echo "    bash tools_winpe_adk.sh \"$ADKPE/Media\""
   exit 1
 }
 
@@ -68,6 +75,28 @@ find_ci() {  # $1 = media'ya gore yol deseni
 BOOTAA="$(find_ci 'EFI/Boot/bootaa64.efi')"
 SDI="$(find_ci    'boot/boot.sdi')"
 WIM="$(find_ci    'sources/boot.wim')"
+
+#
+# COPYPE OLMADAN DA CALIS.
+#
+# "copype arm64 C:\WinPE_arm64" son adimda boot.wim'i DISM ile mount etmeye
+# calisiyor ve bu adim sik sik patliyor (yonetici degilsen, WIMMount filtre
+# surucusu yoksa, antivirus tutuyorsa, ya da onceki bir mount asili
+# kalmissa). Mount yalnizca dil paketi eklemek icin; BIZE GEREKSIZ - WIM'e
+# zaten burada wimlib ile dokunuyoruz.
+#
+# ADK ayni dosyalari kurulum klasorunde de tutuyor:
+#     .../Windows Preinstallation Environment/arm64/Media/     <- EFI, boot
+#     .../Windows Preinstallation Environment/arm64/en-us/winpe.wim
+#
+# Yani Media klasorunu dogrudan gosterebilirsin; boot.wim orada olmaz ama
+# kardes klasordeki winpe.wim onun yerine gecer.
+#
+if [ -z "$WIM" ]; then
+  PARENT="$(dirname "$MEDIA")"
+  WIM="$(find "$PARENT" -iname 'winpe.wim' -type f 2>/dev/null | head -1)"
+  [ -n "$WIM" ] && echo "  (sources/boot.wim yok, winpe.wim kullaniliyor)"
+fi
 
 echo "  bootaa64.efi : ${BOOTAA:-BULUNAMADI}"
 echo "  boot.sdi     : ${SDI:-BULUNAMADI}"
