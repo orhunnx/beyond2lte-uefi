@@ -2829,3 +2829,50 @@ yeniden başlıyor olabilir.
 
 Bu doğruysa ortada arıza yok ve proje sandığımızdan çok daha ileride.
 Beyaz şerit sorusu bunun ön koşulu: önce aracın çalıştığını bilelim.
+
+## Geliştirme döngüsü hızlandırıldı
+
+Tur başına süre çok uzamıştı. En büyük kayıp beklenmedik bir yerdeydi.
+
+### 1. PWM Gear 1 kaldırıldı (asıl kazanç)
+
+UFS linkini PWM Gear 1'e biz düşürmüştük — `storufs.sys`'in jenerik
+linkup'ı çalışsın diye. **O kapı yapısal olarak kapandı** ve artık RAM
+diskten açılıyoruz; storufs'a hiç ihtiyacımız yok.
+
+Bedeli çok ağırdı: PWM G1 tek şerit ~3 MB/s. Her açılışta `bootmgfw` 742
+MB'lık `boot.wim`'i o linkten RAM diske okuyordu. Karşılığı olmayan
+dakikalar.
+
+`BoardInit.c` → `GearMode = 3`, `yap.sh` → PWM yaması artık varsayılan
+kapalı (`B2L_UFS_PWM=1 bash yap.sh` ile geri açılıyor).
+
+### 2. ESP imajı içeriğe göre boyutlanıyor
+
+`--system` her turda sabit 2 GiB'lık bir dosya üretip biçimlendiriyor ve
+`img2simg` ile baştan sona tarıyordu; oysa içerik ~800 MB. Sparse imaj
+sayesinde **aktarılan** veri zaten küçüktü, ama **yerel işlem** tam boyut
+üzerindendi — döngünün görünmez maliyeti.
+
+Artık içerik + %30 pay, 512 MiB alt sınırla. Alt sınırın sebebi FatPkg:
+FAT32 için en az 65525 küme istiyor, 4 KiB kümeyle 256 MiB eder.
+
+### 3. Sırayı kısaltmak
+
+Yalnızca sürücü değiştiyse `tools_winboot.sh` çalıştırmaya gerek yok:
+
+```bash
+bash tools_b2lfb.sh && bash cache_esp.sh --win --system
+```
+
+### Sonraki adım olarak duruyor
+
+`tools_winpe_adk.sh` ile ~250 MB'lık çıplak WinPE üretmek. O boyutta ESP
+tekrar CACHE'e (600 MiB) sığar — hem flaş küçülür hem açılış hızlanır.
+Windows tarafında ADK gerekiyor.
+
+### Uyarı: süre karşılaştırması bu noktada kırılıyor
+
+UFS hızı değiştiği için "10 saniye" gibi süreler bu turdan öncesiyle
+karşılaştırılamaz. Beyaz şerit ölçümü etkilenmiyor — o bir dönüş değeri,
+zamanlamaya bağlı değil.

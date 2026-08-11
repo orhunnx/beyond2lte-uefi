@@ -102,18 +102,31 @@ echo "  Resources/{Configs,DTBs}/beyond2lte.*"
 echo "  UFS enstrumantasyon yamasi ATLANDI"
 
 #
-# PWM GEAR 1 YAMASI - Windows'un depolamayi gorebilmesi icin.
+# PWM GEAR 1 YAMASI - VARSAYILAN OLARAK KAPALI
 #
-# Ayrintili gerekce tools_ufs_pwm.py basinda. Ozet: storufs.sys jenerik ve
-# UEFI linki HS'e cikarirsa devralamiyor; PWM G1 zaten UniPro'nun
-# LINKSTARTUP sonrasi varsayilan durumu, yani vendor kalibrasyonu
-# gerektirmiyor.
+#   B2L_UFS_PWM=1 bash yap.sh   -> yamayi uygula
 #
-# Yukarida $MU/UfsDxe.c git'ten geri cagrildigi icin bu yama her derlemede
-# TEMIZ dosyaya uygulaniyor - birikmeli hasar yok. Onceki UFS yamasinda tam
-# olarak o tuzaga dusmustuk.
+# NEDEN KONULMUSTU: storufs.sys jenerik; UEFI linki HS'e cikarirsa
+# devralamiyor. PWM G1 zaten UniPro'nun LINKSTARTUP sonrasi varsayilan
+# durumu, yani vendor kalibrasyonu gerektirmiyor.
 #
-python3 "$PROJ/tools_ufs_pwm.py" "$MU"
+# NEDEN KAPATILDI: o kapi YAPISAL olarak kapandi (bkz. STATUS.md,
+# "storufs: kapanan kapi"). HCE reseti Exynos'ta UniPro'nun yerel
+# niteliklerini siliyor ve hicbir ACPI nesnesi jenerik bir surucuye Samsung
+# PHY kalibrasyonu yaptiramaz. Artik RAM diskten aciliyoruz ve storufs'a
+# hic ihtiyacimiz yok.
+#
+# BEDELI COK AGIRDI: PWM G1 tek serit ~3 MB/s. Her acilista bootmgfw 742
+# MB'lik boot.wim'i o linkten RAM diske okuyor - dakikalar. Ustelik hicbir
+# karsiligi olmadan. HS Gear 3'e donmek gelistirme dongusunu elli kat
+# hizlandiriyor ve kaybettigimiz hicbir sey yok.
+#
+if [ "${B2L_UFS_PWM:-0}" = "1" ]; then
+  python3 "$PROJ/tools_ufs_pwm.py" "$MU"
+else
+  echo "  UFS PWM G1 yamasi ATLANDI (HS Gear 3) - hizlandirma icin"
+  echo "    geri acmak istersen:  B2L_UFS_PWM=1 bash yap.sh"
+fi
 
 #
 # ACPI.inc'i ETKINLESTIR - ama $MU icindeki kopyada, depoda degil.

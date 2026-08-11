@@ -118,11 +118,27 @@ fi
 #
 if [ "$BIGPART" = 1 ]; then
   PART="system"
-  SZ=2147483648
+  #
+  # IMAJ BOYUTU ARTIK ICERIGE GORE - SABIT 2 GiB DEGIL.
+  #
+  # Her turda 2 GiB'lik bir dosya sifirdan uretiliyor, bicimlendiriliyor ve
+  # img2simg ile bastan sona taraniyordu; oysa icerik ~800 MB. Sparse imaj
+  # sayesinde AKTARILAN veri zaten kucuktu, ama YEREL islem tam boyut
+  # uzerinden yapiliyordu ve dongunun gorunmez maliyetiydi.
+  #
+  # Icerik + %30 pay, 512 MiB alt sinirla. Alt sinirin sebebi FAT32: FatPkg
+  # en az 65525 kume istiyor (Init.c), 4 KiB kumeyle bu 256 MiB ediyor.
+  # 512 ile rahat payda kaliyoruz.
+  #
+  ICERIK_MB=$(du -sm "$PROJ/esp" 2>/dev/null | cut -f1 || echo 800)
+  IMAJ_MB=$(( ICERIK_MB * 130 / 100 ))
+  [ "$IMAJ_MB" -lt 512 ] && IMAJ_MB=512
+  [ "$IMAJ_MB" -gt 5000 ] && IMAJ_MB=5000    # SYSTEM 5.57 GB
+  SZ=$(( IMAJ_MB * 1048576 ))
   FATOPT="-F 32 -S 4096 -s 1"
-  FATDESC="FAT32 (2 GiB, 4096 bayt sektor, 4 KiB kume)"
-  LIMIT_MB=1950
-  say "HEDEF BOLUM: SYSTEM (5.57 GB) - imaj 2 GiB"
+  FATDESC="FAT32 (${IMAJ_MB} MiB, 4096 bayt sektor, 4 KiB kume)"
+  LIMIT_MB=$(( IMAJ_MB - 60 ))
+  say "HEDEF BOLUM: SYSTEM (5.57 GB) - imaj ${IMAJ_MB} MiB (icerik ${ICERIK_MB} MB)"
 else
   PART="cache"
   SZ=629145600

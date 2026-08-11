@@ -158,7 +158,13 @@ UfsBoardInit (struct UfsHost *Ufs)
   //
   // Geri almak icin 3 yaz ve yap.sh'te tools_ufs_pwm.py satirini yorumla.
   //
-  Ufs->GearMode = 1;
+  //
+  // HS Gear 3'e GERI DONULDU. PWM Gear 1 icin 1 yapilmisti; o deneyin
+  // sebebi storufs.sys'ti ve o kapi kapandi (STATUS.md, "storufs: kapanan
+  // kapi"). PWM G1 tek serit ~3 MB/s ve her acilista 742 MB'lik boot.wim
+  // o linkten okunuyordu - gelistirme dongusunun en buyuk maliyeti buydu.
+  //
+  Ufs->GearMode = 3;
 
   //
   // 9830'daki UfsSetUniProClk() burada yok: 9820 icin CMU mux/div register
