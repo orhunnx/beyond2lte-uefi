@@ -87,11 +87,24 @@
 // kimlikleri kullaniyor; 64 bite isaret genisletiliyor.
 //
 #define SMC_CMD_SET_DEBUG_MEM    ((UINT64)(INT64)-120)
+#define SMC_CMD_GET_LOCKUP_REASON ((UINT64)(INT64)-121)
 #define SMC_CMD_SET_SEH_ADDRESS  ((UINT64)(INT64)-123)
+
+//
+// Status[3] icin baslangic isareti.
+//
+// GEREKCE: ilk surumde Status[3] sifirla basliyordu ve ekranda "0 = KABUL"
+// diye gosteriliyordu. Ama o alan SetVirtualAddressMap olayinda yaziliyor,
+// olay ise kabuktan cok sonra calisiyor - yani gordugumuz sifir "basarili"
+// degil "henuz calismadi" demekti. Sifirin iki anlama geldigi bir gosterge,
+// gostergesizlikten kotudur.
+//
+#define SANAL_CALISMADI  0xFFFFFFFEUL
 
 #define SEH_LOG      0xCF041000ULL   // yakalanan EL3 baglami
 #define SEH_STATUS   0xCF041080ULL   // SMC donusleri
 #define SEH_ONCEKI   0xCF041100ULL   // BIR ONCEKI acilisin yakalamasi
+#define DURUM_ONCEKI 0xCF041180ULL   // BIR ONCEKI acilisin durum sozcugu
 #define SEH_METIN    0xCF0410C0ULL   // SMC donusleri, okunabilir ASCII
 #define SEH_DBGMEM   0xCF042000ULL   // EL3'un GPR dokumu, 2 sayfa
 #define SEH_DBGSIZE  0x2000ULL
@@ -265,12 +278,20 @@ B2LSehEntry (
   //
   CopyMem ((VOID *)(UINTN)SEH_ONCEKI, mSehLog, 0x80);
 
+  //
+  // Durum sozcugu de kopyalaniyor. Windows sirasinda yapilan YENIDEN KAYDIN
+  // sonucu (Status[3]) yalnizca burada gorulebilir: onu yazan olay bu
+  // acilistan sonra calisiyor, yani ancak bir sonraki acilista okunabilir.
+  //
+  CopyMem ((VOID *)(UINTN)DURUM_ONCEKI, mStatus, 0x40);
+
   ZeroMem (mSehLog, 0x80);
   ZeroMem (mStatus, 0x40);
   ZeroMem (mMetin, 0x40);
   ZeroMem ((VOID *)(UINTN)SEH_DBGMEM, SEH_DBGSIZE);
 
   mStatus[0] = 0x52484553;   // "SEHR" - surucu yuklendi
+  mStatus[3] = SANAL_CALISMADI;
 
   //
   // ASCII sablon. Rakamlar asagida dolduruluyor.
@@ -296,7 +317,24 @@ B2LSehEntry (
   mStatus[2] = SehKaydet ((UINT64)(UINTN)SmartExceptionHandler);
   HexYaz (mMetin + 17, mStatus[2]);
 
-  DEBUG ((EFI_D_ERROR, "B2LSeh: dbgmem=0x%x seh=0x%x\n", mStatus[1], mStatus[2]));
+  //
+  // 3) EL3'e "en son neden kilitlendin" diye sor.
+  //
+  // Samsung'un EL3 monitorunde bir KILITLENME kavrami var ve Linux bunu
+  // sorabiliyor. Sifirlamanin her seferinde tam 10 saniyede olmasi bir
+  // kilitlenme dedektorunun imzasina cok benziyor. Donanim watchdog'ini
+  // guvensiz taraftan "kapali" okumamiz bunu DISLAMIYOR: yazmac guvenli
+  // tarafa aitse EL1'den gordugumuz manzara gercegi yansitmayabilir.
+  //
+  // 0xFFFFFFFF donerse komut taninmiyor demektir ve fikir kapanir.
+  //
+  ZeroMem (&Args, sizeof (Args));
+  Args.Arg0 = SMC_CMD_GET_LOCKUP_REASON;
+  ArmCallSmc (&Args);
+  mStatus[6] = (UINT32)Args.Arg0;
+  mStatus[7] = (UINT32)Args.Arg1;
+
+  DEBUG ((EFI_D_ERROR, "B2LSeh: dbgmem=0x%x seh=0x%x lockup=0x%x\n", mStatus[1], mStatus[2], mStatus[6]));
 
   Status = gBS->CreateEventEx (
                   EVT_NOTIFY_SIGNAL,

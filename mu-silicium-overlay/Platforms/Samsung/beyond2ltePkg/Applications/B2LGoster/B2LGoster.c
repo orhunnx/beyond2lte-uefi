@@ -51,6 +51,7 @@
 #define SEH_CANLI   0xCF041000ULL
 #define SEH_DURUM   0xCF041080ULL
 #define SEH_ONCEKI  0xCF041100ULL
+#define DUR_ONCEKI  0xCF041180ULL
 #define FB_KAYIT    0xCF030000ULL   // b2lfb (Windows surucusu)
 #define RT_KAYIT    0xCF040000ULL   // B2LRtHookDxe
 #define PMU_RST     0x15860404ULL
@@ -188,6 +189,7 @@ B2LGosterEntry (
 {
   EFI_STATUS      Status;
   UINT32         *Durum;
+  UINT32         *Onc;
   UINT64         *Onceki;
   UINT32         *RtLog;
   UINT8          *FbLog;
@@ -218,6 +220,7 @@ B2LGosterEntry (
   SetMem32 (mFb, (UINTN)mSatirBasi * mGop->Mode->Info->VerticalResolution * 4, 0x00000000);
 
   Durum  = (UINT32 *)(UINTN)SEH_DURUM;
+  Onc    = (UINT32 *)(UINTN)DUR_ONCEKI;
   Onceki = (UINT64 *)(UINTN)SEH_ONCEKI;
   RtLog  = (UINT32 *)(UINTN)RT_KAYIT;
   FbLog  = (UINT8  *)(UINTN)FB_KAYIT;
@@ -235,9 +238,19 @@ B2LGosterEntry (
     Deger (L"SEH KAYIT=", Durum[2],
            (Durum[2] == 0) ? L"KABUL" : L"RET",
            (Durum[2] == 0) ? 0x0040FF40 : 0x00FF4040);
-    Deger (L"SEH SANAL=", Durum[3],
-           (Durum[3] == 0) ? L"KABUL" : L"YOK",
-           0x00C0C0C0);
+    //
+    // SANAL degeri BU acilistan degil ONCEKINDEN okunuyor. Yazan olay
+    // (SetVirtualAddressMap) kabuktan sonra calisiyor; bu acilisin degeri
+    // her zaman "henuz calismadi" olur.
+    //
+    Deger (L"SANAL ONC=", Onc[3],
+           (Onc[3] == 0)            ? L"KABUL" :
+           (Onc[3] == 0xFFFFFFFEUL) ? L"CALISMADI" : L"RET",
+           (Onc[3] == 0) ? 0x0040FF40 : 0x00FFFF40);
+    Deger (L"LOCKUP  =", Durum[6],
+           (Durum[6] == 0xFFFFFFFFUL) ? L"TANIMIYOR" : L"CEVAP VAR",
+           (Durum[6] == 0xFFFFFFFFUL) ? 0x00808080 : 0x0040FF40);
+    Deger (L"LOCKUP ONC=", Onc[6], NULL, 0x00808080);
     Deger (L"DEBUG MEM=", Durum[1], NULL, 0x00808080);
   }
 
