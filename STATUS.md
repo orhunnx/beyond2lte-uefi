@@ -3447,3 +3447,42 @@ MB'lık `boot.wim`'i RAM diske alıp üstüne WinPE çalıştırmak oraya sığm
 Yani bu yol önce `tools_winpe_adk.sh` ile ~250 MB'lık çıplak WinPE üretmeyi
 gerektiriyor. Sırada o var; ama harita doğrulaması ondan önce geliyor, çünkü
 harita tutmuyorsa küçük WinPE de aynı duvara çarpar.
+
+## `memmap`: harita değişikliği tuttu, bölgeler masum
+
+```
+Reserved  CA000000-CB3FFFFF  0x1400 sayfa   (Display Reserved)
+Reserved  CF000000-CF03FFFF  0x0040 sayfa   (B2L EL2)
+Reserved  EB300000-ED20FFFF  0x1F08 sayfa   (debug-snapshot, YENI)
+Reserved  FD900000-FFFFFFFF  0x2700 sayfa   (debug-snapshot, YENI)
+
+Reserved : 23.242 sayfa (95 MB)   Available : 8.32 GB   Toplam : 7.977 MB
+```
+
+Eklediğimiz bölgeler haritada. Yani bu sefer alet çalıştı — dördüncü "sessizce
+yazmadı" vakası değil. Reserving işe yaramadığına göre **o bölgeler masum.**
+
+## Hiç sorulmayan soru
+
+Elenenler: `startnet.cmd`, kabuk, boot menüsü, watchdog, LPS0, `ErrorControl`,
+depolama hızı, 16 ayrılmış bellek bölgesi. Hiçbiri süreyi değiştirmedi.
+
+Hiç sormadığımız: **cihaz, Windows hiçbir şey yapmasa da sıfırlanır mı?**
+
+Yani ~10 saniye **mutlak** bir sayaç mı, yoksa Windows'un yaptığı bir işe mi
+bağlı? Bu ayrımı hiç yapmadık ve iki sonuç tamamen farklı projelere işaret
+ediyor.
+
+### `EbsTest`'in Windows tarafındaki karşılığı
+
+`DriverEntry`'den hiç dönmüyoruz. Açılış tam orada duruyor: çekirdek daha
+ileri gitmiyor, sürücü yüklemiyor, kullanıcı moduna çıkmıyor.
+
+Kalp atışı yine işliyor — zamanlayıcı kesmesi `DISPATCH_LEVEL`'da bizim
+`PASSIVE` döngümüzü kesiyor. Yani hem açılışı durduruyoruz hem ölçmeyi
+sürdürüyoruz.
+
+| Ekranda | Sonuç |
+|---|---|
+| Şeritler ~10'da durup sıfırlama | **Mutlak sayaç.** Windows masum; sebep UEFI, TrustZone ya da PMIC tarafında |
+| Şeritler 20, 40, 60 diye artıyor | Sıfırlama Windows'un **ilerlemesine** bağlı. Açılışı durdurmak önledi; sırada hangi aşamanın tetiklediğini daraltmak |

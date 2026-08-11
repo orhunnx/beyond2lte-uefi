@@ -426,6 +426,47 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   KeSetTimerEx ((PVOID)gTimer, -10000000LL, 1000, (PVOID)gDpc);
 
   /*
+   * ==========================================================================
+   * DONMEYEN DONGU - "SIFIRLAMA WINDOWS'UN ILERLEMESINE BAGLI MI?"
+   * ==========================================================================
+   *
+   * Bu, EbsTest'in Windows tarafindaki karsiligi ve hic yapilmadi.
+   *
+   * Elediklerimiz: startnet, kabuk, menu, watchdog, LPS0, ErrorControl,
+   * depolama hizi, ve DTB'den eklenen 16 ayrilmis bellek bolgesi (memmap
+   * ciktisi haritaya girdiklerini dogruladi). Hicbiri sureyi degistirmedi.
+   *
+   * Hic sormadigimiz soru: cihaz, Windows HICBIR SEY YAPMASA da sifirlanir
+   * mi? Yani ~10 saniye MUTLAK bir sayac mi, yoksa Windows'un yaptigi bir
+   * ise mi bagli?
+   *
+   * DriverEntry'den hic donmezsek acilis tam burada durur. Cekirdek daha
+   * ileri gitmez, surucu yuklemez, kullanici moduna cikmaz.
+   *
+   * KALP ATISI YINE ISLER: zamanlayici kesmesi DISPATCH_LEVEL'da bizim
+   * PASSIVE dongumuzu kesiyor, dolayisiyla seritler cizilmeye devam eder ve
+   * sayabiliriz. Yani hem acilisi durduruyoruz hem olcmeyi surduruyoruz.
+   *
+   *   Seritler ~10'da durup cihaz sifirliyorsa
+   *       -> MUTLAK sayac. Windows masum; sebep UEFI, TrustZone ya da PMIC
+   *          tarafinda ve orada aranir.
+   *
+   *   Seritler 20, 40, 60 diye artmaya devam ediyorsa
+   *       -> Sifirlama Windows'un ILERLEMESINE bagli. Acilisi durdurmak
+   *          onledi. O zaman gecikmeyi kademelendirip hangi asamanin
+   *          tetikledigini daraltiriz.
+   *
+   * Iki sonuc tamamen farkli projelere isaret ediyor ve bu ayrimi hic
+   * yapmadik.
+   */
+  {
+    volatile UINT64 I = 0;
+    for (;;) {
+      I++;
+    }
+  }
+
+  /*
    * STATUS_SUCCESS SART. Bir acilis surucusu basarisiz donerse ve
    * ErrorControl uygunsa winload butun acilisi iptal eder. Bu surucu
    * hicbir seyi sahiplenmiyor; her kosulda basarili donuyor.
