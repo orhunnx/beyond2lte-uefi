@@ -129,6 +129,11 @@
   }
 
   #
+  # ResetSystem kancasi (bkz. Drivers/B2LResetHookDxe/B2LResetHookDxe.c)
+  #
+  beyond2ltePkg/Drivers/B2LResetHookDxe/B2LResetHookDxe.inf
+
+  #
   # Input
   #
   SiliciumPkg/Drivers/KeypadDxe/KeypadDxe.inf

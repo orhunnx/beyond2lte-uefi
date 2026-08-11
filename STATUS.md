@@ -858,3 +858,46 @@ Açık kalan: LUN 2 ESP'mizin bulunduğu LU mu, yoksa başka bir LU mu?
 ve bölüm (`HD(...)`) olup olmadığı görülecek. Bölüm yoksa LBA 0 = FAT
 önyükleme sektörü; varsa LBA 0 = LU'nun başı, yani bizim dosya sistemimiz
 bile değil ve yazan başka biri.
+
+## Sıfırlamayı yazılım istiyor — `ResetSystem` kancası takıldı
+
+İki ölçüm, aynı yöntemle, aynı cihazda:
+
+| Ne zaman | `RST_STAT` |
+|---|---|
+| Kurtarma menüsünden yeniden başlatma | `0x20000000` |
+| Windows çöküp cihaz sıfırlandıktan sonra | `0x20000000` |
+
+Değişmedi. Watchdog biti (`0x01000000`) yok, soğuk sıfırlama biti yok.
+Yalnızca yazılım sıfırlaması biti. **Sıfırlamayı donanım zorlamıyor, yazılım
+istiyor.**
+
+ARM64 UEFI'de yazılımın sıfırlama isteyebileceği tek arayüz var:
+`EFI_RUNTIME_SERVICES.ResetSystem`. Ve o bizim kodumuz — `ExitBootServices`
+sonrasında da bizde kalıyor, Windows onu çağırmak zorunda.
+
+`B2LResetHookDxe` bunu kancalıyor:
+
+- `DXE_RUNTIME_DRIVER`, yani imaj runtime bölgede kalıyor ve
+  `SetVirtualAddressMap`'te yeniden konumlandırılıyor
+- Kanca `ResetType` + `ResetStatus` + `ResetData`'yı `0xCF000000`'a yazıyor
+- Ekrana yazmıyor — kanca `ExitBootServices` sonrası çalışıyor, `ConOut` ve
+  `DEBUG` yok. Bunun yerine **DRAM sıcak sıfırlamayı atlatıyor**; Android'in
+  `ramoops`'u tam olarak buna dayanıyor ve bu SoC'de çalıştığı biliniyor
+- Sonraki açılışta EFI Shell `dmem 0xCF000000 192` ile okuyor — yeni bir
+  kanal icat etmiyoruz, zaten çalışanı kullanıyoruz
+
+Bellek bölgesi `MemoryMapLib.c`'ye `RtData` + `UNCACHED_UNBUFFERED` olarak
+eklendi. `RtData` şart: `MemoryInitPei` bunu özel olarak ele alıp
+`EFI_MEMORY_RUNTIME` işaretliyor, böylece Windows bölgeye sanal adres veriyor.
+`Reserv` olsaydı haritalanmaz, kanca yazmaya çalışınca fault olurdu.
+`UNCACHED_UNBUFFERED` de şart: kanca yazdıktan hemen sonra cihaz sıfırlanıyor,
+veri önbellekte kalırsa kaybolur.
+
+İki olası sonuç, ikisi de bilgi:
+
+- `+0x80`'de `42 32 4C 52` (`B2LR`) → Windows gerçekten `ResetSystem` çağırdı.
+  `+0x90`'daki `ResetStatus` bugcheck'i doğrudan söylüyor.
+- İmza yok → kanca hiç çağrılmadı. Sıfırlama `ResetSystem`'den geçmiyor;
+  istisna, doğrudan PSCI SMC, ya da güç devresi. O zaman istisna vektörlerine
+  bakarız.

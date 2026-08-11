@@ -63,6 +63,35 @@ echo ================ fs0 HANGI LUN
 map -r
 echo .
 
+#
+# ------------------------------------------------------------------------
+# 1) RESETSYSTEM KANCASININ KAYDI  (B2LResetHookDxe)
+# ------------------------------------------------------------------------
+# RST_STAT olcumu sifirlamanin YAZILIM kaynakli oldugunu gosterdi (temiz
+# yeniden baslatma da, Windows cokusu de 0x20000000; watchdog yok, soguk
+# sifirlama yok). ARM64 UEFI'de yazilimin sifirlama istemesinin tek yolu
+# ResetSystem - ve o bizim runtime servisimiz. Kancaladik.
+#
+# Kanca ExitBootServices'ten sonra calisiyor, ekrana yazamaz. Onun yerine
+# 0xCF000000'a yaziyor; DRAM sicak sifirlamayi atlatiyor (ramoops mantigi).
+#
+# YERLESIM:
+#   +0x00  bu acilisin kaydi (surucu her acilista temizler)
+#   +0x40  42 32 4C 49 = "B2LI" -> surucu yuklendi
+#   +0x80  ONCEKI acilisin kaydi  <-- BAKILACAK YER
+#
+# +0x80'de ne aranacak:
+#   42 32 4C 52 = "B2LR"  -> Windows ResetSystem cagirdi. Devaminda:
+#        +0x84 Seq, +0x88 ResetType (0=Cold 1=Warm 2=Shutdown 3=Platform),
+#        +0x90 ResetStatus (8 bayt, little-endian) -- ASIL CEVAP BU
+#        +0xA0 ResetData (genelde UCS-2 metin)
+#   imza yoksa            -> kanca hic cagrilmadi; sifirlama ResetSystem'den
+#        gecmiyor, daha alt seviyede (istisna / dogrudan SMC / guc devresi)
+#
+echo ================ KANCA KAYDI  (0xCF000000)
+dmem 0xCF000000 192
+echo .
+
 echo .
 echo ================ ONCEKI ACILISIN SIFIRLAMA SEBEBI
 echo .
