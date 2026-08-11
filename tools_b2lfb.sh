@@ -132,10 +132,51 @@ mv -f "$OUT/b2lfb-signed.sys" "$OUT/b2lfb.sys"
 command -v wimlib-imagex >/dev/null || { echo "wimlib yok"; exit 1; }
 command -v hivexregedit  >/dev/null || { echo "hivexregedit yok -> sudo apt install -y libwin-hivex-perl"; exit 1; }
 
+#
+# ONCE SIL, SONRA EKLE, SONRA GERI OKU
+#
+# BU BIR TURA MAL OLDU. Surucu guncellendi, "TIK=..." kaydi eklendi, ama
+# cihazda hala yalnizca "B2LF" gorunuyordu - yani ESKI surucu calisiyordu.
+#
+# Sebep: "add" hedefte ayni isimde bir dosya varken onu degistirmeyebiliyor.
+# Script ciktiyi /dev/null'a atiyordu, dolayisiyla hicbir uyari gorunmedi ve
+# her sey basarili sanildi.
+#
+# Ayni sinifin ucuncu hatasi:
+#   1. hivexsh setval dugumdeki diger degerleri siliyordu
+#   2. .reg icindeki ters bolukler kacis olarak yutuluyordu
+#   3. simdi bu
+# Ucunde de ortak ders: YAZDIGINI GERI OKU.
+#
 say "boot.wim'e ekleniyor"
+wimlib-imagex update "$WIM" 1 \
+  --command="delete --force /Windows/System32/drivers/b2lfb.sys" >/dev/null 2>&1 || true
 wimlib-imagex update "$WIM" 1 \
   --command="add '$OUT/b2lfb.sys' /Windows/System32/drivers/b2lfb.sys" >/dev/null
 echo "  /Windows/System32/drivers/b2lfb.sys"
+
+CK="$OUT/dogrulama"; rm -rf "$CK"; mkdir -p "$CK"
+if wimlib-imagex extract "$WIM" 1 /Windows/System32/drivers/b2lfb.sys \
+     --dest-dir="$CK" --no-acls >/dev/null 2>&1; then
+  A="$(sha1sum "$OUT/b2lfb.sys"  | cut -c1-16)"
+  B="$(sha1sum "$CK/b2lfb.sys"   | cut -c1-16)"
+  if [ "$A" = "$B" ]; then
+    echo "  dogrulandi: WIM'deki surucu derledigimizle AYNI ($A)"
+  else
+    echo
+    echo "  ###############################################################"
+    echo "  # WIM'DEKI SURUCU FARKLI - eski surum kalmis."
+    echo "  #   derlenen: $A"
+    echo "  #   WIM'deki: $B"
+    echo "  # Flaslamak bosuna; cihaza eski kod gider."
+    echo "  ###############################################################"
+    exit 1
+  fi
+else
+  echo "  ! b2lfb.sys WIM'den geri okunamadi - dogrulanamiyor"
+  exit 1
+fi
+rm -rf "$CK"
 
 #
 # 6) Servis kaydi - ACILIS SURUCUSU
@@ -209,9 +250,32 @@ if [ "$(printf '%s' "$YOL" | tr -cd '\\' | wc -c)" -lt 3 ]; then
   exit 1
 fi
 
+#
+# Hive de ayni tuzakta: once sil, sonra ekle. Yoksa duzenlenmis hive WIM'e
+# hic girmez ve servis kaydi eski halinde kalir.
+#
+wimlib-imagex update "$WIM" 1 \
+  --command="delete --force /Windows/System32/config/SYSTEM" >/dev/null 2>&1 || true
 wimlib-imagex update "$WIM" 1 \
   --command="add '$W/SYSTEM' /Windows/System32/config/SYSTEM" >/dev/null
 echo "  Services\\b2lfb  Start=0 Type=1 ErrorControl=3 (CRITICAL)"
+
+#
+# Hive de geri okunuyor: WIM'deki kopyada servis gercekten var mi?
+#
+HK="$W/geri"; mkdir -p "$HK"
+wimlib-imagex extract "$WIM" 1 /Windows/System32/config/SYSTEM \
+  --dest-dir="$HK" --no-acls >/dev/null 2>&1
+GERI="$(hivexget "$HK/SYSTEM" 'ControlSet001\Services\b2lfb' ImagePath 2>/dev/null || true)"
+if [ -n "$GERI" ]; then
+  echo "  dogrulandi: WIM'deki hive'da ImagePath = $GERI"
+else
+  echo
+  echo "  ###############################################################"
+  echo "  # WIM'DEKI HIVE'DA b2lfb SERVISI YOK - duzenleme geri yazilmamis."
+  echo "  ###############################################################"
+  exit 1
+fi
 
 say "Dogrulama"
 wimlib-imagex dir "$WIM" 1 2>/dev/null | grep -i "b2lfb" | sed 's/^/  /' || echo "  ! b2lfb WIM'de gorunmuyor"

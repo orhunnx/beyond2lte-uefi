@@ -3019,3 +3019,33 @@ B2LF........TIK=0010 BUG=H
 | `BUG=H` | Bugcheck yok. `E` olursa var |
 
 Hex çözme, bayt sayma, tahmin yok.
+
+## `TIK=` gelmedi — sürücü değil, script hatası
+
+Kullanıcı sordu: "scriptte hata yapmış olabilir misin?" Evet.
+
+`b2lfb.c` doğruydu; `HeartbeatDpc` ASCII kaydı düzgün yazıyor ve `gLog`
+zamanında atanıyor. Sorun `tools_b2lfb.sh`'te: `wimlib-imagex update` ile
+`add`, hedefte **aynı isimde bir dosya varken onu değiştirmeyebiliyor.**
+Çıktı `/dev/null`'a gidiyordu, dolayısıyla hiçbir uyarı görünmedi ve her şey
+başarılı sanıldı. Cihazda çalışan hâlâ **eski sürücüydü** — bu yüzden yalnızca
+`B2LF` vardı, `TIK=` yoktu.
+
+### Aynı sınıftan üçüncü hata
+
+1. `hivexsh setval` düğümdeki diğer değerleri siliyordu → beş ölçüm geçersiz
+2. `.reg` içindeki ters bölükler kaçış olarak yutuldu → `0xc000000f`
+3. Şimdi bu
+
+Üçünde de aynı ders: **yazdığını geri oku.** Bir yazma işleminin hata
+vermemesi, yazdığın şeyin orada olduğu anlamına gelmiyor.
+
+### Düzeltme
+
+Hem sürücü hem hive için: **önce sil, sonra ekle, sonra geri oku.**
+
+- `b2lfb.sys` WIM'den çıkarılıp SHA1'i derlenenle karşılaştırılıyor; farklıysa
+  script duruyor ("flaşlamak boşuna; cihaza eski kod gider")
+- `SYSTEM` hive'ı çıkarılıp `hivexget` ile `ImagePath` okunuyor; yoksa duruyor
+
+Artık yanlış sürücüyle bir Odin turu harcanamıyor.
