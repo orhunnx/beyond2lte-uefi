@@ -67,6 +67,79 @@ say "   $(grep '^Features' /proc/cpuinfo 2>/dev/null | tail -1)"
 say "-- ID kayitlari"
 dmesg | grep -i -E 'SANITY CHECK|feature variation' | head -6 | sayp
 
+#
+# ==========================================================================
+# WINDOWS ICIN KRITIK OLAN, HIC DOGRULAMADIGIMIZ SEYLER
+# ==========================================================================
+# Linux bizim ACPI'mizle aciliyor, Windows acilmiyor. Fark, Linux'un
+# hosgorup Windows'un hosgormedigi seylerde. Asagidakilerin hepsini Linux
+# bedavaya soyluyor ve hicbirine bakmamistik.
+#
+say "======== WINDOWS ICIN KRITIK ========"
+
+#
+# 1) HANGI EXCEPTION LEVEL'DA ACILIYORUZ
+#
+# EN ONEMLISI. Windows ARM64 cekirdegi EL1'de calisir; EL2'de baslatilirsa
+# ne yapacagi belirsiz. Mu-Silicium'un bellek haritasinda "EL2 Code" diye
+# 2 MB'lik bir bolge var (0x87000000), yani ortada bir EL2 stub'i dolasiyor.
+# Linux acilirken bunu acikca yaziyor:
+#     "CPU: All CPU(s) started at EL2"   ya da   "... at EL1"
+# EL2 cikarsa bu, 12 saniyelik sessiz cokusun cok guclu bir adayi.
+#
+say "-- Exception Level (Windows EL1 bekler)"
+dmesg | grep -i -E 'started at EL|Booting Linux.*EL' | head -3 | sayp
+
+#
+# 2) MIMARI ZAMANLAYICI FREKANSI
+#
+# GTDT'miz 9830'dan uyarlanmisti ve hic dogrulanmadi. Windows zamanlayici
+# konusunda Linux'tan cok daha kati: sayac frekansini yanlis bilirse butun
+# zaman asimlari olceksiz olur. Cokusun HER SEFERINDE ~12 saniyede olmasi
+# sabit bir zaman asimina benziyor; yanlis olceklenmis bir 10 saniye
+# tam olarak boyle gorunur.
+#
+say "-- Mimari zamanlayici (GTDT dogrulamasi)"
+dmesg | grep -i -E 'arch_timer|architected timer' | head -4 | sayp
+
+#
+# 3) PSCI SURUMU VE CONDUIT
+#
+# FACP'de HVC'den SMC'ye gecince Linux 1 cekirdekten 8'e cikmisti. Windows
+# ayni yolu kullaniyor; surumu ve conduit'i kayda geciriyoruz.
+#
+say "-- PSCI"
+dmesg | grep -i psci | head -4 | sayp
+
+#
+# 4) GIC
+#
+# acpiview MADT'de GICR uyarilari vermisti. Linux hangi surumu bulmus,
+# kac kesme hatti gormus?
+#
+say "-- GIC"
+dmesg | grep -i -E 'GICv|GIC:|Interrupt Controller' | head -4 | sayp
+
+#
+# 5) KANCA KAYDINI LINUX TARAFINDAN OKU
+#
+# 0xCF000000'daki B2L Log bolgesi. EFI Shell zaten okuyor ama Linux'un da
+# okuyabilmesi bagimsiz bir dogrulama - hem bolgenin gercekten orada
+# oldugunu hem sifirlamayi atlattigini gosterir.
+# (/dev/mem kisitliysa calismaz, sorun degil.)
+#
+say "-- B2L Log 0xCF000000 (kanca kaydi)"
+if [ -c /dev/mem ] || mknod -m 600 /dev/mem c 1 1 2>/dev/null; then
+    say "   +0x40 imza : $(devmem 0xCF000040 32 2>/dev/null || echo okunamadi)"
+    say "   +0x80 imza : $(devmem 0xCF000080 32 2>/dev/null || echo okunamadi)"
+    say "   +0x88 type : $(devmem 0xCF000088 32 2>/dev/null || echo okunamadi)"
+    say "   +0x90 stat : $(devmem 0xCF000090 32 2>/dev/null || echo okunamadi)"
+else
+    say "   /dev/mem yok"
+fi
+
+say "======== /KRITIK ========"
+
 say "-- ACPI tablolari"
 if [ -d /sys/firmware/acpi/tables ]; then
     say "   $(ls /sys/firmware/acpi/tables/ | tr '\n' ' ')"

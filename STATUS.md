@@ -901,3 +901,37 @@ veri önbellekte kalırsa kaybolur.
 - İmza yok → kanca hiç çağrılmadı. Sıfırlama `ResetSystem`'den geçmiyor;
   istisna, doğrudan PSCI SMC, ya da güç devresi. O zaman istisna vektörlerine
   bakarız.
+
+### `RST_STAT` belirsizliği kapandı: register canlı
+
+Önceki iki ölçüm de `0x20000000` çıkmıştı ve bu belirsizdi — "Windows da
+yazılım sıfırlaması yapıyor" ile "register hiç güncellenmiyor" arasında karar
+veremiyorduk. Üçüncü ölçüm farklı bir değer verdi:
+
+| Açılış yolu | `RST_STAT` |
+|---|---|
+| Odin flaşından sonraki ilk açılış | `0x40010000` |
+| Kurtarma menüsünden kasıtlı yeniden başlatma | `0x20000000` |
+| **Windows çöktükten sonra** | **`0x20000000`** |
+
+Register açılış yoluna göre değişiyor, yani stuck değil. Ve Windows'un çöküşü
+kasıtlı bir yeniden başlatmayla aynı değeri üretiyor. **Sıfırlamayı yazılım
+istiyor.**
+
+`dmem` boyutu onaltılık okuyor — `dmem <adr> 192` 402 bayt döküyor ve ekranı
+taşırıyor. Kanca kaydı bu yüzden görülemedi; dökümler `0x10`/`0x40` olarak
+kısaltıldı.
+
+### Linux'un cevaplayabileceği, hiç bakmadığımız sorular
+
+Linux bizim ACPI'mizle açılıyor, Windows açılmıyor. Fark, Linux'un hoşgörüp
+Windows'un hoşgörmediği şeylerde olmak zorunda. `linux_test/init` artık
+bunları raporluyor:
+
+| Ne | Neden önemli |
+|---|---|
+| **Exception Level** | Windows ARM64 çekirdeği EL1'de çalışır. Bellek haritamızda `EL2 Code` diye 2 MB'lık bir bölge var (`0x87000000`), yani ortada bir EL2 stub'ı dolaşıyor. Linux `started at EL2` derse bu, sessiz çöküşün en güçlü adayı. |
+| **`arch_timer` frekansı** | GTDT'miz 9830'dan uyarlandı, hiç doğrulanmadı. Windows zamanlayıcı konusunda Linux'tan çok daha katı. Çöküşün her seferinde ~12 saniyede olması sabit bir zaman aşımına benziyor; yanlış ölçeklenmiş bir 10 saniye tam olarak böyle görünür. |
+| **PSCI sürümü/conduit** | FACP düzeltmesi Linux'u 1 çekirdekten 8'e çıkarmıştı; kayda geçiyor. |
+| **GIC sürümü** | `acpiview` MADT'de GICR uyarıları vermişti. |
+| **`0xCF000000` `devmem` ile** | Kanca kaydının bağımsız doğrulaması. |
