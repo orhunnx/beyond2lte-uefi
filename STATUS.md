@@ -2236,3 +2236,40 @@ bir iz dosyası bırakıyor ve çıkıyor.
 
 `if exist` kullanılmıyor: olmayan sürücü harfinde bekletebiliyor ve zaten
 yazma denemesinin kendisi testin ta kendisi.
+
+## Kısır döngü: iki çıktı kanalı da kapalı
+
+`WINLOG.TXT` hiçbir yere düşmedi, ve `startnet.cmd`'ye **dokunmak** cihazı
+anında karartıp sıfırlatıyor — animasyon bile gelmiyor. Stock içerik (tek
+satır `wpeinit`) ise düzgün çıkıp animasyonla kapanıyor.
+
+Durum şu:
+
+| Kanal | Neden kapalı |
+|---|---|
+| Dosyaya yazma | Depolama yok (`storufs` bağlanmıyor) |
+| Ekrana yazma | Görüntü sürücüsü yok, konsol çizilemiyor |
+
+Depolamayı test etmek için dosya yazmamız gerekiyor, dosya yazmak için
+depolama gerekiyor. Klasik kısır döngü.
+
+### Çözüm: cevabı SÜREYE kodla
+
+Elimizde gözlem olarak iki şey var — animasyonun gelip gelmediği ve **ne
+kadar sonra** geldiği. İkincisi bir bit taşıyabilir.
+
+Yeni `startnet.cmd` hiçbir şey yazmıyor. `wpeinit`'ten sonra `C:`–`G:`
+arasında bir birim arıyor:
+
+| Bulursa | Bulamazsa |
+|---|---|
+| ~30 saniye bekleyip çıkıyor | ~5 saniye bekleyip çıkıyor |
+
+Yani **animasyonun ne zaman geldiği doğrudan cevabı veriyor.** Uzun bekleme
+görürsek `storufs` bağlanmış demektir.
+
+Script ayrıca minimum tutuldu: `@echo off` yok, `::` yorum yok, parantezli
+`for` bloğu yok, yönlendirme yok. Önceki sürüm bunların hepsini içeriyordu ve
+anında ölüyordu; hangisinin öldürdüğünü bilmiyoruz, o yüzden hepsini birden
+çıkardık. Yalnızca `if exist`, `goto` ve `ping` kaldı — üçü de `wpeinit`
+sonrasında güvenli.
