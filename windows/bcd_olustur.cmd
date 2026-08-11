@@ -61,6 +61,19 @@ setlocal enabledelayedexpansion
 ::            bootmenupolicy zaten Legacy: menu metin modunda ciziliyor,
 ::            grafik yigina bagimli degil.
 ::
+::   menuram  RAM diskten acilis + menu. "menu"nun disk yerine ramdisk
+::            kullanani.
+::
+::            NEDEN GERI DONUYORUZ: disk yolunda winload her seyi hatasiz
+::            yukledi (50 saniye, UFS uzerindeki NTFS'ten) ama cekirdek 2
+::            saniyede oldu. RAM diskte cekirdek sonuna kadar gidiyor.
+::            Aradaki tek fark acilis biriminin UFS olmasi, yani suclu
+::            storufs.sys - ve onu ACPI'den duzeltmenin yolu yok
+::            (bkz. STATUS.md, "storufs: kapanan kapi").
+::
+::            RAM disk yolunda Windows GERCEKTEN ACILIYOR. Sirada onu
+::            ayakta tutmak ve calistigini gorunur kilmak var.
+::
 :: Ikisini AYNI ANDA deneme; hangisinin ise yaradigini bilemezsin.
 ::
 :: Cikti: Masaustunde "BCD" dosyasi. Onu WSL'deki depoya kopyala:
@@ -143,6 +156,17 @@ set "DISKMOD="
 if /i "%VAR%"=="disk" set "DISKMOD=1"
 if /i "%VAR%"=="menu" set "DISKMOD=1"
 
+::
+:: MENUMOD: acilis menusunu goster. "menu" (disk) ve "menuram" (RAM disk)
+:: varyantlarinin ortak yani.
+::
+:: Menu bize iki sey veriyor: (1) winload cagrilmadan once bir kontrol
+:: noktasi, (2) metin cizimi ve klavye girdisinin CALISTIGININ kaniti.
+::
+set "MENUMOD="
+if /i "%VAR%"=="menu"    set "MENUMOD=1"
+if /i "%VAR%"=="menuram" set "MENUMOD=1"
+
 if defined DISKMOD (
   bcdedit /store "%BCD%" /set %G% device   locate=\Windows\System32\winload.efi >nul || goto :hata
   bcdedit /store "%BCD%" /set %G% osdevice locate=\Windows\System32\winload.efi >nul || goto :hata
@@ -212,6 +236,15 @@ if defined DISKMOD (
   if errorlevel 1 echo   ! BASARISIZ: numproc 1
   echo   AYAR: numproc 1
 )
+::
+:: menuram: RAM diskten acilis + menu. numproc 1 bilinen iyi yapilandirmanin
+:: parcasi - onsuz cekirdek hic baslamiyordu.
+::
+if /i "%VAR%"=="menuram" (
+  bcdedit /store "%BCD%" /set %G% numproc 1
+  if errorlevel 1 echo   ! BASARISIZ: numproc 1
+  echo   AYAR: RAM disk + menu + numproc 1
+)
 if /i "%VAR%"=="azram" (
   bcdedit /store "%BCD%" /set %G% truncatememory 0x100000000
   if errorlevel 1 echo   ! BASARISIZ: truncatememory 0x100000000
@@ -233,7 +266,7 @@ if errorlevel 1 echo   ! BASARISIZ: default %G%
 ::
 :: timeout 30 - kullanici fotografi cekip Enter'a basacak kadar zaman.
 ::
-if /i "%VAR%"=="menu" (
+if defined MENUMOD (
   bcdedit /store "%BCD%" /set {bootmgr} displaybootmenu Yes
   if errorlevel 1 echo   ! BASARISIZ: displaybootmenu Yes
   bcdedit /store "%BCD%" /set {bootmgr} timeout 30

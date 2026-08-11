@@ -2429,3 +2429,64 @@ kendi yapar. Koherans zaten çalışıyorsa sadece yavaşlarız.
 |---|---|
 | 2 saniyeden uzun / açılıyor | Sorun tanımlayıcı görünürlüğüymüş |
 | Yine 2 saniye | DSDT ekseni tükendi; sıra `_CRS` tek aralıkta, sonra RAM diske dönüp WinPE'yi ayakta tutmakta |
+
+## `_CCA=0` sonuç vermedi — ve storufs: kapanan kapı
+
+Yine 1-2 saniye. Tanımlayıcı görünürlüğü değilmiş.
+
+Bu noktada DSDT ekseninin tükendiğini kabul etmek gerekiyor, ve sebebi bir
+ölçüm eksikliği değil — **yapısal**:
+
+`storufs.sys` jenerik bir UFSHCI miniport'u. Başlarken denetleyiciyi `HCE=1`
+ile resetliyor ve ardından standart `DME_LINKSTARTUP` gönderiyor. Exynos'ta
+HCE reseti UniPro'nun bütün yerel niteliklerini ve vendor blok yazmaçlarını
+siliyor; Linux'un `ufs-exynos.c`'si bu yüzden **her HCE'den sonra**
+`exynos_ufs_pre_link()` → `ufs_cal_pre_link()` çağırıp 26 tablo dolusu PMA ve
+UniPro kalibrasyonunu yeniden yazıyor. Bizim UEFI sürücümüz de aynısını
+yapıyor — çalışmasının sebebi bu.
+
+`storufs.sys` o kalibrasyonu bilmiyor ve bilemez. Ve **hiçbir ACPI nesnesi
+jenerik bir sürücüye Samsung PHY kalibrasyonu yaptıramaz.** `_HID`, `_CLS`,
+`_CRS`, `_CCA`, `_DSM` — hiçbiri kod çalıştırmıyor, hepsi sadece tanımlıyor.
+
+Bu kapı, Exynos için bir Windows UFS sürücüsü yazılana kadar kapalı. Mu-Silicium
+durum tablosunda Exynos ailesinin tamamında `Internal Storage` işaretsiz
+olmasının sebebi de bu.
+
+### Eksen değişikliği: RAM diske dönüş
+
+Diskten açma denemesi tam olarak yapması gerekeni yaptı — sorumluyu isimlendirdi
+ve bir kapıyı kesin biçimde kapattı. Kaybedilen bir şey yok.
+
+Bilinen durum:
+
+| Yol | Sonuç |
+|---|---|
+| Disk (UFS/NTFS) | winload sorunsuz, çekirdek 2 s'de ölüyor — storufs |
+| **RAM disk** | **Çekirdek sonuna kadar gidiyor** (sönme animasyonu, commit 43ef06c) |
+
+RAM disk yolunda Windows gerçekten açılıyor. Depolama yok, ama açılıyor. Sıra
+bunu **görünür ve kalıcı** kılmakta.
+
+### Yeni `startnet.cmd`: WinPE'yi ayakta tut
+
+```
+wpeinit
+ping -n 999 127.0.0.1 >nul
+pause
+```
+
+Üç satır, **etiket ve `goto` yok**. Daha önce startnet'i her değiştirişimizde
+açılış ölüyordu; o sürümlerin hepsinde `goto`/etiket vardı. `ping -n 999`
+yaklaşık 16 dakika bekliyor, ağ yığınına bağımlı değil (loopback), stdin'e de
+bağımlı değil. `pause` sadece emniyet kemeri.
+
+Okuma çok basit:
+
+| Ekranda | Sonuç |
+|---|---|
+| Cihaz açık kalıyor, sıfırlamıyor | **WinPE çalışıyor.** Sönme animasyonu bir çöküş değil, betiğin bitmesiydi |
+| Yine sıfırlıyor | Sönme animasyonu yorumumuz yanlıştı, WinPE sonuna kadar gitmiyor |
+
+Bu ölçüm otuz turdur cevaplayamadığımız soruyu kapatıyor: Windows bu telefonda
+çalışıyor mu, çalışmıyor mu.
