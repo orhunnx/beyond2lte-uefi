@@ -1059,3 +1059,60 @@ Geriye kancanın hiç çağrılmaması kalmıştı.
 | Windows `ResetSystem` çağırıyor | **Elendi** (kanca hiç ateşlemedi) |
 | EL2'de açılıyoruz | Elendi (EL1) |
 | **Windows doğrudan PSCI SMC ile sıfırlıyor** | **Test ediliyor** |
+
+## PSCI hipotezi de elendi — artık ikiye bölüyoruz
+
+`PSCI_COMPLIANT = 0` ile Windows'un elinde sıfırlamak için tek yol bizim
+`ResetSystem`'imiz kalmıştı. Kanca kaydı yazdıktan sonra kilitlenecek şekilde
+kuruldu. Sonuç: cihaz yine yeniden başladı, kanca yine ateşlemedi.
+
+Sıfırlama ne `ResetSystem`'den ne de Windows'un PSCI çağrısından geliyor.
+FADT bayrağı eski haline (`0001`) döndürüldü.
+
+### Bir şeyi yanlış kaydetmişim
+
+"Ekran ölü" diye yazmıştım. Değil — **dönen daire çiziliyor**, yani Windows'un
+`bootvid` yolu çalışıyor ve framebuffer'ımıza yazabiliyor. Bir bugcheck olsaydı
+mavi ekranı aynı yoldan çizerdi. Çizmiyor. Ayrıca WinPE hive'ında
+`AutoReboot = 0` yamalı; bugcheck olsaydı cihaz yeniden başlamak yerine ekranda
+kalırdı. **Bu bir bugcheck değil.**
+
+### Tükenen tanı kanalları
+
+| Kanal | Sonuç |
+|---|---|
+| `sos` / `bootstatuspolicy` | Sessiz |
+| `bootstat.dat` | Yazılamıyor |
+| `ResetSystem` kancası | Hiç çağrılmıyor (kilitlenme moduyla doğrulandı) |
+| `PSCI_COMPLIANT = 0` | Değiştirmedi |
+| `RST_STAT` | Yazılım sıfırlaması, watchdog değil |
+| GTDT | DTB ile birebir doğru |
+| Exception level | EL1 |
+
+Geriye tek ölçüm kaldı: **süre.** Ve bir kez gerçekten hareket etti — DSDT'den
+`_CLS` kaldırılınca 5-6 saniyeden 12 saniyeye çıktı. Windows'a verdiğimiz ACPI
+içeriği süreyi değiştiriyor. Artık tahmin etmiyoruz, ikiye bölüyoruz.
+
+### İlk bölme: MADT'de tek çekirdek
+
+Projedeki en güçlü ama hiç takip edilmemiş anomali: **`numproc 1` olmadan
+Windows çekirdeği hiç başlamıyor.** İkincil çekirdek açılışı Windows'u anında
+öldürüyor. Ama `numproc 1` Windows'un kaç çekirdek *kullanacağını* sınırlıyor,
+MADT'de kaç çekirdek *gördüğünü* değil — Windows hâlâ sekiz işlemcilik yapı
+kuruyor ve onları açmaya çalışıp zaman aşımı bekliyor.
+
+`APIC.dsl`'de UID 1..7 → `Processor Enabled : 0`. Tek değişken bu.
+
+| Gözlem | Sonuç |
+|---|---|
+| Süre değişiyor | Sorun çekirdek açılışında |
+| 12 saniye aynı | Çekirdekler masum, başka yere bakarız |
+
+### LUN 2 sorusu
+
+`LUN=2 LBA=0` yazma hataları bizim dosyalarımızla ilgili değil. `OCS=0x07` +
+`response=0x01` aygıtın reddi — Samsung boot LU'larını `bLUWriteProtect` ile
+kilitler, genelde kalıcı olarak. `map -r` GPT bölümlerinin LUN 0 ve LUN 3'te
+olduğunu gösterdi; LUN 2'de bölüm yok. `bootmgfw` o hataların ardından yoluna
+devam edip Windows'u yüklüyor. `startup.nsh` artık `map fs0` ile fs0'ın LUN'unu
+tek satırda basıyor, soru kalıcı olarak kapansın.

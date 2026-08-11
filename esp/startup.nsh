@@ -66,6 +66,27 @@ echo +0x80 onceki cokus:
 dmem 0xCF000080 40
 echo .
 
+#
+# ------------------------------------------------------------------------
+# 3) fs0 HANGI LUN'DA - LUN 2 SORUSUNU KAPATMAK ICIN
+# ------------------------------------------------------------------------
+# Ekranda surekli "B2L UFS: WriteBlocks LUN=2 LBA=0 ... Device Error" gecip
+# duruyor. OCS=0x07 + response=0x01: istek denetleyiciye ulasiyor, UFS
+# AYGITI reddediyor - LU yazma korumasi (Samsung boot LU'larini kilitler,
+# genelde kalici ve yazilimla acilmaz).
+#
+# "map -r" GPT bolumlerinin LUN 0'da (cp_debug, userdata) ve LUN 3'te
+# (cpefs) oldugunu gosterdi; LUN 2'de bolum yok. Yani bizim ESP'miz orada
+# degil ve bootmgfw o hatalarin ardindan yoluna devam ediyor. Ama tam
+# cikti ekrandan tastigi icin fs0'in kendisini hic goremedik.
+#
+# "map fs0" tek satir basar ve soruyu kalici olarak kapatir: aygit yolundaki
+# VenHw(...,XX) kismindaki XX, fs0'in LUN numarasi.
+#
+echo ================ fs0 AYGIT YOLU
+map fs0
+echo .
+
 echo ================ FOTOGRAFLA, sonra tusa bas.
 pause
 

@@ -97,7 +97,7 @@
 [080h 0128 001h]        Value to cause reset : 01
 //
 // ===========================================================================
-// PSCI GECICI OLARAK KAPATILDI - TANI TESTI
+// PSCI TESTI KOSULDU VE ELENDI - BAYRAK GERI ACILDI
 // ===========================================================================
 //
 // GECMIS: bu alan once 0003'tu (PSCI Compliant + HVC). HVC'yi kapatip 0001
@@ -121,20 +121,19 @@
 // PSCI SYSTEM_RESET cagiriyor, bizim ResetSystem'imize hic ugramadan.
 // Kancanin bos kalmasinin sebebi bu.
 //
-// TEST: bayragi sifirla. Windows'un elinde sifirlamak icin tek yol kalir,
-// o da bizim ResetSystem'imiz - ve kanca ates eder.
-//
-// IKI SONUC DA BILGI:
-//   kanca ates ederse -> ResetStatus elimize gecer, cokusun kodu okunur
-//   yine sessizse     -> sifirlama Windows yazilimindan gelmiyor
+// TEST KOSULDU: bayrak sifirlandi, kanca kayit yazdiktan sonra kilitlenecek
+// sekilde kuruldu. SONUC: cihaz yine yeniden basladi, kanca yine ates
+// etmedi. Yani sifirlama ne ResetSystem'den ne de Windows'un PSCI
+// cagrisindan geliyor. HIPOTEZ ELENDI, bayrak eski haline getirildi -
+// artik tek degisken MADT.
 //
 // MALIYETI YOK: numproc 1 ile zaten tek cekirdek kullaniyoruz, CPU_ON'a
 // ihtiyacimiz yok. Linux tarafi bu imajla tek cekirdege duser, normal.
 //
 // GERI ALMAK ICIN: 0001 yaz, PSCI Compliant : 1.
 //
-[081h 0129 002h]   ARM Flags (decoded below) : 0000
-                              PSCI Compliant : 0
+[081h 0129 002h]   ARM Flags (decoded below) : 0001
+                              PSCI Compliant : 1
                        Must use HVC for PSCI : 0
 
 [083h 0131 001h]         FADT Minor Revision : 00
