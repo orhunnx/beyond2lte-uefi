@@ -1531,3 +1531,53 @@ değiştirmiyor, sadece açılışı hızlandırıyor.
 Windows tarafında da geri dönülecekler var: o gün **25H2** vardı ve ESP
 **CACHE**'te FAT16'ydı; şu an 23H2 ve SYSTEM'de FAT32. `startnet.cmd` ise
 `--stok` ile devre dışı.
+
+## Doğru hedef `43ef06c` değil, `43ef06c^`
+
+`43ef06c` animasyonu **gördüğümüz** commit değil, ona **tepki verdiğimiz**
+commit — `startnet.cmd` enjeksiyonu tam orada eklendi. Animasyonu üreten
+yapılandırma bir öncesi.
+
+```
+git diff --stat 43ef06c^ 43ef06c
+ windows/startnet.cmd | 64 ++++++++++
+```
+
+Aradaki tek fark o dosyanın eklenmesi; ACPI ve firmware bire bir aynı. Yani
+`--stok` ile dosyayı devre dışı bıraktığımız için ACPI tarafında zaten doğru
+yerdeydik. Ama o noktada olmayan üç şey daha uygulanıyordu:
+
+| Şey | Ne yapıyordu | Durum |
+|---|---|---|
+| `tools_ufs_patch.py` | `UfsDxe.c`'ye önbellek bakımı + `B2L UFS:` çıktısı | `yap.sh`'te kapatıldı |
+| `BoardInit.c` | `B2L RESET:` DEBUG satırları | Geri alındı |
+| `UfsDxe.inf` | `CacheMaintenanceLib` eklentisi | Geri alındı |
+
+İlki önemli: UEFI tarafını değiştiriyor, yani Windows devraldığında UFS
+denetleyicisinin **bulunduğu durumu** değiştirebilir.
+
+`PcdFrameBufferDelay|0` bilerek korundu — Windows'un gördüğü hiçbir şeyi
+değiştirmiyor, sadece DXE günlüğünün ekrana akış hızını etkiliyor.
+
+BCD tarafında da o gün `tekcpu` varyantı vardı (`13f67c1`: "numproc 1 çekirdeği
+başlattı; BCD legacy boot + bootux kapalı"), `hatagoster` değil.
+
+## Hazır ama bağlanmadı: `EbsTest`
+
+`Applications/EbsTest/EbsTest.c` yazıldı, henüz `.dsc`'ye eklenmedi.
+
+`ExitBootServices` çağırıp **hiçbir şey kurmayan** bir kalp atışı: boot
+servisleri kapandıktan sonra geriye yalnızca framebuffer'a yazan bir döngü
+kalıyor. Ne zamanlayıcı, ne kesme, ne sürücü. Her tik ekrana bir kare
+çiziyor, yani kendi kendini zamanlıyor — cihaz sıfırlanınca kareleri saymak
+yetiyor.
+
+Linux `ExitBootServices` çağırıp 120 saniye yaşıyor ama her şeyi kuruyor.
+Windows çağırıp 15 saniyede ölüyor. Aradaki üçüncü durum hiç denenmedi:
+
+| Gözlem | Sonuç |
+|---|---|
+| ~15 saniyede sıfırlıyor | Sorun Windows'ta **değil**; platform servis edilmeyen bir şeye takılıyor ve Linux onu tesadüfen tatmin ediyor |
+| Dakikalarca yaşıyor | Sıfırlama gerçekten Windows'a özel |
+
+Geri dönüş de tutmazsa sıradaki adım bu.

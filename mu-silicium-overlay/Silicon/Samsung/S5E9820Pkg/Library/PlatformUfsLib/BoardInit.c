@@ -119,28 +119,6 @@ UfsBoardInit (struct UfsHost *Ufs)
   RstStat = MmioRead32 (EXYNOS9820_PMU_RST_STAT);
   DfdEn   = MmioRead32 (EXYNOS9820_PMU_SEQUENCER);
 
-  //
-  // SIFIRLAMA SEBEBI - donanimsiz tani kanali.
-  //
-  // PMU'nun RST_STAT registeri son sifirlamanin KAYNAGINI tutuyor ve
-  // sifirlamayi asiyor. Windows cokup cihaz yeniden baslayinca, bir SONRAKI
-  // aciliste burasi bize neden sifirlandigini soyler:
-  //
-  //   WARM_RESET (bit 28)       -> yazilim sicak sifirlama istedi
-  //                                (Windows'un ResetSystem cagrisi bu)
-  //   LITTLE_WDT_RESET (bit 24) -> kucuk cekirdek watchdog'u atti
-  //                                (yazilim takildi, donanim mudahale etti)
-  //   ikisi de yoksa            -> soguk acilis, yani guc kesildi ya da
-  //                                cok daha sert bir sey oldu
-  //
-  // Ayrim onemli: Windows'un kendi istedigi bir reset ile donanimin zorla
-  // attigi bir reset tamamen farkli yerlere bakmayi gerektiriyor.
-  //
-  DEBUG ((EFI_D_ERROR, "B2L RESET: RST_STAT=0x%08x  SEQ=0x%08x\n", RstStat, DfdEn));
-  DEBUG ((EFI_D_ERROR, "B2L RESET:   WARM(28)=%d  LITTLE_WDT(24)=%d\n",
-          (RstStat & WARM_RESET) ? 1 : 0,
-          (RstStat & LITTLE_WDT_RESET) ? 1 : 0));
-
   Status = gBS->LocateProtocol (&gEfiGpioProtocolGuid, NULL, (VOID *)&mGpioProtocol);
   if (EFI_ERROR (Status)) {
     DEBUG ((EFI_D_ERROR, "Failed to Locate GPIO Protocol! Status = %r\n", Status));

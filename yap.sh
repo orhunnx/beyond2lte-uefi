@@ -66,7 +66,23 @@ echo "  Resources/{Configs,DTBs}/beyond2lte.*"
 # Dosyanin tamamini overlay'e kopyalamiyoruz (~1000 satir, upstream
 # duzeltmelerini kaybederdik); sadece dokundugumuz satirlar yamada.
 #
-python3 "$PROJ/tools_ufs_patch.py" "$MU"
+#
+# UFS YAMASI GECICI OLARAK KAPALI - BILINEN IYI NOKTAYA DONUS
+#
+# tools_ufs_patch.py, upstream UfsDxe.c'ye onbellek bakimi (WriteBack/
+# Invalidate) ve "B2L UFS:" enstrumantasyonu ekliyor. Ikisi de UEFI
+# TARAFINI degistiriyor - yani Windows devraldiginda UFS denetleyicisinin
+# BULUNDUGU DURUMU degistirebilir.
+#
+# Bu yama, ekranda animasyonlu sonmeyi gordugumuz noktadan (43ef06c^) SONRA
+# eklendi. Bilinen iyi noktaya donerken bunu birakmak, "her seyi geri aldik"
+# demeyi yanlis kilardi.
+#
+# Geri acmak icin asagidaki satirin yorumunu kaldir. Enstrumantasyon
+# ciktilarina (WriteBlocks/OCS satirlari) tekrar ihtiyac olursa gerekli.
+#
+# python3 "$PROJ/tools_ufs_patch.py" "$MU"
+echo "  UFS yamasi ATLANDI (bilinen iyi noktaya donus)"
 
 #
 # ACPI.inc'i ETKINLESTIR - ama $MU icindeki kopyada, depoda degil.
