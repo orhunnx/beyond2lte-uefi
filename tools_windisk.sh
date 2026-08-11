@@ -68,7 +68,14 @@ dd if=/dev/zero of="$IMG" bs=1M count=$((GIB*1024)) status=none
 # -Q hizli bicimlendirme (kotu blok taramasi yok), -F dosyaya yazmayi zorla.
 # Sektor ve kume 4096: UFS mantiksal blok boyutuyla ayni olmali.
 #
-mkntfs -Q -F -s 4096 -c 4096 -L WINPE "$IMG" >/dev/null
+#
+# mkntfs "Windows will not be able to boot from this device" diye uyaracak.
+# ZARARSIZ: o uyari BPB'deki HiddenSectors ve CHS alanlarinin bos kalmasiyla
+# ilgili ve bunlar ESKI BIOS onyukleme kodu icin. UEFI'de bootmgr bolumu
+# UEFI blok G/C uzerinden aciyor ve kendi NTFS okuyucusuyla bolumun basindan
+# itibaren okuyor; o alanlara hic bakmiyor.
+#
+mkntfs -Q -F -s 4096 -c 4096 -L WINPE "$IMG" 2>&1 | grep -vi "not a block device\|has been set to 0\|was not specified\|will not be able to boot\|forced anyway" || true
 echo "  hazir: $(du -h "$IMG" | cut -f1)"
 
 say "boot.wim NTFS'e aciliyor"
@@ -87,14 +94,34 @@ if ! wimlib-imagex apply "$WIM" 1 "$IMG"; then
   exit 1
 fi
 
+#
+# ICERIK DOGRULAMA
+#
+# ONCEKI SURUM YANILTICIYDI: "ntfscat | head" kullaniyordu ve ntfscat kurulu
+# olmadiginda "set -e"/pipefail yuzunden uc satirin da OKUNAMADI gorunmesine
+# yol acti. Oysa asil kanit hemen ustundeydi - wimlib 24932 dosyayi ve
+# 1381 MiB veriyi yazdigini bildirmisti.
+#
+# Simdi ntfsls tercih ediliyor; yoksa dogrulama ATLANIYOR ve bunu acikca
+# soyluyoruz. Yanlis alarm, alarm olmamasindan kotudur.
+#
 say "Icerik dogrulaniyor"
-for f in /Windows/System32/winload.efi /Windows/System32/config/SYSTEM /Windows/System32/ntoskrnl.exe; do
-  if ntfscat "$IMG" "$f" 2>/dev/null | head -c1 >/dev/null 2>&1; then
-    echo "  + $f"
-  else
-    echo "  ! $f OKUNAMADI"
-  fi
-done
+if command -v ntfsls >/dev/null; then
+  for d in /Windows/System32 /Windows/System32/config; do
+    N="$(ntfsls -p "$d" "$IMG" 2>/dev/null | wc -l)"
+    printf '  %-32s %s girdi\n' "$d" "$N"
+  done
+  for f in winload.efi ntoskrnl.exe; do
+    if ntfsls -p /Windows/System32 "$IMG" 2>/dev/null | grep -qi "^$f$"; then
+      echo "  + $f"
+    else
+      echo "  ! $f LISTEDE YOK"
+    fi
+  done
+else
+  echo "  ntfsls yok, dogrulama atlandi -> sudo apt install -y ntfs-3g"
+  echo "  wimlib'in kendi raporu gecerli: yukarida 'Done applying WIM image'"
+fi
 
 say "Odin icin sparse imaj + tar"
 WORK="$(mktemp -d)"
