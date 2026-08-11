@@ -309,14 +309,25 @@ sadece-kapat|hepsi-ac)
   echo "Simdi: bash cache_esp.sh --win"
   ;;
 
-kapat|ac)
+kapat|ac|zorla-kapat)
   [ "$#" -gt 0 ] || { echo "En az bir servis adi ver."; exit 1; }
-  if [ "$KOMUT" = "kapat" ]; then DEGER="dword:4"; SOZ="DEVRE DISI"; else DEGER="dword:0"; SOZ="ACILIS"; fi
+  if [ "$KOMUT" = "ac" ]; then DEGER="dword:0"; SOZ="ACILIS"; else DEGER="dword:4"; SOZ="DEVRE DISI"; fi
 
+  #
+  # "zorla-kapat" KORUMALI listesini YOK SAYAR.
+  #
+  # Koruma listesi "onsuz WinPE hic acilmaz" diye kurulmustu ve o donemde
+  # dogruydu. Ama artik amac WinPE'yi ACMAK DEGIL - sifirlamanin durup
+  # durmadigini olcmek. Kalp atisi kendi Start=0 surucumuzden geliyor ve
+  # WinPE bozulsa da calismaya devam ediyor.
+  #
+  # Ilk hedef acpi.sys: on saniyelik pencerede platformla konusan tek
+  # bilesen o, ve hep korumali listede oldugu icin hic denenmedi.
+  #
   say "$SOZ yapiliyor: $*"
   for S in "$@"; do
-    if echo " $KORUMALI " | grep -qi " $S " && [ "$KOMUT" = "kapat" ]; then
-      echo "  ! $S KORUMALI, atlandi (onsuz cekirdek hic baslamaz)"
+    if [ "$KOMUT" = "kapat" ] && echo " $KORUMALI " | grep -qi " $S "; then
+      echo "  ! $S KORUMALI, atlandi (zorlamak icin: zorla-kapat)"
       continue
     fi
     if STARTYAZ "$S" "${DEGER##*:}"
