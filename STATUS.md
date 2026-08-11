@@ -1818,3 +1818,26 @@ yamanın **geri okunarak doğrulanması** kural.
 Taşıma sırasında bir tuzak: blok içinde `<<'REG'` here-doc var; girintisi
 değişirse kabuk sonlandırıcıyı göremiyor (`unexpected end of file`). Girinti
 korunarak taşındı.
+
+### `hivexregedit` `libhivex-bin`'de değil
+
+`sudo apt install libhivex-bin` yapıldı ama script yine "hivexregedit yok"
+dedi. Çünkü `hivexregedit` o pakette değil — bir Perl scripti ve
+**`libwin-hivex-perl`** paketiyle geliyor. `libhivex-bin` sadece `hivexsh`,
+`hivexget` ve `hivexml` veriyor.
+
+`tools_winboot.sh` artık ikisiyle de çalışıyor:
+
+| Araç | Ne zaman | Nasıl |
+|---|---|---|
+| `hivexregedit` | Varsa (tercih edilen) | `.reg` birleştirme |
+| `hivexsh` | Yoksa | `setval` ile aynı değerler |
+| `hivexget` | Doğrulama | `libhivex-bin`'de, her durumda var |
+
+Doğrulama artık `.reg` dışa aktarımı yerine `hivexget` ile yapılıyor ve iki
+değeri de basıyor:
+
+```
+WIM'den geri okundu: AutoReboot=0  DisplayParameters=1
+DOGRULANDI: bugcheck olursa cihaz ekranda kalacak
+```

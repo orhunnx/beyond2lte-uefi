@@ -287,62 +287,98 @@ if [ -s "$ESP/sources/boot.wim" ] && command -v wimlib-imagex >/dev/null; then
   #
   # Bunlar olmadan her tur "yeniden basladi" demekten oteye gidemiyoruz.
   #
-  if command -v hivexregedit >/dev/null; then
-    say "WinPE registry: AutoReboot kapatiliyor"
+  #
+  # IKI ARAC, IKI PAKET - BU BIR TUR KAYBETTIRDI.
+  #
+  # "sudo apt install libhivex-bin" yaptik ama script yine "hivexregedit yok"
+  # dedi. Cunku hivexregedit o pakette DEGIL: bir Perl scripti ve
+  # "libwin-hivex-perl" paketiyle geliyor. libhivex-bin sadece hivexsh,
+  # hivexget ve hivexml veriyor.
+  #
+  # Artik ikisiyle de calisiyor:
+  #   hivexregedit varsa  -> .reg birlestirme (okunakli, tercih edilen)
+  #   yoksa hivexsh       -> "setval" ile ayni degerleri elle yaziyoruz
+  #
+  # Dogrulama hivexget ile; o da libhivex-bin'de, yani her durumda var.
+  #
+  HIVEARAC=""
+  command -v hivexregedit >/dev/null && HIVEARAC="regedit"
+  [ -z "$HIVEARAC" ] && command -v hivexsh >/dev/null && HIVEARAC="sh"
+
+  if [ -n "$HIVEARAC" ]; then
+    say "WinPE registry: AutoReboot kapatiliyor  (arac: hivex$HIVEARAC)"
     HV="$W/hive"; mkdir -p "$HV"
     if wimlib-imagex extract "$ESP/sources/boot.wim" 1 \
          /Windows/System32/config/SYSTEM --dest-dir="$HV" --no-acls >/dev/null 2>&1; then
-      cat > "$W/crash.reg" <<'REG'
+
+      YAZILDI=0
+      if [ "$HIVEARAC" = "regedit" ]; then
+        cat > "$W/crash.reg" <<'REG'
 [HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Control\CrashControl]
 "AutoReboot"=dword:00000000
 "DisplayParameters"=dword:00000001
 REG
-      if hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' \
-           "$HV/SYSTEM" "$W/crash.reg" 2>/dev/null; then
+        hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' \
+          "$HV/SYSTEM" "$W/crash.reg" 2>/dev/null && YAZILDI=1
+      else
+        #
+        # hivexsh: "setval N" komutundan sonra N tane (isim, deger) CIFTI
+        # satir satir okunuyor. Yol ayiraci ters egik cizgi.
+        #
+        hivexsh -w "$HV/SYSTEM" <<'HSH' >/dev/null 2>&1 && YAZILDI=1
+cd \ControlSet001\Control\CrashControl
+setval 2
+AutoReboot
+dword:0
+DisplayParameters
+dword:1
+commit
+HSH
+      fi
+
+      if [ "$YAZILDI" = 1 ]; then
         wimlib-imagex update "$ESP/sources/boot.wim" 1 \
           --command="add '$HV/SYSTEM' /Windows/System32/config/SYSTEM" >/dev/null
         wimlib-imagex optimize "$ESP/sources/boot.wim" >/dev/null
-        echo "  AutoReboot=0 yazildi, WIM guncellendi ($(du -h "$ESP/sources/boot.wim" | cut -f1))"
+        echo "  yazildi, WIM guncellendi ($(du -h "$ESP/sources/boot.wim" | cut -f1))"
 
         #
-        # GERI OKUYUP DOGRULA. Bu adim eksikti ve gercek bir bosluk biraktu.
-        #
-        # "Mavi ekran hic gormuyoruz" gozleminin tamami AutoReboot=0'in
-        # gercekten uygulanmis olmasina dayaniyor. Uygulanmadiysa bugcheck
-        # zaten cihazi yeniden baslatir ve gormememiz gayet normaldir - yani
-        # "cokus bugcheck degil" cikarimi temelsiz kalir.
-        #
-        # Bir turda ciktida "hivexregedit yok" uyarisi gecti ve o WIM'in
-        # yamalanip yamalanmadigi hic dogrulanmadi.
+        # GERI OKUYUP DOGRULA. "Mavi ekran hic gormuyoruz" gozleminin tamami
+        # bu ayarin gercekten uygulanmis olmasina dayaniyor; uygulanmadiysa
+        # bugcheck zaten cihazi yeniden baslatir ve gormememiz normaldir,
+        # yani "cokus bugcheck degil" cikarimi temelsiz kalir.
         #
         DV="$W/dogrula"; mkdir -p "$DV"
         if wimlib-imagex extract "$ESP/sources/boot.wim" 1 \
              /Windows/System32/config/SYSTEM --dest-dir="$DV" --no-acls >/dev/null 2>&1; then
-          AR="$(hivexregedit --export "$DV/SYSTEM" '\ControlSet001\Control\CrashControl' 2>/dev/null | grep -i '"AutoReboot"' || true)"
-          if echo "$AR" | grep -qi 'dword:00000000'; then
-            echo "  DOGRULANDI: $AR"
-          else
-            echo "  ! DOGRULANAMADI. WIM'de okunan: ${AR:-<deger yok>}"
-            echo "  ! Bugcheck olsa bile cihaz yeniden baslar, mavi ekrani goremeyiz."
-          fi
+          AR="$(hivexget "$DV/SYSTEM" 'ControlSet001\Control\CrashControl' AutoReboot 2>/dev/null || true)"
+          DP="$(hivexget "$DV/SYSTEM" 'ControlSet001\Control\CrashControl' DisplayParameters 2>/dev/null || true)"
+          echo "  WIM'den geri okundu: AutoReboot=${AR:-<yok>}  DisplayParameters=${DP:-<yok>}"
+          case "$AR" in
+            0|0x0|0x00000000) echo "  DOGRULANDI: bugcheck olursa cihaz ekranda kalacak" ;;
+            *) echo "  ! DOGRULANAMADI - bugcheck olsa bile cihaz yeniden baslar" ;;
+          esac
         else
           echo "  ! UYARI: dogrulama icin hive geri okunamadi"
         fi
       else
-        echo "  UYARI: hive duzenlenemedi, AutoReboot acik kaliyor"
+        echo "  ! UYARI: hive duzenlenemedi, AutoReboot acik kaliyor"
       fi
     else
-      echo "  UYARI: SYSTEM hive cikarilamadi"
+      echo "  ! UYARI: SYSTEM hive cikarilamadi"
     fi
   else
     echo
     echo "  ###############################################################"
-    echo "  # hivexregedit YOK -> sudo apt install -y libhivex-bin"
+    echo "  # HIC HIVEX ARACI YOK."
+    echo "  #   sudo apt install -y libhivex-bin libwin-hivex-perl"
     echo "  #"
-    echo "  # BU ATLANACAK BIR UYARI DEGIL. Onsuz WinPE hive'ina"
-    echo "  # AutoReboot=0 yazilamiyor; bugcheck olsa bile cihaz aninda"
-    echo "  # yeniden baslar ve mavi ekrani ASLA goremeyiz. 'Cokus bugcheck"
-    echo "  # degil' cikarimi tam da bu ayara dayaniyor."
+    echo "  # DIKKAT: hivexregedit libhivex-bin'de DEGIL, libwin-hivex-perl"
+    echo "  # paketindedir. Ikisini de kur."
+    echo "  #"
+    echo "  # Bu atlanacak bir uyari degil: onsuz AutoReboot=0 yazilamiyor,"
+    echo "  # bugcheck olsa bile cihaz aninda yeniden baslar ve mavi ekrani"
+    echo "  # ASLA goremeyiz. 'Cokus bugcheck degil' cikarimi buna dayaniyor."
     echo "  ###############################################################"
     echo
   fi
