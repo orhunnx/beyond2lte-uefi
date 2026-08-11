@@ -110,6 +110,34 @@ __declspec(dllimport) UINT8 KeRegisterBugCheckCallback (
  * yaziyor, bize yeterince buyuk ve hizali alan lazim. Ikisi de 64 bitte
  * 0x40 bayt; 128 bayt fazlasiyla yeterli.
  */
+/*
+ * BOSTA ISLEMCIYI ENGELLEME - EN GUCLU HIPOTEZ
+ *
+ * Iki "sifirlama olmadi" olcumunun ORTAK NOKTASI:
+ *   - EbsTest mesgul dongude 60+ saniye yasadi
+ *   - DriverEntry blokajinda sonsuz dongu ceviriyorduk, 25+ serit
+ * Ikisinde de ISLEMCI HIC BOSA DUSMEDI.
+ *
+ * Exynos'un PMU'su, butun cekirdekler WFI'ye girdiginde sistemi dusuk guc
+ * durumuna sokacak sekilde yapilandirilabiliyor. Uyandirma kaynaklari dogru
+ * kurulmamissa oradan donus olmaz. Linux cpuidle surucusuyle bunu dogru
+ * yapiyor; bizim DSDT'de ne _LPI var ne _CST, yani Windows HAL'in
+ * varsayilan WFI'sini kullaniyor.
+ *
+ * Zamanlama da oturuyor: Windows ancak acilis yeterince ilerleyince gercek
+ * bosta zamana sahip oluyor - yaklasik on saniye.
+ *
+ * TEST: bosta is parcaciginin yerine gecen, EN DUSUK oncelikte donen bir
+ * is parcacigi. Bosta is parcacigi oncelik 0'da; 1'deki bir is parcacigi
+ * her zaman ondan once secilir. Acilis normal ilerler cunku diger her sey
+ * daha yuksek oncelikte, ama CPU hic WFI'ye girmez.
+ */
+__declspec(dllimport) long PsCreateSystemThread (
+  PVOID *ThreadHandle, UINT32 DesiredAccess, PVOID ObjectAttributes,
+  PVOID ProcessHandle, PVOID ClientId, PVOID StartRoutine, PVOID StartContext);
+__declspec(dllimport) PVOID KeGetCurrentThread (void);
+__declspec(dllimport) long  KeSetPriorityThread (PVOID Thread, long Priority);
+
 __declspec(dllimport) void KeInitializeDpc (PVOID Dpc, PVOID Routine, PVOID Context);
 __declspec(dllimport) void KeInitializeTimer (PVOID Timer);
 __declspec(dllimport) UINT8 KeSetTimerEx (PVOID Timer, long long DueTime, int Period, PVOID Dpc);
@@ -206,6 +234,23 @@ __declspec(align(16)) static UINT64 gTimer[16];
 __declspec(align(16)) static UINT64 gDpc[16];
 
 static UINT64 gTik = 0;
+
+/*
+ * Bosta is parcaciginin yerine gecen dongu. Oncelik 1: bosta is parcacigi
+ * (0) disinda HER SEY bundan once calisir, dolayisiyla acilis yavaslamaz.
+ */
+static void BostaDongu (PVOID Ctx)
+{
+  volatile UINT64 I = 0;
+
+  (void)Ctx;
+
+  KeSetPriorityThread (KeGetCurrentThread (), 1);
+
+  for (;;) {
+    I++;
+  }
+}
 
 /*
  * Saniyede bir. Her tik bir sonraki parcayi boyuyor ve rengi degistiriyor,
@@ -421,6 +466,15 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
    * DueTime negatif = GORELI, 100 ns birimi. -10000000 = 1 saniye.
    * Period = 1000 ms, yani saniyede bir tekrar.
    */
+  /*
+   * Bosta engelleyici. En sonda ve donusu YOK SAYILIYOR: basarisiz olsa
+   * bile digher kanallar calismaya devam etsin.
+   */
+  {
+    PVOID Th = 0;
+    PsCreateSystemThread (&Th, 0x1F03FF, 0, 0, 0, (PVOID)BostaDongu, 0);
+  }
+
   KeInitializeDpc ((PVOID)gDpc, (PVOID)HeartbeatDpc, 0);
   KeInitializeTimer ((PVOID)gTimer);
   KeSetTimerEx ((PVOID)gTimer, -10000000LL, 1000, (PVOID)gDpc);

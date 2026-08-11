@@ -63,6 +63,9 @@ LIBRARY ntoskrnl.exe
 EXPORTS
 MmMapIoSpace
 KeRegisterBugCheckCallback
+PsCreateSystemThread
+KeGetCurrentThread
+KeSetPriorityThread
 KeInitializeDpc
 KeInitializeTimer
 KeSetTimerEx

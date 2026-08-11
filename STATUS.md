@@ -3619,3 +3619,48 @@ biliyorduk — ve PnP işlemci sayımı tam olarak izole ettiğimiz pencerede.
 
 Artık Windows tek çekirdekli bir makine görüyor ve iki tablo aynı şeyi
 söylüyor. Blokaj kaldırıldı, sürücü tekrar en erken açılış sürücüsü.
+
+# ★ En güçlü hipotez: boşta işlemci (WFI) → PMU
+
+`BasicDisplay`, `UFS0`, işlemci tabloları, bütün açılış sürücüleri — hiçbiri
+değil. Ama geriye dönüp **"sıfırlama olmadı" ölçümlerinin ortak noktasına**
+bakınca desen ortaya çıktı:
+
+| Ölçüm | Sonuç | İşlemci ne yapıyordu |
+|---|---|---|
+| `EbsTest`, EBS sonrası | 60+ s yaşadı | **Meşgul döngü** |
+| `DriverEntry` blokajı (erken) | 25+ şerit | **Sonsuz döngü** |
+| `DriverEntry` blokajı (geç) | 20+ şerit | **Sonsuz döngü** |
+| Normal açılış | 10 s | Boşa düşüyor |
+
+**Hayatta kaldığımız her ölçümde işlemci hiç boşa düşmedi.**
+
+## Mekanizma
+
+Exynos'un PMU'su, bütün çekirdekler `WFI`'ye girdiğinde sistemi düşük güç
+durumuna sokacak şekilde yapılandırılabiliyor. Uyandırma kaynakları doğru
+kurulmamışsa oradan dönüş olmaz — dışarıdan bakınca temiz bir sıfırlama.
+
+Linux `cpuidle` sürücüsüyle bunu doğru yapıyor. Bizim DSDT'de ne `_LPI` var
+ne `_CST`, yani Windows HAL'in varsayılan `WFI`'sini kullanıyor.
+
+Zamanlama da oturuyor: Windows ancak açılış yeterince ilerleyince gerçek
+boşta zamana sahip oluyor — yaklaşık on saniye. Ve blokaj deneylerinde
+"ilerleme durunca sıfırlama duruyor" dediğimiz şey aslında **"CPU boşa
+düşmeyince sıfırlama olmuyor"** olabilir.
+
+## Test: boşta iş parçacığının yerine geç
+
+`PsCreateSystemThread` ile bir iş parçacığı yaratılıyor ve önceliği **1**'e
+çekiliyor. Boşta iş parçacığı öncelik 0'da; 1'deki bir iş parçacığı her zaman
+ondan önce seçilir. Diğer her şey daha yüksek önceliktedir, dolayısıyla açılış
+normal ilerler — ama CPU hiç `WFI`'ye girmez.
+
+| Sonuç | Anlamı |
+|---|---|
+| Şeritler 10'u geçiyor | **Boşta durumu.** Kalıcı çözüm DSDT'ye `_LPI` eklemek ya da UEFI'de PMU'nun LPM davranışını kapatmak |
+| Yine ~10 şerit | Boşta değil; desen tesadüfmüş |
+
+Bu, projedeki en açıklayıcı hipotez: tek bir mekanizmayla hem `EbsTest`'in
+yaşamasını, hem iki blokaj deneyini, hem sürenin sabitliğini, hem bugcheck
+yokluğunu, hem de Linux'un çalışmasını açıklıyor.
