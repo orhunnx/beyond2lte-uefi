@@ -2150,3 +2150,21 @@ eksikse script çerçeveli bir uyarıyla duruyor — paket adı `libwin-hivex-pe
 Bu, aynı sınıftan **dördüncü** hata: araç "yaptım" diyor, sonuç başka çıkıyor.
 Öncekiler yamalı `UfsDxe.c`, SYSTEM'deki eski ESP ve atlanan WIM içerik
 yamalarıydı.
+
+## `DXGKrnl` masum — sürücü ekseninde ilk geçerli ölçüm
+
+Temiz WIM (ISO'dan yeniden üretildi) + onarılmış araç + sadece `DXGKrnl`
+kapalı:
+
+```
+toplam 16 s   /   daire öncesi 5 s   /   daire ~11 s
+```
+
+Temel değerle aynı. `DXGKrnl` elendi.
+
+Aynı ölçüm hattın onarıldığını da doğruluyor: temel değer yeniden üretildi,
+yani `hivexregedit --merge` yolu sağlam ve bundan sonraki ölçümler geçerli.
+
+`hepsi-kapat` eski tarama mantığından kurtarıldı; artık `TEMEL_ACIK`
+listesinden korumalı olmayanları çıkarıp aynı `sadece-kapat` yoluna veriyor —
+tek kod, tek doğrulama.

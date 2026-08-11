@@ -204,33 +204,23 @@ liste)
 
 hepsi-kapat)
   #
-  # KORUMALI OLMAYAN BUTUN ACILIS SURUCULERINI KAPAT.
+  # ESKI TARAMA MANTIGI KALDIRILDI.
   #
-  # NEDEN TEK TEK DEGIL: gruplari ayri ayri denemek her biri icin bir Odin
-  # flasi demek. Hepsini birden kapatmak tek hamlede ya butun kategoriyi
-  # ELER ya da elimize hedef verir:
+  # Onceki surum hive'i tarayip "Start degeri 0 olan her sey" diyordu; bu hem
+  # ikinci calistirmada bos donuyordu (hedefler zaten kapaliydi) hem de
+  # Microsoft'un bilerek kapali biraktiklarini kapsamiyordu.
   #
-  #   sure DEGISIRSE  -> suclu acilis suruculerinin arasinda, ikiye bolerek
-  #                      birkac flasta tek isme inilir
-  #   15 saniye AYNI  -> acilis surucileri MASUM. Cokme winload'un surucu
-  #                      yukleme asamasinda degil, ntoskrnl'in kendi ic
-  #                      isleyisinde. Butun kategori tek flasla kapanir.
+  # Artik TEMEL_ACIK listesinden korumali olmayanlari cikarip dogrudan
+  # sadece-kapat yoluna veriyoruz - ayni kod, ayni dogrulama, tek yerde.
   #
-  # Korumali liste disarida: onlarsiz cekirdek hic baslamaz ve elimizde
-  # "acilmadi"dan baska bilgi kalmaz. Bilgi uretmeyen deney yapmiyoruz.
-  #
-  say "Korumali olmayan TUM acilis surucileri kapatiliyor"
-  LISTE=""
-  while IFS= read -r S; do
-    [ -n "$S" ] || continue
-    ST="$(hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start 2>/dev/null || true)"
-    case "$ST" in 0|0x0|0x00000000) ;; *) continue ;; esac
+  HEPSI=""
+  for S in $TEMEL_ACIK; do
     echo " $KORUMALI " | grep -qi " $S " && continue
-    LISTE="$LISTE $S"
-  done < <(servisler)
-  echo "  hedef:$LISTE"
-  echo
-  exec bash "$0" kapat $LISTE
+    HEPSI="$HEPSI $S"
+  done
+  say "Korumali olmayan tum donanim surucileri kapatilacak"
+  echo "  hedef:$HEPSI"
+  exec bash "$0" sadece-kapat $HEPSI
   ;;
 
 sadece-kapat|hepsi-ac)
