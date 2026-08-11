@@ -2554,3 +2554,38 @@ ağ yok, dosya sistemi yok. `pause` konsol girdisi bekliyor; konsol
 | Cihaz açık kalıyor | **WinPE çalışıyor.** Otuz turluk soru kapanıyor |
 | Sönme animasyonu | WinPE çalışıyor ama ikisi de anında dönüyor — yine de çalıştığı kanıtlanmış olur |
 | Sert sıfırlama | Suçlu `ping` değilmiş, `wpeinit` sonrası herhangi bir komut öldürüyor |
+
+## Metodoloji hatası: doğrulanmamış temel çizgiden bisection
+
+Üçüncü `startnet.cmd` sürümü de öldürdü — bu sefer **anında sert sıfırlama**,
+sönme yok. Yani `ping` de suçlu değilmiş.
+
+Burada asıl hatayı görmek gerekiyor. "Sönme animasyonu" gözlemiyle bugün
+arasında değişen şeyler:
+
+1. `startnet.cmd` içeriği
+2. BCD varyantı → `menuram` (`displaybootmenu`, `timeout 30`, `numproc 1`)
+3. ESP'nin CACHE'ten SYSTEM'e taşınması
+4. `boot.wim`'in yeniden üretilmesi (23H2 → 25H2 dahil)
+5. DSDT'de `_CCA` 1 → 0
+
+Ben hepsini `startnet.cmd`'ye yazdım ve iki tur onun içinde değişken izole
+etmeye çalıştım. **Temel çizgi doğrulanmadan bisection yapılmaz** — aradığın
+sinyal başka bir eksende olabilir ve her ölçüm seni yanlış yöne götürür.
+Nitekim iki tur boyunca önce `goto`'yu, sonra `ping`'i suçladım; ikisi de
+değildi.
+
+### Önce temel çizgiyi geri kur
+
+`--stok` ile `startnet.cmd` tek satıra (`wpeinit`) dönüyor. Başka **hiçbir
+şey** değişmiyor.
+
+| Sonuç | Anlamı |
+|---|---|
+| Sönme animasyonu geri geliyor | `startnet.cmd` içeriği gerçekten değişken. Bisection ancak şimdi anlamlı: sıradaki test `wpeinit` + `rem` (iki satır, komut yok) |
+| Yine anında sert sıfırlama | `startnet.cmd` hiç suçlu değilmiş. Gerileme yukarıdaki 2-5'ten birinde; sırayla geri alınacak |
+
+Ayrıca ölçülecek: Enter'dan sıfırlamaya kadar geçen süre. RAM diskten açılışta
+`boot.wim`'i belleğe almak ve winload'un yüklemesi zaman alıyor; "anında"
+sıfırlama winload'un hiç çalışmadığını, uzun süre ise çekirdeğe kadar
+gidildiğini gösterir. İki durum tamamen farklı yerlere bakmayı gerektiriyor.
