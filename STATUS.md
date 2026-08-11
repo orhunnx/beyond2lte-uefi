@@ -790,3 +790,35 @@ Kancalarsak:
 Zorluk: `SetVirtualAddressMap` sonrası işaretçilerin `EfiConvertPointer` ile
 çevrilmesi gerekiyor ve framebuffer'ın runtime bölgesi olarak işaretlenmesi
 lazım. Yapılabilir; UART'a alternatif gerçek bir kanal.
+
+### RST_STAT: ölçülen referans ve yöntem düzeltmesi (2026-08)
+
+İlk okuma alındı. Kurtarma menüsünden yeniden başlatılmış bir cihazda,
+EFI Shell'den `dmem 0x15860404 4`:
+
+```
+RST_STAT  = 0x20000000     (bit 29)
+SEQUENCER = 0x00000600
+```
+
+İki sonuç:
+
+1. **Bit numaralandırması 9830'unkinden farklı.** Bu açılış tanım gereği bir
+   yazılım sıfırlamasıydı, ama beklenen `WARM_RESET` (bit 28) değil **bit 29**
+   yanıyor. Yukarıdaki tabloda kullanılan sabitler Mu-Silicium'un 9830
+   kodundan geliyor ve S5E9820 için doğrulanmamış. Artık mutlak bit isimlerine
+   değil, **referansa göre farka** bakıyoruz: `0x20000000` = normal yazılım
+   yeniden başlatması.
+
+2. **Üç adımlı ölçüm planı geçersizdi.** "Okuyucuyu flaşla → Windows'u flaşla →
+   okuyucuyu tekrar flaşla" dizisi işe yaramaz, çünkü `RST_STAT` yalnızca *son*
+   sıfırlamayı tutuyor ve Odin'in flaş sonrası yeniden başlatması da bir
+   sıfırlama. Windows'un bıraktığı iz, tam da onu okumaya giderken siliniyordu.
+
+   Düzeltme: tek imaj. `esp/startup.nsh` önce `RST_STAT`'ı döküyor, `pause` ile
+   bekliyor, sonra `bootmgfw.efi`'yi çağırıyor. Windows çöküp cihaz
+   sıfırlandığında aynı script yeniden açılıyor ve bu kez **o çöküşün** sebebini
+   gösteriyor. Yeniden flaşlama yok, döngü kapalı.
+
+   İlk açılış Odin'in yeniden başlatmasını gösterir (`0x20000000`); ikinci
+   açılıştaki değer aranan cevaptır.
