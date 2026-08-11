@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    3
+#define B2L_SURUM    4
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 3"
+#define SURUM_METNI  L"SURUM 4"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -241,6 +241,42 @@ B2LGosterEntry (
 
   Yaz (L"=== BEYOND2LTE TANI ===", 0x00FFFFFF);
   Yaz (SURUM_METNI, 0x00808080);
+
+  //
+  // BEYAN EDILEN RAM. Bir PCD degistirdik diye degistigini varsaymak
+  // yeterli degil - Mu-Silicium DRAM boyutunu calisma zamaninda da
+  // hesaplayabiliyor ve PCD'yi gormezden gelebilir. Deneyin bagimli
+  // degiskeni degismediyse deney yapilmamis demektir.
+  //
+  {
+    EFI_MEMORY_DESCRIPTOR *Harita;
+    UINTN                  Boyut, Anahtar, TanimBoy, I;
+    UINT32                 Surum2;
+    UINT64                 Sayfa;
+
+    Harita = NULL;
+    Boyut  = 0;
+    Sayfa  = 0;
+
+    gBS->GetMemoryMap (&Boyut, Harita, &Anahtar, &TanimBoy, &Surum2);
+    Boyut += 8 * TanimBoy;
+
+    if (!EFI_ERROR (gBS->AllocatePool (EfiLoaderData, Boyut, (VOID **)&Harita)) &&
+        !EFI_ERROR (gBS->GetMemoryMap (&Boyut, Harita, &Anahtar, &TanimBoy, &Surum2))) {
+      for (I = 0; I < Boyut / TanimBoy; I++) {
+        EFI_MEMORY_DESCRIPTOR *D;
+
+        D = (EFI_MEMORY_DESCRIPTOR *)((UINT8 *)Harita + I * TanimBoy);
+        if (D->Type != EfiReservedMemoryType && D->Type != EfiMemoryMappedIO) {
+          Sayfa += D->NumberOfPages;
+        }
+      }
+
+      gBS->FreePool (Harita);
+    }
+
+    Deger (L"RAM MB  =", (UINT32)((Sayfa * 4) / 1024), NULL, 0x0060C0FF);
+  }
   mSatir += 12;
 
   //

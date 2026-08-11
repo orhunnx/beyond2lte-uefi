@@ -34,6 +34,30 @@
   gArmTokenSpaceGuid.PcdSystemMemoryBase|0x80000000
 
   #
+  # BEYAN EDILEN RAM 3 GB'A INDIRILDI - TEK DEGISKENLI DENEY.
+  #
+  # EbsTest bir sinifi tamamen eledi: ExitBootServices'ten sonra hicbir sey
+  # kurmayan bir dongu 30+ saniye yasiyor. Yani servis edilmeyi bekleyen bir
+  # sey (watchdog, EL3 kilitlenme dedektoru, periyodik ping) yok. Sifirlamaya
+  # yol acan sey Windows'un YAPMADIGI degil, YAPTIGI bir sey.
+  #
+  # EbsTest'in yapmayip Windows'un yaptigi seylerden biri: giderek daha fazla
+  # RAM'e yazmak. Beyan edilen bellegin bir kismi gercekte erisilebilir
+  # degilse ya da TZASC korumaliysa, ayirici oraya vardigi anda veri yolu
+  # hatasi olur - Windows'a haber verilmeden, bugcheck uretilmeden, tam
+  # gordugumuz imzayla. Zamanlamasi da oturuyor: ~10 saniye, ayiricinin
+  # yukari dogru yayilmasi kadar.
+  #
+  # 3 GB secildi cunku daha asagisi baska bir sebeple bozardi: 23H2'nin
+  # boot.wim'i acilmis halde 1650 MiB ve WinPE onu RAM diskine aliyor.
+  # 1.5 GB'ta bellek yetmezliginden coker ve deneyi confound ederdi.
+  #
+  # Sonuc 10. saniyede degismezse bellek aklanir ve sira GIC/zamanlayici/PSCI
+  # tarafina gelir.
+  #
+  gArmTokenSpaceGuid.PcdSystemMemorySize|0xC0000000
+
+  #
   # UEFI Stack
   #
   gArmPlatformTokenSpaceGuid.PcdCPUCoresStackBase|0xC9200000
