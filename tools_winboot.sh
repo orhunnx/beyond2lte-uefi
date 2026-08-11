@@ -452,20 +452,6 @@ HSH
 fi
 
 
-#
-# --disk : WinPE gercek bir NTFS bolumden aciliyor, RAM diski yok.
-#
-# boot.wim ve boot.sdi ESP'de GEREKSIZ - hatta zararli: 600 MiB'lik CACHE'e
-# 600 MB'lik WIM sigmiyor ve bosuna kopyalaniyor. BCD zaten "locate=" ile
-# bolumu kendisi buluyor.
-#
-if [ "$DISK_MODU" = 1 ]; then
-  say "DISK MODU: boot.wim ve boot.sdi ESP'den cikariliyor"
-  rm -f "$ESP/sources/boot.wim" "$ESP/boot/boot.sdi"
-  rmdir "$ESP/sources" "$ESP/boot" 2>/dev/null || true
-  echo "  ESP artik yalnizca bootmgfw + BCD + fontlar tasiyor"
-fi
-
 say "ESP agacina yerlestiriliyor"
 rm -rf "$ESP/EFI/Microsoft/Boot/Fonts"   # onceki turdan kalan 83 MB CJK font
 mkdir -p "$ESP/EFI/Microsoft/Boot"
@@ -491,6 +477,35 @@ cp "$SDI" "$ESP/boot/boot.sdi"
 if [ -d "$W/fonts" ] && [ -n "$(ls -A "$W/fonts" 2>/dev/null)" ]; then
   mkdir -p "$ESP/EFI/Microsoft/Boot/Fonts"
   cp "$W"/fonts/* "$ESP/EFI/Microsoft/Boot/Fonts/" 2>/dev/null || true
+fi
+
+#
+# --disk : WinPE gercek bir NTFS bolumden aciliyor, RAM diski yok.
+#
+# boot.wim ve boot.sdi ESP'de GEREKSIZ: BCD "locate=" ile birimi kendisi
+# tariyor. 600 MB'lik WIM'i 600 MiB'lik CACHE'e sokmaya calismak zaten
+# imkansizdi, ESP'yi SYSTEM'e tasimamizin sebebi oydu. Disk modunda o
+# zorunluluk kalkiyor ve ESP tekrar CACHE'e sigiyor.
+#
+# BU BLOK YERLESTIRMEDEN SONRA OLMAK ZORUNDA: onceki surumde ustteydi ve
+# hemen ardindan gelen "cp $SDI $ESP/boot/boot.sdi" satiri boot.sdi'yi geri
+# koyuyordu. Silme isleminin son soz olmasi lazim.
+#
+if [ "$DISK_MODU" = 1 ]; then
+  say "DISK MODU: boot.wim ve boot.sdi ESP'den cikariliyor"
+  rm -f "$ESP/sources/boot.wim" "$ESP/boot/boot.sdi"
+  rmdir "$ESP/sources" "$ESP/boot" 2>/dev/null || true
+  echo "  ESP artik yalnizca bootmgfw + BCD + fontlar tasiyor"
+  #
+  # startup.nsh Windows'u BCD'nin varligindan taniyor (boot.wim'den degil).
+  # Bu satir onu dogruluyor: BCD yoksa cihaz yine "Acilacak bir sey
+  # bulunamadi" der ve bir Odin flasi bosa gider.
+  #
+  if [ -s "$ESP/EFI/Microsoft/Boot/BCD" ]; then
+    echo "  startup.nsh tetikleyicisi (BCD): VAR"
+  else
+    echo "  ! BCD YOK - startup.nsh Windows'u bulamaz!"
+  fi
 fi
 
 say "Sonuc"

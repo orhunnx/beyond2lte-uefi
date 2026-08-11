@@ -122,26 +122,39 @@ if exist fs3:\initramfs-test.gz then
 endif
 
 #
-# 4) Windows. sources\boot.wim ile birlikte arıyoruz: eski cache biriminde
-#    bootmgfw kalmis ama boot.wim silinmis olabilir; o birimi secersek
-#    "device not accessible" ile geri doneriz.
+# 4) Windows.
 #
-if exist fs0:\sources\boot.wim then
+# ------------------------------------------------------------------------
+# TETIKLEYICI DEGISTI: boot.wim DEGIL, BCD
+# ------------------------------------------------------------------------
+# Onceki surum "sources\boot.wim varsa ac" diyordu. Sebebi vardi: iki FAT
+# birimi oldugunda eski cache'te bootmgfw kalmis ama boot.wim silinmis
+# olabiliyordu ve o birimi secince "device not accessible" ile geri
+# donuyorduk.
+#
+# Ama DISKTEN ACMA'ya gecince boot.wim ESP'den bilerek cikarildi - WinPE
+# artik NTFS'teki SYSTEM bolumunden aciliyor, RAM diske gerek yok. Sonuc:
+# dort birim de elendi ve Shell "Acilacak bir sey bulunamadi" dedi.
+#
+# Dogru tetikleyici BCD: bootmgfw'in TEK zorunlu yoldasi. Hem RAM disk hem
+# disk varyantinda var, ve yaninda bootmgfw olmayan bir BCD anlamsiz.
+#
+if exist fs0:\EFI\Microsoft\Boot\BCD then
     echo Windows: fs0
     fs0:\EFI\Microsoft\Boot\bootmgfw.efi
     echo ISARET W0: geri dondu.
 endif
-if exist fs1:\sources\boot.wim then
+if exist fs1:\EFI\Microsoft\Boot\BCD then
     echo Windows: fs1
     fs1:\EFI\Microsoft\Boot\bootmgfw.efi
     echo ISARET W1: geri dondu.
 endif
-if exist fs2:\sources\boot.wim then
+if exist fs2:\EFI\Microsoft\Boot\BCD then
     echo Windows: fs2
     fs2:\EFI\Microsoft\Boot\bootmgfw.efi
     echo ISARET W2: geri dondu.
 endif
-if exist fs3:\sources\boot.wim then
+if exist fs3:\EFI\Microsoft\Boot\BCD then
     echo Windows: fs3
     fs3:\EFI\Microsoft\Boot\bootmgfw.efi
     echo ISARET W3: geri dondu.
