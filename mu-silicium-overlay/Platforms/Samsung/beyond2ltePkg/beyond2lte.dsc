@@ -140,6 +140,7 @@
   # startup.nsh varsa calistiriyor, yoksa Windows'a geciyor.
   #
   beyond2ltePkg/Applications/EbsTest/EbsTest.inf
+  beyond2ltePkg/Drivers/B2LRtHookDxe/B2LRtHookDxe.inf
 
   #
   # EL2 yuku yukleyici (bkz. Drivers/B2LEl2Dxe/B2LEl2Payload.S)

@@ -49,6 +49,15 @@
   # Windows surucusunun olum sonrasi halka tamponu icin zaten oraya
   # yazilacak (bkz. WINDOWS_SURUCU_PLANI.md, Faz 1b).
   #
+  #
+  # Calisma zamani servisi kancasi. GetTime ve GetVariable sarmalanip
+  # giris/cikis sayaci 0xCF040000'a yaziliyor. Gerekce B2LRtHookDxe.c
+  # basinda: memmap "MMIO: 0 Pages" gosteriyor, yani hicbir aygit bolgemiz
+  # RUNTIME isaretli degil ve SetVirtualAddressMap sonrasi MMIO'ya dokunan
+  # bir calisma zamani surucusu bosluga yaziyor.
+  #
+  INF beyond2ltePkg/Drivers/B2LRtHookDxe/B2LRtHookDxe.inf
+
   INF SamsungPkg/Drivers/ChipInfoDxe/ChipInfoDxe.inf
   INF SamsungPkg/Drivers/GpioDxe/GpioDxe.inf
   INF SamsungPkg/Drivers/UsiDxe/UsiDxe.inf

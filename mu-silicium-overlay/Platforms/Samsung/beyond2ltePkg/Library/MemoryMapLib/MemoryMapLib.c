@@ -38,7 +38,7 @@ gMemoryDescriptor[] = {
   //   0xCF020000  bu acilisin SMC kaydi
   //   0xCF030000  onceki acilisin kaydi  <- Shell burayi okur
   //
-  {"B2L EL2",            0xCF000000, 0x00040000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, UNCACHED_UNBUFFERED},
+  {"B2L EL2",            0xCF000000, 0x00050000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, UNCACHED_UNBUFFERED},
 
   //
   // ==========================================================================

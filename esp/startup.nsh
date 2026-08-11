@@ -95,6 +95,21 @@ dmem 0xCF030000 40
 echo .
 
 #
+# CALISMA ZAMANI SERVISI KANCASI (B2LRtHookDxe, 0xCF040000)
+#
+#   +0x00  "B2LR"   surucu yuklendi
+#   +0x04  GetTime GIRIS sayaci
+#   +0x08  GetTime CIKIS sayaci
+#   +0x0C  GetVariable GIRIS sayaci
+#   +0x10  GetVariable CIKIS sayaci
+#
+# ARADIGIMIZ: giris > cikis. O zaman sifirlama tam o cagrinin ICINDE oldu.
+#
+echo ================ CALISMA ZAMANI KANCASI
+dmem 0xCF040000 14
+echo .
+
+#
 # PMU RST_STAT - ONCEKI KAPANISIN SEBEBI
 #
 # EN SONDA, cunku aradigimiz tek deger bu ve yukarida kalirsa kayiyor.

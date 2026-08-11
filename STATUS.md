@@ -3773,3 +3773,47 @@ durup durmadığını ölçmek. Kalp atışı `Start=0` sürücümüzden geliyor
 |---|---|
 | Şeritler 10'u geçiyor | Suçlu `Start=1` listesinde. İkili aramayla bulunur |
 | Yine ~10 şerit | `Start=1` de değil; geriye çekirdeğin kendi Faz 1 işleri kalıyor |
+
+## ACPI da değil — ve `memmap`'te gözden kaçan satır
+
+`acpi.sys` zorla kapatıldı, yine 10 şerit. Bu ekseni de kapatıyor.
+
+Ama `memmap` çıktısında bir satır vardı ve o zaman üstünde durmadım:
+
+```
+MMIO : 0 Pages (0 Bytes)
+```
+
+**Hiçbir aygıt bölgemiz UEFI bellek haritasında yok.** `ExitBootServices`'e
+kadar sorun değil — orada her şey birebir haritalı. Ama Windows
+`SetVirtualAddressMap` çağırdıktan sonra UEFI'nin **çalışma zamanı
+servisleri** sanal adreslerde çalışıyor, ve `RUNTIME` işaretlenmemiş bir MMIO
+bölgesine dokunan bir çalışma zamanı sürücüsü artık boşluğa yazıyor.
+
+Windows Faz 1'de sistem saatini kurmak için `GetTime()` çağırıyor. Exynos'ta
+RTC **PMIC'in içinde** ve SPEEDY veriyolundan erişiliyor. Bozuk bir PMIC
+işlemi cihazı işletim sistemine haber vermeden sıfırlar.
+
+Bu, elimizdeki bütün gözlemlere uyuyor: bugcheck yok (karar Windows'un
+değil), çekirdek son ana kadar sağlıklı (ölüm anlık), blokaj önlüyor (çağrıya
+hiç gelinmiyor), süre sabit (Faz 1 deterministik), `EbsTest` yaşıyor (çalışma
+zamanı servisi çağırmıyor).
+
+### `B2LRtHookDxe`
+
+`gRT->GetTime` ve `gRT->GetVariable` sarmalanıyor. Her çağrıda **önce** giriş
+sayacı, sonra orijinal çağrı, sonra çıkış sayacı — sıralama kritik, çünkü
+çağrı geri dönmezse bile iz kalmalı.
+
+Kayıt `0xCF040000`'da, `b2lfb`'nin `0xCF030000` kaydının hemen yanında;
+ikisini yan yana okuyoruz. `B2L EL2` bölgesi `0x50000`'e büyütüldü.
+
+`SetVirtualAddressMap` sonrası işaretçiler `EfiConvertPointer` ile
+çevriliyor. Bu adım atlanırsa ilk çağrıda kancanın kendisi çöker ve ölçümü
+biz üretmiş oluruz — `B2LResetHookDxe`'de aynı tuzak vardı.
+
+| Okuma | Anlamı |
+|---|---|
+| giriş > çıkış | **Sıfırlama o çağrının içinde.** Bulduk |
+| giriş == çıkış | Çağrılar dönüyor; sıfırlama başka yerde |
+| hepsi sıfır | Windows bu servisleri hiç çağırmıyor |
