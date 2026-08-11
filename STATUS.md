@@ -3131,3 +3131,30 @@ yani sayacın sıfır noktası 5 saniye ileri kayıyor.
 | `TIK≈9` | Ölüm **olaya bağlı**. Windows bir işi bitirince oluyor ve biz o işi geciktirdik |
 
 Tek değişken, yeni API yok, risk yok.
+
+## Bugcheck sistemi DURDURDU — cihaz kapanmadı
+
+Yeşil ekrandan sonra cihaz kendini yeniden başlatmadı, öylece kaldı. Yani
+`AutoReboot=0` ayarımız **çalışıyor** ve bugcheck yolunda sistem duruyor.
+Projede ilk kez cihaz kendini sıfırlamıyor.
+
+### Kullanıcının yakaladığı tasarım hatası
+
+"Kendim kapatırsam B2LFB kaydı silinmeyecek mi?"
+
+Haklı. Elle kapatmak güç çevrimi demek, güç çevrimi DRAM'i siliyor — bunu
+ölçmüştük (`RST_STAT 0x40010000`, kayıt tamamen `FF`). Yani sayıyı okumak
+için sayıyı yok etmek gerekiyordu.
+
+**Ölçümü almak için ölçümü yok etmek zorunda kalmak, kötü tasarımdır.**
+
+### Çözüm: sayıyı ekrana çiz
+
+Bugcheck geri çağrısı artık yeşil ekranın üstüne `TIK` sayısı kadar beyaz
+şerit çiziyor. Her şeridin sonunda dörtte birlik yeşil boşluk var ki şeritler
+birbirine yapışıp tek blok görünmesin.
+
+Yeniden başlatma yok, `dmem` yok, hex yok. Ekranda kaç şerit varsa çekirdek
+o kadar saniye yaşamış.
+
+DRAM kaydı yerinde duruyor ama artık ona bağımlı değiliz.

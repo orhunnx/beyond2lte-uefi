@@ -312,7 +312,29 @@ static void BugCheckCallback (PVOID Buffer, UINT32 Length)
    * dolayisiyla piksel bicimini yeniden tartismaya gerek yok.
    */
   if (gFb != 0) {
+    UINT64 I;
+
     FillDword (gFb, FB_BYTES, 0x0000FF00);
+
+    /*
+     * SAYIYI EKRANA CIZ - DRAM'E GUVENME.
+     *
+     * Kullanici dogru bir sey fark etti: bugcheck'ten sonra cihaz KAPANMIYOR
+     * (AutoReboot=0 calisiyor), ama sayiyi okumak icin cihazi elle kapatmak
+     * gerekirse guc cevrimi olur ve DRAM'deki kayit silinir. Olcumu almak
+     * icin olcumu yok etmek zorunda kalmak, kotu bir tasarim.
+     *
+     * Cozum: TIK sayisi kadar beyaz serit ciziyoruz. Ekranda kac serit
+     * varsa cekirdek o kadar saniye yasamis. Yeniden baslatma yok, dmem yok,
+     * hex yok - sayacaksin.
+     *
+     * Her seridin sonunda dortte birlik yesil bosluk kaliyor ki seritler
+     * birbirine yapisip tek blok gorunmesin.
+     */
+    for (I = 0; (I < gTik) && (I < TIK_AZAMI); I++) {
+      UINT8 *P = (UINT8 *)gFb + BANT_BYTES + (I * TIK_BYTES);
+      FillDword ((PVOID)P, (TIK_BYTES * 3) / 4, 0x00FFFFFF);
+    }
   }
 
   /*
