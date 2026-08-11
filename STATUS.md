@@ -1296,3 +1296,54 @@ aradığımız sınıfta bir fark: **Linux hoşgörüyor, Windows hoşgörmüyor
 
 Yeni değer `0x00100000` — Hardware Reduced kalıyor (ARM64'te zorunlu), Low
 Power S0 Idle gidiyor.
+
+## Hata ekranına neden hiç düşemiyoruz: UEFI değişkenleri kalıcı değil
+
+`SiliciumPkg.dsc.inc`:
+
+```
+gEfiMdeModulePkgTokenSpaceGuid.PcdEmuVariableNvModeEnable | TRUE
+```
+
+Değişken deposu **RAM'de emüle ediliyor**, hiçbir bloğa yazılmıyor. `SetVariable`
+başarılı dönüyor, veri bellekte duruyor, sıfırlamada buharlaşıyor. Platformda
+FVB ya da FaultTolerantWrite sürücüsü de yok.
+
+Windows Boot Manager önceki açılışın başarısızlığını UEFI değişkenlerine
+kaydediyor. Bir sonraki açılışta okumaya gittiğinde ortada hiçbir şey yok —
+**"Windows failed to start" ekranına bu yüzden hiç düşemiyoruz.** Mekanizma
+bozuk değil, hafızası yok.
+
+Bu, gerçek bir Windows kurulumu için de er geç düzeltilmesi gereken bir eksik:
+kalıcı NV değişken deposu olmadan `bcdedit`, Secure Boot durumu, `BootOrder`
+gibi şeylerin hiçbiri açılışlar arasında yaşamıyor. Çözümü bir bölüm üzerinde
+FVB + FTW kurmak.
+
+## `map fs0`: UFSP teorisi çürütüldü
+
+```
+FS0: VenHw(5F2C8E91-...,00)/HD(28,GPT,52444E41-494F-2044-6361-636865000000)
+```
+
+`VenHw(...,00)` = **LUN 0**, `HD(28,GPT,...)` = 28. bölüm, GUID'in ASCII
+karşılığı `"ANDROID "` + `"cache"`. Dosya sistemimiz LUN 0'daki cache
+bölümünde, düzgün bir GPT bölümünün içinde.
+
+Yani `LUN=2 LBA=0` yazma hataları bizim dosya sistemimizle ilgili değil, UFSP
+teorisi de yanlış yerdeydi. Değişken deposu da olamaz (emüle). Yazanın kim
+olduğu hâlâ bilinmiyor ama `bootmgfw` o hataların ardından yoluna devam
+ediyor — gürültü, sebep değil. Bu madde kapandı.
+
+## Sıradaki: `bootstat.dat`'ı doğrudan oku
+
+Windows açılış durumunu bir de **dosyaya** yazıyor: ESP'de `bootstat.dat`.
+Ekrana ihtiyaç yok. En son çekirdek hiç başlamazken aramıştık, yazacak bir şey
+yoktu; artık çekirdek başlıyor.
+
+Çöküşten sonra **Odin'e girmeden**, doğrudan recovery'den:
+
+```bash
+adb shell "dd if=/dev/block/by-name/cache of=/tmp/c.img bs=4096 count=153600"
+adb pull /tmp/c.img cache_read.img
+bash tools_bootstat.sh cache_read.img
+```
