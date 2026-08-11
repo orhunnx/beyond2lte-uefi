@@ -42,12 +42,22 @@ dmem 0x15860404 4
 #    +0x40 "B2LI" = surucu yuklendi   +0x80 "B2LR" = kanca atesledi
 #    Simdiye kadar +0x80 hep bos: Windows ResetSystem'i cagirmiyor.
 #
-echo ================ KANCA
-dmem 0xCF000040 10
-dmem 0xCF000080 20
+#
+# KANCA DOKUMU KALDIRILDI: B2LResetHookDxe bilinen iyi noktaya donerken
+# geri alindi, yani 0xCF000000 artik bellek haritasinda bile yok. O adresi
+# okumanin bir anlami kalmadi.
+#
+# YERINE KOK LISTESI. Gerekce: "cp out/EbsTest.efi esp/EBSTEST.EFI" yapildi,
+# cache_esp.sh dosyayi kopyaladigini bildirdi, ama cihazda
+# "if exist fs0:\EBSTEST.EFI" YANLIS dondu ve uygulama hic calismadi.
+# Ikisinden biri yaniliyor. Tahmin etmek yerine birimin kokunu okutuyoruz:
+# dosya listede varsa sorun "if exist" ifadesinde, yoksa imaja hic girmemis.
+#
+echo ================ fs0 KOKU
+ls fs0:\
 
 echo ================ BIRIMLER
-map
+map fs0
 
 echo .
 echo ================ Fotografla, sonra tusa bas.

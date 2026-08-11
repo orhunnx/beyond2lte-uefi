@@ -1643,3 +1643,20 @@ Yama temizlendikten sonra `B2L UFS:` satırları kayboldu ama
 `UFS OCS=0x07 response=0x01 type=0x21` üç kez çıkmaya devam etti. O satır
 `UfsDxe.c`'nin kendi uyarısı. Yani LUN 2 LBA 0'a yazma denemesi bizim
 enstrümantasyonumuzdan değil, upstream UEFI'nin kendi davranışından geliyor.
+
+### `EBSTEST.EFI` çalışmadı: iki kaynak çelişiyor
+
+`cache_esp.sh` dosyayı kopyaladığını bildirdi, ama cihazda
+`if exist fs0:\EBSTEST.EFI` yanlış döndü — uygulama hiç çalışmadı ve akış
+doğrudan Windows'a geçti ("Loading files").
+
+`startup.nsh`'in kendisi doğru: `EBSTEST.EFI` bloğu `pause`'dan hemen sonra,
+Linux ve Windows dallarından önce. Aynı dosyadaki `if exist fs0:\sources\boot.wim`
+çalıştığına göre ne `fs0` yanlış ne `if exist` bozuk.
+
+Tahmin etmek yerine cihaza sorduruyoruz: `ls fs0:\`. Dosya listede varsa sorun
+ifadede, yoksa imaja hiç girmemiş demektir.
+
+Aynı turda `KANCA` dökümü kaldırıldı — `B2LResetHookDxe` geri alındığı için
+`0xCF000000` artık bellek haritasında yok, o adresi okumanın anlamı kalmadı.
+`map` de `map fs0` oldu; tam liste ekranı taşırıyordu.
