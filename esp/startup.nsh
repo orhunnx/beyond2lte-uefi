@@ -123,22 +123,17 @@ echo ================ PMU RST_STAT
 dmem 0x15860404 4
 
 #
-# BELLEK HARITASI - EKLEDIGIMIZ BOLGELER GERCEKTEN GIRDI MI
+# MEMMAP KALDIRILDI - GOREVINI YAPTI, SONRA ZARAR VERDI.
 #
-# MemoryMapLib'e stock DTB'den 16 "reserved-memory" bolgesi eklendi ve sonuc
-# degismedi. Ama "degismedi" iki anlama gelebilir:
-#   (a) bolgeler masum
-#   (b) ekledigim girdiler haritaya hic girmedi
+# Eklenen bolgelerin haritaya girdigini dogruladi:
+#     RT_Data : 300 -> 316 Pages   (+16 sayfa = tam 64 KB = B2L RT Log)
+#     Reserved: CF000000-CF03FFFF  (B2L EL2, 0x40000)
 #
-# Bu projede (b) uc kez basimiza geldi (hivexsh setval, .reg ters bolukleri,
-# wimlib add). Once aleti dogrula, sonra sonucuna guven.
+# Ama ciktisi uzun ve altindaki her seyi yukari kaydiriyor. Kanca sayaclari
+# tam bu yuzden ekranda gorunmedi - PMU'yu kaybettigimiz hatanin aynisi.
 #
-# memmap ciktisi uzun ama OZETI EN ALTTA - ekranda kalan kisim tam olarak
-# ihtiyacimiz olan yer. "Reserved" satirindaki sayfa sayisi, eklenen ~45 MB'i
-# yansitmali.
+# Her gereksiz satir, gormek istedigimiz satiri asagi itiyor.
 #
-echo ================ BELLEK HARITASI
-memmap
 
 echo ================ Fotografla, sonra tusa bas.
 pause
