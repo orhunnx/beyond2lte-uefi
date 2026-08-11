@@ -101,6 +101,22 @@
 //
 #define SANAL_CALISMADI  0xFFFFFFFEUL
 
+//
+// SURUM DAMGASI - "onceki acilis" degerleri ne zaman guvenilir?
+//
+// Bu tur bir sayiyi yanlis okuduk: LOCKUP ONC=EBF9DDFF. Onceki acilista
+// calisan derleme Status[6]'yi hic yazmiyordu, yani okudugumuz sey
+// temizlenmemis DRAM'di. Yanindaki SANAL ONC=FBFFCEB7 de ayni karakterde
+// ve ayni supheyi tasiyor.
+//
+// Bir sayinin gercek mi cop mu oldugunu ayirt edemiyorsak o sayi olcum
+// degil. Cozum: her acilista bir surum damgasi birakiyoruz. Onceki kopyanin
+// damgasi bugunkuyle ayni degilse gosterici degerleri hic yazmiyor.
+//
+// Yerlesimi degistiren her degisiklikte BU SAYIYI ARTIR.
+//
+#define B2L_SURUM  2
+
 #define SEH_LOG      0xCF041000ULL   // yakalanan EL3 baglami
 #define SEH_STATUS   0xCF041080ULL   // SMC donusleri
 #define SEH_ONCEKI   0xCF041100ULL   // BIR ONCEKI acilisin yakalamasi
@@ -231,26 +247,46 @@ VirtualAddressChange (
   IN EFI_EVENT Event,
   IN VOID     *Context)
 {
-  VOID   *Handler;
-  UINT32 *Status;
+  VOID       *Handler;
+  UINT32     *Status;
+  UINT8      *Metin;
+  EFI_STATUS  C1, C2;
 
   Handler = (VOID *)SmartExceptionHandler;
-  Status  = mStatus;
-
-  EfiConvertPointer (0, (VOID **)&mSehLog);
-  EfiConvertPointer (0, (VOID **)&mStatus);
-  EfiConvertPointer (0, (VOID **)&mMetin);
-  EfiConvertPointer (0, (VOID **)&Handler);
 
   //
-  // Durum kaydina eski (henuz cevrilmemis) isaretciyle yaziyoruz cunku bu
-  // olay HALA kimlik haritalamasinda calisiyor.
+  // ISARETCILERI CEVIRMEDEN ONCE SAKLA.
   //
+  // Bu olay HALA kimlik haritalamasinda calisiyor: cevrilen adresler ancak
+  // isletim sistemi kendi haritasina gectikten SONRA gecerli oluyor. Ilk
+  // surumde metin tamponuna cevrildikten SONRA yaziliyordu - yani heniiz
+  // haritali olmayan bir adrese kor yazma. Kendi olcum aracimizi bozan
+  // tam da bu tur bir ayrinti oluyor.
+  //
+  Status = mStatus;
+  Metin  = mMetin;
+
+  C1 = EfiConvertPointer (0, (VOID **)&mSehLog);
+       EfiConvertPointer (0, (VOID **)&mStatus);
+       EfiConvertPointer (0, (VOID **)&mMetin);
+  C2 = EfiConvertPointer (0, (VOID **)&Handler);
+
+  //
+  // CEVIRININ KENDISI DE OLCULUYOR.
+  //
+  // "Sanal kayit reddedildi" sonucunun iki cok farkli sebebi olabilir:
+  // ya EL3 adresi begenmedi, ya da cevirme hic olmadi ve EL3'e AYNI
+  // fiziksel adresi ikinci kez verdik. Ikisini ayirt etmeden ilerlemek
+  // tahmin olur.
+  //
+  Status[10] = (UINT32)C1;
+  Status[11] = (UINT32)C2;
+
   Status[3] = SehKaydet ((UINT64)(UINTN)Handler);
   Status[4] = (UINT32)((UINT64)(UINTN)Handler);
   Status[5] = (UINT32)(((UINT64)(UINTN)Handler) >> 32);
 
-  HexYaz (mMetin + 26, Status[3]);
+  HexYaz (Metin + 26, Status[3]);
 }
 
 EFI_STATUS
@@ -259,8 +295,9 @@ B2LSehEntry (
   IN EFI_HANDLE        ImageHandle,
   IN EFI_SYSTEM_TABLE *SystemTable)
 {
-  EFI_STATUS   Status;
-  ARM_SMC_ARGS Args;
+  EFI_STATUS           Status;
+  ARM_SMC_ARGS         Args;
+  EFI_PHYSICAL_ADDRESS Adres;
 
   mSehLog = (UINT64 *)(UINTN)SEH_LOG;
   mStatus = (UINT32 *)(UINTN)SEH_STATUS;
@@ -291,7 +328,8 @@ B2LSehEntry (
   ZeroMem ((VOID *)(UINTN)SEH_DBGMEM, SEH_DBGSIZE);
 
   mStatus[0] = 0x52484553;   // "SEHR" - surucu yuklendi
-  mStatus[3] = SANAL_CALISMADI;
+  mStatus[3]  = SANAL_CALISMADI;
+  mStatus[15] = B2L_SURUM;
 
   //
   // ASCII sablon. Rakamlar asagida dolduruluyor.
@@ -302,9 +340,29 @@ B2LSehEntry (
   // 1) EL3'e GPR dokumu icin bellek ver. FIZIKSEL adres istiyor, o yuzden
   //    ceviri derdi yok. Linux'ta dogru donus degeri BOYUTUN KENDISI.
   //
+  //
+  // ADRESI AllocatePages ILE ALIYORUZ, sabit carve-out'tan DEGIL.
+  //
+  // Ilk denemede 0xCF042000 verdik ve EL3 0xFFFFFFFF dondu. Linux buraya
+  // kmalloc'tan gelen, yani NORMAL cekirdek DRAM'inde bir adres veriyor;
+  // EL3 muhtemelen adresin izinli bolgede olmasini istiyor. Ayrilmis bir
+  // carve-out o kosulu saglamiyor olabilir. Sirali bir eleme: adres
+  // kaynagini degistirip ayni SMC'yi tekrar soruyoruz.
+  //
+  Adres = 0;
+  Status = gBS->AllocatePages (AllocateAnyPages, EfiRuntimeServicesData, 2, &Adres);
+  if (EFI_ERROR (Status)) {
+    Adres = SEH_DBGMEM;
+  } else {
+    ZeroMem ((VOID *)(UINTN)Adres, SEH_DBGSIZE);
+  }
+
+  mStatus[8] = (UINT32)Adres;
+  mStatus[9] = (UINT32)(Adres >> 32);
+
   ZeroMem (&Args, sizeof (Args));
   Args.Arg0 = SMC_CMD_SET_DEBUG_MEM;
-  Args.Arg1 = SEH_DBGMEM;
+  Args.Arg1 = Adres;
   Args.Arg2 = SEH_DBGSIZE;
   Args.Arg3 = 0;
   ArmCallSmc (&Args);

@@ -45,6 +45,19 @@
 #include <Protocol/HiiImage.h>
 #include <Protocol/HiiFont.h>
 
+//
+// B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
+// yalnizca damgalar tutuyorsa gosteriliyor.
+//
+#define B2L_SURUM    2
+
+//
+// Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
+// biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
+// ekran cikti) tek bakista anlasilsin diye.
+//
+#define SURUM_METNI  L"SURUM 2"
+
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
 
@@ -227,6 +240,7 @@ B2LGosterEntry (
   Rst    = *(volatile UINT32 *)(UINTN)PMU_RST;
 
   Yaz (L"=== BEYOND2LTE TANI ===", 0x00FFFFFF);
+  Yaz (SURUM_METNI, 0x00808080);
   mSatir += 12;
 
   //
@@ -243,15 +257,39 @@ B2LGosterEntry (
     // (SetVirtualAddressMap) kabuktan sonra calisiyor; bu acilisin degeri
     // her zaman "henuz calismadi" olur.
     //
-    Deger (L"SANAL ONC=", Onc[3],
-           (Onc[3] == 0)            ? L"KABUL" :
-           (Onc[3] == 0xFFFFFFFEUL) ? L"CALISMADI" : L"RET",
-           (Onc[3] == 0) ? 0x0040FF40 : 0x00FFFF40);
     Deger (L"LOCKUP  =", Durum[6],
            (Durum[6] == 0xFFFFFFFFUL) ? L"TANIMIYOR" : L"CEVAP VAR",
            (Durum[6] == 0xFFFFFFFFUL) ? 0x00808080 : 0x0040FF40);
-    Deger (L"LOCKUP ONC=", Onc[6], NULL, 0x00808080);
-    Deger (L"DEBUG MEM=", Durum[1], NULL, 0x00808080);
+    Deger (L"DEBUG MEM=", Durum[1],
+           (Durum[1] == 0x2000) ? L"KABUL" : L"RET",
+           (Durum[1] == 0x2000) ? 0x0040FF40 : 0x00808080);
+
+    //
+    // ONCEKI ACILIS - yalnizca ayni surum yazdiysa. Damga tutmuyorsa
+    // oradaki sayilar temizlenmemis DRAM olabilir ve gosterilmesi
+    // olcum sanilir. Bu tur tam olarak o oldu.
+    //
+    if (Onc[0] == 0x52484553 && Onc[15] == B2L_SURUM) {
+      Deger (L"SANAL ONC=", Onc[3],
+             (Onc[3] == 0)            ? L"KABUL" :
+             (Onc[3] == 0xFFFFFFFEUL) ? L"CALISMADI" : L"RET",
+             (Onc[3] == 0) ? 0x0040FF40 : 0x00FF4040);
+      Deger (L"LOCKUP ONC=", Onc[6], NULL, 0x00C0C0C0);
+
+      //
+      // Sanal kayit reddedildiyse SEBEBI burada ayrisiyor:
+      //   CONV != 0        -> ceviri hic olmadi, EL3'e ayni fiziksel
+      //                       adresi ikinci kez verdik
+      //   CONV == 0 ama VA  -> ceviri oldu, adresi EL3 begenmedi
+      // Ustteki iki durum bambaska iki isi gerektiriyor.
+      //
+      Deger (L"CONV LOG =", Onc[10], (Onc[10] == 0) ? L"OK" : L"HATA", 0x00C0C0C0);
+      Deger (L"CONV FN  =", Onc[11], (Onc[11] == 0) ? L"OK" : L"HATA", 0x00C0C0C0);
+      Deger (L"HANDLR HI=", Onc[5], NULL, 0x00C0C0C0);
+      Deger (L"HANDLR LO=", Onc[4], NULL, 0x00C0C0C0);
+    } else {
+      Yaz (L"ONCEKI ACILIS BASKA SURUM", 0x00808080);
+    }
   }
 
   mSatir += 12;
