@@ -3734,3 +3734,42 @@ Bant bırakma anında **beyaza** dönüyor, böylece canlı olarak da görülebi
 kaydı okumak için yeniden başlatmayı beklemeye gerek yok.
 
 `startup.nsh` dökümü `0x40` bayta çıkarıldı ki `REL=` alanı ekrana girsin.
+
+# ★ Sayı bulundu: bırakıldıktan sonra tam 10 saniye
+
+```
+REL=0053   TIK=0063
+```
+
+Otuz saniyelik blokaj 53 şerit sürdü, bırakıldıktan **10 şerit** sonra
+sıfırlama. Gecikmesiz durumdaki 10 ile birebir aynı.
+
+Yani: **açılış sürücüleri bittikten sonra, tetikleyiciye ulaşmak için on
+saniyelik gerçek iş gerekiyor.** Zaman aşımı değil, bekleme değil — iş.
+
+## Bu on saniye neyin süresi
+
+Neredeyse boş bir ACPI ad alanını taramak saniyeler sürmez. On saniye ya bir
+zaman aşımı, ya da **sıkıştırılmış WIM'den sürücü yüklemek.**
+
+İkincisi hiç bakmadığımız bir boşluğa işaret ediyor: `tools_winpe_surucu.sh`
+yalnızca **açılış** sürücülerini (`Start=0`) kapatıyor — o liste ilk `liste`
+çıktısındaki 54 isimden kurulmuştu. **`Start=1` sürücülerine hiç dokunmadık.**
+
+Üstelik `Start=1` blokaj denemesinde sürücümüz `Group=""` ile o grubun da en
+sonundaydı. Ondan önceki `Start=1` sürücüleri yüklenirken ölmüş olabiliriz —
+ve bant çıkmadığı için bunu "sıfırlama daha önce oldu" diye okumuştuk. O
+yorum yanlış olabilir.
+
+## `tools_winpe_sistem.sh`
+
+`Start=1` servislerini listeliyor ve toplu kapatıyor. `b2lfb` açıkça
+atlanıyor — kalp atışı ölçümün kendisi.
+
+WinPE'nin bozulması sorun değil: amaç WinPE'yi açmak değil, sıfırlamanın
+durup durmadığını ölçmek. Kalp atışı `Start=0` sürücümüzden geliyor.
+
+| Sonuç | Anlamı |
+|---|---|
+| Şeritler 10'u geçiyor | Suçlu `Start=1` listesinde. İkili aramayla bulunur |
+| Yine ~10 şerit | `Start=1` de değil; geriye çekirdeğin kendi Faz 1 işleri kalıyor |

@@ -513,76 +513,16 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
    */
 
   /*
-   * ==========================================================================
-   * SURELI BLOKAJ - "BIRAKTIKTAN SONRA KAC SANIYE?"
-   * ==========================================================================
+   * SURELI BLOKAJ KALDIRILDI - SAYIYI VERDI.
    *
-   * Simdiye kadar iki uc nokta olculdu ve arada hicbir sey yok:
-   *   sonsuza kadar bloke  -> sifirlama YOK
-   *   hic bloke etme       -> 10 sanıyede sifirlama
+   *     REL=0053   TIK=0063   ->  birakildiktan sonra TAM 10 SANIYE
    *
-   * Bu, "10 saniye"nin neyin suresi oldugunu soylemiyor. Iki cok farkli
-   * ihtimal ayni sonucu veriyor:
+   * Yani tetikleyiciye ulasmak icin acilis surucileri bittikten sonra on
+   * saniyelik GERCEK IS gerekiyor. Gecikmesiz durumdaki 10 ile birebir
+   * tutarli.
    *
-   *   (a) Tetikleyici acilis surucilerinden HEMEN SONRA. O zaman 10
-   *       saniyenin neredeyse tamami bizden ONCE geciyor (winload'un WIM'i
-   *       RAM diske almasi, cekirdek Faz 0/1) ve biraktiktan sonra olum
-   *       1-2 saniyede gelir.
-   *
-   *   (b) Tetikleyiciye ulasmak icin ~10 saniyelik IS gerekiyor. O zaman
-   *       biraktiktan sonra olum yine ~10 saniyede gelir.
-   *
-   * Otuz saniye bekleyip birakiyoruz. Kalp atisi bekleme boyunca islemeye
-   * devam ediyor (zamanlayici kesmesi PASSIVE dongusunu kesiyor), yani
-   * serit sayisi hem beklemeyi hem sonrasini olcuyor:
-   *
-   *   ~31-32 serit -> (a). Tetikleyici acilis surucilerinin hemen ardinda,
-   *                   cok dar bir pencere.
-   *   ~40 serit    -> (b). Onda saniyelik gercek is var ve tetikleyici
-   *                   cok daha ileride, muhtemelen smss'e yakin.
-   *
-   * Ikisi tamamen farkli yerlere baktiriyor ve bu araligi hic olcmedik.
-   *
-   * Sabit: EbsTest kalibrasyonundan 500 milyon ~1 saniye; 8 milyar ~30 s.
+   * Artik gecikmeye gerek yok; olcum normal acilista da ayni sayiyi veriyor.
    */
-  {
-    volatile UINT64 I;
-    for (I = 0; I < 8000000000ULL; I++) {
-    }
-  }
-
-  /*
-   * BIRAKMA ANI ISARETLENIYOR - GECEN TUR BU EKSIKTI.
-   *
-   * Toplam 65 serit ciktı ama bunun kaci bekleme, kaci bekleme SONRASI,
-   * ayiramadik. Gecikme dongusunun gercek suresi de kalibre degil, yani
-   * "65" tek basina hicbir sey soylemiyor.
-   *
-   * Artik birakma anindaki serit sayisi kayda yaziliyor. Sonraki acilista
-   * iki sayiyi yan yana okuyoruz:
-   *
-   *     TIK=0065 ... REL=0055    ->  birakildiktan sonra 10 saniye
-   *     TIK=0065 ... REL=0035    ->  birakildiktan sonra 30 saniye
-   *
-   * Fark, "acilis serbest kaldiktan sonra tetikleyiciye ulasmak icin gereken
-   * sure". Aradigimiz tek sayi bu.
-   *
-   * Ayrica bant BEYAZA donuyor: canli olarak da birakma ani gorulebilsin,
-   * kaydi okumak icin yeniden baslatmayi beklemeye gerek kalmasin.
-   */
-  if (gLog != 0) {
-    UINT8 *R = (UINT8 *)gLog + 32;
-    UINT32 T = (UINT32)gTik;
-
-    R[0] = 'R'; R[1] = 'E'; R[2] = 'L'; R[3] = '=';
-    R[4] = (UINT8)('0' + ((T / 1000) % 10));
-    R[5] = (UINT8)('0' + ((T /  100) % 10));
-    R[6] = (UINT8)('0' + ((T /   10) % 10));
-    R[7] = (UINT8)('0' + ( T         % 10));
-  }
-  if (gFb != 0) {
-    FillDword (gFb, BANT_BYTES, 0x00FFFFFF);
-  }
 
   /*
    * STATUS_SUCCESS SART. Bir acilis surucusu basarisiz donerse ve
