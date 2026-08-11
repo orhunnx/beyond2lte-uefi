@@ -3664,3 +3664,40 @@ normal ilerler — ama CPU hiç `WFI`'ye girmez.
 Bu, projedeki en açıklayıcı hipotez: tek bir mekanizmayla hem `EbsTest`'in
 yaşamasını, hem iki blokaj deneyini, hem sürenin sabitliğini, hem bugcheck
 yokluğunu, hem de Linux'un çalışmasını açıklıyor.
+
+## `bootuxdisabled` etkili ama `sos` yok; ikinci açılış tesadüfmüş
+
+- Daire kayboldu → `bootuxdisabled` tüketici sürümünde de dikkate alınıyor.
+  Sürüm kısıtı yalnızca Unbranded Boot paketiyle ilgiliymiş.
+- Sürücü isimleri **yine akmadı**. Boot UX kapalıyken bile çekirdek metin
+  çıkışı çizilmiyor. **`sos` ekseni kapandı.**
+- "İkinci açılışta sıfırlama yok" tekrarlanmadı — tesadüfmüş.
+
+## Ölçülmeyen aralık: süreli blokaj
+
+Şimdiye kadar yalnızca iki uç nokta ölçüldü ve arada hiçbir şey yok:
+
+| Blokaj | Sonuç |
+|---|---|
+| Sonsuza kadar | Sıfırlama **yok** |
+| Hiç yok | 10 saniyede sıfırlama |
+
+Bu, "10 saniye"nin neyin süresi olduğunu söylemiyor. İki çok farklı ihtimal
+aynı sonucu veriyor:
+
+- **(a)** Tetikleyici açılış sürücülerinin hemen ardında. O zaman 10
+  saniyenin neredeyse tamamı bizden **önce** geçiyor (winload'un WIM'i RAM
+  diske alması, çekirdek Faz 0/1) ve bıraktıktan sonra ölüm 1-2 saniyede gelir.
+- **(b)** Tetikleyiciye ulaşmak için ~10 saniyelik **iş** gerekiyor. O zaman
+  bıraktıktan sonra ölüm yine ~10 saniyede gelir.
+
+`DriverEntry` sonunda 30 saniye bekleyip bırakıyoruz. Kalp atışı bekleme
+boyunca işlemeye devam ediyor, yani şerit sayısı hem beklemeyi hem sonrasını
+ölçüyor.
+
+| Şerit | Sonuç |
+|---|---|
+| ~31-32 | **(a)** — tetikleyici açılış sürücülerinin hemen ardında, çok dar pencere |
+| ~40 | **(b)** — on saniyelik gerçek iş var, tetikleyici çok daha ileride |
+
+Bu aralığı hiç ölçmedik ve iki sonuç tamamen farklı yerlere baktırıyor.

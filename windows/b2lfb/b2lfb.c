@@ -513,6 +513,45 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
    */
 
   /*
+   * ==========================================================================
+   * SURELI BLOKAJ - "BIRAKTIKTAN SONRA KAC SANIYE?"
+   * ==========================================================================
+   *
+   * Simdiye kadar iki uc nokta olculdu ve arada hicbir sey yok:
+   *   sonsuza kadar bloke  -> sifirlama YOK
+   *   hic bloke etme       -> 10 sanıyede sifirlama
+   *
+   * Bu, "10 saniye"nin neyin suresi oldugunu soylemiyor. Iki cok farkli
+   * ihtimal ayni sonucu veriyor:
+   *
+   *   (a) Tetikleyici acilis surucilerinden HEMEN SONRA. O zaman 10
+   *       saniyenin neredeyse tamami bizden ONCE geciyor (winload'un WIM'i
+   *       RAM diske almasi, cekirdek Faz 0/1) ve biraktiktan sonra olum
+   *       1-2 saniyede gelir.
+   *
+   *   (b) Tetikleyiciye ulasmak icin ~10 saniyelik IS gerekiyor. O zaman
+   *       biraktiktan sonra olum yine ~10 saniyede gelir.
+   *
+   * Otuz saniye bekleyip birakiyoruz. Kalp atisi bekleme boyunca islemeye
+   * devam ediyor (zamanlayici kesmesi PASSIVE dongusunu kesiyor), yani
+   * serit sayisi hem beklemeyi hem sonrasini olcuyor:
+   *
+   *   ~31-32 serit -> (a). Tetikleyici acilis surucilerinin hemen ardinda,
+   *                   cok dar bir pencere.
+   *   ~40 serit    -> (b). Onda saniyelik gercek is var ve tetikleyici
+   *                   cok daha ileride, muhtemelen smss'e yakin.
+   *
+   * Ikisi tamamen farkli yerlere baktiriyor ve bu araligi hic olcmedik.
+   *
+   * Sabit: EbsTest kalibrasyonundan 500 milyon ~1 saniye; 8 milyar ~30 s.
+   */
+  {
+    volatile UINT64 I;
+    for (I = 0; I < 8000000000ULL; I++) {
+    }
+  }
+
+  /*
    * STATUS_SUCCESS SART. Bir acilis surucusu basarisiz donerse ve
    * ErrorControl uygunsa winload butun acilisi iptal eder. Bu surucu
    * hicbir seyi sahiplenmiyor; her kosulda basarili donuyor.
