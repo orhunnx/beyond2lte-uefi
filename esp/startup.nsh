@@ -1,26 +1,20 @@
 @echo -off
 #
-# Once ONCEKI acilisin izlerini goster, sonra Windows'u ac.
+# Once ONCEKI acilisin izlerini goster, sonra ne varsa onu ac.
 #
 # ------------------------------------------------------------------------
-# BU DOSYA NEDEN BOYLE: dongu kapali, yeniden flaslama yok
+# ECHO'DA "-" VE "/" KULLANMA
 # ------------------------------------------------------------------------
-# RST_STAT son sifirlamayi tutuyor, ve Odin'in flas sonrasi yeniden
-# baslatmasi da bir sifirlama. Ayri bir "okuyucu imaji" flaslasaydik,
-# Windows'un biraktigi izi tam da onu okumaya giderken silerdik. Bu yuzden
-# tek imaj: ayni script hem dokumu basiyor hem Windows'u aciyor.
-#
-#   acilis -> ONCEKI cokusun izleri -> tusa bas -> Windows -> coker
-#          -> acilis -> O COKUSUN izleri
+# EFI Shell'in echo'su bir kelimenin basindaki tireyi VE egik cizgiyi bayrak
+# saniyor. Once "----" ile "echo: Unknown flag - '-'" almistik, simdi de
+# "0x20000000 = ... / 0x40010000 = ..." satirinda "Unknown flag - '/'".
+# Metinlerde ikisi de yok artik.
 #
 # ------------------------------------------------------------------------
 # dmem BOYUTU ONALTILIK
 # ------------------------------------------------------------------------
-# Bir tur "dmem 0xCF000000 192" yazdim; 192 ondalik sanmistim, Shell 0x192
-# (402 bayt) okudu ve bakmak istedigim +0x40 / +0x80 satirlari ekrandan
-# tasti. Asagida boyutlar onaltilik ve kisa: her sey tek ekranda kaliyor.
-# Bu yuzden "map -r" da kaldirildi - isini gormustu (fs0 LUN 0'da, GPT
-# bolumleri orada; LBA 0 hatalari LUN 2'de, yani bizim FS'imiz degil).
+# "dmem 0xCF000000 192" 0x192 = 402 bayt okur ve ekrani tasirir. Boyutlar
+# onaltilik ve kisa.
 #
 mode 80 25
 
@@ -28,14 +22,14 @@ mode 80 25
 # ------------------------------------------------------------------------
 # 1) PMU: SIFIRLAMANIN KAYNAGI
 # ------------------------------------------------------------------------
-# OLCULEN DEGERLER:
-#   0x40010000  Odin flasindan sonraki ilk acilis
+# OLCULEN:
+#   0x40010000  Odin flasindan sonraki acilis (guc cevrimi yolu)
 #   0x20000000  kurtarma menusunden kasitli yeniden baslatma
-#   0x20000000  WINDOWS COKTUKTEN SONRA        <- ayni
+#   0x20000000  WINDOWS COKTUKTEN SONRA        ayni deger
 #
-# Register canli, acilis yoluna gore degisiyor. Ve Windows'un cokusu,
-# kasitli bir yeniden baslatmayla ayni degeri uretiyor: sifirlamayi
-# yazilim ISTIYOR, donanim zorlamiyor. Watchdog biti yok.
+# Register acilis yoluna gore degisiyor, yani takili degil. Windows'un
+# cokusu kasitli bir yeniden baslatmayla ayni izi birakiyor: sifirlamayi
+# YAZILIM istiyor, watchdog atmiyor.
 #
 echo ================ PMU SIFIRLAMA KAYNAGI
 echo RST_STAT  (0x15860404):
@@ -43,28 +37,27 @@ dmem 0x15860404 4
 echo SEQUENCER (0x15860500):
 dmem 0x15860500 4
 echo .
-echo 0x20000000 = yazilim istedi  /  0x40010000 = Odin yolu
+echo 0x20000000 yazilim istedi, 0x40010000 guc cevrimi
 echo .
 
 #
 # ------------------------------------------------------------------------
-# 2) RESETSYSTEM KANCASININ KAYDI  (B2LResetHookDxe, 0xCF000000)
+# 2) RESETSYSTEM KANCASI  (B2LResetHookDxe, 0xCF000000)
 # ------------------------------------------------------------------------
-# ARM64 UEFI'de yazilimin sifirlama isteyebilecegi tek arayuz ResetSystem,
-# ve o bizim runtime servisimiz - ExitBootServices'ten sonra da bizde
-# kaliyor. Kancaladik. Kanca ekrana yazamaz (ConOut yok), onun yerine
-# 0xCF000000'a yaziyor; DRAM sicak sifirlamayi atlatiyor.
+# ILK TUR SONUCU:
+#   +0x40 = 42 32 4C 49 ("B2LI"), sayac 0x403 -> 0x404 diye tam bir artti
+#           => surucu her acilista calisiyor, bolge sifirlamayi atlatiyor
+#   +0x80 = bastan sona FF, iki acilista da
+#           => KANCA HIC CAGRILMADI
 #
-#   +0x40  "B2LI" (42 32 4C 49) -> surucu bu acilista yuklendi
-#   +0x80  onceki cokusun kaydi:
-#            +0x80 "B2LR" (42 32 4C 52) imza
-#            +0x88 ResetType  0=Cold 1=Warm 2=Shutdown 3=Platform
-#            +0x90 ResetStatus, 8 bayt little-endian  <- ASIL CEVAP
-#            +0xA0 ResetData (UCS-2 metin olabilir)
+# Yani Windows sifirlamayi ResetSystem'den gecirmiyor. RST_STAT hala
+# yazilim diyor; demek ki dogrudan SMC ile PSCI SYSTEM_RESET cagiriliyor
+# ve UEFI tamamen atlanıyor.
 #
-# +0x40'ta imza yoksa surucu hic yuklenmemis (derleme/FDF sorunu).
-# +0x40 var ama +0x80 yoksa kanca cagrilmamis: sifirlama ResetSystem'den
-# GECMIYOR, daha alt seviyede - istisna, dogrudan SMC, ya da guc devresi.
+# SIMDI SURUCU KILITLENME MODUNDA (B2L_HOOK_HANG 1). Kanca cagrilirsa
+# hicbir bellege dokunmadan sonsuz donguye giriyor:
+#   cihaz 12. saniyede DONARSA -> kanca cagriliyormus, sorun bizim yazmada
+#   yine yeniden baslarsa      -> Windows ResetSystem'i gercekten atliyor
 #
 echo ================ KANCA
 echo +0x40 surucu imzasi:
@@ -76,6 +69,26 @@ echo .
 echo ================ FOTOGRAFLA, sonra tusa bas.
 pause
 
+#
+# ------------------------------------------------------------------------
+# 3) NE VARSA ONU AC
+# ------------------------------------------------------------------------
+# LINUX DALI GERI GELDI. Bir tur "cache_esp.sh" (bayraksiz, yani Linux
+# modu) ile flaslandi ama startup.nsh'te Linux dali kalmamisti; cihaz
+# Windows'u aradi, bulamadi. Iki mod da destekleniyor artik:
+#
+#   cache_esp.sh        -> vmlinuz + initramfs var, Windows dosyalari yok
+#   cache_esp.sh --win  -> tersi
+#
+# Linux once bakiliyor cunku bayraksiz mod acikca Linux modu.
+#
+if exist fs0:\initramfs-test.gz then
+    echo Linux (ACPI, DTB yok)...
+    fs0:\vmlinuz-lts initrd=\initramfs-test.gz earlycon=efifb console=tty0 acpi=force loglevel=8 keep_bootcon
+    echo ISARET L: kernel geri dondu.
+    pause
+endif
+
 if exist fs0:\EFI\Microsoft\Boot\bootmgfw.efi then
     echo Windows Boot Manager...
     fs0:\EFI\Microsoft\Boot\bootmgfw.efi
@@ -83,5 +96,5 @@ if exist fs0:\EFI\Microsoft\Boot\bootmgfw.efi then
     pause
 endif
 
-echo Windows bulunamadi: cache_esp.sh --win calistirdin mi?
+echo Acilacak bir sey yok. cache_esp.sh calistirdin mi?
 pause

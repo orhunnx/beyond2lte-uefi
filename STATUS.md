@@ -935,3 +935,56 @@ bunları raporluyor:
 | **PSCI sürümü/conduit** | FACP düzeltmesi Linux'u 1 çekirdekten 8'e çıkarmıştı; kayda geçiyor. |
 | **GIC sürümü** | `acpiview` MADT'de GICR uyarıları vermişti. |
 | **`0xCF000000` `devmem` ile** | Kanca kaydının bağımsız doğrulaması. |
+
+## Kanca sonucu: Windows `ResetSystem`'i çağırmıyor
+
+`dmem 0xCF000040` / `0xCF000080`, arka arkaya iki açılışta:
+
+```
+CF000040: 42 32 4C 49 03 04 00 00 ...   -> "B2LI", sayaç 0x403
+CF000040: 42 32 4C 49 04 04 00 00 ...   -> "B2LI", sayaç 0x404
+CF000080: FF FF FF FF ...  (her ikisinde de)
+```
+
+Sayaç iki açılış arasında tam bir arttı. Bu iki şeyi birden kanıtlıyor:
+sürücü her açılışta çalışıyor **ve** `0xCF000000` bölgesi sıfırlamayı
+atlatıyor. Yani `+0x80`'in boş olması bir ölçüm hatası değil — **kanca hiç
+çağrılmadı.**
+
+`RST_STAT` hâlâ yazılım sıfırlaması diyor. Birleştirince: sıfırlamayı yazılım
+istiyor ama UEFI runtime servisini kullanmadan. En olası yol, FADT'deki
+`PSCI_COMPLIANT` bayrağını gören Windows'un doğrudan `SMC` ile
+`PSCI SYSTEM_RESET` çağırması. Bu çağrı EL1'den EL3'e gidiyor; UEFI'nin
+haberi bile olmuyor.
+
+### Kalan tek belirsizlik ve onu kesen test
+
+Kanca çağrılmış ama `0xCF000000`'a yazarken fault vermiş olabilir
+(`SetVirtualAddressMap` sonrası işaretçi çevrimi tutmadıysa). Ekranda ikisi
+de aynı görünür.
+
+`B2L_HOOK_HANG` bunu ayırıyor: kanca hiçbir belleğe dokunmadan, en başta
+sonsuz döngüye giriyor.
+
+| Gözlem | Sonuç |
+|---|---|
+| Cihaz 12. saniyede **donuyor** | Kanca çağrılıyormuş; sorun bizim yazmada, haritalama düzeltilir |
+| Cihaz yine **yeniden başlıyor** | Windows `ResetSystem`'i gerçekten atlıyor; UEFI seviyesinde görüş bitti |
+
+İkincisi çıkarsa geriye tek gözlem noktası kalıyor: **EL2**. Bellek
+haritamızda `EL2 Code` (`0x87000000`, 2 MB) bölgesi var, yani UEFI EL2'de
+çalışıyor ve Windows'u EL1'e bırakıyor olabilir. Öyleyse `HCR_EL2.TSC = 1`
+ile EL1'den gelen her `SMC` EL2'ye tuzaklanır ve PSCI çağrısını fonksiyon
+numarasıyla birlikte görürüz. Bunun ön koşulu Linux testinin cevaplayacağı
+soru: hangi exception level'dayız?
+
+### `echo` ikinci kez ısırdı
+
+EFI Shell'in `echo`'su kelime başındaki `/` karakterini de bayrak sanıyor
+(`Unknown flag - '/'`), tıpkı `-` gibi. Metinlerden ikisi de çıkarıldı.
+
+### Linux dalı geri geldi
+
+`cache_esp.sh` bayraksız çalıştırıldı (Linux modu) ama `startup.nsh`'te Linux
+dalı kalmamıştı; cihaz Windows'u arayıp bulamadı. Script artık iki modu da
+destekliyor, Linux'a önce bakıyor.

@@ -68,6 +68,38 @@
 
 #include <Guid/EventGroup.h>
 
+//
+// ==========================================================================
+// KILITLENME MODU - SU AN ACIK
+// ==========================================================================
+// Ilk turda kanca kaydi BOS geldi (+0x80 bastan sona FF), ama +0x40'ta
+// "B2LI" duruyordu ve acilis sayaci 0x403 -> 0x404 diye tam bir artmisti.
+// Yani surucu her acilista calisiyor ve bolge sifirlamayi atlatiyor;
+// negatif sonuc guvenilir.
+//
+// Geriye TEK belirsizlik kaldi:
+//   (a) kanca hic cagrilmadi                                    ya da
+//   (b) cagrildi ama 0xCF000000'a yazarken fault verdi
+//       (SetVirtualAddressMap sonrasi isaretci cevrimi tutmadiysa)
+//
+// Ikisi de ekranda AYNI gorunur: cihaz sessizce yeniden baslar.
+//
+// Bu mod ayrimi kesiyor. Kanca HICBIR BELLEGE DOKUNMADAN hemen sonsuz
+// donguye giriyor - ne mLog, ne mOldReset, hicbir sey:
+//
+//   cihaz 12. saniyede DONUYOR (yeniden baslamiyor)  -> (b): kanca
+//        cagriliyor, sorun bizim yazmada. Haritalama duzeltilir.
+//   cihaz yine yeniden basliyor                      -> (a): Windows
+//        ResetSystem'i hic cagirmiyor. Sifirlama UEFI'yi tamamen
+//        atlatiyor, muhtemelen dogrudan SMC ile PSCI SYSTEM_RESET.
+//        O zaman tek gorus noktasi EL2 kalir.
+//
+// Kilitlenirse cihazi guc + ses kisma ile kapatman gerekir.
+//
+// Ayrimi ogrendikten sonra bunu 0 yap: kayit yeniden calisir.
+//
+#define B2L_HOOK_HANG     1
+
 #define B2L_LOG_BASE      0xCF000000ULL
 #define B2L_OFF_CURRENT   0x00
 #define B2L_OFF_INFO      0x40
@@ -111,9 +143,20 @@ B2LResetSystem (
   IN UINTN           DataSize,
   IN VOID           *ResetData OPTIONAL)
 {
-  volatile B2L_RESET_RECORD *Rec = (volatile B2L_RESET_RECORD *)(mLog + B2L_OFF_CURRENT);
+  volatile B2L_RESET_RECORD *Rec;
   UINTN                      Copy;
   UINTN                      Index;
+
+#if B2L_HOOK_HANG
+  //
+  // EN BASTA, hicbir seye dokunmadan. Buraya gelirsek cihaz donar ve
+  // "kanca cagriliyor mu" sorusu ekranda cevaplanmis olur.
+  //
+  while (TRUE) {
+  }
+#endif
+
+  Rec = (volatile B2L_RESET_RECORD *)(mLog + B2L_OFF_CURRENT);
 
   Rec->Seq         = Rec->Seq + 1;
   Rec->ResetType   = (UINT32)ResetType;
