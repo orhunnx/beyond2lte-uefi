@@ -2119,3 +2119,34 @@ alanının **dışında** — yani `ntoskrnl` çalışmaya başladıktan sonra, 
   Artık yalnızca bu listeye dokunuluyor; listede olmayan hiçbir servisin
   `Start` değeri değiştirilmiyor.
 - `cdfs`, `udfs`, `ws2ifsl` her çalıştırmada açıkça `Start=4`'e çekiliyor.
+
+## Kritik araç hatası: `hivexsh setval` diğer değerleri siliyordu
+
+`hivexsh`'in `setval` komutu bir düğümde değer atarken **o düğümdeki diğer
+bütün değerleri siler.** Yani her `kapat`/`ac` çağrısında ilgili servisin
+`ImagePath`, `Type`, `Group`, `ErrorControl` alanlarını yok etmişiz; geriye
+yalnızca `Start` kalmış.
+
+Kapattığımız sürücüler için zararsız — zaten yüklenmiyorlar. Ama
+**açtıklarımız için felaket**: `ImagePath`'i olmayan bir sürücüyü Windows
+yükleyemez.
+
+İki ölçümün aynı çıkması bunu doğruluyordu ve fark etmemiştim:
+
+| Yapılandırma | Süre |
+|---|---|
+| Hepsi kapalı | 6 s |
+| Sadece `DXGKrnl` kapalı (30 sürücü "açık") | 6 s |
+
+Aynı hasar, aynı sonuç. **Sürücü ekseninde yapılan ölçümlerin hiçbiri
+geçerli değil** — 15 saniyelik temel dışında, o da hive'a hiç dokunulmadan
+alınmıştı.
+
+`STARTYAZ()` yardımcısı eklendi: `hivexregedit --merge` ile yalnızca `Start`
+yazılıyor, diğer değerlere dokunulmuyor. `hivexregedit` artık zorunlu ve
+eksikse script çerçeveli bir uyarıyla duruyor — paket adı `libwin-hivex-perl`,
+`libhivex-bin` değil.
+
+Bu, aynı sınıftan **dördüncü** hata: araç "yaptım" diyor, sonuç başka çıkıyor.
+Öncekiler yamalı `UfsDxe.c`, SYSTEM'deki eski ESP ve atlanan WIM içerik
+yamalarıydı.

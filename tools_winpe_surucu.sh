@@ -96,11 +96,59 @@ TEMEL_ACIK="ACPI acpiex atapi cdrom CLFS CNG disk DXGKrnl EhStorClass EhStorTcgD
 
 KORUMALI="ACPI acpiex CNG Wdf01000 WudfPf FltMgr Null volmgr partmgr disk mountmgr msisadrv pdc vdrvroot spaceport volume volsnap WimFsf FBWF Wof Fs_Rec Mup FileInfo CLFS KSecDD KSecPkg pcw"
 
+
+#
+# ===========================================================================
+# DEGER YAZMA - hivexsh'in setval'i KULLANILMIYOR
+# ===========================================================================
+# BU BIR HATAYDI VE BES OLCUMU GECERSIZ KILDI.
+#
+# hivexsh'in "setval" komutu bir dugumde deger atarken O DUGUMDEKI DIGER
+# BUTUN DEGERLERI SILIYOR. Yani her kapat/ac cagrisinda ilgili servisin
+# ImagePath, Type, Group, ErrorControl alanlarini yok etmisiz; geriye
+# yalnizca Start kalmis.
+#
+# Kapattigimiz suruciler icin zararsiz - zaten yuklenmiyorlar. Ama
+# ACTIKLARIMIZ icin felaket: ImagePath'i olmayan bir surucuyu Windows
+# yukleyemez. "sadece-kapat DXGKrnl" otuz kusur surucuyu "acti" ama hepsini
+# kullanilamaz hale getirdi.
+#
+# Iki olcumun ayni cikmasi da bunu dogruluyordu: "hepsi kapali" 6 saniye,
+# "sadece DXGKrnl kapali" yine 6 saniye. Ayni hasar, ayni sonuc.
+#
+# hivexregedit --merge yalnizca .reg dosyasindaki degerleri yaziyor,
+# digerlerine dokunmuyor. Dogru arac bu.
+#
+STARTYAZ() {   # $1 = servis adi, $2 = 0 ya da 4
+  local SRV="$1" DEG="$2" REGF="$W/set_$1.reg"
+  printf '[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\%s]\n"Start"=dword:0000000%s\n' "$SRV" "$DEG" > "$REGF"
+  hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$HV/SYSTEM" "$REGF" 2>/dev/null
+}
+
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
 [ -s "$WIM" ] || { echo "esp/sources/boot.wim yok. Once tools_winboot.sh calistir."; exit 1; }
 command -v wimlib-imagex >/dev/null || { echo "wimlib yok -> sudo apt install -y wimtools"; exit 1; }
 command -v hivexsh      >/dev/null || { echo "hivexsh yok -> sudo apt install -y libhivex-bin"; exit 1; }
+#
+# hivexregedit ARTIK ZORUNLU. hivexsh'in setval'i diger degerleri siliyor
+# (yukaridaki aciklama); onsuz dogru yazma yapamayiz.
+#
+command -v hivexregedit >/dev/null || {
+  echo
+  echo "  ###############################################################"
+  echo "  # hivexregedit YOK -> sudo apt install -y libwin-hivex-perl"
+  echo "  #"
+  echo "  # DIKKAT: bu paket libhivex-bin DEGIL, ayri bir pakettir."
+  echo "  #"
+  echo "  # Onsuz devam edilemez: hivexsh'in setval komutu servis"
+  echo "  # dugumundeki ImagePath/Type/Group degerlerini SILIYOR ve"
+  echo "  # acilan surucileri kullanilamaz hale getiriyor. Bes olcum bu"
+  echo "  # yuzden gecersiz cikti."
+  echo "  ###############################################################"
+  echo
+  exit 1
+}
 
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 HV="$W/hive"; mkdir -p "$HV"
@@ -227,13 +275,7 @@ sadece-kapat|hepsi-ac)
       D="dword:0"; ACILAN=$((ACILAN+1))
     fi
 
-    hivexsh -w "$HV/SYSTEM" >/dev/null 2>&1 <<HSH || echo "  ! $S yazilamadi"
-cd \\ControlSet001\\Services\\$S
-setval 1
-Start
-$D
-commit
-HSH
+    STARTYAZ "$S" "${D##*:}" || echo "  ! $S yazilamadi"
   done
 
   echo "  acilan: $ACILAN    kapali kalan:${KAPANAN:- yok}"
@@ -246,13 +288,7 @@ HSH
   # temel liste disinda kalsalar bile burada acikca 4'e cekiliyorlar.
   #
   for S in cdfs udfs ws2ifsl; do
-    hivexsh -w "$HV/SYSTEM" >/dev/null 2>&1 <<HSH || true
-cd \\ControlSet001\\Services\\$S
-setval 1
-Start
-dword:4
-commit
-HSH
+    STARTYAZ "$S" 4 || true
   done
   echo "  Microsoft varsayilani korundu: cdfs udfs ws2ifsl kapali"
 
@@ -293,13 +329,7 @@ kapat|ac)
       echo "  ! $S KORUMALI, atlandi (onsuz cekirdek hic baslamaz)"
       continue
     fi
-    if hivexsh -w "$HV/SYSTEM" >/dev/null 2>&1 <<HSH
-cd \\ControlSet001\\Services\\$S
-setval 1
-Start
-$DEGER
-commit
-HSH
+    if STARTYAZ "$S" "${DEGER##*:}"
     then echo "  + $S"
     else echo "  ! $S yazilamadi (servis yok olabilir)"
     fi
