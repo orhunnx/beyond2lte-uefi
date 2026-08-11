@@ -245,6 +245,28 @@ if /i "%VAR%"=="menuram" (
   if errorlevel 1 echo   ! BASARISIZ: numproc 1
   echo   AYAR: RAM disk + menu + numproc 1
 )
+::
+:: testimza: KENDI SURUCUMUZU YUKLETMEK ICIN.
+::
+:: ARM64 Windows cekirdek modu imza istiyor ve bunu bir kez gorduk:
+::   ws2ifsl.sys / 0xc0000428 / STATUS_INVALID_IMAGE_HASH
+::
+:: testsigning       -> kendi sertifikamizla imzalanmis suruculeri kabul et
+:: nointegritychecks -> ek gevsetme. Modern Windows'ta tek basina yok
+::                      sayiliyor ama testsigning ile birlikte zarari yok ve
+::                      bir degisken daha elemis oluyoruz.
+::
+:: Secure Boot'un zorlamadigi OLCULDU: imzasiz EBSTEST.EFI cihazda calisti.
+::
+if /i "%VAR%"=="testimza" (
+  bcdedit /store "%BCD%" /set %G% testsigning Yes
+  if errorlevel 1 echo   ! BASARISIZ: testsigning Yes
+  bcdedit /store "%BCD%" /set %G% nointegritychecks Yes
+  if errorlevel 1 echo   ! BASARISIZ: nointegritychecks Yes
+  bcdedit /store "%BCD%" /set %G% numproc 1
+  if errorlevel 1 echo   ! BASARISIZ: numproc 1
+  echo   AYAR: testsigning + nointegritychecks + numproc 1
+)
 if /i "%VAR%"=="azram" (
   bcdedit /store "%BCD%" /set %G% truncatememory 0x100000000
   if errorlevel 1 echo   ! BASARISIZ: truncatememory 0x100000000
