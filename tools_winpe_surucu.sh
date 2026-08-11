@@ -94,29 +94,36 @@ servisler() {
 case "$KOMUT" in
 
 liste)
-  say "ACILIS surucileri (Start = 0)"
-  echo "  ikiye bolerken bu listeyi kullan; korumali olanlar isaretli"
+  #
+  # ACIK OLANLARI DA KAPALI OLANLARI DA GOSTER.
+  #
+  # Onceki surum yalnizca Start=0 olanlari listeliyordu ve bu bizi kor
+  # birakti: "hepsi-kapat" ikinci kez calistirilinca "hedef:" bos cikti,
+  # cunku hedefler zaten kapaliydi ve listede hic gorunmuyorlardi. Neyin
+  # kapali oldugunu gormeden ikiye bolme yapilamaz.
+  #
+  say "Acilis surucileri ve simdiki durumlari"
   echo
-  N=0
+  A=0; K=0
   while IFS= read -r S; do
     [ -n "$S" ] || continue
     ST="$(hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start 2>/dev/null || true)"
     case "$ST" in
-      0|0x0|0x00000000) ;;
+      0|0x0|0x00000000) D="ACIK  "; A=$((A+1)) ;;
+      4|0x4|0x00000004) D="KAPALI"; K=$((K+1)) ;;
       *) continue ;;
     esac
-    N=$((N+1))
     if echo " $KORUMALI " | grep -qi " $S "; then
-      printf '  %-28s KORUMALI\n' "$S"
+      printf '  %-28s %s  korumali\n' "$S" "$D"
     else
-      printf '  %-28s\n' "$S"
+      printf '  %-28s %s\n' "$S" "$D"
     fi
   done < <(servisler)
   echo
-  echo "  toplam $N acilis surucusu"
+  echo "  acik: $A   kapali: $K"
   echo
-  echo "Ikiye bolme onerisi: listeyi ikiye ayir, ilk yariyi kapat, sureyi olc."
-  echo "  bash tools_winpe_surucu.sh kapat <isim> <isim> ..."
+  echo "Ikiye bolme: KAPALI olanlarin yarisini geri ac, sureyi olc."
+  echo "  bash tools_winpe_surucu.sh ac <isim> <isim> ..."
   ;;
 
 hepsi-kapat)

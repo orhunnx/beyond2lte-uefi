@@ -2049,3 +2049,16 @@ anlamlandı.
 
 Not: `0xCF030000`'daki EL2 kaydında `B2L2` imzası yok, döküm çöp. EL2 arka
 kapısı henüz çalışmıyor — ayrı bir iş olarak duruyor.
+
+### Araç körlüğü: `liste` sadece açık olanları gösteriyordu
+
+`hepsi-kapat` ikinci kez çalıştırılınca `hedef:` boş çıktı. Sebep: donanım
+sürücüleri zaten `Start=4` idi ve `liste` yalnızca `Start=0` olanları
+basıyordu — kapattıklarımız hiç görünmüyordu. Neyin kapalı olduğunu görmeden
+ikiye bölme yapılamaz.
+
+`liste` artık `Start` değeri 0 **ya da** 4 olan her sürücüyü `AÇIK` / `KAPALI`
+etiketiyle gösteriyor ve sayıları basıyor.
+
+Bu arada WIM istenen durumda: donanım sürücüleri kapalı, WinPE'nin dosya
+sistemi katmanı (`WimFsf`, `FBWF`, `Wof`, ...) açık. Ölçüm yapılabilir.
