@@ -3372,3 +3372,47 @@ Değişiklik tek bit: `Flags 0x00300000` → `0x00100000`
 |---|---|
 | Şeritler 10'u geçiyor | LPS0'mış. Windows yapamadığımız bir güç modelini deniyormuş |
 | Yine ~10 şerit | LPS0 değil; sırada `PM Profile` ve FADT'nin diğer devralınmış alanları |
+
+## LPS0 da değil — `ErrorControl` mekanizması
+
+`Low Power S0 Idle = 0` sonucu değiştirmedi. Yine 10.
+
+Bir adım geri: "temiz yeniden başlatma" Windows'ta ne demek? Çekirdek
+başlatmasında bir şey ters giderse normalde **bugcheck** olur. Yeniden
+başlatması için birinin *istemesi* gerekiyor — ve tam bu noktada, bugcheck
+olmadan yeniden başlatma üreten bilinen bir mekanizma var.
+
+### Servis `ErrorControl` değeri
+
+| Değer | Sürücü yüklenemezse |
+|---|---|
+| 0 IGNORE | Devam et |
+| 1 NORMAL | Günlüğe yaz, devam et |
+| **2 SEVERE** | **LastKnownGood'a dön ve YENİDEN BAŞLAT** |
+| 3 CRITICAL | LKG'ye dön ve yeniden başlat; zaten LKG ise bugcheck |
+
+`SEVERE` tam olarak gördüğümüz şeyi üretiyor: **bugcheck olmadan temiz bir
+yeniden başlatma**, kullanıcı modundan önce, açılış sürücüleri başlatılırken.
+
+Bu telefonda WinPE'nin beklediği donanımların çoğu yok. Bir açılış
+sürücüsünün düşmesi hiç şaşırtıcı değil — şaşırtıcı olan, düşmesinin
+**sessiz bir yeniden başlatma** üretmesi. Ve bu, ölçüm aletini kurmadan
+görülemezdi.
+
+### `tools_winpe_hatakapat.sh`
+
+Bütün servislerin `ErrorControl`'ünü 0 yapıyor. Hangi sürücünün düştüğünü
+aramıyoruz; önce "düşmek sıfırlamaya sebep olmasın" diyoruz. Sıfırlama
+durursa mekanizma doğrulanır ve **sonra** suçlu aranır.
+
+Kendi sürücümüz istisna: `b2lfb`'nin `ErrorControl`'ü 3 kalmalı, yüklenemezse
+bunu ekranda görmek istiyoruz. `tools_b2lfb.sh` bu script'ten sonra çalışıp
+değeri geri yazıyor.
+
+Tek `.reg` dosyası, tek merge — servis başına ayrı çağrı yüzlerce
+`hivexregedit` çalıştırmak demekti. `hivexsh setval` yine kullanılmıyor.
+
+| Sonuç | Anlamı |
+|---|---|
+| Şeritler 10'u geçiyor | Mekanizma **doğrulandı**. Sırada suçlu sürücüyü bulmak |
+| Yine ~10 şerit | `ErrorControl` değil; bu eksen de kapanır |
