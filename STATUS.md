@@ -3104,3 +3104,30 @@ satırlık çıktının içinde kayboluyordu.
 **Bir doğrulamanın değeri, başarısız olduğunda işi durdurmasından gelir.**
 Yoksa sadece gürültüdür. Artık `delete` + `add` yapılıyor ve uyuşmazlık
 ölümcül.
+
+## Yeşil ekran: dedektör olumlu yönde de doğrulandı
+
+`PsSetCreateProcessNotifyRoutine` eklenince cihaz **bugcheck verdi** ve ekran
+yeşile döndü. Çağrı geri alındı.
+
+Ama bedava bir kazanç bıraktı: **yeşil gerçekten çiziliyor.** Önceki turlardaki
+"yeşil yok" bir alet arızası değil, gerçek bir ölçümmüş. Bugcheck olmadığı
+artık iki yönden de kesin.
+
+## Yeni çıkarım: süre, yapılan işten bağımsız
+
+UFS'i PWM Gear 1'den HS Gear 3'e çekip depolamayı elli kat hızlandırdık.
+Süre 9-10'da kaldı. Windows'un ne kadar iş yaptığı ölüm anını değiştirmiyor —
+sabit bir sayaç kokusu.
+
+### Deney: referans noktasını kaydır
+
+Sürücünün başında ~5 saniye bekleniyor. Kalp atışı beklemeden sonra başlıyor,
+yani sayacın sıfır noktası 5 saniye ileri kayıyor.
+
+| Sonuç | Anlamı |
+|---|---|
+| `TIK≈4` | Ölüm anı **sabit**. Gecikme öteleyemedi; bizden bağımsız bir zamanlayıcı var |
+| `TIK≈9` | Ölüm **olaya bağlı**. Windows bir işi bitirince oluyor ve biz o işi geciktirdik |
+
+Tek değişken, yeni API yok, risk yok.

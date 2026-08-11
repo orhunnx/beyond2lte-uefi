@@ -336,6 +336,33 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   (void)RegistryPath;
 
   /*
+   * BASLANGIC GECIKMESI - REFERANS NOKTASINI KAYDIRAN DENEY
+   *
+   * Elimizdeki en guclu ipucu: UFS'i PWM G1'den HS G3'e cekip depolamayi
+   * elli kat hizlandirdik, ama olum suresi 9-10'da kaldi. Windows'un NE
+   * KADAR IS YAPTIGI sureyi degistirmiyor. Bu sabit bir sayac kokusu.
+   *
+   * Sinamak icin surucunun basinda ~5 saniye bekliyoruz. Kalp atisi
+   * beklemeden SONRA basliyor, yani sayacin sifir noktasi 5 saniye
+   * ileri kayiyor:
+   *
+   *   TIK ~4 cikarsa  -> olum ani SABIT. Gecikme onu oteleyemedi; bir yerde
+   *                      calisan bir zamanlayici var ve bizden bagimsiz.
+   *   TIK ~9 kalirsa  -> olum OLAYA BAGLI. Windows bir isi bitirince
+   *                      oluyor ve biz o isi 5 saniye geciktirdik.
+   *
+   * Tek degisken, iki tamamen farkli sonuc. Yeni API yok, risk yok.
+   *
+   * Sabit deneysel: EbsTest'te 500 milyon volatile artirma ~1 saniye
+   * suruyordu; 2.5 milyar ~5 saniye eder.
+   */
+  {
+    volatile UINT64 I;
+    for (I = 0; I < 2500000000ULL; I++) {
+    }
+  }
+
+  /*
    * 1) OLUM SONRASI KAYIT ONCE.
    *
    * Sirasi onemli: framebuffer haritalama herhangi bir sebeple patlarsa
@@ -446,8 +473,19 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
    * DueTime negatif = GORELI, 100 ns birimi. -10000000 = 1 saniye.
    * Period = 1000 ms, yani saniyede bir tekrar.
    */
-  /* Surec bildirimi - kullanici moduna cikip cikmadigimizi soyleyecek */
-  PsSetCreateProcessNotifyRoutine ((PVOID)SurecBildirimi, 0);
+  /*
+   * SUREC BILDIRIMI GERI ALINDI - EKRANI YESILE CEVIRDI.
+   *
+   * PsSetCreateProcessNotifyRoutine eklendigi anda cihaz BUGCHECK verdi.
+   * Sebebini kesin bilmiyoruz ve arastirmak tur harciyor; bilgi degeri de
+   * asagidaki deneyin yaninda kucuk kaliyor.
+   *
+   * AMA BEDAVA BIR KAZANC BIRAKTI: yesil ekran cizildi. Yani bugcheck
+   * dedektoru OLUMLU yonde de dogrulandi. Onceki turlarda "yesil yok"
+   * demek gercekten "bugcheck yok" demekmis - alet arizasi degil.
+   *
+   * PsSetCreateProcessNotifyRoutine ((PVOID)SurecBildirimi, 0);
+   */
 
   KeInitializeDpc ((PVOID)gDpc, (PVOID)HeartbeatDpc, 0);
   KeInitializeTimer ((PVOID)gTimer);
