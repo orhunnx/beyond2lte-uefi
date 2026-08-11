@@ -50,11 +50,13 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 #
 WINONLY=0
 BIGPART=0
+BOSALT=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
     --win)    WINONLY=1 ;;
     --system) BIGPART=1 ;;
+    --bos)    BOSALT=1 ;;
     *)        ARGS+=("$a") ;;
   esac
 done
@@ -119,6 +121,55 @@ say "Icerik: $APP ($(du -h "$APP" | cut -f1))"
 # araligi olan 4085-65525'in tam ortasinda kaliyor. (FAT32'ye gecemiyoruz,
 # bkz. yukaridaki 2 numarali kisit.)
 #
+#
+# ---------------------------------------------------------------------------
+# --bos : BOLUMU SIL, ICINE HICBIR SEY KOYMA
+# ---------------------------------------------------------------------------
+# NEDEN GEREKTI - BES TURLUK KAFA KARISIKLIGININ SEBEBI BUYDU:
+#
+# Bir noktada ESP'yi SYSTEM bolumune flasladik (23H2'nin 742 MB'lik WIM'i
+# 600 MiB'lik CACHE'e sigmiyordu). Sonra CACHE'e geri dondük - ama SYSTEM'de
+# birakt.gimiz TAM ESP orada durmaya devam etti, icindeki ESKI startup.nsh
+# ile birlikte.
+#
+# EFI Shell startup.nsh'i hangi FAT biriminde ONCE bulursa onu calistirir.
+# Iki birim vardi ve eskisini buldu. Sonuc: depoda dogru dosya, cihaza dogru
+# imaj gidiyor, ama calisan script eski. Yaptigimiz hicbir degisiklik test
+# edilmedi - eski map ciktisi, kaybolmayan B2L UFS satirlari, bulunamayan
+# EBSTEST.EFI, degismeyen 15 saniye, hepsi bundan.
+#
+# Bu mod bolumun basina 16 MiB sifir yaziyor. FAT onyukleme sektoru gidince
+# birim hic taninmiyor ve ortada tek bir startup.nsh kaliyor.
+#
+if [ "$BOSALT" = 1 ]; then
+  IMG="$OUT/$PART.img"
+  say "BOLUM SILINIYOR: $(echo "$PART" | tr a-z A-Z)  (basina 16 MiB sifir)"
+  rm -f "$IMG"
+  dd if=/dev/zero of="$IMG" bs=1M count=16 status=none
+
+  WORK="$(mktemp -d)"
+  if command -v img2simg >/dev/null; then
+    img2simg "$IMG" "$WORK/$PART.img"
+  else
+    cp "$IMG" "$WORK/$PART.img"
+  fi
+  ( cd "$WORK" && tar -H ustar -cf "$OUT/$PART-esp.tar" "$PART.img" )
+  rm -rf "$WORK"
+
+  ls -lh "$OUT/$PART-esp.tar"
+  for p in /mnt/c/Users/*/OneDrive/Masa*st* /mnt/c/Users/*/OneDrive/Desktop \
+           /mnt/c/Users/*/Masa*st* /mnt/c/Users/*/Desktop; do
+    [ -d "$p" ] || continue
+    mkdir -p "$p/beyond2lte-flash"
+    cp -f "$OUT/$PART-esp.tar" "$p/beyond2lte-flash/"
+    echo
+    echo "Masaustune kopyalandi: $p/beyond2lte-flash/$PART-esp.tar"
+    echo "  Odin, AP slotu (Re-Partition ISARETSIZ)"
+    break
+  done
+  exit 0
+fi
+
 IMG="$OUT/$PART.img"
 
 say "$FATDESC imaji olusturuluyor"

@@ -1723,3 +1723,34 @@ istisnasını yakalayabiliriz. Büyük iş ama artık imkânsız değil.
 | `exynos9820-mainline/kexec-boot-tools` | kexec ile açılış |
 | `ExtremeXT/android_kernel_samsung_exynos9820` | Stock çekirdek kaynağı |
 | `sleirsgoevy/exynos-kvm-patch` | **EL2 erişimi**, TrustZone arka kapısı |
+
+## Beş turluk kafa karışıklığının sebebi: iki ESP
+
+Depo temiz, commit push'lu, `esp/startup.nsh` doğru sürüm
+(`sha1=a0e16fd69435`, içinde `KOKU` ve `EBSTEST` var). Dosya cihaza gidiyor.
+Ama cihaz **başka bir `startup.nsh` çalıştırıyor.**
+
+Bir noktada ESP'yi SYSTEM bölümüne flaşlamıştık — 23H2'nin 742 MB'lık WIM'i
+600 MiB'lik CACHE'e sığmıyordu. Sonra CACHE'e geri döndük, ama **SYSTEM'de
+bıraktığımız tam ESP orada durmaya devam etti**, içindeki eski `startup.nsh`
+ile birlikte.
+
+EFI Shell `startup.nsh`'ı hangi FAT biriminde önce bulursa onu çalıştırır. İki
+birim vardı ve eskisini buldu.
+
+Bu tek şey son beş turun hepsini açıklıyor:
+
+| Gözlem | Gerçek sebep |
+|---|---|
+| Eski `map` tam tablosu, `fs0 KOKU` yok | Eski script çalışıyor |
+| `B2L UFS` satırları kaybolmuyor | Yeni firmware test edilmedi |
+| `EBSTEST.EFI` bulunamıyor | Farklı birimde arıyor |
+| Süre hep 15 saniye | Hiçbir değişikliğimiz devrede değil |
+
+**Yani `43ef06c^`'ya geri dönüş, `_CRS` sadeleştirmesi, `Low Power S0 Idle`,
+MADT tek çekirdek — hiçbirinin gerçekten test edilip edilmediği belirsiz.**
+Değişkenlerin bir kısmını yeniden ölçmek gerekecek.
+
+`cache_esp.sh --system --bos`: bölümün başına 16 MiB sıfır yazıyor. FAT
+önyükleme sektörü gidince birim hiç tanınmıyor ve ortada tek bir
+`startup.nsh` kalıyor.
