@@ -142,12 +142,31 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             // Package { BaseClass, SubClass, ProgrammingInterface }
             //   0x01 Mass Storage / 0x09 UFS / 0x01 UFSHCI  ->  ACPI\CC_010901
             //
-            Name (_CLS, Package (0x03)
-            {
-                0x01,
-                0x09,
-                0x01
-            })
+            //
+            // _CLS GECICI OLARAK KAPALI - storufs BAGLANMASIN.
+            //
+            // Neden simdi: acilisi DriverEntry'de sonsuza kadar durdurunca
+            // sifirlama HIC OLMADI (25+ serit ve devam ediyordu). Yani sayac
+            // mutlak degil; sifirlama Windows'un bizden SONRAKI ilerlemesine
+            // bagli. UEFI/TrustZone/PMIC eksenleri kapandi.
+            //
+            // Bizden sonra ne oluyor? Kalan acilis surucileri, sonra PnP
+            // ACPI aygitlarini sayip suruculerini basliyor. Ve DSDT'de tek
+            // aygit var: UFS0.
+            //
+            // Eski bir olcum de tam buraya isaret ediyordu: _CLS acikken
+            // 5-6 saniye, kapaliyken 12 saniye. O zaman guvenilir bir
+            // olcum aletimiz yoktu - simdi var.
+            //
+            // _CLS olmadan Windows bu dugume hicbir surucu baglamiyor;
+            // aygit gorunur ama olu kaliyor.
+            //
+            // Name (_CLS, Package (0x03)
+            // {
+            //     0x01,
+            //     0x09,
+            //     0x01
+            // })
             //
             // _CCA ARM64'te DMA yapan her aygit icin zorunlu.
             //

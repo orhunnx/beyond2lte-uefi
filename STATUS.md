@@ -3486,3 +3486,42 @@ sürdürüyoruz.
 |---|---|
 | Şeritler ~10'da durup sıfırlama | **Mutlak sayaç.** Windows masum; sebep UEFI, TrustZone ya da PMIC tarafında |
 | Şeritler 20, 40, 60 diye artıyor | Sıfırlama Windows'un **ilerlemesine** bağlı. Açılışı durdurmak önledi; sırada hangi aşamanın tetiklediğini daraltmak |
+
+# ★ Sıfırlama mutlak sayaç değil — Windows'un ilerlemesine bağlı
+
+`DriverEntry`'den hiç dönmeyen döngü kondu. **25+ şerit ve devam ediyordu,
+cihaz sıfırlamadı.**
+
+Açılışı durdurmak sıfırlamayı da durdurdu. Yani ~10 saniye bir zamanlayıcı
+değil; sıfırlama Windows'un bizden **sonraki ilerlemesine** bağlı.
+
+Bu üç ekseni birden kapatıyor: **UEFI, TrustZone, PMIC.** Hiçbirinde iş yok.
+
+## Bizden sonra ne oluyor
+
+Sürücümüz çok erken bir açılış sürücüsü (`Start=0`, "System Bus Extender").
+Ondan sonra sırasıyla: kalan açılış sürücüleri yüklenir, sonra PnP ACPI
+aygıtlarını sayıp sürücülerini başlatır.
+
+Ve DSDT'mizde **tek bir aygıt var: UFS0.**
+
+Eski bir ölçüm de tam buraya işaret ediyordu:
+
+| Yapılandırma | Süre |
+|---|---|
+| `_CLS` açık (storufs bağlanıyor) | 5-6 s |
+| `_CLS` kapalı (storufs bağlanmıyor) | 12 s |
+
+O zaman güvenilir bir ölçüm aletimiz yoktu ve bu fark yorumlanamamıştı.
+Şimdi var.
+
+## Bu turun ölçümü
+
+`_CLS` yorum satırına alındı — Windows UFS0'a hiçbir sürücü bağlamıyor,
+aygıt görünür ama ölü kalıyor. Sonsuz döngü de kaldırıldı ki açılış
+ilerleyebilsin.
+
+| Sonuç | Anlamı |
+|---|---|
+| Şeritler belirgin biçimde artıyor | **`storufs` tetikliyor.** Sırada onun tam olarak neyi tetiklediği |
+| Yine ~10 şerit | UFS0 değil; tetikleyici kalan açılış sürücülerinde ya da çekirdeğin kendi Faz 1 işlerinde |
