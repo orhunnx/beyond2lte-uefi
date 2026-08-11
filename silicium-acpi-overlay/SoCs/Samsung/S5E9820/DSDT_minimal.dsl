@@ -138,7 +138,37 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000006)
             Name (_HID, "SMSN9820")
             Name (_UID, Zero)
             //
-            // _CLS GECICI OLARAK KAPALI - SUPHELI.
+            // _CLS GECICI OLARAK KAPALI. SIRADAKI ADIM: GERI AC.
+            //
+            // ------------------------------------------------------------
+            // SIRA
+            // ------------------------------------------------------------
+            // 1) ADK'nin ciplak WinPE'si, _CLS KAPALI  <- once bu olculecek
+            // 2) ayni WinPE, _CLS ACIK                 <- sonra bu
+            // Ikisini ayni turda degistirmiyoruz; hangisinin etki ettigini
+            // bilemezdik. 1'in suresini not et, 2'de karsilastir.
+            //
+            // ------------------------------------------------------------
+            // STORUFS NEDEN BOZUYOR VE GERCEK COZUM NE
+            // ------------------------------------------------------------
+            // storufs.sys UFSHCI spec'ine gore denetleyiciyi HCE ile
+            // resetliyor ve UniPro linkini DME_LINKSTARTUP ile yeniden
+            // kuruyor. HCE, PHY'yi (PMA, 0x13D64000) resetlemiyor - bozulan
+            // sey UNIPRO LINKI. Exynos'ta link kalibrasyonu vendor'a ozel
+            // DME nitelikleriyle yapiliyor; bizim UfsCal.c tam olarak bunu
+            // yapiyor, jenerik surucu ise bilmiyor.
+            //
+            // GERCEK COZUM (ileri adim): UEFI, kontrolu birakmadan once
+            // PHY'yi MUHAFAZAKAR VE STANDART bir moda cekerse - PWM Gear 1,
+            // tek serit - jenerik DME_LINKSTARTUP calisir. Yavas olur ama
+            // ilk acilis icin yavas fazlasiyla yeterli. Bu, jenerik
+            // suruculeri vendor donaniminda calistirmanin bilinen yolu.
+            //
+            // Su anki test bunun on olcumu: hafif WinPE ile _CLS acikken
+            // sure ne oluyor? 5-6 saniyede kaliyorsa link kopmasi
+            // dogrulanir ve PWM-G1 isine girmeye deger.
+            //
+            // ESKI NOT (hala gecerli):
             //
             // Bu nesne Windows'un storufs.sys'i UFS0'a baglamasini sagliyor
             // (ACPI\CC_010901). Ama baglanan surucu UFSHCI spec'ine gore
@@ -159,12 +189,12 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000006)
             //
             // Geri acmak icin asagidaki blogun yorumunu kaldir.
             //
-            // Name (_CLS, Package (0x03)
-            // {
-            //     0x01,
-            //     0x09,
-            //     0x01
-            // })
+            Name (_CLS, Package (0x03)
+            {
+                0x01,   // sinif    : yigin depolama
+                0x09,   // alt sinif: UFS
+                0x01    // arayuz   : UFSHCI
+            })
             //
             // _CCA ARM64'te DMA yapan her aygit icin zorunlu. DTB'de
             // "ufs-io-coherency" node'u var ve UEFI (BoardInit.c) SYSREG'deki
@@ -175,15 +205,37 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000006)
             {
                 Return (0x0F)
             }
+            //
+            // _CRS SADELESTIRILDI: TEK ARALIK.
+            //
+            // ONCEKI HALI dort aralik bildiriyordu:
+            //     0x13D60000 / 0x200    HCI
+            //     0x13D61100 / 0x200    VS_HCI  (Samsung vendor)
+            //     0x13D50000 / 0x8000   UNIPRO
+            //     0x13D64000 / 0x800    PHY PMA
+            //
+            // NEDEN SORUN: jenerik bir surucu _CRS kaynaklarini SIRAYLA
+            // haritalar ve storufs.sys ilk bellek kaynaginin STANDART
+            // UFSHCI register blogu olmasini bekler. Arkasindan gelen uc
+            // aralik onun sozlugunde yok - en iyi ihtimalle yok sayilir,
+            // en kotusunde kaynak eslemesini kaydirir. Ustelik ilk araligin
+            // uzunlugu 0x200'du; standart register seti icin sinirda.
+            // Qualcomm'un ACPI'si tek aralik bildiriyor.
+            //
+            // BU SURUM: tek aralik, 0x1000. VS_HCI 0x13D61100'de basliyor,
+            // yani 0x1000 onu KAPSAMIYOR - kasitli. Vendor bloguna jenerik
+            // surucunun isi yok; oraya UEFI tarafinda UfsDxe erisiyor ve
+            // _CRS'ten etkilenmiyor.
+            //
+            // Onceki _CLS acik olcumu (5-6 saniye) DORT arali]kliydi. Bu
+            // turda sure degisirse _CRS'in etkisi oldugunu bilecegiz.
+            //
             Name (_CRS, ResourceTemplate ()
             {
-                Memory32Fixed (ReadWrite, 0x13D60000, 0x00000200)  // HCI
-                Memory32Fixed (ReadWrite, 0x13D61100, 0x00000200)  // VS_HCI
-                Memory32Fixed (ReadWrite, 0x13D50000, 0x00008000)  // UNIPRO
-                Memory32Fixed (ReadWrite, 0x13D64000, 0x00000800)  // PHY PMA
+                Memory32Fixed (ReadWrite, 0x13D60000, 0x00001000)  // UFSHCI
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
                 {
-                    0x00000119
+                    0x00000119   // SPI 249 -> GSIV 281
                 }
             })
         }

@@ -1116,3 +1116,121 @@ kilitler, genelde kalıcı olarak. `map -r` GPT bölümlerinin LUN 0 ve LUN 3'te
 olduğunu gösterdi; LUN 2'de bölüm yok. `bootmgfw` o hataların ardından yoluna
 devam edip Windows'u yüklüyor. `startup.nsh` artık `map fs0` ile fs0'ın LUN'unu
 tek satırda basıyor, soru kalıcı olarak kapansın.
+
+## Eksen değişikliği: Windows tarafına geçiliyor
+
+ACPI'nin her parçası artık stock DTB'ye karşı doğrulandı:
+
+| Tablo | Doğrulama |
+|---|---|
+| MADT GICC | MPIDR `0,1,2,3,4,5,0x100,0x101` — M4'ler cluster 1'de, DTB `cpu@0100/0101` ile birebir |
+| MADT GICD | GICv2, `0x10101000`; DTB `arm,cortex-a15-gic` |
+| GICC/GICH/GICV | `0x10102000` / `0x10104000` / `0x10106000` — DTB `reg` ile birebir |
+| Virtual GIC Interrupt | GSIV 25 = PPI 9, DTB `<1 9 0xf04>` |
+| GTDT | GSIV 29/30/27/26, 26 MHz — DTB ile birebir |
+| FADT | PSCI compliant, SMC conduit (Linux 8 çekirdek açıyor) |
+| PPTT | Linux `cluster=76/96/136` ile doğrulandı |
+
+Düzeltilecek bir şey kalmadı ve Linux aynı tablolarla çalışıyor. Sorun artık
+"tablomuzda hata var" değil. On beş turdur Windows tarafına hiç dokunmadık.
+
+### ADK'nın çıplak WinPE'si
+
+ISO'nun `boot.wim`'i 570 MB ve içinde Setup sihirbazı, sürücü deposu, dil
+kaynakları var. ADK'nın WinPE'si ~250 MB ve gerçekten çıplak.
+
+Windows'ta:
+
+```
+copype arm64 C:\WinPE_arm64
+```
+
+WSL'de:
+
+```
+bash tools_winpe_adk.sh /mnt/c/WinPE_arm64/media
+bash cache_esp.sh --win
+```
+
+| Gözlem | Sonuç |
+|---|---|
+| Aynı ~12 saniye | Sorun platformda, Windows sürümünde değil — büyük eleme |
+| Daha uzun dayanıyor | Üstüne inşa edilecek çalışan bir taban |
+
+`tools_winpe_adk.sh` ISO yolundan ayrı tutuldu; `copype` zaten doğru ağacı
+üretiyor, çıkarım/budama gerekmiyor.
+
+### storufs'a ikinci şans — ve gerçek çözüm
+
+Sıra: **önce** çıplak WinPE `_CLS` kapalıyken, **sonra** aynı WinPE `_CLS`
+açıkken. Aynı turda ikisini değiştirmek hangisinin etki ettiğini gizler.
+
+`storufs.sys` denetleyiciyi HCE ile resetliyor ve UniPro linkini
+`DME_LINKSTARTUP` ile yeniden kuruyor. HCE PHY'yi (PMA, `0x13D64000`)
+resetlemiyor — bozulan **UniPro linki**. Exynos'ta link kalibrasyonu vendor'a
+özel DME nitelikleriyle yapılıyor; `UfsCal.c` tam olarak bunu yapıyor, jenerik
+sürücü bilmiyor.
+
+**Gerçek çözüm:** UEFI kontrolü bırakmadan önce PHY'yi muhafazakâr ve standart
+bir moda çekerse — PWM Gear 1, tek şerit — jenerik `DME_LINKSTARTUP` çalışır.
+Yavaş olur ama ilk açılış için fazlasıyla yeterli. Jenerik sürücüleri vendor
+donanımında çalıştırmanın bilinen yolu bu.
+
+Şimdiki ölçüm onun ön koşulu: hafif WinPE ile `_CLS` açıkken süre yine 5-6
+saniyede kalıyorsa link kopması doğrulanır ve PWM-G1 işine girmeye değer.
+
+## storufs'a ikinci şans: `_CLS` açık + `_CRS` sadeleştirildi
+
+Sadece `_CLS`'i geri açmak muhtemelen yine 5-6 saniye verir ve yeni bir şey
+öğretmez. Bu turda ona gerçek bir şans veriliyor.
+
+Önceki `_CRS` dört bellek aralığı bildiriyordu:
+
+```
+0x13D60000 / 0x200     HCI
+0x13D61100 / 0x200     VS_HCI  (Samsung vendor)
+0x13D50000 / 0x8000    UNIPRO
+0x13D64000 / 0x800     PHY PMA
+```
+
+Jenerik bir sürücü `_CRS` kaynaklarını sırayla haritalar ve `storufs.sys` ilk
+bellek kaynağının **standart UFSHCI register bloğu** olmasını bekler.
+Arkasından gelen üç aralık onun sözlüğünde yok — en iyi ihtimalle yok sayılır,
+en kötüsünde kaynak eşlemesini kaydırır. Üstelik ilk aralığın uzunluğu `0x200`
+idi, standart register seti için sınırda. Qualcomm'un ACPI'si tek aralık
+bildiriyor.
+
+Yeni hali tek aralık, `0x1000`. VS_HCI `0x13D61100`'de başlıyor, yani `0x1000`
+onu kapsamıyor — kasıtlı; vendor bloğuna jenerik sürücünün işi yok, oraya UEFI
+tarafında `UfsDxe` erişiyor ve `_CRS`'ten etkilenmiyor.
+
+Önceki `_CLS` açık ölçümü (5-6 s) dört aralıklıydı, dolayısıyla süre değişirse
+`_CRS`'in etkisi olduğunu bileceğiz.
+
+### Sonraki adım: PWM Gear 1
+
+`storufs.sys` denetleyiciyi HCE ile resetliyor ve UniPro linkini
+`DME_LINKSTARTUP` ile yeniden kuruyor. HCE PHY'yi (PMA, `0x13D64000`)
+resetlemiyor — bozulan **UniPro linki**. Exynos'ta link kalibrasyonu vendor'a
+özel DME nitelikleriyle yapılıyor; `UfsCal.c` tam olarak bunu yapıyor, jenerik
+sürücü bilmiyor.
+
+Gerçek çözüm: UEFI kontrolü bırakmadan önce PHY'yi muhafazakâr ve standart bir
+moda çekerse — PWM Gear 1, tek şerit — jenerik `DME_LINKSTARTUP` çalışır. Yavaş
+olur ama ilk açılış için fazlasıyla yeterli. Jenerik sürücüleri vendor
+donanımında çalıştırmanın bilinen yolu bu.
+
+### Beklenen okuma
+
+| Süre | Sonuç |
+|---|---|
+| Yine 5-6 s | `_CRS` etkisiz, link kopması doğrulandı → PWM-G1 işine değer |
+| 12 s civarı | storufs artık bağlanmıyor ya da zarar vermiyor — `_CRS` önemliymiş |
+| Daha uzun | Gerçek ilerleme |
+
+### Ayrıca hazır: ADK'nın çıplak WinPE'si
+
+`tools_winpe_adk.sh` yazıldı ama henüz kullanılmıyor. Windows'ta
+`copype arm64 C:\WinPE_arm64`, sonra
+`bash tools_winpe_adk.sh /mnt/c/WinPE_arm64/media`. ISO'nun 570 MB'lık
+`boot.wim`'i yerine ~250 MB'lık çıplak WinPE. storufs turundan sonra sıra onda.
