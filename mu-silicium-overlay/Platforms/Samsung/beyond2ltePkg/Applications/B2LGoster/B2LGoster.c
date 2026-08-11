@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    6
+#define B2L_SURUM    7
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 6"
+#define SURUM_METNI  L"SURUM 7"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -302,6 +302,59 @@ B2LGosterEntry (
     Deger (L"TEPE HI =", (UINT32)(Tepe >> 32), NULL, 0x0060C0FF);
     Deger (L"TEPE LO =", (UINT32)Tepe, NULL, 0x0060C0FF);
     Deger (L"PARCA   =", Parca, NULL, 0x0060C0FF);
+  }
+
+  //
+  // BANKA SINAMASI - BEYAN DEGIL OLCUM.
+  //
+  // Harita dort banka beyan ediyor (0x80000000, 0x880000000, 0x900000000,
+  // 0x980000000; her biri 2 GB, tepe 0xA00000000). Bu beyanin DOGRU oldugunu
+  // kimse olcmedi - ne biz ne UEFI. Beyan edilen bellegin bir kismi gercekte
+  // yoksa ya da baska bir adrese takla atiyorsa (aliasing), Windows'un
+  // ayiricisi oraya vardigi anda veri yolu hatasi olur: bugcheck yok,
+  // ResetSystem yok, temiz yazilim sifirlamasi. Tam gordugumuz imza.
+  //
+  // Her bankanin sonuna FARKLI bir desen yaziyoruz, hepsini yazdiktan SONRA
+  // hepsini okuyoruz. Tek tek yazip okumak aliasing'i kacirirdi: takla atan
+  // bir adres kendi yazdigini geri verir. Sonuc bit maskesi:
+  //
+  //   0000000F -> dort banka da gercek ve birbirinden bagimsiz
+  //   eksik bit -> o banka yok ya da baska bir yere takla atiyor
+  //
+  // Eski icerik saklanip geri yaziliyor; bu bellek su an bos olmayabilir.
+  //
+  {
+    STATIC UINT64 CONST Adresler[4] = {
+      0x0FFFF0000ULL, 0x8FFFF0000ULL, 0x97FFF0000ULL, 0x9FFFF0000ULL
+    };
+
+    volatile UINT64 *P;
+    UINT64           Eski[4];
+    UINT32           Maske;
+    UINTN            K;
+
+    for (K = 0; K < 4; K++) {
+      P       = (volatile UINT64 *)(UINTN)Adresler[K];
+      Eski[K] = *P;
+      *P      = 0xB2B2000000000000ULL | (K + 1);
+    }
+
+    Maske = 0;
+    for (K = 0; K < 4; K++) {
+      P = (volatile UINT64 *)(UINTN)Adresler[K];
+      if (*P == (0xB2B2000000000000ULL | (K + 1))) {
+        Maske |= (1u << K);
+      }
+    }
+
+    for (K = 0; K < 4; K++) {
+      P  = (volatile UINT64 *)(UINTN)Adresler[K];
+      *P = Eski[K];
+    }
+
+    Deger (L"BANKA   =", Maske,
+           (Maske == 0xF) ? L"HEPSI GERCEK" : L"EKSIK VAR",
+           (Maske == 0xF) ? 0x0040FF40 : 0x00FF4040);
   }
   mSatir += 12;
 
