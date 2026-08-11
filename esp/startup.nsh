@@ -106,7 +106,7 @@ echo .
 # ARADIGIMIZ: giris > cikis. O zaman sifirlama tam o cagrinin ICINDE oldu.
 #
 echo ================ CALISMA ZAMANI KANCASI
-dmem 0xCF040000 14
+dmem 0xCF040000 28
 echo .
 
 #

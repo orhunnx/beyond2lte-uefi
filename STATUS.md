@@ -3864,3 +3864,77 @@ hatası **değil** — ama artık onu ararken körlemesine değiliz.
 Bootloader kilidi uyarısını kaldırmak için. Açılış zincirini değiştiriyor;
 sonraki ölçümlerde değişken olarak akılda tutulmalı, ama BSOD'un çizilmesiyle
 ilgisi olması beklenmez.
+
+## Çalışma zamanı servisleri de temiz
+
+```
+CF040000: 42 32 4C 52 | 00 00 00 00 | 00 00 00 00 | 6C 01 00 00
+CF040010: 6C 01 00 00
+```
+
+| Alan | Değer |
+|---|---|
+| `B2LR` | Sürücü yüklendi |
+| `GetTime` giriş / çıkış | **0 / 0** |
+| `GetVariable` giriş / çıkış | **364 / 364** |
+
+`GetTime` hiç çağrılmıyor → RTC/PMIC hipotezi öldü.
+`GetVariable` 364 kez çağrılıyor ve **364 kez geri dönüyor** → sıfırlama bir
+çalışma zamanı çağrısının içinde değil. Üstelik bu, o yolun sağlam çalıştığının
+kanıtı.
+
+## Bu noktada elimizdeki tablo
+
+**Kanıtlanmış:**
+
+- Windows çekirdeği ~10 saniye sağlıklı çalışıyor (DPC'ler son ana kadar düzenli)
+- Ölüm temiz bir yazılım sıfırlaması (`RST_STAT 0x20000000`), güç kesilmesi değil
+- **Bugcheck değil** — geri çağrı hem olumlu hem olumsuz yönde doğrulandı
+- Kullanıcı moduna hiç çıkılmıyor
+- Açılışı bloke edince sıfırlama **hiç olmuyor**; bırakıldıktan sonra tam 10 saniye
+- Windows'un mavi ekranı **çiziliyor** (stop kodu okunabiliyor)
+- UEFI/bootmgfw/winload katmanlarının hepsi sağlam
+
+**Elenenler:** `startnet.cmd`, WinPE kabuğu, boot menüsü, UEFI watchdog, LPS0,
+`ErrorControl`, depolama hızı, `storufs`, DTB ayrılmış bellek bölgeleri, SMP
+tabloları, `BasicDisplay`, bütün `Start=0` sürücüleri, `Start=1` sürücüleri,
+`acpi.sys`, ACPI ad alanının tamamı, boşta CPU, ve şimdi UEFI çalışma zamanı
+servisleri.
+
+## Araştırma turu: GIC sürümü ve Windows'un kesme keşfi
+
+Kaynak: Connor McGarr, "Windows ARM64 Internals: Pardon The Interruption!"
+
+**GICv2 destekleniyor.** `nt!HalpInitializeInterrupts` önce GICv3 arıyor,
+bulamazsa GICv1/v2'ye düşüyor. Bizim GICv2'miz sorun değil — bu varsayımı
+aylardır taşıyorduk, artık kapandı.
+
+**MADT'miz doğru:** `Generic Interrupt Distributor` alt tablosunda
+`Version: 02`, taban `0x10101000`. DTB ile uyumlu.
+
+**İleride kullanılacak:** Windows kesme kurulumu bozulursa
+`nt!HalSetInterruptProblem` ile bir değer yazıyor:
+
+```
+InterruptProblemMadtParsingFailure = 1
+InterruptProblemNoControllersFound = 2
+InterruptProblemFailedDiscovery    = 3
+InterruptProblemInitializeLocalUnitFailed = 4
+InterruptProblemInitializeIoUnitFailed    = 5
+InterruptProblemProcessorReset      = 12
+InterruptProblemStartProcessorFailed = 13
+InterruptProblemProcessorNotAlive    = 14
+```
+
+Bu değeri okuyabilirsek sebep doğrudan yazıyor olacak. Şu an sembolsüz
+okuyamıyoruz, ama not düşülüyor.
+
+## Kalan tek büyük değişken: Windows sürümü
+
+Bütün yapılandırma düğmeleri denendi ve davranış aşırı deterministik: her
+açılışta aynı 9-11 şerit, aynı temiz sıfırlama. Değiştirmediğimiz tek büyük
+şey **çekirdeğin kendisi** — bütün ölçümler Win11 25H2 ARM64 ile yapıldı.
+
+Farklı bir yapı (Windows 10 ARM64 ya da Win11 23H2 WinPE) gerçekten farklı
+bir değişken. Aynı davranırsa platform tarafına kesin olarak dönebiliriz;
+farklı davranırsa sürüme özel bir şeyle uğraştığımızı öğreniriz.

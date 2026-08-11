@@ -42,10 +42,11 @@
   isareti, orijinal cagri, sonra CIKIS isareti yaziliyor:
 
       0xCF040000  "B2LR"        surucu yuklendi
-      +0x04       GetTime giris sayaci
-      +0x08       GetTime cikis sayaci
-      +0x0C       GetVariable giris sayaci
-      +0x10       GetVariable cikis sayaci
+      +0x04       GetTime giris     +0x08  GetTime cikis
+      +0x0C       GetVariable giris +0x10  GetVariable cikis
+      +0x14       ResetSystem giris (donmez, cikis yok)
+      +0x18       ResetSystem ResetType  0=COLD 1=WARM 2=SHUTDOWN
+      +0x1C       SetVariable giris +0x20  SetVariable cikis
 
   Sifirlamadan sonra okundugunda:
 
@@ -83,6 +84,8 @@
 STATIC UINT32                      *mLog;
 STATIC EFI_GET_TIME                 mOldGetTime;
 STATIC EFI_GET_VARIABLE             mOldGetVariable;
+STATIC EFI_SET_VARIABLE             mOldSetVariable;
+STATIC EFI_RESET_SYSTEM             mOldResetSystem;
 STATIC EFI_EVENT                    mVirtualAddressChangeEvent;
 
 STATIC
@@ -127,6 +130,60 @@ HookGetVariable (
 }
 
 /**
+  RESET SYSTEM KANCASI - KIRK TUR ONCEKI SONUCU YENIDEN SINIYOR.
+
+  Cok erken bir turda "Windows UEFI ResetSystem'i cagirmiyor" sonucuna
+  varmistik. O olcum B2LResetHookDxe ile yapilmisti ve AZ ONCE KESFETTIGIMIZ
+  Reserv/RtData hatasinin aynisina dusmus olabilir: kayit bolgesi sanal
+  haritaya girmiyorsa kanca ilk cagrida coker ve sessizligi hicbir sey
+  kanitlamaz.
+
+  Simdi calistigi KANITLANMIS bir kancamiz var - GetVariable 366 kez girip
+  366 kez donuyor. Ayni altyapiya ResetSystem'i de ekliyoruz.
+
+  Bu fonksiyon GERI DONMEZ, o yuzden cikis sayaci yok. Onun yerine
+  ResetType kaydediliyor:
+      0 = COLD    1 = WARM    2 = SHUTDOWN    3 = PLATFORM_SPECIFIC
+
+  Cikarsa sifirlamayi Windows'un kendisi istiyor demektir ve TURU de
+  elimizde olur.
+**/
+STATIC
+VOID
+EFIAPI
+HookResetSystem (
+  IN EFI_RESET_TYPE  ResetType,
+  IN EFI_STATUS      ResetStatus,
+  IN UINTN           DataSize,
+  IN VOID           *ResetData OPTIONAL)
+{
+  mLog[5]++;
+  mLog[6] = (UINT32)ResetType;
+
+  mOldResetSystem (ResetType, ResetStatus, DataSize, ResetData);
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+HookSetVariable (
+  IN CHAR16   *VariableName,
+  IN EFI_GUID *VendorGuid,
+  IN UINT32    Attributes,
+  IN UINTN     DataSize,
+  IN VOID     *Data)
+{
+  EFI_STATUS Status;
+
+  mLog[7]++;
+
+  Status = mOldSetVariable (VariableName, VendorGuid, Attributes, DataSize, Data);
+
+  mLog[8]++;
+  return Status;
+}
+
+/**
   SetVirtualAddressMap sonrasi isaretcileri cevir.
 
   Bu adim atlanirsa ilk cagrida kancanin kendisi coker ve olcumu biz
@@ -142,6 +199,8 @@ VirtualAddressChange (
   EfiConvertPointer (0, (VOID **)&mLog);
   EfiConvertPointer (0, (VOID **)&mOldGetTime);
   EfiConvertPointer (0, (VOID **)&mOldGetVariable);
+  EfiConvertPointer (0, (VOID **)&mOldSetVariable);
+  EfiConvertPointer (0, (VOID **)&mOldResetSystem);
 }
 
 EFI_STATUS
@@ -162,9 +221,13 @@ B2LRtHookEntry (
 
   mOldGetTime     = gRT->GetTime;
   mOldGetVariable = gRT->GetVariable;
+  mOldSetVariable = gRT->SetVariable;
+  mOldResetSystem = gRT->ResetSystem;
 
   gRT->GetTime     = HookGetTime;
   gRT->GetVariable = HookGetVariable;
+  gRT->SetVariable = HookSetVariable;
+  gRT->ResetSystem = HookResetSystem;
 
   //
   // CRC32 YENIDEN HESAPLANMALI. Runtime tablosu degistirildiginde basligin
