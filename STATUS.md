@@ -1409,3 +1409,38 @@ açıyor (açamadığı LZMS ve solid arşivler, onları kullanmıyoruz).
 --compress=LZX` ile yeniden üretiyor. `export` yalnızca 1. indeksin gerçekten
 kullandığı dosyaları yazıyor, yani silinen Setup indeksinden artakalan
 paylaşılmayan veri de gidiyor.
+
+### LZX kazanç vermedi → ESP SYSTEM bölümüne taşındı
+
+```
+boot.wim 742 MB -> LZX -> 742 MB
+Archiving file data: 1650 MiB of 1650 MiB
+```
+
+ISO'nun `boot.wim`'i zaten LZX ve 23H2 WinPE'sinin açılmış içeriği 1650 MiB.
+Sıkıştırmayla kazanılacak bir şey yok; 600 MiB'lik CACHE'e sığmıyor.
+
+`cache_esp.sh --system`: 5.57 GB'lık **SYSTEM** bölümünü hedefleyen 2 GiB'lik
+FAT32 imajı üretiyor.
+
+- **Odin hedefi dosya adıyla belirleniyor** — tar içindeki `cache.img` CACHE'e,
+  `system.img` SYSTEM'e yazılıyor.
+- **FAT32'ye geçildi.** `FatPkg/Init.c` FAT32 için en az 65525 küme istiyor;
+  600 MiB'de 4K kümeyle bu sağlanamadığı için orada FAT16 + 32 KiB küme
+  kullanmıştık. 2 GiB'de 4K kümeyle 524288 küme çıkıyor, fazlasıyla geçerli.
+- **Bölümün tamamı doldurulmuyor.** 2 GiB'lik dosya sistemi 5.57 GB'lık bölümün
+  başına yazılıyor; `FatPkg` birim boyutunu BPB'den okuyor, bölüm tablosundan
+  değil. Sparse imaj olduğu için aktarılan veri yine küçük.
+
+### `startup.nsh` artık birime bağımlı değil
+
+SYSTEM'e yazınca cihazda iki FAT birimi oluyor — eski cache ve yeni system.
+Shell `startup.nsh`'ı hangisinde bulursa onu çalıştırır ve büyük ihtimalle
+eskisini bulur. Script artık sabit `fs0` yazmıyor, `fs0..fs3` taranıyor.
+
+Windows dalı `bootmgfw.efi` yerine **`sources\boot.wim`** varlığına bakıyor:
+eski cache biriminde `bootmgfw` kalmış ama WIM silinmiş olabilir, o birimi
+seçersek "device not accessible" ile geri döneriz.
+
+`for` döngüsü bilerek kullanılmadı — bu Shell sürümünün script içindeki
+davranışı test edilmedi ve her deneme bir Odin flaşına mal oluyor.

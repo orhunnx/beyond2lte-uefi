@@ -49,8 +49,54 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 # Yani "Linux modu" diye bir sey yoktu.
 #
 WINONLY=0
-if [ "${1:-}" = "--win" ]; then WINONLY=1; shift; fi
+BIGPART=0
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --win)    WINONLY=1 ;;
+    --system) BIGPART=1 ;;
+    *)        ARGS+=("$a") ;;
+  esac
+done
+if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
 if [ "$WINONLY" = 1 ]; then say "MOD: Windows"; else say "MOD: Linux"; fi
+
+#
+# --system : CACHE (600 MiB) yerine SYSTEM (5.57 GB) bolumunu hedefle.
+#
+# NEDEN GEREKTI: Windows 11 23H2'nin boot.wim'i 742 MB. LZX ile yeniden
+# sikistirmak HIC kazanc vermedi (742 -> 742) cunku ISO'nunki zaten LZX;
+# acilmis icerik 1650 MiB. Yani sikistirmayla cozulecek bir sey yok, 600
+# MiB'lik bolume sigmiyor.
+#
+# ODIN HEDEFI DOSYA ADIYLA BELIRLENIYOR: tar icindeki "cache.img" CACHE'e,
+# "system.img" SYSTEM'e yaziliyor. Ikisini karistirma.
+#
+# FAT32'YE GECIYORUZ: FatPkg FAT32 icin en az 65525 kume istiyor
+# (Init.c: MaxCluster < FAT_MAX_FAT16_CLUSTER -> VOLUME_CORRUPTED).
+# 600 MiB'de 4K kumeyle 153600 kume FAT16'nin ust sinirini asiyordu, bu
+# yuzden orada FAT16 + 32 KiB kume kullanmistik. 2 GiB'de 4K kumeyle
+# 524288 kume cikiyor - FAT32 icin fazlasiyla gecerli.
+#
+# BOLUMUN TAMAMINI DOLDURMUYORUZ: 2 GiB'lik bir dosya sistemi 5.57 GB'lik
+# bolumun basina yaziliyor, gerisi bos kaliyor. FatPkg birimin boyutunu
+# BPB'den okuyor, bolum tablosundan degil - sorun cikmiyor. Sparse imaj
+# oldugu icin aktarilan veri yine kucuk.
+#
+if [ "$BIGPART" = 1 ]; then
+  PART="system"
+  SZ=2147483648
+  FATOPT="-F 32 -S 4096 -s 1"
+  FATDESC="FAT32 (2 GiB, 4096 bayt sektor, 4 KiB kume)"
+  LIMIT_MB=1950
+  say "HEDEF BOLUM: SYSTEM (5.57 GB) - imaj 2 GiB"
+else
+  PART="cache"
+  SZ=629145600
+  FATOPT="-F 16 -S 4096 -s 8"
+  FATDESC="FAT16 (600 MiB, 4096 bayt sektor, 32 KiB kume)"
+  LIMIT_MB=588
+fi
 
 APP="${1:-}"
 if [ -z "$APP" ]; then
@@ -73,13 +119,12 @@ say "Icerik: $APP ($(du -h "$APP" | cut -f1))"
 # araligi olan 4085-65525'in tam ortasinda kaliyor. (FAT32'ye gecemiyoruz,
 # bkz. yukaridaki 2 numarali kisit.)
 #
-SZ=629145600
-IMG="$OUT/cache.img"
+IMG="$OUT/$PART.img"
 
-say "FAT16 imaji olusturuluyor (600 MiB, 4096 bayt sektor, 32 KiB kume)"
+say "$FATDESC imaji olusturuluyor"
 rm -f "$IMG"
 dd if=/dev/zero of="$IMG" bs=1M count=$((SZ/1048576)) status=none
-mkfs.vfat -F 16 -S 4096 -s 8 -n UEFIESP "$IMG" >/dev/null
+mkfs.vfat $FATOPT -n UEFIESP "$IMG" >/dev/null
 
 # startup.nsh: Shell acilista bunu otomatik calistirir. Klavye olmadan
 # komut vermenin tek yolu. Iki yere de koyuyoruz cunku Shell'in arama sirasi
@@ -132,7 +177,7 @@ if command -v mcopy >/dev/null; then
     echo
     echo "  DIKKAT: en az bir dosya imaja giremedi (buyuk ihtimalle yer yok)."
     echo "  Windows icin:  bash cache_esp.sh --win"
-    echo "  esp/ toplami: $(du -sh "$PROJ/esp" | cut -f1) / bolum 600 MiB"
+    echo "  esp/ toplami: $(du -sh "$PROJ/esp" | cut -f1) / imaj ${LIMIT_MB} MB"
   fi
   # Windows icin boot.wim gerekiyor; sessizce eksik kalmasin.
   if mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
@@ -157,28 +202,29 @@ fi
 say "Odin icin sparse imaj + tar"
 WORK="$(mktemp -d)"
 if command -v img2simg >/dev/null; then
-  img2simg "$IMG" "$WORK/cache.img"
-  MAGIC=$(od -An -tx4 -N4 "$WORK/cache.img" | tr -d ' ')
+  img2simg "$IMG" "$WORK/$PART.img"
+  MAGIC=$(od -An -tx4 -N4 "$WORK/$PART.img" | tr -d ' ')
   echo "  sparse sihirli sayisi: 0x$MAGIC  (beklenen: ed26ff3a)"
 else
   echo "  UYARI: img2simg yok -> sudo apt install -y android-sdk-libsparse-utils"
   echo "  Ham imaj tar'lanıyor; Odin reddedebilir."
-  cp "$IMG" "$WORK/cache.img"
+  cp "$IMG" "$WORK/$PART.img"
 fi
-( cd "$WORK" && tar -H ustar -cf "$OUT/cache-esp.tar" cache.img )
+( cd "$WORK" && tar -H ustar -cf "$OUT/$PART-esp.tar" "$PART.img" )
 rm -rf "$WORK"
 
 say "Cikti"
-ls -lh "$IMG" "$OUT/cache-esp.tar"
+ls -lh "$IMG" "$OUT/$PART-esp.tar"
 
 for p in /mnt/c/Users/*/OneDrive/Masa*st* /mnt/c/Users/*/OneDrive/Desktop \
          /mnt/c/Users/*/Masa*st* /mnt/c/Users/*/Desktop; do
   [ -d "$p" ] || continue
   mkdir -p "$p/beyond2lte-flash"
-  cp -f "$OUT/cache-esp.tar" "$OUT/cache.img" "$p/beyond2lte-flash/"
+  cp -f "$OUT/$PART-esp.tar" "$IMG" "$p/beyond2lte-flash/"
   echo
   echo "Masaustune kopyalandi: $p/beyond2lte-flash"
-  echo "  cache-esp.tar  -> Odin, AP slotu (Re-Partition ISARETSIZ)"
-  echo "  cache.img      -> recovery: adb push + dd"
+  echo "  $PART-esp.tar  -> Odin, AP slotu (Re-Partition ISARETSIZ)"
+  echo "  $PART.img      -> recovery: adb push + dd"
+  echo "  hedef bolum: $(echo "$PART" | tr a-z A-Z)"
   break
 done
