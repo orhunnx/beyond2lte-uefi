@@ -99,7 +99,21 @@ echo "  Resources/{Configs,DTBs}/beyond2lte.*"
 # ciktilarina (WriteBlocks/OCS satirlari) tekrar ihtiyac olursa gerekli.
 #
 # python3 "$PROJ/tools_ufs_patch.py" "$MU"
-echo "  UFS yamasi ATLANDI (bilinen iyi noktaya donus)"
+echo "  UFS enstrumantasyon yamasi ATLANDI"
+
+#
+# PWM GEAR 1 YAMASI - Windows'un depolamayi gorebilmesi icin.
+#
+# Ayrintili gerekce tools_ufs_pwm.py basinda. Ozet: storufs.sys jenerik ve
+# UEFI linki HS'e cikarirsa devralamiyor; PWM G1 zaten UniPro'nun
+# LINKSTARTUP sonrasi varsayilan durumu, yani vendor kalibrasyonu
+# gerektirmiyor.
+#
+# Yukarida $MU/UfsDxe.c git'ten geri cagrildigi icin bu yama her derlemede
+# TEMIZ dosyaya uygulaniyor - birikmeli hasar yok. Onceki UFS yamasinda tam
+# olarak o tuzaga dusmustuk.
+#
+python3 "$PROJ/tools_ufs_pwm.py" "$MU"
 
 #
 # ACPI.inc'i ETKINLESTIR - ama $MU icindeki kopyada, depoda degil.

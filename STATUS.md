@@ -2168,3 +2168,43 @@ yani `hivexregedit --merge` yolu sağlam ve bundan sonraki ölçümler geçerli.
 `hepsi-kapat` eski tarama mantığından kurtarıldı; artık `TEMEL_ACIK`
 listesinden korumalı olmayanları çıkarıp aynı `sadece-kapat` yoluna veriyor —
 tek kod, tek doğrulama.
+
+## UFS'i Windows altında çalıştırma: PWM Gear 1
+
+Sürücü ekseni kapandıktan sonra depolamaya geçildi. Gerekçe iki katlı:
+Windows'un kendi kaydını yazabilmesi için bir yere ihtiyacı var, ve depolama
+olmadan telefon zaten kullanılamaz.
+
+### Neden PWM Gear 1
+
+`storufs.sys` jenerik: denetleyiciyi `HCE` ile resetliyor ve UniPro'yu
+standart `DME_LINKSTARTUP` ile ayağa kaldırmaya çalışıyor. Exynos'un vendor'a
+özel kalibrasyonunu bilmiyor.
+
+Ama UniPro spec'i şunu söylüyor: **`DME_LINKSTARTUP`'tan sonra link her zaman
+PWM Gear 1'de olur.** Yüksek hıza geçiş ayrı bir pazarlık ve vendor
+kalibrasyonu tam orada gerekiyor.
+
+Şu an UEFI linki HS Gear 3'e çıkarıyor. `storufs` devralınca resetleyip kendi
+jenerik pazarlığını yapmaya çalışıyor — kaybettiğimiz yer orası. Link PWM
+G1'de bırakılırsa `storufs`'un yapacağı şey zaten spec'in varsayılan durumu
+oluyor.
+
+Yavaş olacak — PWM G1 tek şerit ~3 MB/s. Önemli değil; amaç hız değil,
+Windows'un diski **görmesi**.
+
+### Dokunulan üç yer
+
+| Yer | Değişiklik | Neden |
+|---|---|---|
+| `BoardInit.c` | `Ufs->GearMode` 3 → 1 | `PA_TxGear`/`PA_RxGear` ve `CalParam->MaxGear` buradan besleniyor |
+| `PA_PWRMode` (0x1571) | Sabit `UFS_RXTX_POWER_MODE` → `pmd->Mode`'dan hesaplanıyor | Upstream değeri derleme anında üretiyordu, PWM'e geçilemiyordu |
+| `PA_Rx/TxTermination` | Koşulsuz `1` → HS ise 1, değilse 0 | **Terminasyon HS'e özeldir**; PWM'de 1 yazmak pazarlığı reddettirir |
+
+`Pmd->Mode` FAST(1) → SLOW(2); CAL katmanı `IS_PWR_MODE_PWM` ile buna bakıp
+PWM tablolarını seçiyor.
+
+`tools_ufs_pwm.py` dört yamanın hepsi uygulanmazsa **durup hata veriyor** —
+upstream değişmişse derleme yanlış kodla geçmesin. Ayrıca `yap.sh` her
+derlemede `UfsDxe.c`'yi git'ten geri çağırdığı için yama daima temiz dosyaya
+uygulanıyor; önceki UFS yamasında düştüğümüz birikmeli hasar tuzağı yok.

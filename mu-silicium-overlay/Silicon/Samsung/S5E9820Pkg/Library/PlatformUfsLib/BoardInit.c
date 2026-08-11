@@ -140,7 +140,25 @@ UfsBoardInit (struct UfsHost *Ufs)
 
   /* DTB: ufs,pmd-attr-gear = [03], ufs,pmd-attr-lane = [02] */
   Ufs->MclkRate = UFS_SCLK;
-  Ufs->GearMode = 3;
+  //
+  // PWM GEAR 1 HEDEFI - hiz degil, WINDOWS'UN DISKI GORMESI icin.
+  //
+  // storufs.sys jenerik: denetleyiciyi HCE ile resetleyip UniPro'yu standart
+  // DME_LINKSTARTUP ile ayaga kaldirmaya calisiyor, Exynos'un vendor
+  // kalibrasyonunu bilmiyor. Ama UniPro spec'ine gore LINKSTARTUP'tan sonra
+  // link HER ZAMAN PWM Gear 1'de olur; HS'e gecis ayri bir pazarlik ve
+  // vendor kalibrasyonu tam orada gerekiyor.
+  //
+  // UEFI linki HS G3'e cikarirsa storufs devralinca resetleyip kendi jenerik
+  // pazarligini yapmaya calisiyor ve kaybediyoruz. PWM G1'de birakirsak
+  // storufs'un yapacagi sey zaten spec'in varsayilan durumu oluyor.
+  //
+  // PA_TxGear/PA_RxGear dogrudan buradan besleniyor; CalParam->MaxGear de
+  // buna gore kirpiliyor, yani CAL katmani PWM tablolarini seciyor.
+  //
+  // Geri almak icin 3 yaz ve yap.sh'te tools_ufs_pwm.py satirini yorumla.
+  //
+  Ufs->GearMode = 1;
 
   //
   // 9830'daki UfsSetUniProClk() burada yok: 9820 icin CMU mux/div register
