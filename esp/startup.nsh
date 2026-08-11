@@ -126,6 +126,32 @@ echo .
 # Iki yazmac da 00 00 00 00 ise watchdog'lar kapali ve eleme dogruydu.
 # bit5 set cikarsa eleme yanlisti ve suclu bulundu.
 #
+#
+# EL3 SMART EXCEPTION HANDLER (B2LSehDxe)
+#
+#   0xCF041000  "SEH!" imzasi varsa EL3 ISTISNASI YAKALANDI
+#     +0x08 Id     0 = EL3 monitorunun kendisi, degilse LDFW smc id
+#     +0x10 elr_el3   istisnanin olustugu adres
+#     +0x18 esr_el3   ISTISNA SINIFI - aradigimiz asil deger
+#     +0x20 sctlr  +0x28 ttbr  +0x30 tcr  +0x38 scr  +0x40 offset
+#
+#   0xCF041080  "SEHR" + SMC donusleri
+#     +0x04 SET_DEBUG_MEM donusu (dogrusu 0x2000)
+#     +0x08 SET_SEH_ADDRESS donusu, UEFI icinde (0 = basarili)
+#     +0x0C SET_SEH_ADDRESS donusu, SetVirtualAddressMap sonrasi
+#     +0x10/+0x14 isleyicinin sanal adresi
+#
+# esr_el3'un ust alti biti (EC) istisna sinifini veriyor:
+#   0x17 -> gecersiz SMC     0x24/0x25 -> veri erisim hatasi
+#   0x0E -> illegal state    0x16      -> HVC
+#
+echo ================ EL3 SEH
+dmem 0xCF041000 48
+echo .
+echo ================ EL3 SEH KAYIT DURUMU
+dmem 0xCF041080 18
+echo .
+
 echo ================ WATCHDOG WTCON
 dmem 0x10050000 4
 dmem 0x10060000 4

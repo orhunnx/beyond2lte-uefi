@@ -141,6 +141,7 @@
   #
   beyond2ltePkg/Applications/EbsTest/EbsTest.inf
   beyond2ltePkg/Drivers/B2LRtHookDxe/B2LRtHookDxe.inf
+  beyond2ltePkg/Drivers/B2LSehDxe/B2LSehDxe.inf
 
   #
   # EL2 yuku yukleyici (bkz. Drivers/B2LEl2Dxe/B2LEl2Payload.S)

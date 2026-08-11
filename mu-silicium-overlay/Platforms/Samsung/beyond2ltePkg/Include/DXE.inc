@@ -58,6 +58,17 @@
   #
   INF beyond2ltePkg/Drivers/B2LRtHookDxe/B2LRtHookDxe.inf
 
+  #
+  # Samsung EL3 monitorunun Smart Exception Handler kancasi.
+  #
+  # EL3 beklenmedik bir istisna alinca cekirdegin kaydettigi adrese atliyor
+  # (SMC_CMD_SET_SEH_ADDRESS = -123). Kayitli degilse atlayacak yeri yok ve
+  # sifirliyor - sessizce. Windows bu SMC'yi asla yapmaz; biz yapiyoruz.
+  #
+  # Gerekce ve delil zinciri: EL3_SEH_PLANI.md
+  #
+  INF beyond2ltePkg/Drivers/B2LSehDxe/B2LSehDxe.inf
+
   INF SamsungPkg/Drivers/ChipInfoDxe/ChipInfoDxe.inf
   INF SamsungPkg/Drivers/GpioDxe/GpioDxe.inf
   INF SamsungPkg/Drivers/UsiDxe/UsiDxe.inf
