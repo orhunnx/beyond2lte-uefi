@@ -138,9 +138,26 @@ echo "  /Windows/System32/drivers/b2lfb.sys"
 #
 # Start=0  BOOT   : winload yukluyor, cekirdekten once
 # Type=1          : cekirdek surucusu
-# ErrorControl=0  : YOKSAY. Surucu patlarsa acilis DEVAM ETSIN; amac tani
-#                   koymak, yeni bir ariza kaynagi yaratmak degil.
 # Group           : "System Bus Extender" en erken yuklenen gruplardan biri.
+#
+# ErrorControl=3 (CRITICAL) - ILK SURUMDE 0 IDI VE BU BIR TASARIM HATASIYDI.
+#
+# "Surucu patlarsa acilis devam etsin, yeni ariza kaynagi yaratmayalim" diye
+# 0 (IGNORE) yazmistim. Sonucu: imza reddedilirse winload surucuyu SESSIZCE
+# atliyor. Yani elimizdeki EN BILGILENDIRICI arizayi - ws2ifsl denemesinde
+# gordugumuz "0xc0000428 STATUS_INVALID_IMAGE_HASH" ekranini - kendi elimle
+# sessizlige cevirmisim. Ilk denemede ne macenta ne RAM imzasi cikmasinin
+# en olasi sebebi bu.
+#
+# 3 ile tam tersi oluyor: surucu yuklenemezse winload DURUYOR ve sebebi
+# ekrana yaziyor. Acilis olmuyor ama bu turda acilis zaten hedef degil;
+# hedef surucunun yuklenip yuklenmedigini OGRENMEK.
+#
+#   Macenta ekran   -> surucu yuklendi ve calisti
+#   Hata ekrani     -> surucu yuklenemedi, SEBEBI YAZIYOR
+#   Ikisi de yok    -> winload acilis surucilerine hic gelmiyor
+#
+# Uc okumanin ucu de bilgi. Onceki surumde ikisi ayni goruntuyu veriyordu.
 #
 # hivexsh'in setval'i KULLANILMIYOR: o komut dugumdeki diger butun degerleri
 # siliyor ve bu daha once bes olcumu gecersiz kilmisti. hivexregedit --merge
@@ -155,7 +172,7 @@ cat > "$W/b2lfb.reg" <<'REG'
 [HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Services\b2lfb]
 "Type"=dword:00000001
 "Start"=dword:00000000
-"ErrorControl"=dword:00000000
+"ErrorControl"=dword:00000003
 "ImagePath"=str(2):"\SystemRoot\System32\drivers\b2lfb.sys"
 "Group"="System Bus Extender"
 "DisplayName"="beyond2lte framebuffer"
@@ -164,7 +181,7 @@ hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$W/SYSTEM" "$W/b2lfb.
 
 wimlib-imagex update "$WIM" 1 \
   --command="add '$W/SYSTEM' /Windows/System32/config/SYSTEM" >/dev/null
-echo "  Services\\b2lfb  Start=0 Type=1 ErrorControl=0"
+echo "  Services\\b2lfb  Start=0 Type=1 ErrorControl=3 (CRITICAL)"
 
 say "Dogrulama"
 wimlib-imagex dir "$WIM" 1 2>/dev/null | grep -i "b2lfb" | sed 's/^/  /' || echo "  ! b2lfb WIM'de gorunmuyor"
@@ -178,13 +195,17 @@ SIRA:
 
   2) bash cache_esp.sh --win --system      ve system-esp.tar'i flasla
 
-BEKLENEN OKUMA:
-  Ekranin ustunde MACENTA bant    -> surucu calisti, canli kanal ACIK
-  Bant yok ama sonraki acilista
-  startup.nsh'te "B2LF" gorunuyor -> surucu calisti, framebuffer adresi yanlis
-  Ikisi de yok, 0xc0000428 ekrani -> imza reddedildi; sertifika guven
-                                     deposuna eklenecek
-  Ikisi de yok, sessiz            -> surucu hic yuklenmedi
+BEKLENEN OKUMA  (ErrorControl=3 ile artik hepsi ayirt edilebiliyor):
+  EKRAN MACENTA                -> surucu yuklendi VE calisti
+  Hata ekrani + 0xc0000428     -> imza reddedildi. Sertifika WinPE'nin guven
+                                  deposuna eklenecek - cozulebilir, ve artik
+                                  sebebi EKRANDA yaziyor
+  Baska bir hata kodu          -> surucu yuklenemedi, kod sebebi soyluyor
+  Hicbir sey, eskisi gibi      -> winload acilis surucilerine HIC gelmiyor;
+                                  ariza daha geride
+
+  Sonraki acilista startup.nsh dokumunde 0xCF030000'da "42 32 4C 46" (B2LF)
+  gorunuyorsa surucu calismis demektir - macenta cikmasa bile.
 
   DIKKAT: cokusten sonra cihazi ELLE KAPATMA. RAM kaydi yalnizca sicak
   sifirlamada kaliyor.

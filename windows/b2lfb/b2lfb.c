@@ -80,8 +80,18 @@ __declspec(dllimport) PVOID MmMapIoSpace (
  * tekrar ettigi icin piksel bicimi (BGRA/RGBA) yalnizca rengi degistirir,
  * bandin gorunurlugunu degistirmez.
  */
+/*
+ * ILK SURUM SADECE BOLGENIN BASINA ~120 SATIRLIK BANT YAZIYORDU VE HICBIR
+ * SEY GORUNMEDI. Hata: framebuffer'in bolgenin BASINDA oldugunu varsaydim.
+ * "Display Reserved" 20 MB'lik bir alan ve GOP'un gercek tabani icinde
+ * herhangi bir yerde olabilir.
+ *
+ * Tahmini tamamen kaldiriyoruz: BOLGENIN TAMAMINI dolduruyoruz. Framebuffer
+ * icinde nerede olursa olsun ekran maceneta oluyor. 20 MB'lik dword yazma
+ * bu cekirdekte goz acip kapayincaya kadar bitiyor.
+ */
 #define FB_PHYS   0xCA000000ULL
-#define FB_BYTES  (1440ULL * 120ULL * 4ULL)   /* ~120 satirlik bant */
+#define FB_BYTES  0x01400000ULL   /* bolgenin TAMAMI - 20 MB */
 
 /*
  * Olum sonrasi kayit. startup.nsh su an tam olarak burayi dokuyor:

@@ -2663,3 +2663,44 @@ bırakmak, sonraki her ölçümü kirletiyor.
 `B2L EL2` bölgesi yerinde bırakıldı — kod yüklenmediği için çalışmıyor ve o
 ayrılmış RAM, Windows sürücüsünün ölüm sonrası halka tamponu için zaten
 gerekecek.
+
+## B2LFB ilk deneme: ne macenta ne imza — iki tasarım hatam
+
+Sürücü derlendi, imzalandı, WIM'e girdi. Cihazda hiçbir şey görünmedi.
+
+### Hata 1: `ErrorControl=0` en bilgilendirici arızayı sessizliğe çevirdi
+
+Servisi "sürücü patlarsa açılışı bozmasın" diye `ErrorControl=0` (IGNORE) ile
+kaydetmiştim. Bunun anlamı: **imza reddedilirse `winload` sürücüyü sessizce
+atlar.** Yani elimizdeki en değerli hata yolunu — `ws2ifsl` denemesinde
+gördüğümüz `0xc0000428 STATUS_INVALID_IMAGE_HASH` ekranını — kendi elimle
+kapatmışım.
+
+Projede bunun üçüncü tekrarı: `bootstatuspolicy IgnoreAllFailures`,
+`AutoReboot=0`, şimdi `ErrorControl=0`. Her seferinde "güvenli tarafta duralım"
+diye seçilen ayar, ölçümü kör etti.
+
+`ErrorControl=3` (CRITICAL) ile tersine dönüyor: sürücü yüklenemezse winload
+duruyor ve **sebebini ekrana yazıyor.** Açılış olmuyor, ama bu turda açılış
+hedef değil — hedef sürücünün yüklenip yüklenmediğini öğrenmek.
+
+### Hata 2: framebuffer adresi tahmin edildi
+
+`0xCA000000` "Display Reserved" bölgesinin başı, ama GOP'un gerçek tabanı o
+20 MB'lık alanın içinde başka bir yerde olabilir. İlk sürüm yalnızca bölgenin
+başına ~120 satırlık bir bant yazıyordu; taban başka yerdeyse hiçbir şey
+görünmez.
+
+Tahmin tamamen kaldırıldı: **bölgenin tamamı** (`0x01400000`, 20 MB)
+dolduruluyor. Framebuffer içinde nerede olursa olsun ekran macenta oluyor.
+
+### Artık dört okuma birbirinden ayrılıyor
+
+| Ekranda | Sonuç |
+|---|---|
+| Ekran macenta | Sürücü yüklendi ve çalıştı |
+| `0xc0000428` | İmza reddedildi — çözülebilir, sebebi ekranda |
+| Başka hata kodu | Sürücü yüklenemedi, kod sebebi söylüyor |
+| Hiçbir şey | winload açılış sürücülerine hiç gelmiyor; arıza daha geride |
+
+Önceki sürümde dördü de aynı görüntüyü veriyordu. Asıl kazanç bu.
