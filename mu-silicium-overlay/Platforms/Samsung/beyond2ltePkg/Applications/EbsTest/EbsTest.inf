@@ -23,6 +23,7 @@
 
 [LibraryClasses]
   ArmLib
+  TimerLib
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
   UefiLib

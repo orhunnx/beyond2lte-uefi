@@ -56,6 +56,7 @@
 #include <Uefi.h>
 
 #include <Library/ArmLib.h>
+#include <Library/TimerLib.h>
 #include <Library/UefiApplicationEntryPoint.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
@@ -123,10 +124,19 @@ VOID
 Bekle (
   VOID)
 {
-  volatile UINT64 Index;
-
-  for (Index = 0; Index < 500000000ULL; Index++) {
-  }
+  //
+  // MESGUL DONGU YERINE MIMARI ZAMANLAYICI.
+  //
+  // Ilk surum sabit sayida volatile artirma yapiyordu. O sayinin kac saniye
+  // ettigi cekirdek frekansina, onbellek durumuna ve DVFS'e bagli - yani
+  // "kac kare ciktigi" ile Windows tarafindaki "TIK=nnnn" karsilastirilamaz
+  // hale geliyordu. Oysa bu testin BUTUN degeri o karsilastirmada.
+  //
+  // MicroSecondDelay ArmArchTimerLib uzerinden CNTPCT'yi okuyor: ne kesme
+  // ister ne boot servisi, yani ExitBootServices'ten sonra da gecerli.
+  // Artik her kare TAM BIR SANIYE ve dogrudan TIK ile ayni birim.
+  //
+  MicroSecondDelay (1000000);
 }
 
 EFI_STATUS

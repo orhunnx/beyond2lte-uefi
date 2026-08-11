@@ -267,6 +267,6 @@ if [ -n "$EBS" ]; then
   cp -f "$EBS" "$PROJ/out/EbsTest.efi"
   echo
   echo "EbsTest hazir: out/EbsTest.efi"
-  echo "  Denemek icin:  cp out/EbsTest.efi esp/EBSTEST.EFI && bash cache_esp.sh --win"
+  echo "  Denemek icin:  cp out/EbsTest.efi esp/EBSTEST.EFI && bash cache_esp.sh --win --system"
   echo "  Geri almak icin: rm esp/EBSTEST.EFI"
 fi
