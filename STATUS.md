@@ -4024,3 +4024,37 @@ Ama artık çok daha iyi durumdayız: `Reserv`/`RtData` hatasını biliyoruz
 düşmüştü), çalışan bir kayıt bölgemiz var, ve ölçüm aletlerimiz doğrulanmış.
 
 `PSCI Compliant` geri açıldı — görevini yaptı.
+
+## `sonic011gamer/edk2-exynos` incelendi
+
+Renegade Project'in Qualcomm `edk2-msm` altyapısının Exynos'a uyarlanmışı.
+`build.sh` hâlâ "Build edk2 for Qualcomm Snapdragon platforms" diyor ve
+README'deki *"optionally Windows on certain SoCs"* cümlesi de oradan
+devralınmış — **Exynos hakkında bir iddia değil.**
+
+Aynı geliştiricinin deposu; sonra Mu-Samsung'a, o da Mu-Silicium'a dönüşmüş.
+Yani bu **selef** kod tabanı, biz daha yenisindeyiz.
+
+### Tek somut bulgu: farklı bellek yerleşimi
+
+`configs/exynos9820.conf`:
+
+```
+FD_BASE=0x90000000
+FD_SIZE=0x00700000
+```
+
+O port UEFI'yi `0x90000000`'a koymuş. Bizimki `0xC9000000`'da ve bütün
+düzenimiz onun etrafında: görüntü `0xCA000000`, DXE yığını
+`0xCB400000-0xCF000000`, kayıtlarımız `0xCF000000+`.
+
+Aynı SoC için tamamen farklı bir yerleşim. Doğrudan bir cevap değil, ama
+kayda değer: bizim bütün çalışma alanımız `0xC0000000` üstünde ve orada
+`seclog` gibi TrustZone bölgeleri var. Alternatif port o bölgeden uzak
+durmuş.
+
+### Değeri
+
+Karşılaştırma kaynağı olarak duruyor — ACPI tabloları ve bellek haritası için
+ikinci bir bağımsız görüş. Ama Windows sorununa dair hazır bir cevap yok;
+o repo da Exynos'ta Windows açtığını iddia etmiyor.

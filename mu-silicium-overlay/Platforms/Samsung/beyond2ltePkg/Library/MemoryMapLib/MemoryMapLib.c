@@ -122,6 +122,32 @@ gMemoryDescriptor[] = {
 
   // Register Regions
   {"Chip Info",          0x10000000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
+
+  //
+  // DONANIM WATCHDOG'LARI - SADECE OKUMAK ICIN HARITALANIYOR
+  //
+  // Stock DTB'de iki tane var ve ikisini de hic incelemedik:
+  //     watchdog_cl0@10050000  samsung,exynos9-v1-wdt  timeout-sec = 30
+  //     watchdog_cl2@10060000  samsung,exynos9-v2-wdt  timeout-sec = 30
+  //
+  // Watchdog hipotezini daha once CIKARIMLA elemistik: EbsTest 60 saniye
+  // yasadi, ve EDK2'nin YAZILIM watchdog'unu etkisizlestirmek bir sey
+  // degistirmedi. Ama bunlar DONANIM watchdog'lari, kume basina birer tane,
+  // ve haritada olmadiklari icin ne UEFI ne Windows onlara dokunuyor.
+  //
+  // Cikarim muhtemelen dogru - acik olsalar UEFI de sifirlanirdi. Ama bu
+  // proje sunu ogretti: CIKARIMLA ELEME, OLCUMLE ELEME DEGILDIR. Ve okumak
+  // tek flas.
+  //
+  // Exynos WDT yazmaclari:
+  //     +0x00 WTCON   bit5 = watchdog enable, bit0 = reset enable
+  //     +0x04 WTDAT   yeniden yukleme degeri
+  //     +0x08 WTCNT   anlik sayac
+  //
+  // WTCON'da bit5 set ise watchdog CALISIYOR demektir ve eleme yanlisti.
+  //
+  {"WDT CL0",            0x10050000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
+  {"WDT CL2",            0x10060000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"GICD",               0x10101000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"GICC",               0x10102000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"PMU",                0x15860000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},

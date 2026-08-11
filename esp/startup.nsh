@@ -119,6 +119,18 @@ echo .
 #   baskasi     Exynos RST_STAT'ta watchdog bitleri var; farkli bir bit
 #               cikarsa cevap PMU yapilandirmasinda demektir
 #
+#
+# DONANIM WATCHDOG'LARI - CIKARIMLA ELENMISTI, SIMDI OLCULUYOR
+#
+# WTCON (+0x00) bit 5 = watchdog enable, bit 0 = reset enable.
+# Iki yazmac da 00 00 00 00 ise watchdog'lar kapali ve eleme dogruydu.
+# bit5 set cikarsa eleme yanlisti ve suclu bulundu.
+#
+echo ================ WATCHDOG WTCON
+dmem 0x10050000 4
+dmem 0x10060000 4
+echo .
+
 echo ================ PMU RST_STAT
 dmem 0x15860404 4
 
