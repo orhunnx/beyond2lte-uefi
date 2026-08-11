@@ -425,21 +425,45 @@ HSH
     SNTMP="$W/startnet.cmd"
     sed 's/\r*$/\r/' "$SN" > "$SNTMP"
     printf '  satir sonu: %s\n' "$(file -b "$SNTMP" | grep -o 'CRLF' || echo 'CRLF DEGIL!')"
+    #
+    # ONCE SIL, SONRA EKLE.
+    #
+    # "add" hedefte ayni isimde dosya varken onu degistirmiyor. b2lfb.sys'te
+    # tam olarak bu oldu ve bir tur kaybettirdi. Burada AYNI TUZAK vardi ve
+    # daha pahaliya mal olmus olabilir: startnet.cmd ile yaptigimiz butun
+    # denemeler (goto, ping, pause, sonsuz dongu) cihaza HIC ULASMAMIS
+    # olabilir. Hepsi ayni sonucu vermesinin en basit aciklamasi bu.
+    #
+    wimlib-imagex update "$ESP/sources/boot.wim" 1 \
+      --command="delete --force /Windows/System32/startnet.cmd" >/dev/null 2>&1 || true
     wimlib-imagex update "$ESP/sources/boot.wim" 1 \
       --command="add '$SNTMP' /Windows/System32/startnet.cmd" >/dev/null
     #
-    # GERCEKTEN GIRDI MI? "add" mevcut dosyanin uzerine yazmazsa sessizce
-    # eski surum kalir ve cihazda hicbir sey degismez. Geri okuyup SHA1
-    # karsilastiriyoruz - imaj uretirken bilmek, cihazda tahmin etmekten iyi.
+    # UYUSMAZLIK ARTIK OLUMCUL.
+    #
+    # Onceki surum yalnizca "! UYARI" basiyordu ve elli satirlik ciktinin
+    # icinde kayboluyordu. Bir dogrulamanin degeri, basarisiz oldugunda
+    # ISI DURDURMASINDAN geliyor; yoksa sadece gurultu.
     #
     CK="$W/verify"; mkdir -p "$CK"
     if wimlib-imagex extract "$ESP/sources/boot.wim" 1 \
          /Windows/System32/startnet.cmd --dest-dir="$CK" --no-acls >/dev/null 2>&1; then
       A="$(sha1sum "$SNTMP" | cut -c1-12)"; B="$(sha1sum "$CK/startnet.cmd" | cut -c1-12)"
-      if [ "$A" = "$B" ]; then echo "  kondu ve DOGRULANDI (sha1=$A)"
-      else echo "  ! UYARI: WIM'deki startnet.cmd farkli ($A vs $B)"; fi
+      if [ "$A" = "$B" ]; then
+        echo "  kondu ve DOGRULANDI (sha1=$A)"
+      else
+        echo
+        echo "  ###############################################################"
+        echo "  # WIM'DEKI startnet.cmd FARKLI - eski surum kalmis."
+        echo "  #   yazilan: $A"
+        echo "  #   WIM'deki: $B"
+        echo "  # Flaslamak bosuna; cihaza eski betik gider."
+        echo "  ###############################################################"
+        exit 1
+      fi
     else
-      echo "  ! UYARI: startnet.cmd geri okunamadi"
+      echo "  ! startnet.cmd geri okunamadi - dogrulanamiyor"
+      exit 1
     fi
   fi
 

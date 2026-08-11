@@ -3049,3 +3049,58 @@ Hem sürücü hem hive için: **önce sil, sonra ekle, sonra geri oku.**
 - `SYSTEM` hive'ı çıkarılıp `hivexget` ile `ImagePath` okunuyor; yoksa duruyor
 
 Artık yanlış sürücüyle bir Odin turu harcanamıyor.
+
+# ★ Tam okuma: yazılım sıfırlaması, çökme yok
+
+Projenin en temiz ölçümü. Her alan yerinde:
+
+```
+CF030000: 42 32 4C 46 01 00 00 00-03 01 FF FF FF FF FF FF  *B2LF...........*
+CF030010: 54 49 4B 3D 30 30 30 39-20 42 55 47 3D 48 20 20  *TIK=0009 BUG=H *
+15860404: 00 00 00 20                                       0x20000000
+```
+
+| Alan | Değer | Anlamı |
+|---|---|---|
+| `+0x00` | `B2LF` | Sürücü çalıştı |
+| `+0x04` | `1` | İlk açılış — önceki güç çevrimi DRAM'i silmişti, tutarlı |
+| `+0x08` | `3` | Aşama 3: kayıt denendi |
+| `+0x09` | `1` | `KeRegisterBugCheckCallback` **TRUE** döndü |
+| `+0x0C` | `FF` | `BUGC` yok |
+| `+0x10` | `TIK=0009` | Çekirdek **9 saniye** yaşadı |
+| | `BUG=H` | Bugcheck yok |
+| `RST_STAT` | `0x20000000` | **Yazılım sıfırlaması** |
+
+DRAM'in hayatta kalması yazılım sıfırlamasını bağımsız olarak doğruluyor.
+
+## Sonuç: birisi kasıtlı olarak yeniden başlatma istedi
+
+Eleme tamamlandı:
+
+| İhtimal | Durum |
+|---|---|
+| Çökme / bugcheck | **Elendi** — doğrulanmış geri çağrı, `BUG=H` |
+| Kilitlenme | **Elendi** — kalp atışı son saniyeye kadar düzenli |
+| Watchdog | **Elendi** — `RST_STAT` yazılım isteği gösteriyor |
+| Güç kesilmesi / PMIC | **Elendi** — DRAM hayatta, güç çevrimi yok |
+| **Kasıtlı yeniden başlatma** | **Geriye kalan** |
+
+Ve kim istediğini biliyoruz: WinPE, `startnet.cmd` bitince kabuğu kapatıp
+makineyi yeniden başlatır — tasarım böyle.
+
+## Peki neden sonsuz döngülü `startnet.cmd` işe yaramadı
+
+Çünkü büyük ihtimalle **cihaza hiç gitmedi.**
+
+`tools_winboot.sh` de `wimlib add` tuzağındaydı: hedefte aynı isimde dosya
+varken üzerine yazmıyor. `b2lfb.sys`'te aynısını bulmuştuk. Buradaki daha
+pahalıya mal olmuş olabilir — `startnet.cmd` ile yaptığımız **bütün**
+denemeler (`goto`, `ping`, `pause`, sonsuz döngü) aynı sonucu verdi, ve
+bunun en basit açıklaması hiçbirinin cihaza ulaşmamış olması.
+
+Üstelik script bunu fark ediyordu ama yalnızca `! UYARI` basıyordu; elli
+satırlık çıktının içinde kayboluyordu.
+
+**Bir doğrulamanın değeri, başarısız olduğunda işi durdurmasından gelir.**
+Yoksa sadece gürültüdür. Artık `delete` + `add` yapılıyor ve uyuşmazlık
+ölümcül.
