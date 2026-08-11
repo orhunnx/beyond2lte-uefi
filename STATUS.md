@@ -2704,3 +2704,47 @@ dolduruluyor. Framebuffer içinde nerede olursa olsun ekran macenta oluyor.
 | Hiçbir şey | winload açılış sürücülerine hiç gelmiyor; arıza daha geride |
 
 Önceki sürümde dördü de aynı görüntüyü veriyordu. Asıl kazanç bu.
+
+## İLK KEZ: Windows kendi çekirdek açılışından bize hata bildirdi
+
+```
+File:   \windows\SystemRootSystem32driversb2lfb.sys
+Status: 0xc000000f
+Info:   The operating system couldn't be loaded because a critical
+        system driver is missing or contains errors.
+```
+
+Bu ekran otuz turdur ulaşamadığımız yer. Dört şeyi birden kanıtlıyor:
+
+1. **`winload` açılış sürücülerini yüklemeye geliyor.** Sessiz sıfırlamalar
+   bunun öncesinde değil, sonrasında oluyormuş.
+2. **Servis kaydımız okunuyor** — `Services\b2lfb` düğümü geçerli.
+3. **Hata yolu çalışıyor** ve dosya adımızı yazıyor.
+4. **`ErrorControl=3` doğru karardı.** `0` iken tam bu arıza sessizce
+   atlanıyordu.
+
+### Hata: `.reg` kaçış karakterleri
+
+Dosya adına dikkat: `SystemRootSystem32driversb2lfb.sys`. Ters bölükler
+yenmiş. `.reg` biçiminde ters bölük **kaçış karakteri** ve `\\` yazılması
+gerekiyor. Biz tek yazdık, hive'a çizgisiz girdi, `winload` da olmayan bir
+dosyayı aradı — `0xc000000f` zaten "dosya bulunamadı" demek.
+
+**İmzayla ilgisi yok.** İmza testine daha sıra bile gelmemiş; sürücü hiç
+okunmadı.
+
+### Alınan önlem
+
+`tools_b2lfb.sh` artık `ImagePath`'i `hivexget` ile **geri okuyor** ve ters
+bölük sayısı üçten azsa oracıkta duruyor. Yazıp geri okumamak, yazdığını
+varsaymaktır — bu proje o dersi daha önce `hivexsh setval` ile de almıştı.
+
+### Sıradaki bilinmeyen
+
+Yol düzelince sürücü gerçekten okunacak ve **imza kontrolü ilk kez
+çalışacak**. İki sonuçtan biri:
+
+| Ekranda | Sonuç |
+|---|---|
+| Ekran macenta | Sürücü yüklendi ve çalıştı. Canlı çıkış kanalı AÇIK |
+| `0xc0000428` | İmza reddedildi. Sertifika WinPE güven deposuna eklenecek |

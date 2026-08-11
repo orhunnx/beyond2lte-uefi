@@ -173,11 +173,37 @@ cat > "$W/b2lfb.reg" <<'REG'
 "Type"=dword:00000001
 "Start"=dword:00000000
 "ErrorControl"=dword:00000003
-"ImagePath"=str(2):"\SystemRoot\System32\drivers\b2lfb.sys"
+"ImagePath"=str(2):"\\SystemRoot\\System32\\drivers\\b2lfb.sys"
 "Group"="System Bus Extender"
 "DisplayName"="beyond2lte framebuffer"
 REG
 hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$W/SYSTEM" "$W/b2lfb.reg"
+
+#
+# IMAGEPATH GERI OKUNUYOR - BU KONTROL BIR TURA MAL OLDU
+#
+# Ilk surumde .reg icinde "\SystemRoot\System32\drivers\b2lfb.sys" yaziyordu.
+# .reg biciminde ters boluk KACIS KARAKTERI; hive'a
+# "SystemRootSystem32driversb2lfb.sys" olarak girdi ve cihaz sunu bastı:
+#
+#   File: \windows\SystemRootSystem32driversb2lfb.sys
+#   Status: 0xc000000f  (dosya bulunamadi)
+#
+# Yaziyi yazip geri okumamak, yazdigini varsaymaktir. Artik okuyoruz: ters
+# boluk sayisi ucten azsa yol bozulmus demektir ve script oracikta duruyor -
+# bir Odin flasi harcanmadan.
+#
+YOL="$(hivexget "$W/SYSTEM" 'ControlSet001\Services\b2lfb' ImagePath 2>/dev/null || true)"
+echo "  ImagePath geri okundu: $YOL"
+if [ "$(printf '%s' "$YOL" | tr -cd '\\' | wc -c)" -lt 3 ]; then
+  echo
+  echo "  ###############################################################"
+  echo "  # ImagePath BOZUK - ters boluk kacislari kaybolmus."
+  echo "  # Beklenen: \\SystemRoot\\System32\\drivers\\b2lfb.sys"
+  echo "  # .reg dosyasinda ters bolukler ciftlenmeli."
+  echo "  ###############################################################"
+  exit 1
+fi
 
 wimlib-imagex update "$WIM" 1 \
   --command="add '$W/SYSTEM' /Windows/System32/config/SYSTEM" >/dev/null
