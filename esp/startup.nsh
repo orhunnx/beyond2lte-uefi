@@ -44,6 +44,25 @@
 #
 mode 80 25
 
+#
+# fs0 HANGI LUN'DA? Tek satir, bedava, ve bir soruyu kapatiyor.
+#
+# Ekranda "B2L UFS: WriteBlocks LUN=2 LBA=0 ... OCS=0x07 -> Device Error"
+# goruldu. OCS_FATAL_ERROR + response=0x01: istek denetleyiciye ulasiyor,
+# AYGIT reddediyor. Basarisiz olanlarin hepsi LBA=0; daha once basarili
+# gordugumuz yazmalar (dosya verisi, dizin girdisi) sifirdan buyuk
+# adreslerdeydi. Yani LU'nun ilk blogu aygit tarafinda yazma korumali
+# gorunuyor (Samsung UFS'te bLUWriteProtect ile olagan).
+#
+# Eksik parca: LUN 2 bizim ESP'mizin LU'su mu, baska bir LU mu? map -r
+# fs0'in aygit yolunu basiyor; icinde LUN numarasi ve bolum (HD(...)) olup
+# olmadigi goruluyor. Bolum yoksa LBA 0 = FAT onyukleme sektoru, varsa
+# LBA 0 = LU'nun basi, yani bizim dosya sistemimiz bile degil.
+#
+echo ================ fs0 HANGI LUN
+map -r
+echo .
+
 echo .
 echo ================ ONCEKI ACILISIN SIFIRLAMA SEBEBI
 echo .

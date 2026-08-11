@@ -822,3 +822,39 @@ SEQUENCER = 0x00000600
 
    İlk açılış Odin'in yeniden başlatmasını gösterir (`0x20000000`); ikinci
    açılıştaki değer aranan cevaptır.
+
+### UFS yazma: düzeltilmiş sonuç — LBA 0 aygıt tarafında reddediliyor
+
+Windows açılırken ekrana düşen satırlar (`FSOpen: 'EFI' / 'Microsoft' / 'Boot'`
+başarılı olduktan hemen sonra, üç kez tekrarlanarak):
+
+```
+B2L UFS: WriteBlocks LUN=2 LBA=0 boyut=4096 blok=4096 ro=0
+UFS OCS=0x07 response=0x01 type=0x21
+B2L UFS: WRITE_10 basarisiz LBA=0 blok=1 -> Device Error
+B2L UFS: WriteBlocks sonuc = Device Error
+```
+
+`UfsDxe.h`'deki tabloda `OCS_FATAL_ERROR = 0x7`; `response=0x01` SCSI hedef
+hatası. İstek denetleyiciye ulaşıyor, **UFS aygıtı reddediyor**. Sürücü
+tarafında `ro=0`, yani `Media.ReadOnly` yanlış bir güven veriyor —
+`UfsDxe.c` bu alanı koşulsuz `FALSE` yazıyor, aygıtın `bLUWriteProtect`
+niteliğine hiç bakmıyor.
+
+Belirleyici ayrıntı **LBA = 0**. Daha önce başarılı ölçtüğümüz yazmalar
+(dosya verisi, `YAZTEST.TXT` dizin girdisi) sıfırdan büyük adreslerdeydi.
+Başarısız olanların hepsi sıfırıncı blok. Yani "UFS'e yazabiliyoruz" doğru
+ama eksikti: **ilk blok hariç** yazabiliyoruz.
+
+Sonuçları:
+
+- `bootstat.dat` neden hiç oluşmadı, Shell'in `>` / `>a` yönlendirmesi neden
+  öldü — tek sebep. `bootmgfw` açılış durumunu kalıcılaştıramıyor.
+- Windows'tan yazılım yoluyla log almanın son kanalı da kapandı. Geriye
+  `RST_STAT` kalıyor.
+
+Açık kalan: LUN 2 ESP'mizin bulunduğu LU mu, yoksa başka bir LU mu?
+`startup.nsh` artık `map -r` çalıştırıyor; fs0'ın aygıt yolunda LUN numarası
+ve bölüm (`HD(...)`) olup olmadığı görülecek. Bölüm yoksa LBA 0 = FAT
+önyükleme sektörü; varsa LBA 0 = LU'nun başı, yani bizim dosya sistemimiz
+bile değil ve yazan başka biri.
