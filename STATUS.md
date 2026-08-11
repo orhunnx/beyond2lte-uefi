@@ -1754,3 +1754,36 @@ Değişkenlerin bir kısmını yeniden ölçmek gerekecek.
 `cache_esp.sh --system --bos`: bölümün başına 16 MiB sıfır yazıyor. FAT
 önyükleme sektörü gidince birim hiç tanınmıyor ve ortada tek bir
 `startup.nsh` kalıyor.
+
+## Güvenilir referans: 15 saniye
+
+Doğrulanmış hatla (tek ESP, `fs0 KOKU` ekranda, `EBSTEST.EFI` bulunup
+çalışıyor) Windows ölçümü **15 saniye**. Eski ölçümlerle aynı — yani o turlar
+tamamen boşa gitmemiş, ama artık sayı gerçek.
+
+### Mantık sıkıştı: bu kontrollü bir kapanış olmak zorunda
+
+| Bilgi | Nasıl biliyoruz |
+|---|---|
+| Platform EBS sonrası bir dakikadan uzun yaşıyor | `EbsTest`, 63 kare |
+| Cihazı dışarıdan sıfırlayan bir şey yok | Aynı ölçüm |
+| Sıfırlamayı Windows çalıştırıyor | Yukarıdakinin doğrudan sonucu |
+| `ResetSystem`'den geçmiyor | Kanca hiç ateşlemedi; sürücünün çalıştığı `B2LI` sayacının artmasıyla doğrulandı |
+
+Geriye tek yol kalıyor: **HAL'in doğrudan `SMC` ile PSCI çağırması.** Bu da
+şu demek — çöküş kontrollü bir kapanış, yani büyük ihtimalle bir **bugcheck**.
+
+### Kapatılmamış boşluk: `AutoReboot=0` hiç doğrulanmadı
+
+"Mavi ekran hiç görmüyoruz" gözleminin tamamı bu ayara dayanıyor. Uygulanmamış
+olsaydı bugcheck zaten cihazı yeniden başlatırdı ve görmememiz normal olurdu —
+yani "çöküş bugcheck değil" çıkarımı temelsiz kalırdı.
+
+Bir turda çıktıda `hivexregedit yok` uyarısı geçti ve o WIM'in yamalanıp
+yamalanmadığı hiç doğrulanmadı.
+
+`tools_winboot.sh` artık:
+
+- Yazdıktan sonra hive'ı WIM'den **geri okuyup** `CrashControl\AutoReboot`
+  değerini ekrana basıyor
+- `hivexregedit` yoksa sessiz geçmiyor, çerçeveli bir uyarı basıyor

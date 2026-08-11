@@ -270,6 +270,31 @@ REG
           --command="add '$HV/SYSTEM' /Windows/System32/config/SYSTEM" >/dev/null
         wimlib-imagex optimize "$ESP/sources/boot.wim" >/dev/null
         echo "  AutoReboot=0 yazildi, WIM guncellendi ($(du -h "$ESP/sources/boot.wim" | cut -f1))"
+
+        #
+        # GERI OKUYUP DOGRULA. Bu adim eksikti ve gercek bir bosluk biraktu.
+        #
+        # "Mavi ekran hic gormuyoruz" gozleminin tamami AutoReboot=0'in
+        # gercekten uygulanmis olmasina dayaniyor. Uygulanmadiysa bugcheck
+        # zaten cihazi yeniden baslatir ve gormememiz gayet normaldir - yani
+        # "cokus bugcheck degil" cikarimi temelsiz kalir.
+        #
+        # Bir turda ciktida "hivexregedit yok" uyarisi gecti ve o WIM'in
+        # yamalanip yamalanmadigi hic dogrulanmadi.
+        #
+        DV="$W/dogrula"; mkdir -p "$DV"
+        if wimlib-imagex extract "$ESP/sources/boot.wim" 1 \
+             /Windows/System32/config/SYSTEM --dest-dir="$DV" --no-acls >/dev/null 2>&1; then
+          AR="$(hivexregedit --export "$DV/SYSTEM" '\ControlSet001\Control\CrashControl' 2>/dev/null | grep -i '"AutoReboot"' || true)"
+          if echo "$AR" | grep -qi 'dword:00000000'; then
+            echo "  DOGRULANDI: $AR"
+          else
+            echo "  ! DOGRULANAMADI. WIM'de okunan: ${AR:-<deger yok>}"
+            echo "  ! Bugcheck olsa bile cihaz yeniden baslar, mavi ekrani goremeyiz."
+          fi
+        else
+          echo "  ! UYARI: dogrulama icin hive geri okunamadi"
+        fi
       else
         echo "  UYARI: hive duzenlenemedi, AutoReboot acik kaliyor"
       fi
@@ -277,8 +302,16 @@ REG
       echo "  UYARI: SYSTEM hive cikarilamadi"
     fi
   else
-    echo "  hivexregedit yok -> sudo apt install -y libhivex-bin"
-    echo "  (AutoReboot acik kalir; cokunce kod gorulmez)"
+    echo
+    echo "  ###############################################################"
+    echo "  # hivexregedit YOK -> sudo apt install -y libhivex-bin"
+    echo "  #"
+    echo "  # BU ATLANACAK BIR UYARI DEGIL. Onsuz WinPE hive'ina"
+    echo "  # AutoReboot=0 yazilamiyor; bugcheck olsa bile cihaz aninda"
+    echo "  # yeniden baslar ve mavi ekrani ASLA goremeyiz. 'Cokus bugcheck"
+    echo "  # degil' cikarimi tam da bu ayara dayaniyor."
+    echo "  ###############################################################"
+    echo
   fi
 
   #
