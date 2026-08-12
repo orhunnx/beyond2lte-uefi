@@ -160,6 +160,36 @@ Windows'a mı özgü" sorusunu cevaplıyor.
 Alpine 6.18 aarch64, `acpi=force` ile **bizim ACPI tablolarımızdan** açılıyor,
 `linux_test/init` CPU'yu sürekli yakıp `/dev/kmsg`'e sayaç basıyor.
 
+### 4.5 USB ile tanı — neden şu an bir kanal değil
+
+Stok Android DTB'sinde Exynos DWC3 denetleyicisi `otg` olarak tanımlı ve
+Linux'ta sürücüsü var. Bu, **UEFI'nin USB kullanabildiği anlamına gelmez**:
+overlay'in DSC/FDF yapılandırmasında DWC3, xHCI, USB bus veya USB kütle
+depolama DXE sürücüsü yoktur. Çalışan tek depolama yolu UFS `BlockIO`'dur.
+
+Bu yüzden "USB'ye log yazan küçük bir sürücü" tek başına mümkün değildir.
+Önce aşağıdaki alt katmanların çalışması gerekir:
+
+1. DWC3 + USB PHY'nin saat, reset ve register başlatması,
+2. MAX77705 üzerinden güvenli Type-C/OTG host rolü seçimi,
+3. USB bus enumerasyonu ve kütle depolama `BlockIO`,
+4. FAT/SimpleFileSystem üzerinden dosya yazma.
+
+Bu zincir ancak `ExitBootServices` öncesindeki UEFI kayıtlarını USB belleğe
+yazabilir. Mevcut 15 saniyelik Windows sıfırlamasında UEFI kodu artık
+çalışmadığından, sıfırlama anında dosyaya yazma sağlamaz.
+
+Windows'un USB kernel-debug seçeneği de bunun kısayolu değildir: hedefte
+Intel xHCI Debug Capability (DbC) bulunan bir xHCI denetleyicisi ve özel
+USB 3.0 debug kablosu ister. Exynos DWC3 OTG için böyle bir DbC desteği
+doğrulanmış değildir; ayrıca bu platformda PCI/xHCI aygıtı yoktur.
+
+**Karar:** USB yığını, ayrı ve büyük bir UEFI portudur; 15 saniyelik
+sıfırlamayı teşhis etmek için şimdi başlatılmayacak. Mevcut güvenli kanal
+`b2lfb.sys`'in sıcak sıfırlamayı aşan RAM kaydı ve sonraki UEFI açılışında
+onun ekrana çıkarılmasıdır. Daha fazla veri gerekirse bu kayıt genişletilir;
+Windows'a yeni riskli callback kancaları eklenmez.
+
 ---
 
 ## 5. Ölçülerek elenenler
