@@ -198,6 +198,19 @@ __declspec(dllimport) UINT8 KeSetTimerEx (PVOID Timer, long long DueTime, int Pe
 #define TIK_AZAMI   ((FB_BYTES - BANT_BYTES) / TIK_BYTES)
 
 /*
+ * BOYAMA KAC TIK SURUYOR.
+ *
+ * Serit boyamak framebuffer'a yaziyor. WinPE komut istemini ekrana
+ * cizmeye basladiginda ikisi birbirinin ustune yazar ve ekran okunmaz
+ * hale gelir. Seritler yalnizca rahatlik; asil kayit 0xCF030000'daki
+ * ASCII metin ve o sicak sifirlamayi asiyor.
+ *
+ * 30 tik = 3 saniye: erken ilerlemeyi gormeye yetiyor, WinPE'nin ekrani
+ * devralmasindan once bitiyor.
+ */
+#define BOYA_AZAMI  30
+
+/*
  * Olum sonrasi kayit. startup.nsh su an tam olarak burayi dokuyor:
  *     dmem 0xCF030000 60
  * Yani bu adresi secmek, Shell tarafinda sifir degisiklik demek.
@@ -355,14 +368,23 @@ static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
 
   (void)Dpc; (void)Ctx; (void)A1; (void)A2;
 
-  if ((gFb == 0) || (gTik >= TIK_AZAMI)) {
-    return;
+  /*
+   * BOYAMA DURUR, SAYAC DURMAZ.
+   *
+   * Onceki surum burada "gTik >= TIK_AZAMI ise geri don" diyordu ve bu
+   * SESSIZ BIR HATAYDI: seritler ekrani doldurdugunda sayac ve kayit da
+   * duruyordu. Uzun bir acilista TIK olduugu yerde donar, biz de o sayiyi
+   * "olum ani" diye okurduk. 25.8 saniyelik acilista tam olarak bu riske
+   * girmisiz.
+   *
+   * Artik boyama kosullu, sayac ve kayit kosulsuz.
+   */
+  if ((gFb != 0) && (gTik < BOYA_AZAMI) && (gTik < TIK_AZAMI)) {
+    P = (UINT8 *)gFb + BANT_BYTES + (gTik * TIK_BYTES);
+
+    /* Tek/cift tikler farkli renk: kareler birbirinden ayirt ediliyor */
+    FillDword ((PVOID)P, TIK_BYTES, (gTik & 1) ? 0x0000FFFF : 0x00FFFF00);
   }
-
-  P = (UINT8 *)gFb + BANT_BYTES + (gTik * TIK_BYTES);
-
-  /* Tek/cift tikler farkli renk: kareler birbirinden ayirt ediliyor */
-  FillDword ((PVOID)P, TIK_BYTES, (gTik & 1) ? 0x0000FFFF : 0x00FFFF00);
 
   gTik++;
 
