@@ -276,6 +276,8 @@ static volatile UINT64 gSpin = 0;
  * kontrol ediliyor.
  */
 static UINT32 gImgSayi = 0;
+static UINT32 gImgIlk  = 0;   /* ilk imajin tiki (+1, sifir = hic yok) */
+static UINT32 gImgSon  = 0;   /* son imajin tiki */
 
 static void ImajYuklendi (B2L_UNICODE_STRING *Ad, PVOID Pid, PVOID Bilgi)
 {
@@ -286,6 +288,25 @@ static void ImajYuklendi (B2L_UNICODE_STRING *Ad, PVOID Pid, PVOID Bilgi)
   (void)Pid; (void)Bilgi;
 
   gImgSayi++;
+
+  /*
+   * ILK VE SON IMAJIN ZAMANI.
+   *
+   * Asil soru artik "hangi surucu" degil: Windows o 9 saniyeyi SURUCU
+   * YUKLEYEREK mi geciriyor, yoksa hizlica yukleyip sonra bir seyde
+   * DONEREK mi? Ikisi bambaska iki arama.
+   *
+   *   imajlar tikin sonuna kadar yayilmis -> yukleme suruyor, olum
+   *       yuklemenin icinde
+   *   imajlar basta bitmis, sonra uzun bir sessizlik -> yukleme cabuk
+   *       bitmis ve Windows baska bir seyde donuyor; surucu adlarini
+   *       kovalamak bosuna
+   */
+  if (gImgIlk == 0) {
+    gImgIlk = (UINT32)gTik + 1;
+  }
+
+  gImgSon = (UINT32)gTik;
 
   if (gLog == 0 || Ad == 0 || Ad->Buffer == 0) {
     return;
@@ -453,6 +474,28 @@ static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
       }
 
       P[12] = ' '; P[13] = ' '; P[14] = ' '; P[15] = ' ';
+    }
+
+    /*
+     * +0x60:  IL=nnnn SN=nnnn   ilk ve son imajin tiki (100 ms birimi)
+     */
+    {
+      UINT8 *Q = (UINT8 *)gLog + 96;
+      UINT32 A = (gImgIlk > 0) ? (gImgIlk - 1) : 0;
+      UINT32 B = gImgSon;
+
+      Q[0] = 'I'; Q[1] = 'L'; Q[2] = '=';
+      Q[3] = (UINT8)('0' + ((A / 1000) % 10));
+      Q[4] = (UINT8)('0' + ((A /  100) % 10));
+      Q[5] = (UINT8)('0' + ((A /   10) % 10));
+      Q[6] = (UINT8)('0' + ( A         % 10));
+      Q[7] = ' ';
+      Q[8] = 'S'; Q[9] = 'N'; Q[10] = '=';
+      Q[11] = (UINT8)('0' + ((B / 1000) % 10));
+      Q[12] = (UINT8)('0' + ((B /  100) % 10));
+      Q[13] = (UINT8)('0' + ((B /   10) % 10));
+      Q[14] = (UINT8)('0' + ( B         % 10));
+      Q[15] = ' ';
     }
   }
 }
@@ -643,7 +686,18 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
 
   KeInitializeDpc ((PVOID)gDpc, (PVOID)HeartbeatDpc, 0);
   KeInitializeTimer ((PVOID)gTimer);
-  KeSetTimerEx ((PVOID)gTimer, -10000000LL, 1000, (PVOID)gDpc);
+  /*
+   * COZUNURLUK 1 SANIYEDEN 100 MS'YE INDIRILDI.
+   *
+   * NEDEN: tek bir Start=1 servisini kapatmak CNT'yi 16'dan 3'e dusurdu ama
+   * TIK 9-10'da kaldi. Tek bir servis yuklenen imaj sayisini besde bire
+   * indiremez; makul tek aciklama imajlarin SONDA BIR SALKIM halinde
+   * yuklendigi ve olumun o salkimin neresine denk geldigine gore CNT'nin
+   * ziplamasi. Bir saniyelik cozunurlukle bu ayirt edilemiyor.
+   *
+   * 100 ms ile TIK artik onda bir saniye: TIK=0100 = 10 saniye.
+   */
+  KeSetTimerEx ((PVOID)gTimer, -1000000LL, 100, (PVOID)gDpc);
 
   /*
    * BLOKAJ KALDIRILDI - MERDIVEN GOREVINI TAMAMLADI.

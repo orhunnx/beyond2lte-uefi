@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    10
+#define B2L_SURUM    11
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 10"
+#define SURUM_METNI  L"SURUM 11"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -490,6 +490,23 @@ B2LGosterEntry (
       Ad[32] = L'\0';
       Yaz (Ad, 0x0040FF40);
     }
+
+    //
+    // +0x60: ilk ve son imajin tiki. TIK artik 100 ms birimi.
+    //
+    //   SN, TIK'e YAKIN  -> olum yuklemenin icinde
+    //   SN cok erken     -> yukleme cabuk bitmis, Windows baska bir seyde
+    //                       donuyor ve surucu adi kovalamak bosuna
+    //
+    for (K = 0; K < 16; K++) {
+      Tik[K] = (CHAR16)FbLog[96 + K];
+      if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
+        Tik[K] = L' ';
+      }
+    }
+
+    Tik[16] = L'\0';
+    Yaz (Tik, 0x0040FF40);
   } else {
     Yaz (L"B2LFB KAYDI YOK", 0x00808080);
   }
