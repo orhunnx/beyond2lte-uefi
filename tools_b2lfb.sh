@@ -40,7 +40,7 @@
 set -euo pipefail
 
 #
-# ARGUMAN: kapat / ac
+# ARGUMAN: kapat / ac / kontrol
 #
 # NEDEN GEREKTI: b2lfb korumali listede, cunku olcum aracini yanlislikla
 # kaybetmemek icin oyle yapildi. Ama "aletsiz taban" deneyi tam olarak
@@ -50,10 +50,17 @@ set -euo pipefail
 # Kapali haldeyken sayi okunamaz, olcum kronometreyle yapilir. Amac zaten
 # sayi degil: sifirlama VAR MI ve kabaca ne zaman.
 #
+# "kontrol" iki Start=1 damga surucusunu bir tur icin Start=0 yapar.
+# WIM/hive geri okumasi dosyalarin KONULDUGUNU kanitlar, fakat Start=1
+# asamasinda gercekten yuklenebildigini kanitlamaz. Bu kontrol o boslugu
+# kapatir: b2lsg0 ve b2lsys boot surucusu olarak calisirsa, bir sonraki
+# normal Start=1 sonucunu faz siniri olarak yorumlamak mumkun olur.
+# ErrorControl=3 sayesinde imza/yukleme reddi de sessizce atlanmaz.
+#
 B2L_MOD="${1:-kur}"
 case "$B2L_MOD" in
-  kur|kapat|ac) ;;
-  *) echo "Kullanim: bash $0 [kur|kapat|ac]"; exit 1 ;;
+  kur|kapat|ac|kontrol) ;;
+  *) echo "Kullanim: bash $0 [kur|kapat|ac|kontrol]"; exit 1 ;;
 esac
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$HERE/windows/b2lfb"
@@ -86,29 +93,47 @@ command -v openssl      >/dev/null || { echo "openssl yok -> sudo apt install -y
 # bir .lib uretiyor; ntoskrnl.exe'nin kendisine ihtiyac yok.
 #
 if [ "$B2L_MOD" != "kur" ]; then
-  [ "$B2L_MOD" = "kapat" ] && DEG=4 || DEG=0
-  [ "$B2L_MOD" = "kapat" ] && SYSG_DEG=4 || SYSG_DEG=1
-  [ "$B2L_MOD" = "kapat" ] && SYS_DEG=4 || SYS_DEG=1
-  [ "$B2L_MOD" = "kapat" ] && AUTO_DEG=4 || AUTO_DEG=2
+  case "$B2L_MOD" in
+    kapat)
+      DEG=4; SYSG_DEG=4; SYS_DEG=4; AUTO_DEG=4
+      SYSG_ERR=0; SYS_ERR=0
+      ;;
+    ac)
+      DEG=0; SYSG_DEG=1; SYS_DEG=1; AUTO_DEG=2
+      SYSG_ERR=0; SYS_ERR=0
+      ;;
+    kontrol)
+      DEG=0; SYSG_DEG=0; SYS_DEG=0; AUTO_DEG=4
+      SYSG_ERR=3; SYS_ERR=3
+      ;;
+  esac
 
-  say "b2lfb Start=$DEG, b2lsg0/b2lsys Start=1, b2lauto Start=$AUTO_DEG yapiliyor"
+  if [ "$B2L_MOD" = "kontrol" ]; then
+    say "KONTROL: b2lsg0/b2lsys Start=0 ErrorControl=3, b2lauto Start=4 yapiliyor"
+  else
+    say "b2lfb Start=$DEG, b2lsg0/b2lsys Start=$SYSG_DEG/$SYS_DEG, b2lauto Start=$AUTO_DEG yapiliyor"
+  fi
   HW="$(mktemp -d)"; trap 'rm -rf "$HW"' EXIT
   wimlib-imagex extract "$WIM" 1 /Windows/System32/config/SYSTEM \
     --dest-dir="$HW" --no-acls >/dev/null
 
-  printf '[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lfb]\n"Start"=dword:0000000%s\n\n[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lsg0]\n"Start"=dword:0000000%s\n\n[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lsys]\n"Start"=dword:0000000%s\n\n[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lauto]\n"Start"=dword:0000000%s\n' \
-    "$DEG" "$SYSG_DEG" "$SYS_DEG" "$AUTO_DEG" > "$HW/yaz.reg"
+  printf '[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lfb]\n"Start"=dword:0000000%s\n\n[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lsg0]\n"Start"=dword:0000000%s\n"ErrorControl"=dword:0000000%s\n\n[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lsys]\n"Start"=dword:0000000%s\n"ErrorControl"=dword:0000000%s\n\n[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lauto]\n"Start"=dword:0000000%s\n' \
+    "$DEG" "$SYSG_DEG" "$SYSG_ERR" "$SYS_DEG" "$SYS_ERR" "$AUTO_DEG" > "$HW/yaz.reg"
   hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$HW/SYSTEM" "$HW/yaz.reg"
 
   V="$(hivexget "$HW/SYSTEM" "ControlSet001\\Services\\b2lfb" Start 2>/dev/null || echo '?')"
   VG="$(hivexget "$HW/SYSTEM" "ControlSet001\\Services\\b2lsg0" Start 2>/dev/null || echo '?')"
+  EG="$(hivexget "$HW/SYSTEM" "ControlSet001\\Services\\b2lsg0" ErrorControl 2>/dev/null || echo '?')"
   VS="$(hivexget "$HW/SYSTEM" "ControlSet001\\Services\\b2lsys" Start 2>/dev/null || echo '?')"
+  ES="$(hivexget "$HW/SYSTEM" "ControlSet001\\Services\\b2lsys" ErrorControl 2>/dev/null || echo '?')"
   VA="$(hivexget "$HW/SYSTEM" "ControlSet001\\Services\\b2lauto" Start 2>/dev/null || echo '?')"
   [ "$V" = "$DEG" ] || { echo "  ! b2lfb geri okuma $V, beklenen $DEG"; exit 1; }
   [ "$VG" = "$SYSG_DEG" ] || { echo "  ! b2lsg0 geri okuma $VG, beklenen $SYSG_DEG"; exit 1; }
+  [ "$EG" = "$SYSG_ERR" ] || { echo "  ! b2lsg0 ErrorControl geri okuma $EG, beklenen $SYSG_ERR"; exit 1; }
   [ "$VS" = "$SYS_DEG" ] || { echo "  ! b2lsys geri okuma $VS, beklenen $SYS_DEG"; exit 1; }
+  [ "$ES" = "$SYS_ERR" ] || { echo "  ! b2lsys ErrorControl geri okuma $ES, beklenen $SYS_ERR"; exit 1; }
   [ "$VA" = "$AUTO_DEG" ] || { echo "  ! b2lauto geri okuma $VA, beklenen $AUTO_DEG"; exit 1; }
-  echo "  dogrulandi: b2lfb Start=$V, b2lsg0 Start=$VG, b2lsys Start=$VS, b2lauto Start=$VA"
+  echo "  dogrulandi: b2lfb Start=$V, b2lsg0 Start=$VG ErrorControl=$EG, b2lsys Start=$VS ErrorControl=$ES, b2lauto Start=$VA"
 
   wimlib-imagex update "$WIM" 1 \
     --command="delete --force /Windows/System32/config/SYSTEM" >/dev/null 2>&1 || true
@@ -117,6 +142,9 @@ if [ "$B2L_MOD" != "kur" ]; then
   echo
   if [ "$B2L_MOD" = "kapat" ]; then
     echo "Temiz taban icin: bash cache_esp.sh --win --system --baseline"
+  elif [ "$B2L_MOD" = "kontrol" ]; then
+    echo "Simdi: bash cache_esp.sh --win --system"
+    echo "Kontrol sonrasi normal deneye donmek icin: bash tools_b2lfb.sh"
   else
     echo "Simdi: bash cache_esp.sh --win --system"
   fi

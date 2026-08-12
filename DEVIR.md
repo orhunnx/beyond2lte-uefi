@@ -643,6 +643,49 @@ Bu markerlar sürücüler arasındaki her iç sıralamayı tek başına kanıtla
 ama önceki Start=1 blokajının bıraktığı grup-sırası belirsizliğini ölçülebilir
 hale getirir.
 
+#### Sonuç: iki Start=1 işaretçisi de gelmedi; önce yüklenebilirlik kontrolü
+
+Sonraki fotoğrafta iki yeni damga da başlangıç değeriyle kaldı:
+
+```
+TIK=0442 BUG=H
+MAX=012426EF
+SPN=6A327BB0
+BRI=0001 C=001
+QPD=4485B884 F=018CBA80
+AUT=REG C=000
+SYS=REG C=000
+SYG=REG C=000
+RST_STAT=20000000
+```
+
+`QPD/F = 44.215931 s`; dolayısıyla bu tur önceki 42–43 saniyelik pencerenin
+biraz uzun ama aynı karakterdeki tekraridir. `BRI=0001`, Microsoft'un
+tanımladığı bütün aygıtların enumerate edilip başlatıldığı boot-reinit
+sınırının yine ilk 100 ms'de geçildiğini gösterir. `SYG=REG` ve `SYS=REG`,
+sırasıyla sıralı ve grupsuz test sürücülerinin `DriverEntry`lerine
+ulaşılmadığını gösterir; `AUT=REG` de SCM auto-start'a geçilmediğini korur.
+
+Ancak bu sonuç tek başına “Windows Start=1 aşamasına hiç girmedi” demek
+değildir. WIM dosya özeti ve SYSTEM hive geri okumaları yalnızca dosya ve
+servis kaydının doğru yerleştirildiğini kanıtlar; Start=1 konumundaki iki
+yeni imajın gerçekten yüklenebilir olduğunun yürütme kanıtı değildir.
+
+Bu ayrımı kapatmak için `bash tools_b2lfb.sh kontrol` eklendi. Bu kip, mevcut
+imajları değiştirmeden yalnızca bir sonraki turda `b2lsg0` ve `b2lsys`i
+`Start=0`, `ErrorControl=3` yapar; `b2lauto`yu `Start=4` ile devre dışı
+bırakır. Beklenen sonuç şudur:
+
+| Kontrol sonucu | Dar yorum |
+|---|---|
+| `SYG=INI`, `SYS=INI` | İki imaj ve imza zinciri boot aşamasında çalışır; normal kiptir tekrar `Start=1` sonucu faz sınırı olarak yorumlanabilir. |
+| Yükleyici hata ekranı | İmzalama/yükleme reddi vardır; ekrandaki kod izlenecek somut nedendir. |
+| Damgalardan biri yok | O sürücünün çalıştırılabilirlik zinciri sorunludur; normal Start=1 sonucuna faz anlamı yüklenmez. |
+
+Kontrolden sonra normal yapı için `bash tools_b2lfb.sh` çalıştırılır; bu hem
+servis kayıtlarını hem de `ErrorControl=0` değerlerini normal deney haline
+geri kurar.
+
 Kaynaklar: [Microsoft — AddService StartType](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-addservice-directive),
 [Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order).
 
