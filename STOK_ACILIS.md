@@ -74,3 +74,63 @@ adresiyle** bulur.
 Tarama kendi ilerlemesini `0xCF041200`'e yazıyor; cihaz tarama sırasında
 sıfırlanırsa bir sonraki açılışta tarama atlanıp son adres gösteriliyor.
 Yoksa aynı yerde sonsuza kadar sıfırlanırdık.
+
+---
+
+# KONTROL DENEYI: LINUX AYNI FIRMWARE VE ACPI ILE
+
+Tarih itibariyle projenin en belirleyici olcumu.
+
+`cache_esp.sh --linux --system` ile Alpine 6.18 (aarch64) **bizim UEFI'mizden**,
+**bizim ACPI tablolarimizla** (`acpi=force`) acildi:
+
+```
+ACPI: RSDP/XSDT/FACP/DSDT/APIC/SSDT/GTDT/PPTT/BGRT  hepsi okundu
+CPU: All CPU(s) started at EL1
+SMP: Total of 1 processors activated
+Memory: 7847276K/8261888K available
+kvm [1]: HYP mode not available
+Run /init as init process
+```
+
+Ardindan `linux_test/init` CPU'yu surekli yakti:
+
+```
+B2L: YUK N=1  uptime=14.91
+...
+B2L: YUK N=84 uptime=169.83
+```
+
+**170 saniye kesintisiz CPU yuku, sifirlama yok.**
+
+Windows ayni donanimda kendi CPU'sunda ~10 saniye calisip sifirlaniyor
+(9.78 / 10.04 / ~12 saniye, uc bagimsiz olcum).
+
+## Sonuc
+
+Platform aklandi. Sunlarin hicbiri sifirlamanin sebebi degil:
+
+- firmware ve UEFI kurulumu
+- ACPI tablolari (FACP, DSDT, APIC, GTDT, PPTT)
+- bellek haritasi ve DRAM bankalari
+- S-Boot'un biraktigi donanim durumu (calisan DECON/DSIM/DPP dahil)
+- GIC ve bekleyen sekiz SPI
+- EL3 / TrustZone
+
+Gercek bir isletim sistemi ayni tablolarla, ayni yuk altinda, on yedi kat
+uzun sure calisiyor. Ariza Windows tarafindaki entegrasyonda.
+
+## Yan bulgu: PSCI
+
+```
+psci: PSCIv65535.65535 detected in firmware
+psci: Using standard PSCI v0.2 function IDs
+```
+
+`PSCI_VERSION` cagrisi `0xFFFFFFFF` donuyor - EL3 bu komutu TANIMIYOR. Linux
+tek cekirdekte PSCI'ye ihtiyac duymadigi icin devam ediyor. Windows ise
+FACP'de PSCI biti kapatilinca hic acilmiyordu (winload cekirdegi
+baslatmadan duruyor).
+
+Yani Windows PSCI'ye guveniyor, EL3 ise en temel PSCI cagrisina bile cevap
+vermiyor. Bu celiski henuz aciklanmadi ve siradaki adaylardan biri.

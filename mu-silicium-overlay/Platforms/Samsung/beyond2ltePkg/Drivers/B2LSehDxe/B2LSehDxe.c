@@ -128,6 +128,30 @@
 
 #define SEH_LOG      0xCF041000ULL   // yakalanan EL3 baglami
 #define SEH_STATUS   0xCF041080ULL   // SMC donusleri
+//
+// PSCI SORGUSU - stok DTB'den cikan yapisal celiskiyi olcuyor.
+//
+//   psci { compatible = "arm,psci"; ... }     <- 0.1, "arm,psci-0.2" DEGIL
+//
+// PSCI 0.1'de yalnizca cpu_suspend/cpu_off/cpu_on var. PSCI_VERSION,
+// PSCI_FEATURES, SYSTEM_RESET, SYSTEM_OFF, AFFINITY_INFO YOK. Linux'un
+// "PSCIv65535.65535" cikti da bunu gosteriyor: PSCI_VERSION 0xFFFFFFFF
+// donuyor.
+//
+// ACPI ise PSCI 0.1'i ifade EDEMIYOR: FADT'deki bit "0.2 veya ustu" demek
+// ve Windows ARM64 bunu sart kosuyor. Biti actigimizda Windows'a olmayan
+// bir arayuzu var diyoruz; kapattigimizda Windows hic acilmiyor.
+//
+// YALNIZCA SORGULAR CAGRILIYOR. SYSTEM_RESET (0x84000009), SYSTEM_OFF
+// (0x84000008) ve CPU_SUSPEND (0xC4000001) BILEREK cagrilmiyor - ilk ikisi
+// cihazi kapatir, ucuncusu askiya alir. Bir olcum aracinin olctugu seyi
+// tetiklememesi gerekiyor.
+//
+#define PSCI_VERSION_FN      0x84000000ULL
+#define PSCI_FEATURES_FN     0x8400000AULL
+#define PSCI_MIGRATE_INFO_FN 0x84000006ULL
+#define PSCI_AFFINITY_FN     0xC4000004ULL
+
 #define SEH_ONCEKI   0xCF041100ULL   // BIR ONCEKI acilisin yakalamasi
 #define DURUM_ONCEKI 0xCF041180ULL   // BIR ONCEKI acilisin durum sozcugu
 #define SEH_METIN    0xCF0410C0ULL   // SMC donusleri, okunabilir ASCII
@@ -420,6 +444,37 @@ B2LSehEntry (
   ArmCallSmc (&Args);
   mStatus[6] = (UINT32)Args.Arg0;
   mStatus[7] = (UINT32)Args.Arg1;
+
+  //
+  // PSCI sorgulari. Donen 0xFFFFFFFF "bu islev yok" demek.
+  //
+  //   [16] PSCI_VERSION      0.2+ olsaydi surum numarasi donerdi
+  //   [17] PSCI_FEATURES(SYSTEM_RESET)  sistem sifirlama var mi
+  //   [18] MIGRATE_INFO_TYPE
+  //   [19] AFFINITY_INFO(cpu0)
+  //
+  ZeroMem (&Args, sizeof (Args));
+  Args.Arg0 = PSCI_VERSION_FN;
+  ArmCallSmc (&Args);
+  mStatus[16] = (UINT32)Args.Arg0;
+
+  ZeroMem (&Args, sizeof (Args));
+  Args.Arg0 = PSCI_FEATURES_FN;
+  Args.Arg1 = 0x84000009;   // SYSTEM_RESET hakkinda SORU, cagri degil
+  ArmCallSmc (&Args);
+  mStatus[17] = (UINT32)Args.Arg0;
+
+  ZeroMem (&Args, sizeof (Args));
+  Args.Arg0 = PSCI_MIGRATE_INFO_FN;
+  ArmCallSmc (&Args);
+  mStatus[18] = (UINT32)Args.Arg0;
+
+  ZeroMem (&Args, sizeof (Args));
+  Args.Arg0 = PSCI_AFFINITY_FN;
+  Args.Arg1 = 0;
+  Args.Arg2 = 0;
+  ArmCallSmc (&Args);
+  mStatus[19] = (UINT32)Args.Arg0;
 
   DEBUG ((EFI_D_ERROR, "B2LSeh: dbgmem=0x%x seh=0x%x lockup=0x%x\n", mStatus[1], mStatus[2], mStatus[6]));
 

@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    21
+#define B2L_SURUM    22
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 21"
+#define SURUM_METNI  L"SURUM 22"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -368,6 +368,22 @@ B2LGosterEntry (
     // (SetVirtualAddressMap) kabuktan sonra calisiyor; bu acilisin degeri
     // her zaman "henuz calismadi" olur.
     //
+
+    //
+    // PSCI: hangi islevler GERCEKTEN var?
+    //
+    // Stok DTB "arm,psci" diyor, yani 0.1 - uc islev disinda hicbir sey yok.
+    // ACPI bunu ifade edemiyor ve Windows 0.2+ sart kosuyor. FFFFFFFF donen
+    // her satir, Windows'un var sandigi ama olmayan bir islev demek.
+    //
+    Deger (L"PSCI VER=", Durum[16],
+           (Durum[16] == 0xFFFFFFFFUL) ? L"YOK" : L"VAR",
+           (Durum[16] == 0xFFFFFFFFUL) ? 0x00FF4040 : 0x0040FF40);
+    Deger (L"PSCI RST=", Durum[17],
+           (Durum[17] == 0xFFFFFFFFUL) ? L"YOK" : L"VAR",
+           (Durum[17] == 0xFFFFFFFFUL) ? 0x00FF4040 : 0x0040FF40);
+    Deger (L"PSCI AFF=", Durum[19],
+           (Durum[19] == 0xFFFFFFFFUL) ? L"YOK" : L"VAR", 0x0060C0FF);
 
     //
     // ONCEKI ACILIS - yalnizca ayni surum yazdiysa. Damga tutmuyorsa
