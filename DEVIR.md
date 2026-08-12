@@ -449,6 +449,52 @@ Windows'un son SMC/erken-kernel davranışını dışarıdan görebilen UART gib
 gözlem kanalı veya Samsung'un imzalı uH/EL3 arayüzü hakkında yeni, cihaz-özel
 kanıttır.
 
+### Sıradaki güvenli ayrım: boot aygıt başlatma sınırı
+
+UART/USB yokken Windows'un içinden yeni görüntü veya süreç bildirimi kancası
+eklemek doğru değildir: ikisi de önceki `b2lfb` denemelerinde `0x1E` bugcheck
+üretmiş ve sinyal vermemiştir. Bunun yerine `b2lfb`, Windows'un belgelenmiş
+`IoRegisterBootDriverReinitialization` yaşam döngüsü noktasını kullanır. I/O
+Manager bunu **bütün aygıtları enumerate edip başlattıktan sonra**, PASSIVE_LEVEL
+bir sistem thread'inde çağırır.
+
+Sürücü, sıcak sıfırlamayı aşan `0xCF030000+0x70` alanına şunu yazar; sonraki
+normal UEFI açılışında `B2LGoster` bunu büyük puntolu gösterir:
+
+```
+BRI=REG C=000    callback kaydedildi, henüz çağrılmadı
+BRI=0010 C=001   aygıt başlatma tamamlandı; o anda TIK=10 (= 1.0 saniye)
+```
+
+Bu turda **normal SMC konduiti** kullanılır; `--psci-hvc`, bellek sınırı,
+başka BCD varyantı ve `--baseline` kullanılmaz. `--baseline`, B2LGoster'i
+imajdan çıkardığı için kaydı gösteremez.
+
+1. Windows'ta yönetici Komut İstemi: `windows\bcd_olustur.cmd tekcpu`.
+   Çıkan `BCD` dosyasını WSL'de `windows/BCD` üzerine kopyala.
+2. WSL'de sırasıyla:
+
+   ```bash
+   cd ~/beyond2lte-uefi
+   bash yap.sh --acpi
+   bash tools_winpe_adk.sh "/mnt/c/Program Files (x86)/Windows Kits/10/Assessment and Deployment Kit/Windows Preinstallation Environment/arm64/Media"
+   bash tools_b2lfb.sh
+   bash cache_esp.sh --win --system
+   ```
+
+3. Üretilen normal UEFI, `system-esp.tar` ve daha önce kullanılan tek-ESP
+   düzeniyle flaşlanır. Cihaz sıcak sıfırlanınca **elle kapatma yapmadan**
+   sonraki `B2LGoster` ekranının fotoğrafı alınır.
+
+Yorum:
+
+- `BRI=REG C=000`: Windows, tüm aygıtları başlatma çizgisine ulaşmadan
+  sıfırlanıyor; odak PnP/ACPI aygıt başlatma penceresinde kalır.
+- `BRI=nnnn C=001`: o çizgi geçildi; `nnnn` ile son `TIK` arasındaki fark,
+  sıfırlamanın aygıt başlatmadan sonraki ne kadar işte geldiğini ölçer.
+- `B2LFB KAYDI YOK`: bu bir Windows sonucu değildir; sürücünün WIM'e girişi
+  veya imza/yükleme doğrulaması önce çözülmelidir.
+
 ### 9820 S-Boot / uH araştırma notu (12 Ağustos 2026)
 
 S10/9820'ye ait S-Boot tersine mühendisliği, normal Samsung açılışında

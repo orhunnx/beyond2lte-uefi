@@ -515,6 +515,23 @@ B2LGosterEntry (
     Yaz (Tik, 0x00FFFF40);
 
     //
+    // +0x70: I/O Manager'in boot-driver reinitialization siniri.
+    // BRI=REG callback'in kaydedildigini ama aygitlarin tumunun henuz
+    // baslatilmadigini; BRI=nnnn C=001 ise tamamlandigi andaki 100 ms
+    // tikini gosterir. Bu, onceki image/process callback'leri gibi yeni
+    // bir kanca degil; boot surucusunun belgelenmis yasam dongusu noktasi.
+    //
+    for (K = 0; K < 16; K++) {
+      Tik[K] = (CHAR16)FbLog[112 + K];
+      if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
+        Tik[K] = L' ';
+      }
+    }
+
+    Tik[16] = L'\0';
+    Yaz (Tik, 0x00FFFF40);
+
+    //
     // CNT/IMG SATIRLARI KALDIRILDI.
     //
     // Kaynagi olan kanca hem coktu (0x1E / b2lfb.sys) hem sinyal

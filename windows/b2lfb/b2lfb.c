@@ -145,6 +145,21 @@ __declspec(dllimport) void KeInitializeDpc (PVOID Dpc, PVOID Routine, PVOID Cont
 __declspec(dllimport) void KeInitializeTimer (PVOID Timer);
 __declspec(dllimport) UINT8 KeSetTimerEx (PVOID Timer, long long DueTime, int Period, PVOID Dpc);
 
+/*
+ * BOOT YASAM DONGUSU ISARETI
+ *
+ * I/O yoneticisi bu callback'i butun aygitlari enumerate edip baslattiktan
+ * sonra, PASSIVE_LEVEL'de bir sistem thread'inde cagirir. Image/process
+ * bildirim kancalari burada BILEREK yok: ikisi de onceki denemelerde
+ * b2lfb'yi 0x1E ile dusurdu. Bu ise boot-suruculeri icin tasarlanmis,
+ * kayda deger bir sinirdir.
+ */
+typedef void (*PDRIVER_REINITIALIZE) (PVOID DriverObject, PVOID Context, UINT32 Count);
+__declspec(dllimport) void IoRegisterBootDriverReinitialization (
+  PVOID DriverObject,
+  PDRIVER_REINITIALIZE DriverReinitializationRoutine,
+  PVOID Context);
+
 /* ------------------------------------------------------------------------ */
 
 /*
@@ -249,7 +264,51 @@ static UINT8 gComponent[8] = { 'b','2','l','f','b',0,0,0 };
 __declspec(align(16)) static UINT64 gTimer[16];
 __declspec(align(16)) static UINT64 gDpc[16];
 
-static UINT64 gTik = 0;
+static volatile UINT64 gTik = 0;
+
+/*
+ * +0x70, 16 baytlik boot-reinit kaydi:
+ *
+ *   BRI=REG C=000   -> callback kaydedildi, henuz cagrilmadi
+ *   BRI=0010 C=001  -> tum aygitlar basladi; o anda TIK=10 (1 saniye)
+ *
+ * Bu alan HeartbeatDpc'nin (+0x10/+0x20/+0x60) yazdigi alanlardan ayridir;
+ * kilit ya da yuksek IRQL'de bekleme gerekmez.
+ */
+static void B2LBootReinitRecord (UINT32 Tick, UINT32 Count, UINT8 Called)
+{
+  volatile UINT8 *P;
+
+  if (gLog == 0) {
+    return;
+  }
+
+  P = (volatile UINT8 *)gLog + 112;
+  P[0] = 'B'; P[1] = 'R'; P[2] = 'I'; P[3] = '=';
+  if (Called == 0) {
+    P[4] = 'R'; P[5] = 'E'; P[6] = 'G'; P[7] = ' ';
+  } else {
+    P[4] = (UINT8)('0' + ((Tick / 1000) % 10));
+    P[5] = (UINT8)('0' + ((Tick /  100) % 10));
+    P[6] = (UINT8)('0' + ((Tick /   10) % 10));
+    P[7] = (UINT8)('0' + ( Tick         % 10));
+  }
+  P[8] = ' '; P[9] = 'C'; P[10] = '=';
+  P[11] = (UINT8)('0' + ((Count / 100) % 10));
+  P[12] = (UINT8)('0' + ((Count /  10) % 10));
+  P[13] = (UINT8)('0' + ( Count         % 10));
+  P[14] = ' '; P[15] = ' ';
+}
+
+/* I/O Manager: tum aygitlar enumerate edilip baslatildi. */
+static void B2LBootReinitialize (PVOID DriverObject, PVOID Context, UINT32 Count)
+{
+  (void)DriverObject;
+  (void)Context;
+
+  /* gTik DPC'de artar; anlik bir tik farki anlami degistirmez. */
+  B2LBootReinitRecord ((UINT32)gTik, Count, 1);
+}
 
 /*
  * Bosta donguisunun tur sayaci.
@@ -740,6 +799,18 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
    * 100 ms ile TIK artik onda bir saniye: TIK=0100 = 10 saniye.
    */
   KeSetTimerEx ((PVOID)gTimer, -1000000LL, 100, (PVOID)gDpc);
+
+  /*
+   * PnP/aygit baslatma cizgisini yakala. Kayit hemen once yazilir ki
+   * callback hic gelmezse "kayit denenmedi" ile ayirt edilebilsin.
+   * Bu rutin yalnizca DriverEntry basariyla donecekse cagrilabilir; asagida
+   * STATUS_SUCCESS donuyoruz.
+   */
+  B2LBootReinitRecord (0, 0, 0);
+  IoRegisterBootDriverReinitialization (
+    DriverObject,
+    B2LBootReinitialize,
+    0);
 
   /*
    * BLOKAJ KALDIRILDI - MERDIVEN GOREVINI TAMAMLADI.

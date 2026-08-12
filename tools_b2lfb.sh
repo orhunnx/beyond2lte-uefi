@@ -126,6 +126,7 @@ KeInitializeDpc
 KeInitializeTimer
 KeSetTimerEx
 KeQueryPerformanceCounter
+IoRegisterBootDriverReinitialization
 DEF
 llvm-dlltool -m arm64 -d "$OUT/ntoskrnl.def" -l "$OUT/ntoskrnl.lib"
 echo "  $(basename "$OUT/ntoskrnl.lib") hazir"
