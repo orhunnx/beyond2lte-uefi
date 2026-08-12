@@ -35,7 +35,9 @@ OUT="$PROJ/out"; mkdir -p "$OUT"
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
 #
-# --win : sadece Windows dosyalarini koy (Linux kernel/initramfs haric).
+# --win   : sadece Windows dosyalarini koy (Linux kernel/initramfs haric).
+# --linux : Linux dosyalarini BILEREK buyuk boluma yaz. Asagidaki korumayi
+#           kaldirmaz, niyeti acikca soyler.
 #
 # 600 MiB'lik bolume hem 570 MB'lik boot.wim hem 68 MB'lik Linux dosyalari
 # sigmiyor - bir tur mcopy "Disk full" verdi ve sources/ bos kaldi.
@@ -49,12 +51,14 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 # Yani "Linux modu" diye bir sey yoktu.
 #
 WINONLY=0
+LINUXOK=0
 BIGPART=0
 BOSALT=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
     --win)    WINONLY=1 ;;
+    --linux)  LINUXOK=1 ;;
     --system) BIGPART=1 ;;
     --bos)    BOSALT=1 ;;
     *)        ARGS+=("$a") ;;
@@ -79,7 +83,7 @@ if [ "$WINONLY" = 1 ]; then say "MOD: Windows"; else say "MOD: Linux"; fi
 # sigmamasi. Linux dosyalari 68 MB; onlar icin buyuk bolume gecmenin hicbir
 # anlami yok. Yani bu kombinasyon istenerek yazilmis olamaz.
 #
-if [ "$BIGPART" = 1 ] && [ "$WINONLY" = 0 ] && [ "$BOSALT" = 0 ]; then
+if [ "$BIGPART" = 1 ] && [ "$WINONLY" = 0 ] && [ "$BOSALT" = 0 ] && [ "$LINUXOK" = 0 ]; then
   echo
   echo "  ###############################################################"
   echo "  # DUR: --system verildi ama --win YOK."
@@ -89,6 +93,13 @@ if [ "$BIGPART" = 1 ] && [ "$WINONLY" = 0 ] && [ "$BOSALT" = 0 ]; then
   echo "  #"
   echo "  # Windows istiyorsan:   bash cache_esp.sh --win --system"
   echo "  # Gercekten Linux mu:   bash cache_esp.sh            (CACHE'e)"
+  echo "  # Linux'u SYSTEM'e:     bash cache_esp.sh --linux --system"
+  echo "  #"
+  echo "  # Son secenek Linux kontrol deneyi icin: iki ayri ESP birakmak"
+  echo "  # (CACHE'te Linux, SYSTEM'de Windows) kabugun hangisini bulacagini"
+  echo "  # belirsiz birakiyor - bu tuzaga eski B2LGOSTR kopyalariyla zaten"
+  echo "  # dustuk. Tek birim, tek startup.nsh."
+
   echo "  ###############################################################"
   echo
   exit 1
