@@ -346,6 +346,27 @@ değildir; `EL2 SMC = 2 / GERI` görülür ama `B2HV` yoksa Samsung VMM arka
 kapısı yükümüze atlamamış veya dönüşte HYP durumunu geri almıştır. `VMM X0` ve
 `VMM X1` bu SMC'nin ham dönüşleridir.
 
+### 9820 S-Boot / uH araştırma notu (12 Ağustos 2026)
+
+S10/9820'ye ait S-Boot tersine mühendisliği, normal Samsung açılışında
+imzası denetlenmiş ayrı `UH` bölümünün `0x87000000` alanına yüklendiğini ve
+aynı `0xC2000400` SMC arayüzüyle EL2'ye başlatıldığını gösteriyor. Bu,
+`0xC2000400` değerinin uydurma olmadığını teyit eder; fakat arayüzün S-Boot
+dışındaki bir çağrıda özel, imzasız yük kabul edip etmediğini **göstermez**.
+Kaynak, stok çağrının `dsb; smc #0; isb` sıralamasını da kullanır.
+
+Önemli düzeltme: Linux'un/UEFI'nin `CurrentEL = EL1` ölçümü tek başına EL2'nin
+boş olduğunu kanıtlamaz; çalışan bir hipervizörün misafiri de EL1'de olur.
+Özel UEFI akışında stok `UH` yükünün gerçekten etkin olup olmadığı henüz
+bilinmiyor. Bu nedenle B2HD ayrımı önceliklidir: `EL2 SMC = 2 / GERI` ama
+`B2HV` yoksa sorun Windows'un HVC çağrısından önce, özel EL2 yükünün kabulü,
+görünürlüğü veya geri alınması aşamasındadır. Bu sonucu almadan payload'ın
+adresini stok `0x870...` alanına taşımak doğru değildir; o alan stok uH'nin
+kendi bellek varsayımlarına aittir.
+
+Kaynaklar: [S10 RKP/uH incelemesi](https://blog.impalabs.com/2101_samsung-rkp-compendium.html),
+[Samsung Exynos KVM arayüzü incelemesi](https://github.com/sleirsgoevy/exynos-kvm-patch).
+
 Normal hale dönüş için yalnızca `bash yap.sh` çalıştırmak yeterlidir:
 script FADT'yi yeniden SMC konduitine alır ve EL2 sürücüsünü tekrar derleme
 dışında bırakır.
