@@ -383,6 +383,12 @@ artık kapatma istemez, `cmd.exe /k` ile kabuğu açık bırakır. Sonuçlar:
   sessiz resetle aynı şey değildir.
 - Aynı sessiz reset sürerse bu bellek aralığı hipotezi kapanır.
 
+ADK'nin `winpe.wim`i WIM başlığında salt-okunur işaretli gelirse normal dosya
+kopyası yeterli değildir: `wimlib-imagex update` SYSTEM hive'ını eklemeyi
+reddeder. Araç, kaynağı değiştirmeden tek indeksi `export --boot --compress=LZX`
+ile yeni ve yazılabilir `esp/sources/boot.wim`e aktarır; ardından hive ve
+`startnet.cmd` eklenir.
+
 ### 9820 S-Boot / uH araştırma notu (12 Ağustos 2026)
 
 S10/9820'ye ait S-Boot tersine mühendisliği, normal Samsung açılışında

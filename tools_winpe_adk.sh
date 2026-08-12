@@ -157,16 +157,32 @@ fi
 
 say "boot.wim hazirlaniyor"
 rm -f "$ESP/sources/boot.wim"
-cp "$WIM" "$ESP/sources/boot.wim"
+
+#
+# ADK'nin winpe.wim'i bazen WIM basliginda READONLY bayragiyla gelir.
+# Normal `cp` dosya izinlerini duzeltse bile bu baslik bayragini tasir;
+# wimlib daha sonra SYSTEM hive'ini eklemeyi hakli olarak reddeder.
+#
+# Tek indeksi yeni, yazilabilir bir WIM'e export etmek hem bayragi tasimaz
+# hem de WinPE icin gereken bootable-index'i ayni adimda kurar. Kaynak
+# WIM'e yazmiyoruz; ADK dosyalari degismiyor.
+#
+wimlib-imagex export "$WIM" 1 "$ESP/sources/boot.wim" \
+  --boot --compress=LZX >/dev/null
 echo "  boyut: $(du -h "$ESP/sources/boot.wim" | cut -f1)"
 
 #
 # ACILABILIR OLARAK ISARETLE. Iki tur bunun yuzunden gitti:
 #   winload.efi ... 0xc0000487 = STATUS_WIM_NOT_BOOTABLE
-# ADK'nin WinPE'si tek indeksli ama Boot Index'i 0 olabiliyor.
+# ADK'nin WinPE'si tek indeksli ama Boot Index'i 0 olabiliyor. Export zaten
+# bunu yazdi; burada geri okuyup WIM'in gercekten bootable oldugunu kanitliyoruz.
 #
-wimlib-imagex info "$ESP/sources/boot.wim" 1 --boot >/dev/null
-wimlib-imagex info "$ESP/sources/boot.wim" | grep -i '^Boot Index' | sed 's/^/  /'
+BOOT_INDEX="$(wimlib-imagex info "$ESP/sources/boot.wim" | awk -F: '/^Boot Index/ { gsub(/^[[:space:]]+/, "", $2); print $2; exit }')"
+[ "$BOOT_INDEX" = "1" ] || {
+  echo "HATA: yeni boot.wim bootable degil (Boot Index=${BOOT_INDEX:-yok})."
+  exit 1
+}
+echo "  Boot Index:     $BOOT_INDEX"
 
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 
