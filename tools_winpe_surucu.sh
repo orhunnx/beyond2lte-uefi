@@ -222,6 +222,21 @@ sacdrv scmbus storahci stornvme storufs storvsc Tcpip TPM vmbus volmgrx \
 vpci WindowsTrustedRT WindowsTrustedRTProxy"
 
 #
+# HER ZAMAN KAPALI TUTULACAKLAR.
+#
+# Bunlari bir tur ADAY_KUME'ye eklemistim ve Start=0 yapmislardi. Kumeden
+# CIKARMAK yetmedi: cikarmak "dokunma" demek, dokunulmayinca da Start=0
+# olarak KALDILAR ve cihaz ayni hatayi tekrarladi:
+#     File: \windows\system32\DRIVERS\udfs.sys   Status: 0xc0000428
+#
+# Bir degeri geri almak icin onu acikca YAZMAK gerekiyor. Listeden silmek
+# yalnizca "artik degistirme" demek, "eski haline don" demek degil.
+#
+# Dordu de stok WinPE'de devre disi; bulundugumuz calisir durum buydu.
+#
+KAPALI_KUME="BasicDisplay BasicRender cdfs udfs ws2ifsl"
+
+#
 # BasicDisplay/BasicRender/cdfs/udfs/ws2ifsl BILEREK DISARIDA.
 #
 # Bir tur bunlari kumeye ekledim: "liste" ciktisinda KAPALI gorunuyorlardi
@@ -270,6 +285,19 @@ sadece)
   say "Aday: $TOP   kapatilacak: $HEDEFLER"
 
   : > "$HV/yaz.reg"
+
+  #
+  # Once her zaman kapali tutulacaklar. Bunlar ADAY_KUME'de degil ama
+  # DEGERLERI acikca yaziliyor - "dokunmamak" onlari eski haline
+  # dondurmuyor.
+  #
+  for S in $KAPALI_KUME; do
+    hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start >/dev/null 2>&1 || continue
+    printf '  %-24s KAPALI (sabit)\n' "$S"
+    printf '[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\%s]\n"Start"=dword:00000004\n\n' \
+      "$S" >> "$HV/yaz.reg"
+  done
+
   while IFS= read -r S; do
     [ -n "$S" ] || continue
     D=0
@@ -286,6 +314,12 @@ EOF4
   hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$HV/SYSTEM" "$HV/yaz.reg"
 
   HATA=0
+  for S in $KAPALI_KUME; do
+    hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start >/dev/null 2>&1 || continue
+    V="$(hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start 2>/dev/null || echo '?')"
+    [ "$V" = "4" ] || { echo "  ! $S -> $V, beklenen 4"; HATA=1; }
+  done
+
   while IFS= read -r S; do
     [ -n "$S" ] || continue
     BEK=0
