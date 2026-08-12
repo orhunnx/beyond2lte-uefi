@@ -546,6 +546,43 @@ static void BugCheckCallback (PVOID Buffer, UINT32 Length)
      */
     FillDword (gFb, BANT_BYTES, 0x0000FF00);
 
+    /*
+     * TIK'I EKRANA CIZ - SANIYE BASINA BIR KARE.
+     *
+     * NEDEN: AutoReboot kapali oldugu icin bugcheck ekranda kaliyor ve
+     * cihaz yeniden baslamiyor. Elle kapatinca DRAM gidiyor, yani bir
+     * sonraki acilista B2LGoster'in okuyacagi kayit da gidiyor. Stop
+     * code'u goruyoruz ama TIK'i goremiyoruz.
+     *
+     * AutoReboot'u acmak ikilemi tersine cevirirdi: bu sefer stop code
+     * ekranda kalmazdi. Ikisini birden istiyoruz.
+     *
+     * Cozum ekrana yazmak. Yazi tipi yok, ama saymaya gerek de yok:
+     * her saniye icin bir kare, yesil bandin hemen altinda. Fotograftan
+     * sayilabiliyor ve 1 saniye hassasiyetinde.
+     *
+     * Kalp atisi seritleri ilk 3 saniyeden sonra duruyor (BOYA_AZAMI),
+     * o yuzden bu satir onlarla cakismiyor.
+     */
+    {
+      UINT64 Saniye = gTik / 10;
+      UINT64 K;
+
+      /* Serit alaninin basi temizlensin ki eski boya sayimi bozmasin */
+      FillDword ((PVOID)((UINT8 *)gFb + BANT_BYTES), BANT_BYTES, 0x00101010);
+
+      for (K = 0; K < Saniye && K < 60; K++) {
+        /*
+         * Her kare 1/64 bant: 60 tanesi yan yana sigiyor. Onarli
+         * gruplari ayirt etmek icin her onuncu kare farkli renk -
+         * elli kareyi tek tek saymak yerine "bes grup arti uc" diye
+         * okunuyor.
+         */
+        FillDword ((PVOID)((UINT8 *)gFb + BANT_BYTES + K * (BANT_BYTES / 64)),
+                   BANT_BYTES / 128,
+                   ((K + 1) % 10 == 0) ? 0x00FF00FF : 0x00FFFFFF);
+      }
+    }
   }
 
   /*
