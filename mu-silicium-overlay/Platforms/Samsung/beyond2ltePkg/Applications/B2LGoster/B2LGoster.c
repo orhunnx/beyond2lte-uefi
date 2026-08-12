@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    15
+#define B2L_SURUM    16
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 15"
+#define SURUM_METNI  L"SURUM 16"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -547,7 +547,17 @@ B2LGosterEntry (
     UINT32           Ilk[32];
     UINTN            K;
 
-    for (K = 0; K < 32; K++) {
+    //
+    // SGI/PPI (INTID 0-31) HARIC.
+    //
+    // Ilk denemede dedektor INTID 30'u yakaladi ve "kesme kalkti" dedi.
+    // 30 mimari zamanlayicinin PPI'si; UEFI onu zaten kullaniyor, yani
+    // tarama sirasinda sadece zaman gecti. Bir dedektorun her zaman
+    // hareketli olan bir kaynagi isaret etmesi bulgu degil, gurultu.
+    // Yalnizca SPI'lar (32 ve ustu) anlamli.
+    //
+    Ilk[0] = 0xFFFFFFFF;
+    for (K = 1; K < 32; K++) {
       Ilk[K] = G[K];
     }
 
@@ -610,7 +620,7 @@ B2LGosterEntry (
             // yeterli.
             //
             if ((Adet & 0xFF) == 0) {
-              for (K = 0; K < 32; K++) {
+              for (K = 1; K < 32; K++) {
                 UINT32 Yeni = G[K] & ~Ilk[K];
 
                 if (Yeni != 0) {
@@ -659,19 +669,46 @@ B2LGosterEntry (
     // UEFI kesmeleri acmiyor, yani buradaki her bit "kimsenin
     // temizlemedigi bir kaynak" demek.
     //
+    //
+    // ACILISTA ZATEN BEKLEYEN SPI'LAR - BU TURUN ASIL BULGUSU.
+    //
+    // Ilk olcumde sekiz tane cikti. UEFI kesmeleri hic acmiyor, dolayisiyla
+    // buradaki her bit "kimsenin temizlemedigi, kaynagi hala isaret eden bir
+    // kesme" demek. Windows kesmeleri acar acmaz bunlarin her biri aday bir
+    // firtina kaynagi - hele PPMPU gibi yalnizca EL3'un temizleyebildigi bir
+    // kaynaksa Windows'un yapabilecegi hicbir sey yok.
+    //
+    // Sayiyi degil NUMARALARI yaziyoruz: "sekiz tane var" hicbir yere
+    // goturmuyor, "INTID 382" dogrudan DTB'deki dugumu veriyor.
+    //
     {
       UINT32 Kac = 0;
 
-      for (K = 0; K < 32; K++) {
-        UINT32 V = Ilk[K];
+      for (K = 1; K < 32; K++) {
+        UINT32 V = G[K];
+        UINTN  B;
 
-        while (V != 0) {
-          Kac++;
-          V &= (V - 1);
+        for (B = 0; B < 32; B++) {
+          if ((V >> B) & 1) {
+            UINT32 Id = (UINT32)(K * 32 + B);
+
+            if (Kac < 6) {
+              Deger (L"BEKLEYEN=", Id,
+                     (Id >= 382 && Id <= 404) ? L"PPMPU" :
+                     (Id >= 84  && Id <= 160) ? L"ITMON" : L"?",
+                     (Id >= 382 && Id <= 404) ? 0x0040FF40 : 0x0060C0FF);
+            }
+
+            Kac++;
+          }
         }
       }
 
-      Deger (L"BEKLEYEN=", Kac, NULL, 0x0060C0FF);
+      if (Kac == 0) {
+        Yaz (L"BEKLEYEN SPI YOK", 0x00808080);
+      } else {
+        Deger (L"SPI TOPLAM=", Kac, NULL, 0x0060C0FF);
+      }
     }
   }
 
