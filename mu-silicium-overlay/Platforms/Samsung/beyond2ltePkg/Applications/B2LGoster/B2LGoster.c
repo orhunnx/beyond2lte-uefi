@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    18
+#define B2L_SURUM    19
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 18"
+#define SURUM_METNI  L"SURUM 19"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -292,21 +292,15 @@ B2LGosterEntry (
       gBS->FreePool (Harita);
     }
 
-    Deger (L"RAM MB  =", (UINT32)((Sayfa * 4) / 1024), NULL, 0x0060C0FF);
-
     //
-    // EN YUKSEK RAM ADRESI - bu turun asil sorusu.
+    // RAM/TEPE/PARCA SATIRLARI KALDIRILDI - SORULARI KAPANDI.
     //
-    //   ~0x000280000000 -> UEFI 0x80000000'dan DUZ devam etmis. DTB'ye gore
-    //                      0x100000000-0x880000000 arasi delik, yani
-    //                      Windows'a var olmayan ~6 GB beyan ediliyor.
-    //                      Ayirici oraya vardiginda veri yolu hatasi olur:
-    //                      bugcheck yok, ResetSystem yok, temiz sifirlama.
-    //   ~0x000980000000 -> bankalar dogru kurulmus, bellek aklanir.
+    // Dort banka dogru beyan edilmis (tepe 0xA00000000, 8 GB), hepsi gercek
+    // ve takla atmiyor, 7.75 GB'in tamami tarandi. Ekranda yer birakmak
+    // icin tek dogrulama satirina indirildi; sayilar gerektiginde
+    // gecmisten okunabilir.
     //
-    Deger (L"TEPE HI =", (UINT32)(Tepe >> 32), NULL, 0x0060C0FF);
-    Deger (L"TEPE LO =", (UINT32)Tepe, NULL, 0x0060C0FF);
-    Deger (L"PARCA   =", Parca, NULL, 0x0060C0FF);
+    Deger (L"RAM MB  =", (UINT32)((Sayfa * 4) / 1024), NULL, 0x00808080);
   }
 
   //
@@ -369,18 +363,11 @@ B2LGosterEntry (
   if (Durum[0] != 0x52484553) {
     Yaz (L"SEH SURUCUSU YUKLENMEDI", 0x00FF4040);
   } else {
-    Yaz (L"SEH KAYDI SANALA BIRAKILDI", 0x00808080);
     //
     // SANAL degeri BU acilistan degil ONCEKINDEN okunuyor. Yazan olay
     // (SetVirtualAddressMap) kabuktan sonra calisiyor; bu acilisin degeri
     // her zaman "henuz calismadi" olur.
     //
-    Deger (L"LOCKUP  =", Durum[6],
-           (Durum[6] == 0xFFFFFFFFUL) ? L"TANIMIYOR" : L"CEVAP VAR",
-           (Durum[6] == 0xFFFFFFFFUL) ? 0x00808080 : 0x0040FF40);
-    Deger (L"DEBUG MEM=", Durum[1],
-           (Durum[1] == 0x2000) ? L"KABUL" : L"RET",
-           (Durum[1] == 0x2000) ? 0x0040FF40 : 0x00808080);
 
     //
     // ONCEKI ACILIS - yalnizca ayni surum yazdiysa. Damga tutmuyorsa
@@ -400,7 +387,6 @@ B2LGosterEntry (
                (Onc[3] == 0) ? L"KABUL" : L"RET",
                (Onc[3] == 0) ? 0x0040FF40 : 0x00FF4040);
       }
-      Deger (L"LOCKUP ONC=", Onc[6], NULL, 0x00C0C0C0);
 
       //
       // Sanal kayit reddedildiyse SEBEBI burada ayrisiyor:
@@ -409,10 +395,6 @@ B2LGosterEntry (
       //   CONV == 0 ama VA  -> ceviri oldu, adresi EL3 begenmedi
       // Ustteki iki durum bambaska iki isi gerektiriyor.
       //
-      Deger (L"CONV LOG =", Onc[10], (Onc[10] == 0) ? L"OK" : L"HATA", 0x00C0C0C0);
-      Deger (L"CONV FN  =", Onc[11], (Onc[11] == 0) ? L"OK" : L"HATA", 0x00C0C0C0);
-      Deger (L"HANDLR HI=", Onc[5], NULL, 0x00C0C0C0);
-      Deger (L"HANDLR LO=", Onc[4], NULL, 0x00C0C0C0);
     } else {
       Yaz (L"ONCEKI ACILIS BASKA SURUM", 0x00808080);
     }
@@ -452,6 +434,21 @@ B2LGosterEntry (
 
     Tik[16] = L'\0';
     Yaz (Tik, 0x00FFFF40);
+
+    //
+    // GE/GP: Windows kosarken kac SPI ACIK, kac tanesi BEKLIYOR.
+    // Kapatilmis bir kesme iletilmez; firtina ancak Windows onlari
+    // kendisi acarsa mumkun. GE sifirsa hipotez tamamen duser.
+    //
+    for (K = 0; K < 16; K++) {
+      Tik[K] = (CHAR16)FbLog[112 + K];
+      if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
+        Tik[K] = L' ';
+      }
+    }
+
+    Tik[16] = L'\0';
+    Yaz (Tik, 0x0040FF40);
 
     //
     // MAX: bir tikte gorulen en buyuk tur sayisi = dongunun serbest hizi.
@@ -686,31 +683,23 @@ B2LGosterEntry (
     {
       UINT32 Kac = 0;
 
+      //
+      // NUMARALAR TEK SEFER OKUNDU, ARTIK SADECE SAYI.
+      //
+      // Kimlikleri DTB'den cikti ve degismiyor: 39 adv_tracer, 43 speedy,
+      // 183/184 decon, 190 dsim, 198 dpp. Alti satiri her acilista
+      // tekrarlamak ekranda yer yiyor; degisirse sayi degisir.
+      //
       for (K = 1; K < 32; K++) {
         UINT32 V = G[K];
-        UINTN  B;
 
-        for (B = 0; B < 32; B++) {
-          if ((V >> B) & 1) {
-            UINT32 Id = (UINT32)(K * 32 + B);
-
-            if (Kac < 6) {
-              Deger (L"BEKLEYEN=", Id,
-                     (Id >= 382 && Id <= 404) ? L"PPMPU" :
-                     (Id >= 84  && Id <= 160) ? L"ITMON" : L"?",
-                     (Id >= 382 && Id <= 404) ? 0x0040FF40 : 0x0060C0FF);
-            }
-
-            Kac++;
-          }
+        while (V != 0) {
+          Kac++;
+          V &= (V - 1);
         }
       }
 
-      if (Kac == 0) {
-        Yaz (L"BEKLEYEN SPI YOK", 0x00808080);
-      } else {
-        Deger (L"SPI TOPLAM=", Kac, NULL, 0x0060C0FF);
-      }
+      Deger (L"BEKLEYEN=", Kac, L"SPI", 0x0060C0FF);
     }
   }
 

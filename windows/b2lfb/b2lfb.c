@@ -202,6 +202,9 @@ __declspec(dllimport) UINT8 KeSetTimerEx (PVOID Timer, long long DueTime, int Pe
  *     dmem 0xCF030000 60
  * Yani bu adresi secmek, Shell tarafinda sifir degisiklik demek.
  */
+#define GICD_PHYS 0x10101000ULL
+#define GICD_LEN  0x1000ULL
+
 #define LOG_PHYS  0xCF030000ULL
 #define LOG_BYTES 0x100ULL
 
@@ -226,6 +229,7 @@ static void FillDword (PVOID Base, UINT64 Bytes, UINT32 Value)
  */
 static PVOID gFb  = 0;
 static PVOID gLog = 0;
+static PVOID gGic = 0;
 
 /* Cekirdek bu alanin icine yaziyor; sifir olmasi ve sayfalanamaz olmasi yeter */
 static UINT64 gCallbackRecord[16];
@@ -270,6 +274,22 @@ static volatile UINT64 gSpin = 0;
  *     Windows'un CPU suresi = toplam sure - (toplam tur / serbest hiz)
  *
  * dogrudan hesaplanabiliyor ve iki acilis karsilastirilabilir hale geliyor.
+ */
+/*
+ * GIC dagiticisi - WINDOWS'IN ICINDEN.
+ *
+ * NEDEN: cikista butun SPI'lari kapattik ve bekleyen bitlerini temizledik,
+ * ama bitler ANINDA geri geldi (SUS ONCE=8, SUS SONRA=8). Seviye
+ * tetiklemeli bir kesmede bu, kaynagin hala sinyali basili tuttugu anlamina
+ * geliyor - DECON kareyi taramaya devam ediyor.
+ *
+ * Ama kapatilmis bir kesme, bekleyen biti kalksa da CPU'ya ILETILMEZ.
+ * Yani firtina ancak Windows o SPI'lari kendisi ACARSA mumkun. Bunu
+ * tahmin etmek yerine oluyoruz: Windows kosarken dagiticiyi okuyup kac
+ * SPI'in ACIK ve kac tanesinin BEKLIYOR oldugunu her tikte kaydediyoruz.
+ *
+ *   GE buyuk  -> Windows SPI'lari aciyor, firtina mumkun
+ *   GE sifir  -> aciklari yok, firtina hipotezi tamamen duser
  */
 static UINT64 gSpinOnceki = 0;
 static UINT32 gSpinAzami  = 0;
@@ -417,6 +437,91 @@ static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
       P[12] = ' '; P[13] = ' '; P[14] = ' '; P[15] = ' ';
     }
 
+    /*
+     * +0x60:  MAX=xxxxxxxx   bir tikte gorulen EN BUYUK tur sayisi
+     *
+     * NOT: bu blok bir kez yazilmis, sonra baska bir duzenleme sirasinda
+     * indeksle kesip yapistirirken KAZARA SILINMISTI. gSpinAzami tanimli
+     * kalmis ama hic kullanilmamis, dolayisiyla ekranda MAX satiri da hic
+     * cikmamisti ve bunu fark etmedim. Silinen bir olcumun sessizligi,
+     * olculup sifir cikmasindan ayirt edilemiyor.
+     *
+     * En buyuk delta, dongunun rakipsiz kaldigi bir 100 ms dilimidir; yani
+     * serbest hiz. Ondan sonra:
+     *     Windows'un CPU suresi = TIK/10 - SPN/MAX/10
+     */
+    {
+      UINT64 Simdi = gSpin;
+      UINT64 Fark  = Simdi - gSpinOnceki;
+
+      gSpinOnceki = Simdi;
+
+      if (Fark > 0xFFFFFFFFULL) {
+        Fark = 0xFFFFFFFFULL;
+      }
+
+      if ((UINT32)Fark > gSpinAzami) {
+        gSpinAzami = (UINT32)Fark;
+      }
+
+      {
+        UINT8 *Q = (UINT8 *)gLog + 96;
+        UINT32 V = gSpinAzami;
+        int    K;
+
+        Q[0] = 'M'; Q[1] = 'A'; Q[2] = 'X'; Q[3] = '=';
+        for (K = 7; K >= 0; K--) {
+          UINT8 D = (UINT8)(V & 0xF);
+          Q[4 + K] = (UINT8)((D < 10) ? ('0' + D) : ('A' + D - 10));
+          V >>= 4;
+        }
+        Q[12] = ' '; Q[13] = ' '; Q[14] = ' '; Q[15] = ' ';
+      }
+    }
+
+    /*
+     * +0x70:  GE=nnnn GP=nnnn   acik ve bekleyen SPI sayilari
+     *
+     * Cikista butun SPI'lari kapattik ve bekleyen bitlerini temizledik, ama
+     * bitler ANINDA geri geldi (SUS ONCE=8, SUS SONRA=8): kaynaklar canli,
+     * DECON kareyi taramaya devam ediyor.
+     *
+     * Ama KAPATILMIS bir kesme, bekleyen biti kalksa da CPU'ya ILETILMEZ.
+     * Firtina ancak Windows o SPI'lari kendisi ACARSA mumkun. Tahmin etmek
+     * yerine oluyoruz:
+     *
+     *   GE buyuk -> Windows SPI'lari aciyor, firtina mumkun
+     *   GE sifir -> acmiyor, firtina hipotezi tamamen duser
+     */
+    if (gGic != 0) {
+      volatile UINT32 *Ac  = (volatile UINT32 *)((UINT8 *)gGic + 0x100);
+      volatile UINT32 *Bek = (volatile UINT32 *)((UINT8 *)gGic + 0x200);
+      UINT8           *R   = (UINT8 *)gLog + 112;
+      UINT32           A = 0, B = 0;
+      int              W;
+
+      /* Ilk kelime SGI/PPI: her zaman hareketli, sayilmiyor. */
+      for (W = 1; W < 32; W++) {
+        UINT32 V = Ac[W];
+        UINT32 Pn = Bek[W];
+
+        while (V != 0)  { A++; V  &= (V  - 1); }
+        while (Pn != 0) { B++; Pn &= (Pn - 1); }
+      }
+
+      R[0] = 'G'; R[1] = 'E'; R[2] = '=';
+      R[3] = (UINT8)('0' + ((A / 1000) % 10));
+      R[4] = (UINT8)('0' + ((A /  100) % 10));
+      R[5] = (UINT8)('0' + ((A /   10) % 10));
+      R[6] = (UINT8)('0' + ( A         % 10));
+      R[7] = ' ';
+      R[8] = 'G'; R[9] = 'P'; R[10] = '=';
+      R[11] = (UINT8)('0' + ((B / 1000) % 10));
+      R[12] = (UINT8)('0' + ((B /  100) % 10));
+      R[13] = (UINT8)('0' + ((B /   10) % 10));
+      R[14] = (UINT8)('0' + ( B         % 10));
+      R[15] = ' ';
+    }
   }
 }
 
@@ -513,6 +618,17 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
    * 2) FRAMEBUFFER - canli kanal.
    */
   gLog = Log;
+
+  /*
+   * Dagitici da esleniyor. Basarisiz olursa sessizce devam: GIC olcumu
+   * ek bir kanal, kalp atisini kaybetmeye degmez.
+   */
+  {
+    PHYSICAL_ADDRESS G;
+
+    G.QuadPart = (long long)GICD_PHYS;
+    gGic = MmMapIoSpace (G, (UINT64)GICD_LEN, 0);
+  }
 
   Pa.QuadPart = (long long)FB_PHYS;
   Fb = MmMapIoSpace (Pa, FB_BYTES, MmNonCached);
