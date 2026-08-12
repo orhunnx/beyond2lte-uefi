@@ -82,12 +82,36 @@ printf '%s\n' "$LISTE_ONCE" | grep -i 'b2lfb' >/dev/null \
 
 YENI="$(mktemp -d)/boot.wim"
 say "Yeniden yaziliyor: --compress=$MOD"
-wimlib-imagex export "$WIM" 1 "$YENI" --compress="$MOD" >/dev/null
+#
+# --boot SART: ONYUKLENEBILIR ISARETI TASINMIYOR.
+#
+# Ilk surumde bu bayrak yoktu ve iki farkli sikistirmada da cihaz ayni
+# hatayi verdi:
+#     File: \windows\system32\boot\winload.efi   Status: 0xc0000487
+#
+# Sebep boyut degildi (sikistirmasiz 1.7 GB ve XPRESS ~700 MB ayni sonucu
+# verdi), export'un kendisiydi: orijinal boot.wim'de imaj 1 ONYUKLENEBILIR
+# isaretli, export bunu tasimiyor ve yeni WIM'in boot indeksi sifir kaliyor.
+# bootmgr acilis imajini bulamayinca winload.efi'yi "eksik" sayiyor.
+#
+wimlib-imagex export "$WIM" 1 "$YENI" --compress="$MOD" --boot >/dev/null
 
 LISTE_SONRA="$(wimlib-imagex dir "$YENI" 1 2>/dev/null)"
 ADET_SONRA=$(printf '%s\n' "$LISTE_SONRA" | wc -l)
 printf '%s\n' "$LISTE_SONRA" | grep -i 'b2lfb' >/dev/null \
   || { echo "! b2lfb.sys yeni WIM'de YOK - eski dosya korundu"; exit 1; }
+
+#
+# BOOT INDEKSI DE DOGRULANIYOR.
+#
+# Ilk surum dosya sayisina ve b2lfb'ye bakiyordu; ikisi de TUTUYORDU ve WIM
+# yine acilmiyordu. Dogrulanmayan alan, dogrulanan alanlar kadar onemli.
+#
+BOOT_IDX="$(wimlib-imagex info "$YENI" 2>/dev/null | grep -i '^Boot Index' | tr -dc '0-9')"
+if [ "$BOOT_IDX" != "1" ]; then
+  echo "! yeni WIM'in boot indeksi '$BOOT_IDX' (1 olmali). Eski dosya korundu."
+  exit 1
+fi
 
 if [ "$ADET_ONCE" != "$ADET_SONRA" ]; then
   echo "! dosya sayisi tutmadi: $ADET_ONCE -> $ADET_SONRA. Eski dosya korundu."
@@ -96,6 +120,6 @@ fi
 
 mv -f "$YENI" "$WIM"
 SONRA=$(stat -c%s "$WIM")
-echo "  $((ONCE/1024/1024)) MB -> $((SONRA/1024/1024)) MB, $ADET_SONRA kayit dogrulandi"
+echo "  $((ONCE/1024/1024)) MB -> $((SONRA/1024/1024)) MB, $ADET_SONRA kayit, boot indeksi $BOOT_IDX"
 echo
 echo "Simdi: bash cache_esp.sh --win --system"

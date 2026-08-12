@@ -194,5 +194,38 @@ fi
 
 say "======== bitti ========"
 
-# init ASLA cikmamali.
-while true; do sleep 3600; done
+#
+# ======================= CPU YUKU - KONTROL DENEYI =======================
+#
+# NEDEN: Windows bu cihazda KENDI CPU'sunda ~10 saniye calisip sifirlaniyor.
+# Uc bagimsiz olcum ayni sayiyi verdi ve duvar saati 10 ile 26 saniye
+# arasinda gezindigi halde bu deger degismedi. Yani tetikleyici duvar
+# saatine degil ISE orantili.
+#
+# Bu yuzden Linux'u acip BOSTA beklemek hicbir sey kanitlamaz - EbsTest de
+# bosta 30 saniye yasadi. Ayni yuku Linux'a da bindirmemiz gerekiyor.
+#
+# Sonucun iki okumasi var ve ikisi de soruyu ikiye boluyor:
+#
+#   SIFIRLANIRSA  -> sorun Windows'ta degil, bizim firmware/ACPI'mizde.
+#       Ve o andan itibaren kaynagi elimizde olan, printk ekleyebildigimiz,
+#       dmesg'i ekrana basan bir ortamda hata ayikliyor oluruz.
+#
+#   YASARSA       -> tetikleyici gercekten Windows'a ozgu ve fark, Linux'un
+#       kurup bizim kurmadigimiz seylerde (bkz. STOK_ACILIS.md initcall
+#       listesi).
+#
+# Sayaci /dev/kmsg'e basiyoruz cunku ekrana dusen tek guvenilir yol o
+# (yukaridaki 3 numarali kurala bak). Yaninda /proc/uptime de yaziliyor:
+# kabuk aritmetigi yavas ve degisken, kac tur donduugumuz degil KAC SANIYE
+# gectigi onemli.
+#
+say "======== CPU YUKU BASLIYOR ========"
+
+N=0
+while true; do
+    i=0
+    while [ $i -lt 100000 ]; do i=$((i+1)); done
+    N=$((N+1))
+    say "YUK N=$N uptime=$(cut -d' ' -f1 /proc/uptime)"
+done
