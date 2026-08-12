@@ -9,6 +9,15 @@
 #   bash tools_winpe_surucu.sh sadece-kapat X   <- hepsini ac, SADECE X kapali
 #   bash tools_winpe_surucu.sh hepsi-ac         <- temel duruma don
 #   bash tools_winpe_surucu.sh aralik A B      <- SADECE A..B arasi kapali
+#   bash tools_winpe_surucu.sh sadece a b c    <- SADECE adi verilenler kapali
+#
+# "sadece" KUME BISECT ICIN. Korlemesine ikiye bolmek bagimliliklari
+# kopariyor: NDIS kapali + Tcpip acik birakilinca NDIS.SYS 0xD1 ile cokuyor
+# ve TIK cok kucuk kaliyor - yani asil olum noktasina VARMADAN bugcheck
+# uretiliyor ve sonuc "suclu bulundu" diye yanlis okunabiliyor.
+#
+# "sadece" adi verilenleri kapatir, diger butun adaylari acar. Idempotent:
+# onceki durumdan bagimsiz, her cagri tam olarak istenen durumu kurar.
 #
 # "aralik" IKILI ARAMA ICIN. Sinyal artik kesin ayriliyor:
 #     surucular KAPALI -> Windows kullanici moduna variyor, 0xc000021a,
@@ -218,6 +227,64 @@ adaylar() {
 }
 
 case "$KOMUT" in
+
+sadece)
+  HEDEFLER="$*"
+  [ -n "$HEDEFLER" ] || { echo "Kullanim: bash $0 sadece <isim> [isim...]"; exit 1; }
+
+  LST="$(adaylar)"
+  TOP=$(printf '%s\n' "$LST" | sed '/^$/d' | wc -l)
+
+  #
+  # ISIMLER LISTEDE VAR MI. Olmayan bir ismi "kapattik" sanip sonucu
+  # yorumlamak, bu projede birkac kez odedigimiz bedel.
+  #
+  for H in $HEDEFLER; do
+    printf '%s\n' "$LST" | grep -qix "$H" \
+      || { echo "'$H' aday listesinde yok. Liste:"; printf '%s\n' "$LST" | sed 's/^/  /'; exit 1; }
+  done
+
+  say "Aday: $TOP   kapatilacak: $HEDEFLER"
+
+  : > "$HV/yaz.reg"
+  while IFS= read -r S; do
+    [ -n "$S" ] || continue
+    D=0
+    for H in $HEDEFLER; do
+      [ "$(echo "$S" | tr 'A-Z' 'a-z')" = "$(echo "$H" | tr 'A-Z' 'a-z')" ] && D=4
+    done
+    [ "$D" = 4 ] && printf '  %-24s KAPALI\n' "$S" || printf '  %-24s acik\n' "$S"
+    printf '[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\%s]\n"Start"=dword:0000000%s\n\n' \
+      "$S" "$D" >> "$HV/yaz.reg"
+  done <<EOF4
+$LST
+EOF4
+
+  hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$HV/SYSTEM" "$HV/yaz.reg"
+
+  HATA=0
+  while IFS= read -r S; do
+    [ -n "$S" ] || continue
+    BEK=0
+    for H in $HEDEFLER; do
+      [ "$(echo "$S" | tr 'A-Z' 'a-z')" = "$(echo "$H" | tr 'A-Z' 'a-z')" ] && BEK=4
+    done
+    V="$(hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start 2>/dev/null || echo '?')"
+    [ "$V" = "$BEK" ] || { echo "  ! $S -> $V, beklenen $BEK"; HATA=1; }
+  done <<EOF5
+$LST
+EOF5
+  [ "$HATA" = 0 ] || { echo "Dogrulama basarisiz, hive yazilmadi."; exit 1; }
+  echo "  hepsi dogrulandi"
+
+  wimlib-imagex update "$WIM" 1 \
+    --command="delete --force /Windows/System32/config/SYSTEM" >/dev/null 2>&1 || true
+  wimlib-imagex update "$WIM" 1 \
+    --command="add '$HV/SYSTEM' /Windows/System32/config/SYSTEM" >/dev/null
+  echo
+  echo "Simdi: bash cache_esp.sh --win --system"
+  exit 0
+  ;;
 
 aralik)
   #
