@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    14
+#define B2L_SURUM    15
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 14"
+#define SURUM_METNI  L"SURUM 15"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -66,6 +66,8 @@
 #define SEH_ONCEKI  0xCF041100ULL
 #define DUR_ONCEKI  0xCF041180ULL
 #define TARA_KAYIT  0xCF041200ULL   // bellek taramasinin ilerlemesi
+#define GICD        0x10101000ULL   // dagitici
+#define GICD_ISPEND 0x200           // bekleyen kesme bitleri
 #define FB_KAYIT    0xCF030000ULL   // b2lfb (Windows surucusu)
 #define RT_KAYIT    0xCF040000ULL   // B2LRtHookDxe
 #define PMU_RST     0x15860404ULL
@@ -511,48 +513,64 @@ B2LGosterEntry (
          0x0060C0FF);
 
   //
-  // BELLEK TARAMASI - stok cekirdegin acilis sirasindan cikan iz.
+  // BELLEK TARAMASI + GIC BEKLEYEN KESME DENETIMI
   //
-  // Stok kernel'in initcall listesinde (bkz. STOK_ACILIS.md) Windows'ta
-  // karsiligi olmayan iki mekanizma var ve ikisi de "AP bir sey yapinca"
-  // isiriyor: exynos_ppmpu_init (korumali DRAM bolgeleri) ve
-  // exynos_itmon_driver_init (yasadisi veri yolu erisimi). EbsTest hicbir
-  // sey yapmadan 30+ saniye yasadigi icin periyodik servis isteyen butun
-  // adaylar zaten elenmisti; geriye tam olarak bu ikisi kaliyor.
+  // Stok kernel kaynagi (exynos-ppmpu.c) taramanin ilk halini gecersiz
+  // kildi: PPMPU ihlali SENKRON BIR HATA DEGIL. CPU durmuyor, erisim
+  // tamamlaniyor ve yalnizca bir KESME kalkiyor. Yani yaz/oku testi
+  // ihlalden hic haberdar olmaz, sessizce "temiz" der ve bellegi
+  // yanlislikla aklardik.
   //
-  // Banka testi bellegin DORT adresine bakmisti. Beyan edilen bellegin
-  // tamami hic yoklanmadi. Korumali bir bolge varsa burada, Windows'tan
-  // once ve TAM ADRESIYLE cikar.
+  // Ustelik surucudeki su yorum zincirin tamamini aciklıyor:
   //
-  // KENDINI SINIRLIYOR: ilerleme once kayda yaziliyor. Cihaz tarama
-  // sirasinda sifirlanirsa bir sonraki acilista tarama ATLANIYOR ve son
-  // adres gosteriliyor - yoksa ayni yerde sonsuza kadar sifirlanir ve
-  // sonucu hic goremezdik.
+  //     Interrupt status register in PPMPU will clear in this SMC handler
+  //     exynos_smc(SMC_CMD_GET_PPMPU_FAIL_INFO, ...)
+  //
+  // Durum yazmacini YALNIZCA EL3 temizleyebiliyor. Windows o kesmeyi ne
+  // tanir ne temizleyebilir; seviye tetiklemeli bir kesme temizlenmedigi
+  // surece kesmeler acilir acilmaz sonsuza kadar yeniden girer.
+  //
+  // Bu yuzden dogru dedektor yaz/oku degil, GIC'in BEKLEYEN KESME bitleri.
+  // DTB'den (exynos9820-base.dts):
+  //
+  //     ppmpu  SPI 350,351,357,358,364,365,371,372  -> INTID 382..404
+  //     itmon  SPI  52, 53,121,127,128, 54          -> INTID  84..160
+  //
+  // Once anlik goruntu aliniyor, sonra her 1 MB'ta bir yeniden okunuyor.
+  // Yeni bir bit kalkarsa hem HANGI kesme oldugu hem de o sirada
+  // dokunulan adres elimizde oluyor - tek acilista 1 MB cozunurlukle
+  // bisect.
   //
   {
-    UINT64 *T = (UINT64 *)(UINTN)TARA_KAYIT;
+    UINT64          *T = (UINT64 *)(UINTN)TARA_KAYIT;
+    volatile UINT32 *G = (volatile UINT32 *)(UINTN)(GICD + GICD_ISPEND);
+    UINT32           Ilk[32];
+    UINTN            K;
+
+    for (K = 0; K < 32; K++) {
+      Ilk[K] = G[K];
+    }
 
     if (T[0] == 0x0000004152415419ULL && T[2] == 1) {
       Yaz (L"*** TARAMA SIRASINDA OLDU ***", 0x00FF4040);
       Deger (L"ADRES HI=", (UINT32)(T[1] >> 32), NULL, 0x00FF4040);
       Deger (L"ADRES LO=", (UINT32)T[1], NULL, 0x00FF4040);
-      T[2] = 3;   // bir daha atlama; sonraki acilista yeniden taransin
-    } else if (T[0] == 0x0000004152415419ULL && T[2] == 2) {
-      Yaz (L"TARAMA TEMIZ", 0x0040FF40);
-      Deger (L"SAYFA   =", (UINT32)T[3], NULL, 0x00808080);
+      T[2] = 3;
     } else {
       EFI_MEMORY_DESCRIPTOR *H;
       UINTN                  Bo, An, Td, I;
       UINT32                 Sr;
       UINT64                 Adet;
+      UINT32                 Bulunan;
 
-      H  = NULL;
-      Bo = 0;
-      Adet = 0;
+      H       = NULL;
+      Bo      = 0;
+      Adet    = 0;
+      Bulunan = 0xFFFFFFFF;
 
-      T[0] = 0x0000004152415419ULL;   // "TARA"
+      T[0] = 0x0000004152415419ULL;
       T[1] = 0;
-      T[2] = 1;                        // suruyor
+      T[2] = 1;
       T[3] = 0;
 
       gBS->GetMemoryMap (&Bo, H, &An, &Td, &Sr);
@@ -560,7 +578,7 @@ B2LGosterEntry (
 
       if (!EFI_ERROR (gBS->AllocatePool (EfiLoaderData, Bo, (VOID **)&H)) &&
           !EFI_ERROR (gBS->GetMemoryMap (&Bo, H, &An, &Td, &Sr))) {
-        for (I = 0; I < Bo / Td; I++) {
+        for (I = 0; (I < Bo / Td) && (Bulunan == 0xFFFFFFFF); I++) {
           EFI_MEMORY_DESCRIPTOR *D;
           UINT64                 A, Son;
 
@@ -571,34 +589,47 @@ B2LGosterEntry (
 
           Son = D->PhysicalStart + D->NumberOfPages * 4096;
 
-          //
-          // Sayfa basina tek bir 64 bitlik kelime yetiyor: PPMPU ve TZASC
-          // SAYFA granulunde calisiyor, her baytı okumanin bilgi degeri yok
-          // ama suresi dakikalara cikardi.
-          //
           for (A = D->PhysicalStart; A + 8 <= Son; A += 4096) {
             volatile UINT64 *P = (volatile UINT64 *)(UINTN)A;
             UINT64           Eski;
 
             //
-            // ADRESI ONCE YAZ, SONRA DOKUN. Sirasi kritik: erisim cihazi
-            // sifirlarsa geriye kalan tek sey bu kayit oluyor.
+            // ADRESI ONCE YAZ, SONRA DOKUN. Erisim cihazi sifirlarsa
+            // geriye kalan tek sey bu kayit.
             //
             T[1] = A;
 
             Eski = *P;
             *P   = 0xB2B2B2B2B2B2B2B2ULL;
-            if (*P != 0xB2B2B2B2B2B2B2B2ULL) {
-              T[2] = 4;   // yazip geri okuyamadik
-              break;
-            }
-
-            *P = Eski;
+            *P   = Eski;
             Adet++;
-          }
 
-          if (T[2] != 1) {
-            break;
+            //
+            // Her 1 MB'ta bir GIC'e bak. Her sayfada bakmak taramayi
+            // dakikalara cikarirdi ve 1 MB zaten daraltmak icin fazlasiyla
+            // yeterli.
+            //
+            if ((Adet & 0xFF) == 0) {
+              for (K = 0; K < 32; K++) {
+                UINT32 Yeni = G[K] & ~Ilk[K];
+
+                if (Yeni != 0) {
+                  UINTN B;
+
+                  for (B = 0; B < 32; B++) {
+                    if ((Yeni >> B) & 1) {
+                      Bulunan = (UINT32)(K * 32 + B);
+                      break;
+                    }
+                  }
+                  break;
+                }
+              }
+
+              if (Bulunan != 0xFFFFFFFF) {
+                break;
+              }
+            }
           }
         }
 
@@ -606,18 +637,41 @@ B2LGosterEntry (
       }
 
       T[3] = Adet;
-      if (T[2] == 1) {
-        T[2] = 2;
-      }
+      T[2] = 2;
 
-      if (T[2] == 2) {
-        Yaz (L"TARAMA TEMIZ", 0x0040FF40);
+      if (Bulunan != 0xFFFFFFFF) {
+        Yaz (L"*** KESME KALKTI ***", 0x0040FF40);
+        Deger (L"INTID   =", Bulunan,
+               (Bulunan >= 382 && Bulunan <= 404) ? L"PPMPU" :
+               (Bulunan >= 84  && Bulunan <= 160) ? L"ITMON" : L"BASKA",
+               0x0040FF40);
+        Deger (L"ADRES HI=", (UINT32)(T[1] >> 32), NULL, 0x0040FF40);
+        Deger (L"ADRES LO=", (UINT32)T[1], NULL, 0x0040FF40);
       } else {
-        Yaz (L"TARAMA: YAZ-OKU TUTMADI", 0x00FF4040);
-        Deger (L"ADRES LO=", (UINT32)T[1], NULL, 0x00FF4040);
+        Yaz (L"TARAMA TEMIZ, KESME YOK", 0x00808080);
       }
 
       Deger (L"SAYFA   =", (UINT32)Adet, NULL, 0x00808080);
+    }
+
+    //
+    // Tarama olmasa bile acilista zaten bekleyen bir kesme var mi?
+    // UEFI kesmeleri acmiyor, yani buradaki her bit "kimsenin
+    // temizlemedigi bir kaynak" demek.
+    //
+    {
+      UINT32 Kac = 0;
+
+      for (K = 0; K < 32; K++) {
+        UINT32 V = Ilk[K];
+
+        while (V != 0) {
+          Kac++;
+          V &= (V - 1);
+        }
+      }
+
+      Deger (L"BEKLEYEN=", Kac, NULL, 0x0060C0FF);
     }
   }
 
