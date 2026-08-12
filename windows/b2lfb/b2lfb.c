@@ -557,10 +557,9 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   }
 
   /*
-   * 4) KALP ATISI - saniyede bir kare.
+   * 4) KALP ATISI - saniyede on kare.
    *
-   * DueTime negatif = GORELI, 100 ns birimi. -10000000 = 1 saniye.
-   * Period = 1000 ms, yani saniyede bir tekrar.
+   * DueTime negatif = GORELI, 100 ns birimi. -1000000 = 100 ms.
    */
   /*
    * Bosta engelleyici. En sonda ve donusu YOK SAYILIYOR: basarisiz olsa
@@ -569,9 +568,6 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   {
     PVOID Th = 0;
     PsCreateSystemThread (&Th, 0x1F03FF, 0, 0, 0, (PVOID)BostaDongu, 0);
-  }
-
-    }
   }
 
   KeInitializeDpc ((PVOID)gDpc, (PVOID)HeartbeatDpc, 0);
