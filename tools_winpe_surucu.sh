@@ -94,7 +94,17 @@ KOMUT="${1:-liste}"; shift || true
 #
 TEMEL_ACIK="ACPI acpiex atapi cdrom CLFS CNG disk DXGKrnl EhStorClass EhStorTcgDrv FBWF FileInfo FltMgr Fs_Rec fvevol GenPass intelide KSecDD KSecPkg mountmgr Mup NDIS nvdimm nvmedisk partmgr pci pciide pcw pdc pmem PRM qcgpio_i QcTrEE_i sacdrv scmbus spaceport storahci stornvme storufs storvsc Tcpip TPM vdrvroot vmbus volmgr volmgrx volsnap volume vpci Wdf01000 WimFsf WindowsTrustedRT WindowsTrustedRTProxy Wof"
 
-KORUMALI="ACPI acpiex CNG Wdf01000 WudfPf FltMgr Null volmgr partmgr disk mountmgr msisadrv pdc vdrvroot spaceport volume volsnap WimFsf FBWF Wof Fs_Rec Mup FileInfo CLFS KSecDD KSecPkg pcw"
+#
+# b2lfb LISTEYE EKLENDI - OLCUM ARACININ KENDISI.
+#
+# "hepsi-kapat" korumali olmayan her acilis surucusunu devre disi birakiyor
+# ve b2lfb de Start=0. Kapatilsaydi kalp atisi, TIK, SPN, MAX ve bugcheck
+# dedektoru birden kaybolurdu; ekranda "hicbir sey olmadi" gorunurdu ve bunu
+# "sifirlama durdu" diye okumak isten bile degildi.
+#
+# Olcum aracini olcumun icine katmamak gerekiyor.
+#
+KORUMALI="b2lfb ACPI acpiex CNG Wdf01000 WudfPf FltMgr Null volmgr partmgr disk mountmgr msisadrv pdc vdrvroot spaceport volume volsnap WimFsf FBWF Wof Fs_Rec Mup FileInfo CLFS KSecDD KSecPkg pcw"
 
 
 #
