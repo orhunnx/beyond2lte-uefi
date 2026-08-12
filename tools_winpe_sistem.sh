@@ -5,6 +5,12 @@
 #   bash tools_winpe_sistem.sh liste
 #   bash tools_winpe_sistem.sh kapat     <- hepsini Start=4 yapar
 #   bash tools_winpe_sistem.sh ac        <- hepsini Start=1'e geri alir
+#   bash tools_winpe_sistem.sh tek AD    <- YALNIZCA o servisi Start=4 yapar
+#
+# "tek" modu bisect icin: b2lfb artik olurken yuklenen imajin adini
+# kaydediyor (IMG=npsvctrig.sys, CNT=00000010). Hepsini birden kapatmak
+# "durdu mu" sorusunu cevapliyor ama HANGISI sorusunu cevaplamiyor; teker
+# teker kapatip IMG'nin nereye kaydigina bakmak cevapliyor.
 #
 # ---------------------------------------------------------------------------
 # NEDEN - HIC DOKUNULMAMIS BIR EKSEN
@@ -81,7 +87,24 @@ fi
 case "$KOMUT" in
   kapat) HEDEF=4 ;;
   ac)    HEDEF=1 ;;
-  *)     echo "Bilinmeyen komut: $KOMUT (liste|kapat|ac)"; exit 1 ;;
+  tek)
+    HEDEF=4
+    AD="${2:-}"
+    [ -n "$AD" ] || { echo "Kullanim: bash tools_winpe_sistem.sh tek <servis>"; exit 1; }
+    #
+    # Listeyi tek isme indiriyoruz. Isim gercekten Start=1 listesinde
+    # degilse duruyoruz: olmayan bir servisi "kapattik" sanip sonucu
+    # yorumlamak, bu projede birkac kez yaptigimiz hatanin aynisi olur.
+    #
+    grep -qx "$AD" "$W/sistem.txt" || {
+      echo "'$AD' Start=1 listesinde yok. Liste:"
+      sed 's/^/  /' "$W/sistem.txt"
+      exit 1
+    }
+    echo "$AD" > "$W/sistem.txt"
+    ADET=1
+    ;;
+  *)     echo "Bilinmeyen komut: $KOMUT (liste|kapat|ac|tek)"; exit 1 ;;
 esac
 
 [ "$ADET" -gt 0 ] || { echo "Islenecek servis yok."; exit 1; }
