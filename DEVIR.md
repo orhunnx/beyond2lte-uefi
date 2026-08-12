@@ -234,9 +234,11 @@ dayanıyor.
    `"arm,psci"` yani 0.1 — `PSCI_VERSION`, `PSCI_FEATURES`, `SYSTEM_RESET`,
    `SYSTEM_OFF`, `AFFINITY_INFO` **yok**. Linux açılışta
    `PSCIv65535.65535 detected` yazıyor (yani `0xFFFFFFFF` dönüyor).
-   ACPI PSCI 0.1'i ifade edemiyor; FACP'deki bit "0.2 veya üstü" demek ve
-   Windows ARM64 bunu şart koşuyor. Biti kapatınca Windows `winload`'da
-   duruyor, çekirdek hiç başlamıyor.
+   FADT'deki `PSCI_COMPLIANT` biti sürümü adlandırmaz; yalnızca PSCI'nin
+   uygulandığını beyan eder. Ancak ARM'nin PSCI 0.2 uyumluluk tablosunda
+   `VERSION`, `AFFINITY_INFO`, `SYSTEM_OFF` ve `SYSTEM_RESET` zorunludur;
+   stok monitor bunların hiçbirini sunmuyor. Biti kapatınca Windows
+   `winload`'da duruyor, çekirdek hiç başlamıyor.
 
 10. **Açılışta 8 SPI bekliyor**, UEFI kesmeleri hiç açmadığı halde:
 
@@ -298,6 +300,45 @@ yalnızca `bootmgfw.efi`yi çağıran `startup-baseline.nsh`'i `startup.nsh`
 olarak koyar. UFS/PWM ve Watchdog ayarlarını değiştirmez: bu turdaki tek
 değişken B2L ölçüm araçlarıdır.
 
+### Temiz taban sonucu ve sıradaki deney (12 Ağustos 2026)
+
+Temiz taban da yaklaşık 10 saniye sonra **sıfırlanıyor**. Böylece b2lfb,
+`B2LGoster`, `B2LRtHookDxe`, `B2LSehDxe` ve `B2LGicSusDxe` sıfırlamanın
+nedeni değildir. `wpeutil shutdown` içeren `startnet.cmd` de çalışmıyor:
+Microsoft'a göre bu komut WinPE oturumunu kapatır; cihazın kapanmak yerine
+yeniden başlaması kullanıcı kabuğuna hiç varılmadığını gösterir.
+
+En güçlü kalan yapısal aday, Windows'a PSCI beyan edip yalnızca PSCI 0.1
+sunmamızdır. `--psci-hvc` bunun için **varsayılanı değiştirmeyen**, tek
+amaçlı bir deney ekler:
+
+```bash
+bash yap.sh --psci-hvc
+bash tools_b2lfb.sh kapat
+bash cache_esp.sh --win --system --psci-hvc
+```
+
+Bu mod FADT'nin `PSCI_USE_HVC` bitini denetimli biçimde açar ve sadece
+PSCI HVC çağrılarını alan küçük bir EL2 köprüsü koyar. Eski, bütün SMC'leri
+tuzaklayan `HCR_EL2.TSC` deneyi **kullanılmaz**. Köprü PSCI 0.2 `VERSION`,
+`AFFINITY_INFO` ve `MIGRATE_INFO_TYPE` yanıtlarını üretir; stokta var olan
+`CPU_SUSPEND`/`CPU_OFF`/`CPU_ON` çağrılarını EL3'e iletir. `SYSTEM_OFF` ve
+`SYSTEM_RESET` çağrılarını ilk turda `NOT_SUPPORTED` ile döndürüp HVC
+kaydına bırakır: eksik sistem güç işlemlerini uydurmak bu turun amacı değil.
+
+Bir sonraki açılışta `B2LGoster`ın üstünde şu kayıt okunur:
+
+- `PSCI HVC KOPRUSU` + `HVC SAYI` sıfırdan büyük: Windows gerçekten HVC
+  yolunu kullandı; `SON PSCI` hangi işlevde kaldığını gösterir.
+- `PSCI HVC KAYDI YOK`: EL2 yükü çalışmadı ya da firmware FADT HVC bitini
+  kullanmadı; sonuç PSCI hipotezini doğrulamaz.
+- Cihaz WinPE kabuğuna kadar gelirse sonraki ayrı turda `startnet.cmd`
+  `cmd.exe /k` ile kalıcı kabuğa çevrilir.
+
+Normal hale dönüş için yalnızca `bash yap.sh` çalıştırmak yeterlidir:
+script FADT'yi yeniden SMC konduitine alır ve EL2 sürücüsünü tekrar derleme
+dışında bırakır.
+
 Diğer FAT biriminde eski bir ESP kalmamalı. SYSTEM'e bu imaj yazılıyorsa,
 CACHE'i ayrıca `bash cache_esp.sh --bos` ile silip iki tar'ı aynı flash
 turunda yazmak gerekir; aksi halde Shell eski `startup.nsh`'i bulup bütün
@@ -324,7 +365,7 @@ esas almalı.
 
 | Deneme | Sonuç |
 |---|---|
-| EL2'ye çıkıp `HCR_EL2.TSC` ile SMC tuzaklamak | Samsung TrustZone arka kapısı (`smc #0`, `x0=0xC2000400`) hiç imza üretmedi. UEFI EL1'de çalışıyor (`EbsTest` ölçtü), EL2 boş ve erişilemez |
+| EL2'ye çıkıp `HCR_EL2.TSC` ile SMC tuzaklamak | Eski, geniş SMC tuzağı imza üretmedi ve bir tur cihazı dondurdu. Bu yol terk edildi; `--psci-hvc` yalnızca FADT'nin yönlendirdiği HVC PSCI çağrılarını alan, ayrı ve dar bir deneydir |
 | `PsSetLoadImageNotifyRoutine` ile yüklenen sürücüyü kaydetmek | `KMODE_EXCEPTION_NOT_HANDLED (0x1E)`, ayrıca sinyal vermiyordu (aynı görüntüde CNT 16, 3, 21) |
 | `PsSetCreateProcessNotifyRoutine` | Bugcheck |
 | Windows içinden GIC okumak (`MmMapIoSpace`) | `0x1E`. ARM'de aynı fiziksel adresi farklı niteliklerle iki kez haritalamak tanımsız; HAL GIC'i zaten Device olarak haritalamış |
@@ -403,6 +444,7 @@ noktalar:
 ```bash
 bash yap.sh                 # DEBUG derle, Odin .tar uret
 bash yap.sh --acpi          # ACPI .dsl dosyalarini da derle (iasl)
+bash yap.sh --psci-hvc      # deneysel PSCI v0.2 HVC koprusu
 bash yap.sh -r RELEASE      # RELEASE
 bash yap.sh --clean         # temiz derleme
 ```

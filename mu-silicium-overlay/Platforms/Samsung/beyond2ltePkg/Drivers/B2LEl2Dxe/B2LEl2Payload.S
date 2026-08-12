@@ -1,18 +1,21 @@
 //
-// B2LEl2Payload.S - EL2'de calisan yuk: istisna vektoru + SMC tuzagi.
+// B2LEl2Payload.S - EL2'de calisan PSCI HVC koprusu.
 //
 // ===========================================================================
 // NEDEN
 // ===========================================================================
-// Windows, ntoskrnl basladiktan ~12 saniye sonra sessizce cihazi yeniden
-// baslatiyor. Olculenler:
-//   - platform EBS sonrasi 60+ saniye saglam (EbsTest)  -> sifirlamayi Windows yapiyor
-//   - ResetSystem kancasi hic atesmedi                  -> UEFI'yi atliyor
-//   - AutoReboot=0 dogrulandi, yine sifirliyor          -> bugcheck degil
-//   - hicbir yere kayit dusmuyor                        -> log kanali yok
+// S-Boot yalnizca PSCI 0.1 sunuyor; Windows'a verilen FADT ise PSCI
+// kullanimini beyan ediyor. PSCI 0.2'nin zorunlu VERSION, AFFINITY_INFO,
+// SYSTEM_OFF ve SYSTEM_RESET cagrilari stok EL3'te yok. Bu yuk, FADT'nin
+// "Must use HVC for PSCI" bitiyle birlikte Windows'un PSCI cagrilarini
+// EL2'ye yonlendirir. Yalnizca "bash yap.sh --psci-hvc" bunu firmware'e
+// koyar; varsayilan derleme EL2'ye hic dokunmaz.
 //
-// EL1'den yapilabilecek her sey tukendi. Geriye Windows'un EL3'e attigi
-// SMC'leri gormek kaliyor ve bunun icin EL2 gerekiyor.
+// Eski deney HCR_EL2.TSC ile EL1'den gelen HER SMC'yi yakaliyordu. Bu,
+// tanisiz bir denemede sistemi dondurdu ve normal SMC'lere araci olmamasi
+// gereken bir yol acti. Burada TSC BILEREK ayarlanmiyor: sadece Windows'un
+// FADT nedeniyle yaptigi HVC'ler gelir. Legacy CPU_SUSPEND/CPU_OFF/CPU_ON
+// SMC'ye iletilir; v0.2 sorgulari EL2'de cevaplanir.
 //
 // ===========================================================================
 // EL2'YE NASIL CIKIYORUZ
@@ -30,7 +33,7 @@
 //
 // Rutin EL2'de calisir ve "smc #0" ile x0=0xC2000401, x1=status diyerek
 // doner. status SIFIR OLMAK ZORUNDA - degilse firmware HYP durumunu
-// varsayilana sifirliyor ve sonraki hvc'ler istisna veriyor.
+// varsayilana sifirliyor ve sonraki HVC'ler istisna verir.
 //
 // UC KISIT (hepsi belgelenmis davranis):
 //   1) Init yalnizca acilis cekirdeginde calisir. Digerleri onun EL2
@@ -48,7 +51,7 @@
 //   0xCF000000  istisna vektoru (2 KB, VBAR_EL2 2 KB hizali olmak zorunda)
 //   0xCF000800  init rutini      <- SMC'ye entry_point olarak bu verilir
 //   0xCF010000  acilis cekirdegi yigin tepesi; cekirdek N -> +4096*N
-//   0xCF020000  BU acilisin SMC kaydi
+//   0xCF020000  BU acilisin HVC kaydi
 //   0xCF030000  ONCEKI acilisin kaydi (DXE surucusu kopyalar, Shell okur)
 //
 // Vektor tablosu dosyanin BASINDA: 0xCF000000 zaten 2 KB hizali oldugu icin
@@ -57,18 +60,31 @@
 // ===========================================================================
 // KAYIT BICIMI  (0xCF020000)
 // ===========================================================================
-//   +0x00  u32 magic 'B2L2' -> dmem'de "42 32 4C 32"
-//   +0x04  u32 kayit sayisi
-//   +0x10  kayitlar, her biri 32 bayt:  x0, x1, x2, ELR_EL2
+//   +0x00  u32 magic 'B2HV' -> dmem'de "42 32 48 56"
+//   +0x04  u32 HVC sayisi
+//   +0x08  u32 son PSCI fonksiyon numarasi
+//   +0x0C  u32 son istisna sinifi (normal HVC icin 0x16)
+//   +0x10  u64 son x1
+//   +0x18  u64 son x2
 //
-// x0 SMC fonksiyon numarasi. Beklenen supheli: 0x84000009 SYSTEM_RESET.
+// Magic, VMM girisi yukumuzu gercekten EL2'de calistirdiginda yazilir.
+// Bu sayede bos bir kayit "HVC hic kullanilmadi" ile "arka kapi calismadi"
+// durumlarini ayirir.
 //
 
 #define EL2_VECT        0xCF000000
 #define EL2_STACK_TOP   0xCF010000
 #define EL2_LOG         0xCF020000
-#define EL2_LOG_MAGIC   0x324C3242      // "B2L2" little-endian
-#define EL2_LOG_MAX     0xFF
+#define EL2_LOG_MAGIC   0x56483242      // "B2HV" little-endian
+
+#define PSCI_VERSION        0x84000000
+#define PSCI_CPU_SUSPEND    0xC4000001
+#define PSCI_CPU_OFF        0x84000002
+#define PSCI_CPU_ON         0xC4000003
+#define PSCI_AFFINITY_INFO  0xC4000004
+#define PSCI_MIGRATE_INFO   0x84000006
+#define PSCI_SYSTEM_OFF     0x84000008
+#define PSCI_SYSTEM_RESET   0x84000009
 
 #define VMM_RETURN      0xC2000401
 
@@ -96,9 +112,8 @@ ASM_PFX(B2LEl2PayloadStart):
 // EL2 istisna vektoru - 16 giris, her biri 128 bayt
 // ---------------------------------------------------------------------------
 // Yalnizca "Lower EL, AArch64, Synchronous" (0x400) bizi ilgilendiriyor;
-// EL1'den tuzaklanan SMC oraya duser. Digerleri oldugu gibi geri doner -
-// tuzaklamadigimiz bir sey zaten EL2'ye gelmemeli, gelirse de sistemi
-// bozmayalim.
+// FADT HVC biti nedeniyle EL1'den gelen HVC oraya duser. HCR_EL2.TSC kapali
+// oldugu icin normal SMC'ler EL3'e dogrudan gider ve buraya dusmez.
 // ---------------------------------------------------------------------------
   .align 7
 cur_el_sp0_sync:      eret
@@ -156,13 +171,18 @@ b2l_el2_init:
   isb
 
   //
-  // HCR_EL2.TSC (bit 19): EL1'den gelen her SMC EL2'ye tuzaklanir.
-  // Projede aradigimiz tek sey bu - Windows'un EL3'e ne sordugu.
+  // HVC koprusunun kendi calistigini isaretle. Bu, VMM arka kapisinin
+  // basariyla bize atladiginin kaniti; HVC sayisi sifir olsa bile sonraki
+  // acilista 0xCF030000'da gorunur.
   //
-  mrs   x9, hcr_el2
-  orr   x9, x9, #(1 << 19)
-  msr   hcr_el2, x9
-  isb
+  MOV64 x9, EL2_LOG
+  MOV64 x10, EL2_LOG_MAGIC
+  str   w10, [x9]
+  str   wzr, [x9, #4]
+  str   wzr, [x9, #8]
+  str   wzr, [x9, #12]
+  str   xzr, [x9, #16]
+  str   xzr, [x9, #24]
 
   //
   // Firmware'e don. status SIFIR olmak zorunda; degilse HYP durumu
@@ -178,11 +198,11 @@ b2l_el2_init:
   b     1b
 
 // ---------------------------------------------------------------------------
-// Tuzaklanan SMC
+// Tuzaklanan HVC
 // ---------------------------------------------------------------------------
 b2l_sync_handler:
   //
-  // x0..x3 SMC'nin argumanlari ve donusu, yani onlara dokunabiliriz.
+  // x0..x3 PSCI'nin argumanlari ve donusu, yani onlara dokunabiliriz.
   // BASKA HICBIR REGISTER BOZULMAMALI - misafir isletim sistemi calismaya
   // devam edecek. Kazidiklarimizi yigina alip geri koyuyoruz.
   //
@@ -191,45 +211,108 @@ b2l_sync_handler:
 
   mrs   x4, esr_el2
   lsr   x4, x4, #26
-  cmp   x4, #0x17                 // EC = 0x17: tuzaklanan SMC
-  b.ne  2f
+  cmp   x4, #0x16                 // EC = 0x16: HVC, AArch64
+  b.ne  b2l_not_supported
 
   MOV64 x4, EL2_LOG
   ldr   w5, [x4, #4]              // kayit sayisi
-  cmp   w5, #EL2_LOG_MAX
-  b.hs  2f                        // tampon doldu, sessizce gec
-
   add   w6, w5, #1
   str   w6, [x4, #4]
-  MOV64 x6, EL2_LOG_MAGIC
-  str   w6, [x4]
+  str   w0, [x4, #8]
+  mov   w6, #0x16
+  str   w6, [x4, #12]
+  str   x1, [x4, #16]
+  str   x2, [x4, #24]
 
-  add   x7, x4, #0x10
-  add   x7, x7, x5, lsl #5        // kayit = LOG + 0x10 + sayi*32
-  stp   x0, x1, [x7]
-  mrs   x6, elr_el2
-  stp   x2, x6, [x7, #16]
+  // PSCI v0.2: zorunlu sorgulari EL2'de tamamla.
+  MOV64 x4, PSCI_VERSION
+  cmp   w0, w4
+  b.eq  b2l_psci_version
 
-2:
+  MOV64 x4, PSCI_AFFINITY_INFO
+  cmp   w0, w4
+  b.eq  b2l_psci_affinity
+
+  // Samsung EL3'te ayni standart kimliklerle var olan uc eski islev.
+  MOV64 x4, PSCI_CPU_SUSPEND
+  cmp   w0, w4
+  b.eq  b2l_forward_smc
+  MOV64 x4, PSCI_CPU_OFF
+  cmp   w0, w4
+  b.eq  b2l_forward_smc
+  MOV64 x4, PSCI_CPU_ON
+  cmp   w0, w4
+  b.eq  b2l_forward_smc
+
+  // Trusted OS gocu yok: PSCI'nin tanimladigi "MP veya yok" cevabi.
+  MOV64 x4, PSCI_MIGRATE_INFO
+  cmp   w0, w4
+  b.eq  b2l_psci_migrate_info
+
+  // SYSTEM_OFF/SYSTEM_RESET v0.2'de zorunlu ama stok EL3'te yok. Bu ilk
+  // deneyde sifirlama talebini tekrarlamak yerine NOT_SUPPORTED donuyoruz;
+  // kayittaki son fonksiyon, istegin gercekten buraya gelip gelmedigini
+  // sonraki acilista gosterir. Donus, calisan bir kabugun yerine gecen
+  // kalici "basari" degildir.
+  MOV64 x4, PSCI_SYSTEM_OFF
+  cmp   w0, w4
+  b.eq  b2l_not_supported
+  MOV64 x4, PSCI_SYSTEM_RESET
+  cmp   w0, w4
+  b.eq  b2l_not_supported
+
+  b     b2l_not_supported
+
+b2l_psci_version:
+  mov   x0, #2                     // PSCI v0.2
+  b     b2l_return
+
+b2l_psci_affinity:
+  cbz   x1, b2l_affinity_cpu0
+  mov   x0, #1                     // diger tum MPIDR'ler OFF
+  b     b2l_return
+b2l_affinity_cpu0:
+  mov   x0, #0                     // CPU0 ON
+  b     b2l_return
+
+b2l_psci_migrate_info:
+  mov   x0, #2                     // MP capable veya Trusted OS yok
+  b     b2l_return
+
+b2l_forward_smc:
   ldp   x6, x7, [sp, #16]
   ldp   x4, x5, [sp], #32
 
   //
-  // GERCEK SMC'yi EL3'e ilet. EL2'den yapilan SMC tuzaklanmaz (TSC yalnizca
-  // EL1'i baglar), yani burada sonsuz donguye girmiyoruz. x0..x3 hala
-  // cagiranin degerleri, donuste de sonuclar onlarda kaliyor.
+  // Eski PSCI cagrilarini EL3'e ilet. HCR_EL2.TSC ayarlanmadigi icin EL2'den
+  // yapilan bu SMC geri kendimize dusmez. x0..x3 hala cagiranin degerleri,
+  // donuste de sonuclar onlarda kaliyor.
   //
+  // SMC yalnizca x0..x3'u kullanmali, ama ELR'yi ilerletirken x4/x5'teki
+  // misafir degerleri de aynen geri vermek icin onlar korunur.
+  //
+  stp   x4, x5, [sp, #-16]!
   smc   #0
+  ldp   x4, x5, [sp], #16
+  b     b2l_advance_elr
+
+b2l_not_supported:
+  movn  w0, #0                     // PSCI_NOT_SUPPORTED = int32(-1)
+
+b2l_return:
+  ldp   x6, x7, [sp, #16]
+  ldp   x4, x5, [sp], #32
 
   //
-  // Tuzaklanan SMC'de ELR_EL2 SMC KOMUTUNUN KENDISINI gosterir; ilerletmek
+  // Tuzaklanan HVC'de ELR_EL2 HVC KOMUTUNUN KENDISINI gosterir; ilerletmek
   // bize dusuyor, yoksa ayni komuta donup sonsuz tuzaga gireriz.
   //
-  str   x4, [sp, #-16]!
+b2l_advance_elr:
+  stp   x4, x5, [sp, #-16]!
   mrs   x4, elr_el2
   add   x4, x4, #4
   msr   elr_el2, x4
-  ldr   x4, [sp], #16
+  ldp   x4, x5, [sp], #16
   eret
 
 ASM_PFX(B2LEl2PayloadEnd):

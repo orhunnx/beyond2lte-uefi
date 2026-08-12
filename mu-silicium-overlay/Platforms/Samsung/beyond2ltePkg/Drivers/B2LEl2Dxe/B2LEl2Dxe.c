@@ -1,25 +1,28 @@
 /** @file
-  B2LEl2Dxe - EL2 yukunu yerine koyar ve TrustZone arka kapisini cagirir.
+  B2LEl2Dxe - deneysel PSCI HVC koprusunu EL2'ye yukler.
 
   Tasarim ve gerekce B2LEl2Payload.S'nin basinda. Buradaki is uc adim:
 
-    1) Onceki acilisin SMC kaydini kenara al, bu acilis icin temizle
+    1) Onceki acilisin HVC kaydini kenara al, bu acilis icin temizle
     2) EL2 yukunu 0xCF000000'a kopyala
     3) smc #0 ile x0=0xC2000400 ... cagir, yuk EL2'de calissin
 
-  Bundan sonra EL1'den yapilan HER SMC once bize duser: yuk kaydeder ve
-  EL3'e iletir. Windows ne sorarsa gorecegiz.
+  FADT'de PSCI_USE_HVC biti acikken Windows'un PSCI cagrilari HVC ile EL2'ye
+  gelir. Yuk, v0.2 sorgularini cevaplar ve stok EL3'te bulunan eski CPU
+  cagrilarini SMC ile iletir. HCR_EL2.TSC KULLANILMAZ; normal EL1 SMC'leri
+  bu surucunun disinda kalir.
 
   OKUMA (sonraki acilista, EFI Shell):
       dmem 0xCF030000 40
 
-    42 32 4C 32   'B2L2' imzasi
-    +0x04         kayit sayisi
-    +0x10         ilk kayit: x0 (SMC fonksiyon no), x1, x2, ELR_EL2
+    42 32 48 56   'B2HV' imzasi
+    +0x04         HVC sayisi
+    +0x08         son PSCI fonksiyon no
+    +0x10         son cagrinin x1, x2 degerleri
 
-  Beklenen supheli: x0 = 0x84000009 (PSCI SYSTEM_RESET). O deger cikarsa
-  Windows'un cihazi kendi istegiyle sifirladigi kanitlanir ve ELR_EL2 bize
-  cagriyi yapan kodun adresini verir.
+  SYSTEM_OFF veya SYSTEM_RESET gorulurse ilk kopru bunlari NOT_SUPPORTED
+  doner; amac sessiz sifirlamayi yeniden uretmek degil, Windows'un cagrinin
+  bu uyumsuz arayuze gercekten gelip gelmedigini gozlemlemektir.
 **/
 
 #include <Uefi.h>
@@ -80,8 +83,8 @@ B2LEl2Entry (
   {
     UINT32 *Onceki = (UINT32 *)(UINTN)EL2_LOG_PREV;
 
-    if (Onceki[0] == 0x324C3242) {
-      DEBUG ((EFI_D_ERROR, "B2L EL2: onceki acilista %u SMC yakalandi\n", Onceki[1]));
+    if (Onceki[0] == 0x56483242) {
+      DEBUG ((EFI_D_ERROR, "B2L EL2: onceki acilista %u HVC, son PSCI=0x%x\n", Onceki[1], Onceki[2]));
     } else {
       DEBUG ((EFI_D_ERROR, "B2L EL2: onceki acilistan kayit yok\n"));
     }

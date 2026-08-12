@@ -160,12 +160,11 @@
   beyond2ltePkg/Drivers/B2LGicSusDxe/B2LGicSusDxe.inf
 
   #
-  # EL2 yuku yukleyici (bkz. Drivers/B2LEl2Dxe/B2LEl2Payload.S)
+  # Deneysel PSCI HVC koprusu (bkz. Drivers/B2LEl2Dxe/B2LEl2Payload.S)
   #
-  # DERLEMEDEN CIKARILDI. Asil kaldirma DXE.inc'te (firmware imajina girmiyor);
-  # burada da kapatiliyor ki "derleniyor ama yuklenmiyor" gibi kafa karistirici
-  # bir ara durum kalmasin. Gerekce icin DXE.inc'teki uzun nota bak: sessiz
-  # kalan bir SMC, TrustZone'un istegi reddettigi anlamina gelmiyor.
+  # Varsayilan derlemede kapali. "bash yap.sh --psci-hvc" hem bu satiri hem
+  # DXE.inc'teki INF'i gecici Mu-Silicium kopyasinda acar; sonraki normal
+  # derleme overlay'i yeniden kopyalayip ikisini de kapatir.
   #
   # beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf
 

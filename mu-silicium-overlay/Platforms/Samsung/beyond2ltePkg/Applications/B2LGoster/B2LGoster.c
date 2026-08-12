@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    22
+#define B2L_SURUM    23
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 22"
+#define SURUM_METNI  L"SURUM 23"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -71,6 +71,7 @@
 #define GICD        0x10101000ULL   // dagitici
 #define GICD_ISPEND 0x200           // bekleyen kesme bitleri
 #define FB_KAYIT    0xCF030000ULL   // b2lfb (Windows surucusu)
+#define HVC_KAYIT   0xCF030000ULL   // B2LEl2Dxe onceki HVC kaydi
 #define RT_KAYIT    0xCF040000ULL   // B2LRtHookDxe
 #define PMU_RST     0x15860404ULL
 
@@ -211,6 +212,7 @@ B2LGosterEntry (
   UINT64         *Onceki;
   UINT32         *RtLog;
   UINT8          *FbLog;
+  UINT32         *HvcLog;
   UINT32          Rst;
   EFI_INPUT_KEY   Key;
   UINTN           Index;
@@ -242,10 +244,28 @@ B2LGosterEntry (
   Onceki = (UINT64 *)(UINTN)SEH_ONCEKI;
   RtLog  = (UINT32 *)(UINTN)RT_KAYIT;
   FbLog  = (UINT8  *)(UINTN)FB_KAYIT;
+  HvcLog = (UINT32 *)(UINTN)HVC_KAYIT;
   Rst    = *(volatile UINT32 *)(UINTN)PMU_RST;
 
   Yaz (L"=== BEYOND2LTE TANI ===", 0x00FFFFFF);
   Yaz (SURUM_METNI, 0x00808080);
+
+  //
+  // PSCI HVC koprusu yalnizca "yap.sh --psci-hvc" ile yuklenir. Kayit
+  // ayni sicak-sifirlama bolgesinde oldugu icin b2lfb kaydiyla cakisir;
+  // imzalar farkli oldugundan ikisini de acikca ayiriyoruz. Bu satirlar
+  // bellek taramasindan ONCE cizilir ki sonraki acilisin asil cevabi
+  // fotograf karesinde kalsin.
+  //
+  if (HvcLog[0] == 0x56483242) {  // "B2HV"
+    Yaz (L"*** PSCI HVC KOPRUSU ***", 0x0040FF40);
+    Deger (L"HVC SAYI =", HvcLog[1], NULL, 0x0040FF40);
+    Deger (L"SON PSCI =", HvcLog[2], NULL, 0x0040FF40);
+  } else {
+    Yaz (L"PSCI HVC KAYDI YOK", 0x00808080);
+  }
+
+  mSatir += 12;
 
   //
   // BEYAN EDILEN RAM. Bir PCD degistirdik diye degistigini varsaymak

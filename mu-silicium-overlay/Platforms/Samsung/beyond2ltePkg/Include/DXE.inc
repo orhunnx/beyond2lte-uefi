@@ -23,26 +23,23 @@
   INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
 
   #
-  # B2LEl2Dxe DERLEMEDEN CIKARILDI.  Kaynagi duruyor, sadece yuklenmiyor.
+  # B2LEl2Dxe varsayilan derlemeden CIKARILDI. Kaynagi duruyor, normal
+  # Windows yoluna hic girmez.
   #
-  # NE YAPIYORDU: Samsung'un TrustZone arka kapisina smc #0 / x0=0xC2000400
-  # gonderip "su kodu EL2'de calistir" diyordu. Amac HCR_EL2.TSC ile EL1'den
-  # gelen SMC'leri tuzaklayip Windows'un EL3'e ne sordugunu gormekti.
+  # "bash yap.sh --psci-hvc" bu tek INF satirini Mu-Silicium kopyasinda
+  # acar. Yeni yuk HCR_EL2.TSC ile her SMC'yi tuzaklamaz; FADT'nin HVC
+  # konduitiyle gelen PSCI cagrilarini dar bir EL2 koprusunde isler.
   #
-  # NEDEN CIKTI: kendi "B2L2" imzasini hicbir zaman uretmedi, biz de
-  # "calismiyor, zarari yok" diye birakmistik. BU VARSAYIM YANLISTI.
-  # TrustZone'a EL2'de kod calistirmasini soylemek asla no-op degil:
+  # ESKI SMC TUZAGI NEDEN CIKTI: kendi "B2L2" imzasini hicbir zaman
+  # uretmedi, biz de "calismiyor, zarari yok" diye birakmistik. BU VARSAYIM
+  # YANLISTI. TrustZone'a EL2'de kod calistirmasini soylemek asla no-op degil:
   #
-  #   - Yuk kabul edildiyse EL2'de YARIM CALISAN bir hipervizor oturuyor
-  #   - HCR_EL2.TSC acik demek EL1'den gelen HER SMC bizim vektorumuze
-  #     dusuyor demek. Windows PSCI icin SMC yapiyor.
-  #   - Vektorumuz beklenmedik bir durumda donerse ya da hic donmezse
-  #     sistem oracikta kilitlenir
+  #   - Yuk kabul edildiyse EL2'de YARIM CALISAN bir hipervizor oturuyordu.
+  #   - HCR_EL2.TSC acik demek EL1'den gelen HER SMC'nin vektore dusmesi.
+  #   - Vektorumuz beklenmedik bir durumda donerse sistem kilitleniyordu.
   #
-  # OLCUM BUNU DESTEKLIYOR: son denemede cihaz SIFIRLAMADI, DONDU - komple
-  # kapatmadan yeniden baslatilamadi. Sonsuza kadar donen bir istisna
-  # tuzaginin imzasi tam olarak budur. Ve sonme animasyonunu gordugumuzden
-  # beri UEFI'ye eklenen tek bilesen buydu.
+  # OLCUM BUNU DESTEKLIYOR: eski denemede cihaz SIFIRLAMADI, DONDU. Bu yuzden
+  # HVC kopyasi da varsayilan degildir ve ilk turda yalnizca kaydini kanitlar.
   #
   # Bellek haritasindaki "B2L EL2" bolgesi YERINDE BIRAKILDI: kod
   # yuklenmedigi icin calismiyor, ama ayrilmis RAM olarak duruyor ve

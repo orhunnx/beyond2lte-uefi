@@ -9,6 +9,7 @@
 #   yap.sh                 DEBUG derle
 #   yap.sh -r RELEASE      RELEASE derle
 #   yap.sh --acpi          ACPI tablolarini derle + etkinlestir
+#   yap.sh --psci-hvc      deneysel: Windows PSCI'sini EL2 HVC koprusune yonlendir
 #   (Odin .tar ve .img her zaman uretilir)
 #   yap.sh --clean         temiz derleme (-c)
 #
@@ -16,12 +17,13 @@ set -euo pipefail
 
 PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MU="${MU_SILICIUM:-$HOME/Mu-Silicium}"
-REL="DEBUG"; CLEAN=""; DO_ACPI=0; DO_TAR=0
+REL="DEBUG"; CLEAN=""; DO_ACPI=0; DO_TAR=0; PSCI_HVC=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     -r|--release) REL="$2"; shift 2 ;;
     --acpi)  DO_ACPI=1; shift ;;
+    --psci-hvc) PSCI_HVC=1; DO_ACPI=1; shift ;;
     --tar)   shift ;;   # geriye donuk uyumluluk, artik varsayilan
     --clean) CLEAN="-c"; shift ;;
     -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
@@ -46,6 +48,28 @@ if [ "$DO_ACPI" = 1 ]; then
   cp -r "$PROJ/silicium-acpi-overlay/SoCs" "$MU/Silicium-ACPI/"
   ( cd "$MU/Silicium-ACPI/SoCs/Samsung/S5E9820" && for f in *.dsl; do iasl -ve "$f"; done )
   echo "ACPI tablolari derlendi."
+fi
+
+# ---------------------------------------------------------------- PSCI conduit
+#
+# Windows'a PSCI beyan eden FADT, hangi konduit kullanilacagini ARM Flags
+# bit 1 ile secir. Varsayilan SMC'dir ve derlemeden sonra da zorla SMC'ye
+# geri konur: bir onceki --psci-hvc deneyinin FACP.aml'i Mu-Silicium'da
+# kalip sonraki "bash yap.sh" derlemesini sessizce degistiremez.
+#
+# --psci-hvc ayrica --acpi'yi zorunlu kilar; FACP.aml'in bu turda sifirdan
+# derlendigi gorulmeden ikili tablo yamalanmaz.
+#
+FADT_AML="$MU/Silicium-ACPI/SoCs/Samsung/S5E9820/FACP.aml"
+if [ "$PSCI_HVC" = 1 ]; then
+  [ -f "$FADT_AML" ] || {
+    echo "HATA: --psci-hvc icin FACP.aml derlenemedi: $FADT_AML"
+    exit 1
+  }
+  say "PSCI HVC konduiti etkinlestiriliyor (deneysel)"
+  python3 "$PROJ/tools_fadt_psci.py" "$FADT_AML" --hvc
+elif [ -f "$FADT_AML" ]; then
+  python3 "$PROJ/tools_fadt_psci.py" "$FADT_AML" --smc
 fi
 
 # ---------------------------------------------------------------- overlay
@@ -83,6 +107,29 @@ echo "  Platforms/Samsung/beyond2ltePkg"
 echo "  Silicon/Samsung/S5E9820Pkg"
 echo "  Silicon/Samsung/SamsungPkg/Drivers/UfsDxe/UfsDxe.inf  (upstream yamasi)"
 echo "  Resources/{Configs,DTBs}/beyond2lte.*"
+
+# ---------------------------------------------------------------- PSCI HVC bridge
+#
+# Varsayilan DXE.inc B2LEl2Dxe'yi yorumda birakir. HVC denemesinde bu tek
+# satiri Mu-Silicium kopyasinda acariz; bir sonraki normal derlemede overlay
+# yeniden kopyalandigi icin satir otomatik olarak tekrar kapali olur.
+#
+# Bu yol eski HCR_EL2.TSC SMC tuzagini kullanmaz. FADT HVC bitinin Windows'un
+# PSCI cagrilarini HVC ile gondermesini sagladigi dar yolu kullanir.
+#
+if [ "$PSCI_HVC" = 1 ]; then
+  DXE_INC="$MU/Platforms/Samsung/beyond2ltePkg/Include/DXE.inc"
+  DSC="$MU/Platforms/Samsung/beyond2ltePkg/beyond2lte.dsc"
+  sed -i 's|^  # INF beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf$|  INF beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf|' "$DXE_INC"
+  sed -i 's|^  # beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf$|  beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf|' "$DSC"
+  if grep -qx '  INF beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf' "$DXE_INC" \
+     && grep -qx '  beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf' "$DSC"; then
+    echo "  B2LEl2Dxe: HVC koprusu DERLEME VE FV'DE"
+  else
+    echo "HATA: B2LEl2Dxe DSC/DXE.inc icinde etkinlestirilemedi"
+    exit 1
+  fi
+fi
 
 #
 # UfsDxe.c yamasi - YAZMA YOLU.

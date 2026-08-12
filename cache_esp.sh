@@ -6,7 +6,7 @@
 #   out/cache.img       ham imaj   -> recovery + adb dd yolu
 #   out/cache-esp.tar   sparse tar -> Odin, AP slotu
 #
-#   bash cache_esp.sh [--baseline] [iceri-konacak-dosya.efi]
+#   bash cache_esp.sh [--baseline|--psci-hvc] [iceri-konacak-dosya.efi]
 #
 # Argüman verilmezse Mu-Silicium build'indeki Shell.efi aranir.
 #
@@ -55,6 +55,7 @@ LINUXOK=0
 BIGPART=0
 BOSALT=0
 BASELINE=0
+PSCI_HVC=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
@@ -63,6 +64,7 @@ for a in "$@"; do
     --system) BIGPART=1 ;;
     --bos)    BOSALT=1 ;;
     --baseline) BASELINE=1 ;;
+    --psci-hvc) PSCI_HVC=1 ;;
     *)        ARGS+=("$a") ;;
   esac
 done
@@ -86,8 +88,23 @@ if [ "$BASELINE" = 1 ] && [ "$WINONLY" = 0 ]; then
   echo "--baseline yalnizca Windows modu ile kullanilir: bash cache_esp.sh --win --system --baseline"
   exit 1
 fi
+if [ "$PSCI_HVC" = 1 ] && [ "$WINONLY" = 0 ]; then
+  echo "--psci-hvc yalnizca Windows modu ile kullanilir: bash cache_esp.sh --win --system --psci-hvc"
+  exit 1
+fi
+if [ "$PSCI_HVC" = 1 ] && [ "$BASELINE" = 1 ]; then
+  echo "--psci-hvc ve --baseline birlikte kullanilmaz: HVC deneyinde onceki acilisin HVC kaydi ekranda okunur."
+  exit 1
+fi
 if [ "$BASELINE" = 1 ]; then
   say "MOD: Windows temiz taban (B2L tani yok)"
+fi
+if [ "$PSCI_HVC" = 1 ]; then
+  [ -s "$PROJ/esp/B2LGOSTR.EFI" ] || {
+    echo "HATA: HVC kaydini gosterecek B2LGOSTR.EFI yok. Once: bash yap.sh --psci-hvc"
+    exit 1
+  }
+  say "MOD: Windows PSCI HVC deneyi (B2LGoster sonraki acilista HVC kaydini gosterir)"
 fi
 
 #
