@@ -198,9 +198,21 @@ adaylar() {
   servisler | while IFS= read -r S; do
     [ -n "$S" ] || continue
     echo " $KORUMALI " | grep -qi " $S " && continue
+    #
+    # YALNIZCA SU AN ACIK OLANLAR ADAY.
+    #
+    # Ilk surum kapali olanlari da listeye aliyordu ve aralik disindakileri
+    # Start=0 yapiyordu. Ama su an kapali olanlarin bir kismi aslinda
+    # Start=1 (SYSTEM) idi; onlari acilis surucusune cevirmek aradigimizla
+    # ilgisi olmayan bir bozulma uretir ve "denedim, degisti" diye
+    # okunurdu.
+    #
+    # Taban durum BUG=H veren durum. Onu korumak, tek degiskenin
+    # aradigimiz sey olmasini garantiliyor.
+    #
     ST="$(hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start 2>/dev/null || true)"
     case "$ST" in
-      0|0x0|0x00000000|4|0x4|0x00000004) echo "$S" ;;
+      0|0x0|0x00000000) echo "$S" ;;
     esac
   done
 }
