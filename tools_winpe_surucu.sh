@@ -220,10 +220,22 @@ adaylar() {
 case "$KOMUT" in
 
 aralik)
-  A="${2:-}"; B="${3:-}"
-  case "$A$B" in
-    *[!0-9]*|"") echo "Kullanim: bash $0 aralik <ilk> <son>   ornek: aralik 1 27"; exit 1 ;;
-  esac
+  #
+  # ARGUMANLAR $1 VE $2 - "shift" YUZUNDEN.
+  #
+  # Betik yukarida "KOMUT=$1; shift" yapiyor, yani case'e gelindiginde
+  # sayilar $1 ve $2'de. Ilk surum $2/$3 okuyordu ve B bos kaliyordu.
+  #
+  # Ayrica bosluk denetimi de kusurluydu: "$A$B" birlesimi "1" olunca
+  # hepsi rakam sayilip geciyordu. Ikisi AYRI AYRI denetleniyor.
+  #
+  A="${1:-}"; B="${2:-}"
+  case "$A" in *[!0-9]*|"") A="" ;; esac
+  case "$B" in *[!0-9]*|"") B="" ;; esac
+  if [ -z "$A" ] || [ -z "$B" ]; then
+    echo "Kullanim: bash $0 aralik <ilk> <son>   ornek: aralik 1 14"
+    exit 1
+  fi
 
   LST="$(adaylar)"
   TOP=$(printf '%s\n' "$LST" | sed '/^$/d' | wc -l)
