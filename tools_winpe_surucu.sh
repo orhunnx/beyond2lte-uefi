@@ -203,26 +203,31 @@ servisler() {
 # "aralik" bunun uzerinden calisiyor. Korumalilar listeye HIC girmiyor,
 # boylece numaralar korumali kume degistiginde kaymiyor.
 #
+#
+# ADAY KUMESI SABIT - DURUMA GORE DEGISMEZ.
+#
+# Ilk surum "su an Start=0 olanlar" diyordu ve bu bisect'i imkansiz kildi:
+# bir aralik kapatilinca o isimler listeden dusuyor, bir sonraki cagrida
+# liste 27'den 6'ya iniyordu. Her adimda zemin kayiyordu.
+#
+# Liste, cihazda alinan "liste" ciktisindaki KORUMASIZ VE O AN ACIK olan
+# 30 surucuden olusuyor. O anda kapali olan 19 servis (aslen Start=1)
+# kumeye HIC girmiyor: onlari Start=0 yapmak SYSTEM surucusunu acilis
+# surucusune cevirmek olurdu ve aradigimizla ilgisi olmayan bozulmalar
+# uretirdi.
+#
+ADAY_KUME="atapi cdrom DXGKrnl EhStorClass EhStorTcgDrv fvevol GenPass \
+intelide NDIS nvdimm nvmedisk pci pciide pmem PRM qcgpio_i QcTrEE_i \
+sacdrv scmbus storahci stornvme storufs storvsc Tcpip TPM vmbus volmgrx \
+vpci WindowsTrustedRT WindowsTrustedRTProxy"
+
+#
+# Hive'da gercekten var olanlari suz. Bir isim WinPE surumune gore
+# olmayabilir; olmayani "kapattik" saymak sessiz bir yanilgi olurdu.
+#
 adaylar() {
-  servisler | while IFS= read -r S; do
-    [ -n "$S" ] || continue
-    echo " $KORUMALI " | grep -qi " $S " && continue
-    #
-    # YALNIZCA SU AN ACIK OLANLAR ADAY.
-    #
-    # Ilk surum kapali olanlari da listeye aliyordu ve aralik disindakileri
-    # Start=0 yapiyordu. Ama su an kapali olanlarin bir kismi aslinda
-    # Start=1 (SYSTEM) idi; onlari acilis surucusune cevirmek aradigimizla
-    # ilgisi olmayan bir bozulma uretir ve "denedim, degisti" diye
-    # okunurdu.
-    #
-    # Taban durum BUG=H veren durum. Onu korumak, tek degiskenin
-    # aradigimiz sey olmasini garantiliyor.
-    #
-    ST="$(hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start 2>/dev/null || true)"
-    case "$ST" in
-      0|0x0|0x00000000) echo "$S" ;;
-    esac
+  for S in $ADAY_KUME; do
+    hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start >/dev/null 2>&1 && echo "$S"
   done
 }
 
