@@ -37,6 +37,23 @@
 # iyi.
 #
 set -euo pipefail
+
+#
+# ARGUMAN: kapat / ac
+#
+# NEDEN GEREKTI: b2lfb korumali listede, cunku olcum aracini yanlislikla
+# kaybetmemek icin oyle yapildi. Ama "aletsiz taban" deneyi tam olarak
+# onu kapatmayi gerektiriyor: uc UEFI tani surucusunu cikardik ve TIK
+# degismedi (98), geriye sinanmamis tek alet b2lfb kaldi.
+#
+# Kapali haldeyken sayi okunamaz, olcum kronometreyle yapilir. Amac zaten
+# sayi degil: sifirlama VAR MI ve kabaca ne zaman.
+#
+B2L_MOD="${1:-kur}"
+case "$B2L_MOD" in
+  kur|kapat|ac) ;;
+  *) echo "Kullanim: bash $0 [kur|kapat|ac]"; exit 1 ;;
+esac
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$HERE/windows/b2lfb"
 WIM="$HERE/esp/sources/boot.wim"
@@ -67,6 +84,35 @@ command -v openssl      >/dev/null || { echo "openssl yok -> sudo apt install -y
 # fonksiyon adlari ve hangi DLL'de olduklari. llvm-dlltool bundan gercek
 # bir .lib uretiyor; ntoskrnl.exe'nin kendisine ihtiyac yok.
 #
+if [ "$B2L_MOD" != "kur" ]; then
+  [ "$B2L_MOD" = "kapat" ] && DEG=4 || DEG=0
+
+  say "b2lfb servisi Start=$DEG yapiliyor"
+  HW="$(mktemp -d)"; trap 'rm -rf "$HW"' EXIT
+  wimlib-imagex extract "$WIM" 1 /Windows/System32/config/SYSTEM \
+    --dest-dir="$HW" --no-acls >/dev/null
+
+  printf '[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lfb]\n"Start"=dword:0000000%s\n' \
+    "$DEG" > "$HW/yaz.reg"
+  hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$HW/SYSTEM" "$HW/yaz.reg"
+
+  V="$(hivexget "$HW/SYSTEM" "ControlSet001\\Services\\b2lfb" Start 2>/dev/null || echo '?')"
+  [ "$V" = "$DEG" ] || { echo "  ! geri okuma $V, beklenen $DEG"; exit 1; }
+  echo "  dogrulandi: Start=$V"
+
+  wimlib-imagex update "$WIM" 1 \
+    --command="delete --force /Windows/System32/config/SYSTEM" >/dev/null 2>&1 || true
+  wimlib-imagex update "$WIM" 1 \
+    --command="add '$HW/SYSTEM' /Windows/System32/config/SYSTEM" >/dev/null
+  echo
+  if [ "$B2L_MOD" = "kapat" ]; then
+    echo "Temiz taban icin: bash cache_esp.sh --win --system --baseline"
+  else
+    echo "Simdi: bash cache_esp.sh --win --system"
+  fi
+  exit 0
+fi
+
 say "ntoskrnl import kitapligi uretiliyor"
 cat > "$OUT/ntoskrnl.def" <<'DEF'
 LIBRARY ntoskrnl.exe

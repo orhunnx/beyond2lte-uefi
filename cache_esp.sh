@@ -6,7 +6,7 @@
 #   out/cache.img       ham imaj   -> recovery + adb dd yolu
 #   out/cache-esp.tar   sparse tar -> Odin, AP slotu
 #
-#   bash cache_esp.sh [iceri-konacak-dosya.efi]
+#   bash cache_esp.sh [--baseline] [iceri-konacak-dosya.efi]
 #
 # Argüman verilmezse Mu-Silicium build'indeki Shell.efi aranir.
 #
@@ -54,6 +54,7 @@ WINONLY=0
 LINUXOK=0
 BIGPART=0
 BOSALT=0
+BASELINE=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
@@ -61,11 +62,33 @@ for a in "$@"; do
     --linux)  LINUXOK=1 ;;
     --system) BIGPART=1 ;;
     --bos)    BOSALT=1 ;;
+    --baseline) BASELINE=1 ;;
     *)        ARGS+=("$a") ;;
   esac
 done
 if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
 if [ "$WINONLY" = 1 ]; then say "MOD: Windows"; else say "MOD: Linux"; fi
+
+#
+# --baseline: Windows'un kendisi disinda B2L tani kodu calistirmayan ESP.
+#
+# Bu mod B2LGOSTR.EFI ve EBSTEST.EFI'yi imaja ALMAZ, normal startup.nsh
+# yerine yalnizca bootmgfw.efi'yi bulan kucuk baslangic betigini koyar.
+# B2LGoster'in tum conventional RAM'i yaz/oku/geri-yaz taramasi yaptigi
+# unutulmamali: normal Shell yolu onu Windows'tan ONCE calistirir. Bu,
+# b2lfb Start=4 ve DXE.inc'teki B2L suruculerinin kapatilmasiyla birlikte
+# gercekten aletsiz tabani olusturur.
+#
+# UFS/PWM veya Watchdog yamalarini DEGISTIRMEZ. Bir deneyde tek degisken
+# aletler olsun diye onlar yap.sh'in mevcut ayarinda kalir.
+#
+if [ "$BASELINE" = 1 ] && [ "$WINONLY" = 0 ]; then
+  echo "--baseline yalnizca Windows modu ile kullanilir: bash cache_esp.sh --win --system --baseline"
+  exit 1
+fi
+if [ "$BASELINE" = 1 ]; then
+  say "MOD: Windows temiz taban (B2L tani yok)"
+fi
 
 #
 # GUVENLIK KILIDI: --system + Linux modu neredeyse kesin bir hata.
@@ -239,6 +262,9 @@ mkfs.vfat $FATOPT -n UEFIESP "$IMG" >/dev/null
 # komut vermenin tek yolu. Iki yere de koyuyoruz cunku Shell'in arama sirasi
 # surume gore degisiyor: once kendi dizini, sonra kok.
 NSH="$PROJ/esp/startup.nsh"
+if [ "$BASELINE" = 1 ]; then
+  NSH="$PROJ/esp/startup-baseline.nsh"
+fi
 
 # Bir tur, cihazdan geri okunan imajda ESKI startup.nsh cikti: kernel'ler
 # eklendikten sonra ama script duzenlenmeden once uretilmis bir imaj
@@ -261,7 +287,16 @@ if command -v mcopy >/dev/null; then
   for f in "$PROJ"/esp/*; do
     b="$(basename "$f")"
     [ "$b" = "startup.nsh" ] && continue
+    [ "$b" = "startup-baseline.nsh" ] && continue
     [ -e "$f" ] || continue
+    if [ "$BASELINE" = 1 ]; then
+      case "$b" in
+        B2LGOSTR.EFI|EBSTEST.EFI)
+          echo "  - $b (atlandi: temiz taban)"
+          continue
+          ;;
+      esac
+    fi
     if [ "$WINONLY" = 1 ]; then
       case "$b" in
         vmlinuz-*|initramfs-*) echo "  - $b (atlandi: Windows modu)"; continue ;;

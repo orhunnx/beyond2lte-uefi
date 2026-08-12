@@ -274,6 +274,35 @@ Ve şunları tetiklemiyor:
 
 Yani sayaç yalnızca **Windows koşarken** işliyor.
 
+### Geçerli ilk deney: temiz taban
+
+Bu sonucu veren her açılışta kendi tanı kodumuz da vardı. Son commit ile
+`B2LRtHookDxe`, `B2LSehDxe` ve `B2LGicSusDxe` `DXE.inc` içinden çıkarıldı;
+`tools_b2lfb.sh kapat` da Windows sürücüsünü `Start=4` yapıyor.
+
+Bir eksik daha vardı: normal `startup.nsh`, `B2LGOSTR.EFI`'yi otomatik
+çalıştırıyor. Bu yalnızca ekran yazısı değil; bütün `EfiConventionalMemory`
+sayfalarını yaz/oku/geri-yaz tarıyor. Windows'tan önce bitse de buna
+"aletsiz" demek doğru değildi.
+
+Bu yüzden ilk flash için:
+
+```bash
+bash yap.sh
+bash tools_b2lfb.sh kapat
+bash cache_esp.sh --win --system --baseline
+```
+
+`--baseline`, imajın içinden `B2LGOSTR.EFI`/`EBSTEST.EFI`'yi çıkarır ve
+yalnızca `bootmgfw.efi`yi çağıran `startup-baseline.nsh`'i `startup.nsh`
+olarak koyar. UFS/PWM ve Watchdog ayarlarını değiştirmez: bu turdaki tek
+değişken B2L ölçüm araçlarıdır.
+
+Diğer FAT biriminde eski bir ESP kalmamalı. SYSTEM'e bu imaj yazılıyorsa,
+CACHE'i ayrıca `bash cache_esp.sh --bos` ile silip iki tar'ı aynı flash
+turunda yazmak gerekir; aksi halde Shell eski `startup.nsh`'i bulup bütün
+deneyi geçersiz kılabilir.
+
 ### Sürücü bisect'inin yanlış okunması (dürüstlük notu)
 
 Bir süre `storufs` ve `rdbss`'i "suçlu" olarak kaydettik. `storufs` için
