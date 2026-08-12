@@ -69,6 +69,16 @@
   #
   INF beyond2ltePkg/Drivers/B2LSehDxe/B2LSehDxe.inf
 
+  #
+  # ExitBootServices aninda GIC'teki butun SPI'lari susturuyor.
+  #
+  # Cihazda olculdu: UEFI kesmeleri hic acmadigi halde sekiz SPI bekliyordu
+  # ve dordu ekran hattindan (decon/dsim/dpp) geliyordu. S-Boot o bloklari
+  # acilis logosu icin calisir birakiyor, UEFI susturmuyor, Windows'un ise
+  # surucusu yok. Gerekce B2LGicSusDxe.c basinda.
+  #
+  INF beyond2ltePkg/Drivers/B2LGicSusDxe/B2LGicSusDxe.inf
+
   INF SamsungPkg/Drivers/ChipInfoDxe/ChipInfoDxe.inf
   INF SamsungPkg/Drivers/GpioDxe/GpioDxe.inf
   INF SamsungPkg/Drivers/UsiDxe/UsiDxe.inf
