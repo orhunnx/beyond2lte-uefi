@@ -134,3 +134,50 @@ baslatmadan duruyor).
 
 Yani Windows PSCI'ye guveniyor, EL3 ise en temel PSCI cagrisina bile cevap
 vermiyor. Bu celiski henuz aciklanmadi ve siradaki adaylardan biri.
+
+---
+
+# SUCLU BULUNDU: storufs.sys
+
+## Olcum
+
+| Durum | Sonuc |
+|---|---|
+| Butun adaylar acik | ~10 saniyede SESSIZ SIFIRLAMA, BUG=H |
+| Depolama kumesi kapali (11 surucu) | `0xc000021a`, kullanici moduna varildi |
+| **YALNIZCA storufs kapali** | **`0xc000021a`, TIK cok yuksek, cubuklar coK ilerledi** |
+
+Tek degisken, iki farkli sonuc.
+
+## Iki hata kodunun anlami ayri
+
+- `0xc000021a` (SYSTEM_PROCESS_TERMINATED) - `smss.exe` calismis, yani
+  **olum noktasi gecilmis**. Sessiz sifirlama cekirdek baslatmasinin
+  sonunda oluyordu; kullanici modu ondan sonrasi.
+- `NDIS.SYS 0xD1` - surucu yuklenirken, yani noktadan ONCE. TIK cok kucuk
+  cikiyor. Bunu "suclu bulundu" diye okumak butun aramayi cope atardi.
+
+## Neden her seye uyuyor
+
+| Gozlem | Aciklama |
+|---|---|
+| Windows'a ozgu | Linux kendi `exynos-ufs` surucusunu kullaniyor |
+| Ise orantili, ~10 sn CPU | `storufs`'un denetleyiciyi tanima/kurma ani |
+| Bugcheck yok | Coken Windows degil, veri yolu / denetleyici |
+| `EbsTest` 30+ sn yasiyor | UFS'e hic dokunmuyor |
+| Butun surucular kapaliyken kayboluyor | `storufs` o kumedeydi |
+| Linux 170 sn CPU yakiyor | Kendi surucusu dogru kuruyor |
+
+## Onceki yanlis kayit
+
+`storufs` daha once "yapisal olarak elendi" diye kaydedilmisti. O sonuc,
+sonradan karistigi anlasilan disk acilisi olcumune dayaniyordu ve bir daha
+acilmamisti. Kapanmis sayilan bir dosyayi yeniden acmak bu turda karsiligini
+verdi.
+
+## Sonraki adim
+
+WinPE RAM diskten calistigi icin `storufs` olmadan da aciliyor. Kalan
+`0xc000021a`, kapattigimiz servislerin eksikliginden kaynaklanan NORMAL bir
+WinPE sorunu - Windows'un belgelenmis alani, aylardir ugrastigimiz kapali
+kutu degil.
