@@ -145,9 +145,11 @@ vermiyor. Bu celiski henuz aciklanmadi ve siradaki adaylardan biri.
 |---|---|
 | Butun adaylar acik | ~10 saniyede SESSIZ SIFIRLAMA, BUG=H |
 | Depolama kumesi kapali (11 surucu) | `0xc000021a`, kullanici moduna varildi |
-| **YALNIZCA storufs kapali** | **`0xc000021a`, TIK cok yuksek, cubuklar coK ilerledi** |
+| **YALNIZCA storufs kapali** | **`0xc000021a`, TIK cok yuksek, cubuklar cok ilerledi** |
+| **storufs ACIK, yerine cdrom kapali** | **10 saniyede SESSIZ SIFIRLAMA** |
 
-Tek degisken, iki farkli sonuc.
+Tek degisken, iki yonde de dogrulandi. Tek yonlu bir olcumu kabul etmenin
+bedelini bu projede birkac kez odedik; bu sefer odemedik.
 
 ## Iki hata kodunun anlami ayri
 
