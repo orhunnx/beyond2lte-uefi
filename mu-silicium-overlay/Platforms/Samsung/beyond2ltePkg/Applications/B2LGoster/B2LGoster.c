@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    17
+#define B2L_SURUM    18
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 17"
+#define SURUM_METNI  L"SURUM 18"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -67,6 +67,7 @@
 #define DUR_ONCEKI  0xCF041180ULL
 #define TARA_KAYIT  0xCF041200ULL   // bellek taramasinin ilerlemesi
 #define GIC_KAYIT   0xCF041300ULL   // B2LGicSusDxe'nin kaydi
+#define GIC_ONCEKI  0xCF041340ULL   // onceki acilisin devir ani
 #define GICD        0x10101000ULL   // dagitici
 #define GICD_ISPEND 0x200           // bekleyen kesme bitleri
 #define FB_KAYIT    0xCF030000ULL   // b2lfb (Windows surucusu)
@@ -722,7 +723,7 @@ B2LGosterEntry (
   // anlatiyor.
   //
   {
-    UINT64 *Q = (UINT64 *)(UINTN)GIC_KAYIT;
+    UINT64 *Q = (UINT64 *)(UINTN)GIC_ONCEKI;
 
     if (Q[0] == 0x0000005143494747ULL) {
       Deger (L"SUS ONCE=", (UINT32)Q[1], NULL, 0x0060C0FF);
@@ -730,7 +731,7 @@ B2LGosterEntry (
              (Q[2] == 0) ? L"TEMIZ" : L"KALDI",
              (Q[2] == 0) ? 0x0040FF40 : 0x00FF4040);
     } else {
-      Yaz (L"GIC SUSTURMA CALISMADI", 0x00808080);
+      Yaz (L"GIC SUSTURMA: DEVIR YOK", 0x00808080);
     }
   }
 

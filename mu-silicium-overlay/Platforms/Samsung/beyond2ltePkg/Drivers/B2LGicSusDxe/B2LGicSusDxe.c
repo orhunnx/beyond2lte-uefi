@@ -70,6 +70,7 @@
 #define GICD_ISPEND   0x200
 
 #define GIC_KAYIT     0xCF041300ULL
+#define GIC_ONCEKI    0xCF041340ULL
 
 STATIC EFI_EVENT mCikisOlayi;
 
@@ -145,6 +146,18 @@ B2LGicSusEntry (
 {
   EFI_STATUS Status;
 
+  //
+  // ONCE KOPYALA, SONRA TEMIZLE.
+  //
+  // Ilk surumde kayit dogrudan sifirlaniyordu ve sonucu HIC goremezdik:
+  // olay Windows'a devrederken atesleniyor, DriverEntry ise bir sonraki
+  // acilisin en basinda calisiyor. Yani her acilis, bir onceki devrin
+  // sonucunu okunmadan siliyordu.
+  //
+  // Bu hatanin birebir aynisini SEH kaydinda da yapmistik. Kaydini bir
+  // sonraki acilista okunacak her olcum, temizlemeden once kopyalanmali.
+  //
+  CopyMem ((VOID *)(UINTN)GIC_ONCEKI, (VOID *)(UINTN)GIC_KAYIT, 0x40);
   ZeroMem ((VOID *)(UINTN)GIC_KAYIT, 0x40);
 
   Status = gBS->CreateEventEx (
