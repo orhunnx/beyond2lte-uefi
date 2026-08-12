@@ -254,6 +254,27 @@ static UINT64 gTik = 0;
 static volatile UINT64 gSpin = 0;
 
 /*
+ * DONGUNUN SERBEST HIZI.
+ *
+ * NEDEN: iki acilis ayni goruntuyle TIK=0102/SPN=11M ve TIK=0258/SPN=1.73G
+ * verdi. Ikisi de "sabit sure" ve "sabit tur sayisi" modellerini cürütüyor,
+ * ama yerine koyacagimiz model - "Windows belli miktarda IS yapinca oluyor"
+ * - hesaplanamiyor: 1.73 milyar tur 25 saniyenin tamami da olabilir, ucte
+ * biri de. Donguinin CPU'yu tek basina aldigi andaki hizini bilmeden toplam
+ * tur sayisi hicbir seye cevrilemez.
+ *
+ * Cozum: her tikte o tikteki tur sayisina bak ve gorulen EN BUYUGUNU sakla.
+ * En buyuk delta, dongunun rakipsiz kaldigi bir 100 ms dilimidir; yani
+ * serbest hiz. Ondan sonra
+ *
+ *     Windows'un CPU suresi = toplam sure - (toplam tur / serbest hiz)
+ *
+ * dogrudan hesaplanabiliyor ve iki acilis karsilastirilabilir hale geliyor.
+ */
+static UINT64 gSpinOnceki = 0;
+static UINT32 gSpinAzami  = 0;
+
+/*
  * IMAJ YUKLEME KANCASI KALDIRILDI - HEM COKTU HEM SINYAL VERMIYORDU.
  *
  * PsSetLoadImageNotifyRoutine ile her surucu imajinin adini kaydediyorduk.

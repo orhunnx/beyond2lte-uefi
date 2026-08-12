@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    12
+#define B2L_SURUM    13
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 12"
+#define SURUM_METNI  L"SURUM 13"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -440,6 +440,21 @@ B2LGosterEntry (
 
     for (K = 0; K < 16; K++) {
       Tik[K] = (CHAR16)FbLog[16 + K];
+      if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
+        Tik[K] = L' ';
+      }
+    }
+
+    Tik[16] = L'\0';
+    Yaz (Tik, 0x00FFFF40);
+
+    //
+    // MAX: bir tikte gorulen en buyuk tur sayisi = dongunun serbest hizi.
+    // SPN'i bununla bolunce Windows'un gercekte ne kadar CPU kullandigi
+    // cikiyor; TIK tek basina bunu soyleyemiyor.
+    //
+    for (K = 0; K < 16; K++) {
+      Tik[K] = (CHAR16)FbLog[96 + K];
       if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
         Tik[K] = L' ';
       }
