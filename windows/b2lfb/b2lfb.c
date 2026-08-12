@@ -338,6 +338,31 @@ static void B2LSystemStartRecord (void)
 }
 
 /*
+ * +0xC0, sirali SERVICE_SYSTEM_START grubu damgasi:
+ *
+ *   SYG=REG C=000  -> boot surucusu damgayi kurdu
+ *   SYG=INI C=001  -> System Bus Extender grubundeki b2lsg0 baslatildi
+ *
+ * b2lsys grupsuz bir Start=1 surucusudur; SYS=REG onun sirasi gelmeden
+ * reset oldugunu soyler, fakat daha erken bir LoadOrderGroup'un hic
+ * baslamadigini soylemez. Bu ikinci marker o belirsizligi ayirir.
+ */
+static void B2LSystemGroupRecord (void)
+{
+  volatile UINT8 *P;
+
+  if (gLog == 0) {
+    return;
+  }
+
+  P = (volatile UINT8 *)gLog + 192;
+  P[0]  = 'S'; P[1]  = 'Y'; P[2]  = 'G'; P[3]  = '=';
+  P[4]  = 'R'; P[5]  = 'E'; P[6]  = 'G'; P[7]  = ' ';
+  P[8]  = 'C'; P[9]  = '='; P[10] = '0'; P[11] = '0'; P[12] = '0';
+  P[13] = ' '; P[14] = ' '; P[15] = ' ';
+}
+
+/*
  * +0x70, 16 baytlik boot-reinit kaydi:
  *
  *   BRI=REG C=000   -> callback kaydedildi, henuz cagrilmadi
@@ -802,6 +827,7 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   gQpcBaslangic = KeQueryPerformanceCounter (&gQpcFrekans);
   B2LAutoStartRecord ();
   B2LSystemStartRecord ();
+  B2LSystemGroupRecord ();
 
 
   Pa.QuadPart = (long long)FB_PHYS;

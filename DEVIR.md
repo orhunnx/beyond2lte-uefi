@@ -602,7 +602,46 @@ Sonraki turda `AUT` ile birlikte yorumlanır:
 `SYS=INI`, öteki bütün Start=1 sürücülerinin de yüklendiğini tek başına
 kanıtlamaz; grup sırası bu sürücünün onlardan önce ya da sonra gelmesini
 belirleyebilir. Kanıtladığı dar ve doğru ifade, Windows'un PnP sonrası
-`SERVICE_SYSTEM_START` yükleme evresine girmiş olduğudur.
+`SERVICE_SYSTEM_START` yükleme evresinde `b2lsys`e kadar ilerlediğidir.
+
+Üçüncü turdaki ekran şöyledir:
+
+```
+TIK=0422 BUG=H
+MAX=012D6F47
+SPN=5C83BC07
+BRI=0001 C=001
+QPD=416693DF F=018CBA80
+AUT=REG C=000
+SYS=REG C=000
+RST_STAT=20000000
+```
+
+`QPD/F = 42.201599 s`; 422 adet tik ile DPC aralığı yine yaklaşık
+`100.004 ms`dir. Dolayısıyla yeni markerlar ölçüm süresini değiştirmedi.
+`SYS=REG`, yalnızca **grupsuz** `b2lsys.sys`in `DriverEntry` noktasına hiç
+ulaşılmadığını kanıtlar. Önceki Start=1 blokaj deneyi de bu sürücünün
+grupsuz/en-sonraki konumda olmasına dayanıyordu; bu nedenle sonucu
+"Start=1 evresi hiç başlamadı" diye okumak fazla güçlü olurdu.
+
+### Sıradaki ayrım: sıralı Start=1 grubu ile grupsuz Start=1 sürücüsü
+
+Windows, `SERVICE_SYSTEM_START` sürücülerinin yükleme sırasını `Group`
+değeriyle de belirler. Yeni `b2lsg0.sys`, `Start=1` ve `Group="System Bus
+Extender"` ile eklenmiştir; ana `b2lfb` de bu yerleşik grubu Start=0
+aşamasında kullanır. `b2lsg0` hiçbir iş yapmadan `0xCF030000+0xC0` alanına
+damga basar. Betik, WIM'den geri okuyarak hem Start değerini hem de Group
+değerini doğrular.
+
+| Kayıt | Dar yorum |
+|---|---|
+| `SYG=REG`, `SYS=REG`, `AUT=REG` | `b2lsg0` ve grupsuz `b2lsys`e sıra gelmedi |
+| `SYG=INI`, `SYS=REG`, `AUT=REG` | sıralı sistem grubuna girildi; grupsuz işaretçiden önce reset |
+| `SYG=INI`, `SYS=INI`, `AUT=REG` | iki Start=1 işaretçisi de geçti, SCM auto-start öncesinde reset |
+
+Bu markerlar sürücüler arasındaki her iç sıralamayı tek başına kanıtlamaz;
+ama önceki Start=1 blokajının bıraktığı grup-sırası belirsizliğini ölçülebilir
+hale getirir.
 
 Kaynaklar: [Microsoft — AddService StartType](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-addservice-directive),
 [Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order).

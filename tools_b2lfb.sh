@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# b2lfb olcum surucusunu, b2lsys sistem-asama ve b2lauto SCM-damga
-# suruculerini WSL'de derler, imzalar ve boot.wim'e yerlestirir.
+# b2lfb olcum surucusunu, b2lsg0 sirali-sistem, b2lsys grupsuz-sistem ve
+# b2lauto SCM-damga suruculerini WSL'de derler, imzalar ve boot.wim'e
+# yerlestirir.
 #
 #   bash tools_b2lfb.sh
 #
@@ -86,25 +87,28 @@ command -v openssl      >/dev/null || { echo "openssl yok -> sudo apt install -y
 #
 if [ "$B2L_MOD" != "kur" ]; then
   [ "$B2L_MOD" = "kapat" ] && DEG=4 || DEG=0
+  [ "$B2L_MOD" = "kapat" ] && SYSG_DEG=4 || SYSG_DEG=1
   [ "$B2L_MOD" = "kapat" ] && SYS_DEG=4 || SYS_DEG=1
   [ "$B2L_MOD" = "kapat" ] && AUTO_DEG=4 || AUTO_DEG=2
 
-  say "b2lfb Start=$DEG, b2lsys Start=$SYS_DEG, b2lauto Start=$AUTO_DEG yapiliyor"
+  say "b2lfb Start=$DEG, b2lsg0/b2lsys Start=1, b2lauto Start=$AUTO_DEG yapiliyor"
   HW="$(mktemp -d)"; trap 'rm -rf "$HW"' EXIT
   wimlib-imagex extract "$WIM" 1 /Windows/System32/config/SYSTEM \
     --dest-dir="$HW" --no-acls >/dev/null
 
-  printf '[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lfb]\n"Start"=dword:0000000%s\n\n[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lsys]\n"Start"=dword:0000000%s\n\n[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lauto]\n"Start"=dword:0000000%s\n' \
-    "$DEG" "$SYS_DEG" "$AUTO_DEG" > "$HW/yaz.reg"
+  printf '[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lfb]\n"Start"=dword:0000000%s\n\n[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lsg0]\n"Start"=dword:0000000%s\n\n[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lsys]\n"Start"=dword:0000000%s\n\n[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\b2lauto]\n"Start"=dword:0000000%s\n' \
+    "$DEG" "$SYSG_DEG" "$SYS_DEG" "$AUTO_DEG" > "$HW/yaz.reg"
   hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$HW/SYSTEM" "$HW/yaz.reg"
 
   V="$(hivexget "$HW/SYSTEM" "ControlSet001\\Services\\b2lfb" Start 2>/dev/null || echo '?')"
+  VG="$(hivexget "$HW/SYSTEM" "ControlSet001\\Services\\b2lsg0" Start 2>/dev/null || echo '?')"
   VS="$(hivexget "$HW/SYSTEM" "ControlSet001\\Services\\b2lsys" Start 2>/dev/null || echo '?')"
   VA="$(hivexget "$HW/SYSTEM" "ControlSet001\\Services\\b2lauto" Start 2>/dev/null || echo '?')"
   [ "$V" = "$DEG" ] || { echo "  ! b2lfb geri okuma $V, beklenen $DEG"; exit 1; }
+  [ "$VG" = "$SYSG_DEG" ] || { echo "  ! b2lsg0 geri okuma $VG, beklenen $SYSG_DEG"; exit 1; }
   [ "$VS" = "$SYS_DEG" ] || { echo "  ! b2lsys geri okuma $VS, beklenen $SYS_DEG"; exit 1; }
   [ "$VA" = "$AUTO_DEG" ] || { echo "  ! b2lauto geri okuma $VA, beklenen $AUTO_DEG"; exit 1; }
-  echo "  dogrulandi: b2lfb Start=$V, b2lsys Start=$VS, b2lauto Start=$VA"
+  echo "  dogrulandi: b2lfb Start=$V, b2lsg0 Start=$VG, b2lsys Start=$VS, b2lauto Start=$VA"
 
   wimlib-imagex update "$WIM" 1 \
     --command="delete --force /Windows/System32/config/SYSTEM" >/dev/null 2>&1 || true
@@ -157,6 +161,11 @@ echo "  b2lfb.obj: $(stat -c%s "$OUT/b2lfb.obj") bayt"
 clang -target aarch64-windows-msvc \
       -ffreestanding -fno-stack-protector -mno-stack-arg-probe -ffixed-x18 \
       -O1 -Wall -Wextra \
+      -c "$SRC/b2lsg0.c" -o "$OUT/b2lsg0.obj"
+echo "  b2lsg0.obj: $(stat -c%s "$OUT/b2lsg0.obj") bayt"
+clang -target aarch64-windows-msvc \
+      -ffreestanding -fno-stack-protector -mno-stack-arg-probe -ffixed-x18 \
+      -O1 -Wall -Wextra \
       -c "$SRC/b2lsys.c" -o "$OUT/b2lsys.obj"
 echo "  b2lsys.obj: $(stat -c%s "$OUT/b2lsys.obj") bayt"
 clang -target aarch64-windows-msvc \
@@ -178,6 +187,11 @@ lld-link /driver /subsystem:native /entry:DriverEntry /machine:arm64 \
          /out:"$OUT/b2lfb.sys" "$OUT/b2lfb.obj" "$OUT/ntoskrnl.lib"
 echo "  b2lfb.sys: $(stat -c%s "$OUT/b2lfb.sys") bayt"
 file "$OUT/b2lfb.sys" | sed 's/^/  /'
+lld-link /driver /subsystem:native /entry:DriverEntry /machine:arm64 \
+         /nodefaultlib \
+         /out:"$OUT/b2lsg0.sys" "$OUT/b2lsg0.obj" "$OUT/ntoskrnl.lib"
+echo "  b2lsg0.sys: $(stat -c%s "$OUT/b2lsg0.sys") bayt"
+file "$OUT/b2lsg0.sys" | sed 's/^/  /'
 lld-link /driver /subsystem:native /entry:DriverEntry /machine:arm64 \
          /nodefaultlib \
          /out:"$OUT/b2lsys.sys" "$OUT/b2lsys.obj" "$OUT/ntoskrnl.lib"
@@ -213,6 +227,10 @@ osslsigncode sign -certs "$CERT" -key "$KEY" \
   -n "beyond2lte framebuffer" -h sha256 \
   -in "$OUT/b2lfb.sys" -out "$OUT/b2lfb-signed.sys" 2>&1 | sed 's/^/  /'
 mv -f "$OUT/b2lfb-signed.sys" "$OUT/b2lfb.sys"
+osslsigncode sign -certs "$CERT" -key "$KEY" \
+  -n "beyond2lte system-group checkpoint" -h sha256 \
+  -in "$OUT/b2lsg0.sys" -out "$OUT/b2lsg0-signed.sys" 2>&1 | sed 's/^/  /'
+mv -f "$OUT/b2lsg0-signed.sys" "$OUT/b2lsg0.sys"
 osslsigncode sign -certs "$CERT" -key "$KEY" \
   -n "beyond2lte system-start checkpoint" -h sha256 \
   -in "$OUT/b2lsys.sys" -out "$OUT/b2lsys-signed.sys" 2>&1 | sed 's/^/  /'
@@ -252,6 +270,11 @@ wimlib-imagex update "$WIM" 1 \
   --command="add '$OUT/b2lfb.sys' /Windows/System32/drivers/b2lfb.sys" >/dev/null
 echo "  /Windows/System32/drivers/b2lfb.sys"
 wimlib-imagex update "$WIM" 1 \
+  --command="delete --force /Windows/System32/drivers/b2lsg0.sys" >/dev/null 2>&1 || true
+wimlib-imagex update "$WIM" 1 \
+  --command="add '$OUT/b2lsg0.sys' /Windows/System32/drivers/b2lsg0.sys" >/dev/null
+echo "  /Windows/System32/drivers/b2lsg0.sys"
+wimlib-imagex update "$WIM" 1 \
   --command="delete --force /Windows/System32/drivers/b2lsys.sys" >/dev/null 2>&1 || true
 wimlib-imagex update "$WIM" 1 \
   --command="add '$OUT/b2lsys.sys' /Windows/System32/drivers/b2lsys.sys" >/dev/null
@@ -262,7 +285,7 @@ wimlib-imagex update "$WIM" 1 \
   --command="add '$OUT/b2lauto.sys' /Windows/System32/drivers/b2lauto.sys" >/dev/null
 echo "  /Windows/System32/drivers/b2lauto.sys"
 
-for SURUCU in b2lfb b2lsys b2lauto; do
+for SURUCU in b2lfb b2lsg0 b2lsys b2lauto; do
   CK="$OUT/dogrulama-$SURUCU"; rm -rf "$CK"; mkdir -p "$CK"
   if wimlib-imagex extract "$WIM" 1 "/Windows/System32/drivers/$SURUCU.sys" \
        --dest-dir="$CK" --no-acls >/dev/null 2>&1; then
@@ -288,13 +311,14 @@ for SURUCU in b2lfb b2lsys b2lauto; do
 done
 
 #
-# 6) Servis kaydi - ACILIS, SISTEM VE SCM AUTO-START SURUCULERI
+# 6) Servis kaydi - ACILIS, SIRALI/GRUPSUZ SISTEM VE SCM SURUCULERI
 #
 # Start=0  BOOT   : winload yukluyor. BLOKAJ MERDIVENI BITTI, en erken
 #                   yuklemeye geri donuldu ki bant her acilista ciksin ve
 #                   serit sayimi bastan islesin.
 # Start=1  SYSTEM : PnP'den sonra, kalan sistem-start suruculer yuklenir.
-#                   b2lsys yalnizca bu cizginin gecildigini damgalar.
+#                   b2lsg0 sirali bir grupta, b2lsys grupsuz; ikisi
+#                   grup sirasindan kaynaklanan belirsizligi ayirir.
 # Start=2  AUTO   : Start=0/1 ve PnP sonrasinda Service Control Manager
 #                   tarafindan baslatilir. b2lauto'nun tek isi bu siniri
 #                   0xCF030000+a0'a damgalamaktir.
@@ -324,7 +348,7 @@ done
 # siliyor ve bu daha once bes olcumu gecersiz kilmisti. hivexregedit --merge
 # yalnizca verilen degerleri yaziyor.
 #
-say "SYSTEM hive'ina boot, system-start ve SCM auto-start servisleri yaziliyor"
+say "SYSTEM hive'ina boot, sirali/grupsuz system-start ve SCM servisleri yaziliyor"
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 wimlib-imagex extract "$WIM" 1 /Windows/System32/config/SYSTEM \
   --dest-dir="$W" --no-acls >/dev/null
@@ -337,6 +361,14 @@ cat > "$W/b2lfb.reg" <<'REG'
 "ImagePath"=str(2):"\\SystemRoot\\System32\\drivers\\b2lfb.sys"
 "Group"="System Bus Extender"
 "DisplayName"="beyond2lte framebuffer"
+
+[HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Services\b2lsg0]
+"Type"=dword:00000001
+"Start"=dword:00000001
+"ErrorControl"=dword:00000000
+"Group"="System Bus Extender"
+"ImagePath"=str(2):"\\SystemRoot\\System32\\drivers\\b2lsg0.sys"
+"DisplayName"="beyond2lte system-group checkpoint"
 
 [HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Services\b2lsys]
 "Type"=dword:00000001
@@ -369,9 +401,11 @@ hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$W/SYSTEM" "$W/b2lfb.
 # bir Odin flasi harcanmadan.
 #
 YOL="$(hivexget "$W/SYSTEM" 'ControlSet001\Services\b2lfb' ImagePath 2>/dev/null || true)"
+YOL_GRP="$(hivexget "$W/SYSTEM" 'ControlSet001\Services\b2lsg0' ImagePath 2>/dev/null || true)"
 YOL_SYS="$(hivexget "$W/SYSTEM" 'ControlSet001\Services\b2lsys' ImagePath 2>/dev/null || true)"
 YOL_AUTO="$(hivexget "$W/SYSTEM" 'ControlSet001\Services\b2lauto' ImagePath 2>/dev/null || true)"
 echo "  b2lfb ImagePath geri okundu: $YOL"
+echo "  b2lsg0 ImagePath geri okundu: $YOL_GRP"
 echo "  b2lsys ImagePath geri okundu: $YOL_SYS"
 echo "  b2lauto ImagePath geri okundu: $YOL_AUTO"
 if [ "$(printf '%s' "$YOL" | tr -cd '\\' | wc -c)" -lt 3 ]; then
@@ -380,6 +414,14 @@ if [ "$(printf '%s' "$YOL" | tr -cd '\\' | wc -c)" -lt 3 ]; then
   echo "  # ImagePath BOZUK - ters boluk kacislari kaybolmus."
   echo "  # Beklenen: \\SystemRoot\\System32\\drivers\\b2lfb.sys"
   echo "  # .reg dosyasinda ters bolukler ciftlenmeli."
+  echo "  ###############################################################"
+  exit 1
+fi
+if [ "$(printf '%s' "$YOL_GRP" | tr -cd '\\' | wc -c)" -lt 3 ]; then
+  echo
+  echo "  ###############################################################"
+  echo "  # b2lsg0 ImagePath BOZUK - ters boluk kacislari kaybolmus."
+  echo "  # Beklenen: \\SystemRoot\\System32\\drivers\\b2lsg0.sys"
   echo "  ###############################################################"
   exit 1
 fi
@@ -409,6 +451,7 @@ wimlib-imagex update "$WIM" 1 \
 wimlib-imagex update "$WIM" 1 \
   --command="add '$W/SYSTEM' /Windows/System32/config/SYSTEM" >/dev/null
 echo "  Services\\b2lfb    Start=0 Type=1 ErrorControl=3 (CRITICAL)"
+echo "  Services\\b2lsg0   Start=1 Group=System Bus Extender ErrorControl=0"
 echo "  Services\\b2lsys   Start=1 Type=1 ErrorControl=0 (IGNORE)"
 echo "  Services\\b2lauto  Start=2 Type=1 ErrorControl=0 (IGNORE)"
 
@@ -419,22 +462,30 @@ HK="$W/geri"; mkdir -p "$HK"
 wimlib-imagex extract "$WIM" 1 /Windows/System32/config/SYSTEM \
   --dest-dir="$HK" --no-acls >/dev/null 2>&1
 GERI="$(hivexget "$HK/SYSTEM" 'ControlSet001\Services\b2lfb' ImagePath 2>/dev/null || true)"
+GERI_GRP="$(hivexget "$HK/SYSTEM" 'ControlSet001\Services\b2lsg0' ImagePath 2>/dev/null || true)"
 GERI_SYS="$(hivexget "$HK/SYSTEM" 'ControlSet001\Services\b2lsys' ImagePath 2>/dev/null || true)"
 GERI_AUTO="$(hivexget "$HK/SYSTEM" 'ControlSet001\Services\b2lauto' ImagePath 2>/dev/null || true)"
 GERI_START="$(hivexget "$HK/SYSTEM" 'ControlSet001\Services\b2lfb' Start 2>/dev/null || echo '?')"
+GERI_GRP_START="$(hivexget "$HK/SYSTEM" 'ControlSet001\Services\b2lsg0' Start 2>/dev/null || echo '?')"
+GERI_GRP_GROUP="$(hivexget "$HK/SYSTEM" 'ControlSet001\Services\b2lsg0' Group 2>/dev/null || true)"
 GERI_SYS_START="$(hivexget "$HK/SYSTEM" 'ControlSet001\Services\b2lsys' Start 2>/dev/null || echo '?')"
 GERI_AUTO_START="$(hivexget "$HK/SYSTEM" 'ControlSet001\Services\b2lauto' Start 2>/dev/null || echo '?')"
-if [ -n "$GERI" ] && [ -n "$GERI_SYS" ] && [ -n "$GERI_AUTO" ] && \
-   [ "$GERI_START" = 0 ] && [ "$GERI_SYS_START" = 1 ] && [ "$GERI_AUTO_START" = 2 ]; then
+if [ -n "$GERI" ] && [ -n "$GERI_GRP" ] && [ -n "$GERI_SYS" ] && [ -n "$GERI_AUTO" ] && \
+   [ "$GERI_START" = 0 ] && [ "$GERI_GRP_START" = 1 ] && \
+   [ "$GERI_GRP_GROUP" = "System Bus Extender" ] && \
+   [ "$GERI_SYS_START" = 1 ] && [ "$GERI_AUTO_START" = 2 ]; then
   echo "  dogrulandi: WIM hive b2lfb ImagePath = $GERI"
+  echo "  dogrulandi: WIM hive b2lsg0 ImagePath = $GERI_GRP"
   echo "  dogrulandi: WIM hive b2lsys ImagePath = $GERI_SYS"
   echo "  dogrulandi: WIM hive b2lauto ImagePath = $GERI_AUTO"
-  echo "  dogrulandi: WIM hive Start degerleri b2lfb=0 b2lsys=1 b2lauto=2"
+  echo "  dogrulandi: WIM hive Start degerleri b2lfb=0 b2lsg0=1 b2lsys=1 b2lauto=2"
+  echo "  dogrulandi: b2lsg0 Group = $GERI_GRP_GROUP"
 else
   echo
   echo "  ###############################################################"
-  echo "  # WIM'DEKI HIVE'DA b2lfb/b2lsys/b2lauto kaydi veya Start degeri bozuk."
+  echo "  # WIM'DEKI HIVE'DA b2lfb/b2lsg0/b2lsys/b2lauto kaydi veya Start degeri bozuk."
   echo "  #   b2lfb: path=$GERI start=$GERI_START"
+  echo "  #   b2lsg0: path=$GERI_GRP start=$GERI_GRP_START group=$GERI_GRP_GROUP"
   echo "  #   b2lsys: path=$GERI_SYS start=$GERI_SYS_START"
   echo "  #   b2lauto: path=$GERI_AUTO start=$GERI_AUTO_START"
   echo "  # Duzenleme geri yazilmamis; flaslamak bosuna."
@@ -443,7 +494,7 @@ else
 fi
 
 say "Dogrulama"
-wimlib-imagex dir "$WIM" 1 2>/dev/null | grep -Ei "b2lfb|b2lsys|b2lauto" | sed 's/^/  /' || echo "  ! b2lfb/b2lsys/b2lauto WIM'de gorunmuyor"
+wimlib-imagex dir "$WIM" 1 2>/dev/null | grep -Ei "b2lfb|b2lsg0|b2lsys|b2lauto" | sed 's/^/  /' || echo "  ! b2lfb/b2lsg0/b2lsys/b2lauto WIM'de gorunmuyor"
 
 cat <<'SON'
 
@@ -467,6 +518,8 @@ BEKLENEN OKUMA  (ErrorControl=3 ile artik hepsi ayirt edilebiliyor):
   gorunuyorsa surucu calismis demektir - macenta cikmasa bile.
 
   SCM SINIRI (sonraki B2LGoster ekraninda):
+    SYG=REG C=000  -> sirali System Bus Extender grubuna dair isaret yok
+    SYG=INI C=001  -> b2lsg0, bu system-start grubunda baslatildi
     SYS=REG C=000  -> b2lsys system-start asamasina ulasilmadan reset
     SYS=INI C=001  -> Windows system-start asamasina girdi (tum Start=1
                       suruculerinin bittigini tek basina kanitlamaz)

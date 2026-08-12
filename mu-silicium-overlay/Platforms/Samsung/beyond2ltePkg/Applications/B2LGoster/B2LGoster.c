@@ -56,7 +56,7 @@
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 25"
+#define SURUM_METNI  L"SURUM 26"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -571,6 +571,22 @@ B2LGosterEntry (
     //
     for (K = 0; K < 16; K++) {
       Tik[K] = (CHAR16)FbLog[176 + K];
+      if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
+        Tik[K] = L' ';
+      }
+    }
+
+    Tik[16] = L'\0';
+    Yaz (Tik, 0x00FFFF40);
+
+    //
+    // +0xC0: System Bus Extender grubundeki Start=1 b2lsg0 damgasi.
+    // SYG=REG C=000, grupsuz b2lsys'den onceki sirali bir grup calismadan
+    // reset oldugunu; SYG=INI C=001 ise bu grubun en az bu noktaya kadar
+    // ilerledigini gosterir.
+    //
+    for (K = 0; K < 16; K++) {
+      Tik[K] = (CHAR16)FbLog[192 + K];
       if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
         Tik[K] = L' ';
       }
