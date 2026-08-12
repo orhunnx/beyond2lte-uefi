@@ -587,22 +587,23 @@ gereği PnP aygıt sürücülerinden sonra kalan `SERVICE_SYSTEM_START`
 sürücüleri yüklenir; bu aşama SCM auto-start'tan öncedir.
 
 ```
-SYS=REG C=000   reset, Start=1 sistem sürücülerine ulaşmadan oldu
-SYS=INI C=001   Windows b2lsys'i sistem ilklendirmesinde başlattı
+SYS=REG C=000   b2lsys'in DriverEntry'si çağrılmadı
+SYS=INI C=001   Windows b2lsys'i çağırdı
 ```
 
 Sonraki turda `AUT` ile birlikte yorumlanır:
 
 | Kayıt | Anlamı |
 |---|---|
-| `SYS=REG`, `AUT=REG` | PnP sonrası ile kalan Start=1 sürücüleri arası |
-| `SYS=INI`, `AUT=REG` | Start=1 sistem ilklendirmesi başladı; reset SCM auto-start öncesinde |
-| `SYS=INI`, `AUT=SCM` | SCM aşaması geçildi; bu mevcut sonucun dışındadır |
+| `SYS=REG`, `AUT=REG` | b2lsys ve SCM işaretçileri çağrılmadı; küresel yükleme fazı tek başına çıkarılamaz |
+| `SYS=INI`, `AUT=REG` | b2lsys çağrıldı; SCM işaretçisi çağrılmadı |
+| `SYS=INI`, `AUT=SCM` | iki işaretçi de çağrıldı |
 
 `SYS=INI`, öteki bütün Start=1 sürücülerinin de yüklendiğini tek başına
 kanıtlamaz; grup sırası bu sürücünün onlardan önce ya da sonra gelmesini
-belirleyebilir. Kanıtladığı dar ve doğru ifade, Windows'un PnP sonrası
-`SERVICE_SYSTEM_START` yükleme evresinde `b2lsys`e kadar ilerlediğidir.
+belirleyebilir. Bunun tersinin de doğru olduğu daha sonraki `0xc000021a`
+sonucuyla görüldü: `SYS=REG`, sistemin genel olarak Start=1 veya kullanıcı
+modu eşiğine gelmediğini kanıtlamaz; yalnız b2lsys'e sıra gelmediğini söyler.
 
 Üçüncü turdaki ekran şöyledir:
 
@@ -720,13 +721,50 @@ kontrollerde `b2lsg0` devre dışı kalır ve yalnız anlamlı `SYS` kontrolü
 yapılır.
 
 Şimdi normal deneye dönülür: `bash tools_b2lfb.sh` `b2lsys`i yeniden
-`Start=1` yapar. Yeni normal turda `SYS=REG` ise reset, b2lsys'in ait olduğu
-grupsuz kalan `SERVICE_SYSTEM_START` yükleme adımına girilmeden gelmektedir;
-`SYS=INI` ise bu adımın geçildiğini ve odağın SCM öncesi sonraki işe
-daraltılacağını gösterir.
+`Start=1` yapar. Yeni normal turda `SYS=REG`, yalnız b2lsys çağrılmadı
+anlamına gelir; yükleme evresine dair daha geniş bir iddia için bağımsız
+kanıt gerekir.
+
+#### Tüm özgün Start=1 hizmetleri kapalıyken ikinci yol: gerçek bugcheck
+
+`tools_winpe_sistem.sh kapat` sonrasında, aynı yazılım imajıyla bir turda
+yeşil bugcheck şeridi ve `0xc000021a` görüldü. Sonraki B2LGoster kaydı:
+
+```
+TIK=0086 BUG=E
+MAX=005B2685
+SPN=005B2685
+BRI=0001 C=001
+QPD=0D54EDBC F=018CBA80
+AUT=REG C=000
+SYS=REG C=000
+SYG=REG C=000
+RST_STAT=20000000
+```
+
+`QPD/F = 8.602680 s`; `TIK=0086` ile tutarlıdır. `BUG=E` tartışmasızdır:
+yalnız `KeRegisterBugCheckCallback` bu baytı `E` yapar ve aynı callback
+yeşil şeridi çizer. Bu tur, 42–44 saniye sonra görülen `BUG=H` sessiz
+sıfırlamasından farklı, Windows çekirdeğinin farkında olduğu gerçek bir
+bugcheck'tir.
+
+`0xc000021a` `STATUS_SYSTEM_PROCESS_TERMINATED` demektir: Windows kritik
+bir kullanıcı-modu alt sisteminin (örneğin CSRSS/Winlogon) sonlandığını
+gördüğünde bu stop kodunu üretir. Aynı kayıtta `SYS=REG` kalması, b2lsys
+işaretçisinin global Start=1 ya da kullanıcı-modu sınırı olmadığını
+doğrudan kanıtlar. Bu nedenle bundan sonra `SYS=REG` üzerinden faz ismi
+verilmeyecek.
+
+Özgün 14 Start=1 hizmeti kapalı iken hem bu bugcheck yolunun hem de daha
+önceki sessiz yolun raporlanabilmesi, sonucu tek açılışla deterministik
+saymayı engeller. İkili aramaya geçmeden önce aynı flaş ile tekrarlı açılış
+sayımı yapılmalıdır. Her turda `BUG`, `TIK`, `QPD` ve görünen stop kodu
+kaydedilir. Bir yarım-küme ancak üç ardışık açılışta aynı sınıf sonucu
+verirse bisect sinyali sayılacaktır.
 
 Kaynaklar: [Microsoft — AddService StartType](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-addservice-directive),
-[Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order).
+[Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order),
+[Microsoft — 0xc000021a](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/bug-check-0xc000021a--winlogin-fatal-error).
 
 ### 9820 S-Boot / uH araştırma notu (12 Ağustos 2026)
 
