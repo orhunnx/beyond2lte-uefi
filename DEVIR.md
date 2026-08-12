@@ -346,6 +346,23 @@ değildir; `EL2 SMC = 2 / GERI` görülür ama `B2HV` yoksa Samsung VMM arka
 kapısı yükümüze atlamamış veya dönüşte HYP durumunu geri almıştır. `VMM X0` ve
 `VMM X1` bu SMC'nin ham dönüşleridir.
 
+Bu ayrım 12 Ağustos 2026'da ölçüldü:
+
+```
+EL2 SMC = 00000002  GERI
+VMM X0 = FFFFFFFF
+VMM X1 = CF000800
+PSCI HVC KAYDI YOK
+```
+
+Yani DXE sürücüsü ve SMC dönüşü çalışıyor, fakat `0xC2000400` özel yük
+isteğini `-1` ile reddediyor; `x1` de giriş adresi olarak değişmeden kalıyor.
+`B2HV` imzası hiç yazılmadığı için payload'a EL2'de hiç dallanılmadı. Bu,
+önbellek temizliği veya vektör kodu hatası değil, 9820'de S-Boot dışından
+özel EL2 yükünün kabul edilmediğine dair doğrudan ölçümdür. `--psci-hvc`
+PSCI 0.2 köprüsü kuramaz; bu deney tekrar edilmemeli ve normal SMC modu
+kullanılmalıdır.
+
 ### 9820 S-Boot / uH araştırma notu (12 Ağustos 2026)
 
 S10/9820'ye ait S-Boot tersine mühendisliği, normal Samsung açılışında
