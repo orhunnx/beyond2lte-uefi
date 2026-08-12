@@ -495,7 +495,7 @@ Yorum:
 - `B2LFB KAYDI YOK`: bu bir Windows sonucu değildir; sürücünün WIM'e girişi
   veya imza/yükleme doğrulaması önce çözülmelidir.
 
-#### İlk sonuç: PnP tamamlandı, fakat zaman ölçeği yeniden doğrulanacak
+#### Sonuç: PnP tamamlandı; QPC, sıfırlamanın 43.002 s sonra geldiğini doğruladı
 
 Bu deneyde sonraki tanı ekranı şunu gösterdi:
 
@@ -513,19 +513,55 @@ sınırını geçmiş. Bu nedenle önceki Start=0/Start=1 blokaj merdiveninden
 çıkan "PnP/ACPI sayımı on saniye sürüyor" yorumu artık geçerli değildir.
 Sıfırlama bu noktadan **çok sonra** gelmektedir.
 
-`TIK=0420` ilk bakışta 42.0 saniye demektir. Aynı kayıtta `SPN/MAX`, boşta
-engelleyici iş parçacığının yaklaşık 8.33 s CPU aldığını; kalan yaklaşık
-33.67 s'nin Windows işi olduğunu verir. Bu, daha önce kullanıcı tarafından
-ölçülen logo sonrası yaklaşık 15 saniyeyle uyumsuz göründüğü için tek başına
-duvar zamanı kabul edilmez: periyodik DPC gecikmiş veya fotoğraftaki logo
-öncesi süre hesaba katılmamış olabilir.
+İlk ölçümden sonraki, doğru fotoğraf şu tam değerleri verdi:
 
-Sonraki turda kayıt `QPD=xxxxxxxx F=xxxxxxxx` de gösterir. `QPD/F` gerçek
-saniyedir; 32 bit sayac bu kısa deney için yeterlidir. Böylece TIK=0420'nin
-gerçekten yaklaşık 42 s mi olduğunu, yoksa DPC sayımının duvar saatinden
-koptuğunu ayıracağız. Bu ek ölçüm yalnızca zaten kullanılan
-`KeQueryPerformanceCounter` çağrısını DPC'de kaydeder; yeni callback veya
-Windows davranışını değiştiren bir yol eklemez.
+```
+TIK=0430 BUG=H
+MAX=012D6FE2
+SPN=5EB7DF42
+BRI=0001 C=001
+QPD=42A42A3A F=018CBA80
+RST_STAT=20000000
+```
+
+`QPD=0x42A42A3A = 1,118,054,970` ve
+`F=0x018CBA80 = 26,000,000 Hz`; dolayısıyla
+`QPD / F = 43.002114 s`. Bu, `TIK=0430` ile tutarlıdır: DPC ortalaması
+`100.005 ms` olmuştur. Yani tik sayacı duvar zamanından kopmamış; reset
+`b2lfb`'nin `DriverEntry` anından yaklaşık **43 saniye sonra** gerçekleşmiş.
+Önceki "logo sonrası 15 saniye" gözlemi aynı başlangıç anını ölçmüyordu.
+
+`SPN / MAX = 80.440917` tik, yani boşta-engelleyici iş parçacığı yaklaşık
+`8.044092 s` CPU aldı. Kalan yaklaşık `34.958022 s` Windows işi veya onun
+beklemeleridir. PnP damgası ilk 100 ms'de geldiği için bu uzun pencere PnP
+aygıt başlatmanın kendisi değildir.
+
+### Sıradaki güvenli ayrım: Service Control Manager auto-start aşaması
+
+Yeni callback, thread veya bildirim kancası eklemek yerine iki ayrı, çok
+küçük sürücü kullanılır:
+
+- `b2lfb.sys` (`Start=0`), her açılışta `0xCF030000+0xA0` alanını
+  `AUT=REG C=000` olarak başlatır.
+- `b2lauto.sys` (`Start=2`) yalnızca aynı alana `AUT=SCM C=001` yazar ve
+  döner. Timer, framebuffer, PnP veya callback kullanmaz.
+
+Microsoft'un sürücü yükleme sırası belgelerine göre `Start=2` auto-start
+sürücüleri, boot/system-start sürücüler ve PnP'den sonra Service Control
+Manager tarafından başlatılır. Bu nedenle kayıt yorumu nettir:
+
+```
+AUT=REG C=000   reset, SCM'nin auto-start sürücü aşamasından önce oldu
+AUT=SCM C=001   Service Control Manager b2lauto.sys'yi başlattı
+```
+
+İkinci satır, WinPE'nin SCM/kullanıcı-modu başlangıç zincirine ulaştığını
+gösterir; fakat `cmd.exe` kabuğunun çalıştığını tek başına kanıtlamaz. İlk
+satırda ise `b2lauto.sys` WIM'e ve SYSTEM hive'a yazılıp geri okunarak
+doğrulandığından, bir sonraki odak Start=1/SCM arasıdır.
+
+Kaynaklar: [Microsoft — AddService StartType](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-addservice-directive),
+[Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order).
 
 ### 9820 S-Boot / uH araştırma notu (12 Ağustos 2026)
 

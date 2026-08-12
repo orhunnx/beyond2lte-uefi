@@ -288,6 +288,31 @@ static void B2LYazHex8 (volatile UINT8 *P, UINT32 V)
 }
 
 /*
+ * +0xA0, Service Control Manager ayrim damgasi:
+ *
+ *   AUT=REG C=000  -> boot surucusu sonraki asama icin damgayi kurdu
+ *   AUT=SCM C=001  -> Start=2 b2lauto.sys, SCM tarafindan baslatildi
+ *
+ * Ikinci durum sadece ayri, cok kucuk bir auto-start surucusu tarafindan
+ * yazilir. Bu ilk deger her DriverEntry'de tekrar yazilir: onceki sicak
+ * sifirlamadan kalan AUT=SCM sonucu yeni acilista yanlis pozitif olmaz.
+ */
+static void B2LAutoStartRecord (void)
+{
+  volatile UINT8 *P;
+
+  if (gLog == 0) {
+    return;
+  }
+
+  P = (volatile UINT8 *)gLog + 160;
+  P[0]  = 'A'; P[1]  = 'U'; P[2]  = 'T'; P[3]  = '=';
+  P[4]  = 'R'; P[5]  = 'E'; P[6]  = 'G'; P[7]  = ' ';
+  P[8]  = 'C'; P[9]  = '='; P[10] = '0'; P[11] = '0'; P[12] = '0';
+  P[13] = ' '; P[14] = ' '; P[15] = ' ';
+}
+
+/*
  * +0x70, 16 baytlik boot-reinit kaydi:
  *
  *   BRI=REG C=000   -> callback kaydedildi, henuz cagrilmadi
@@ -747,9 +772,10 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
 
   /*
    * 2) FRAMEBUFFER - canli kanal.
-   */
+  */
   gLog = Log;
   gQpcBaslangic = KeQueryPerformanceCounter (&gQpcFrekans);
+  B2LAutoStartRecord ();
 
 
   Pa.QuadPart = (long long)FB_PHYS;
