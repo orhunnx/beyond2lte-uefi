@@ -39,6 +39,8 @@ typedef long               NTSTATUS;
 typedef unsigned char      UINT8;
 typedef unsigned int       UINT32;
 typedef unsigned long long UINT64;
+/* KeQueryPerformanceCounter isaretli doner; WDK yok, tipi elle tanimliyoruz. */
+typedef signed long long   INT64;
 typedef void              *PVOID;
 
 #define STATUS_SUCCESS ((NTSTATUS)0x00000000L)
