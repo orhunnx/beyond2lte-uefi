@@ -137,6 +137,7 @@ __declspec(dllimport) long PsCreateSystemThread (
   PVOID ProcessHandle, PVOID ClientId, PVOID StartRoutine, PVOID StartContext);
 __declspec(dllimport) PVOID KeGetCurrentThread (void);
 __declspec(dllimport) long  KeSetPriorityThread (PVOID Thread, long Priority);
+__declspec(dllimport) INT64 KeQueryPerformanceCounter (INT64 *Frequency);
 
 __declspec(dllimport) void KeInitializeDpc (PVOID Dpc, PVOID Routine, PVOID Context);
 __declspec(dllimport) void KeInitializeTimer (PVOID Timer);
@@ -345,6 +346,37 @@ static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
      *   sifir ya da sabit -> dongu zamanlanmamis, bu deney hicbir sey
      *       kanitlamiyor ve once onu duzeltmek gerekir
      */
+    /*
+     * FREN: her tikte YARIM SANIYE burada mesgul bekliyoruz.
+     *
+     * NEDEN: sifirlamanin "10 saniye gecince" mi yoksa "Windows belli bir
+     * noktaya varinca" mi oldugunu hic ayirmadik. Ikisi de simdiye kadarki
+     * butun olcumlere uyuyor - blokede hic olmuyor, birakinca tam 10 saniye
+     * sonra oluyor.
+     *
+     * Bu kod DISPATCH_LEVEL'da donuyor, yani zamanlayici devrede degil:
+     * CPU'nun tam yarisini deterministik olarak aliyor. Zamanlamaya bagli
+     * bir "oncelik ver, umarim calisir" duzenegi degil.
+     *
+     *   TIK yine ~0010  -> sure temelli. Windows baslar baslamaz 10 saniye
+     *                      sayan bir sey var ve isin miktari onemsiz.
+     *   TIK ~0020'ye cikar -> is temelli. Windows belli bir noktaya
+     *                      variyor ve orada oluyor; yavaslatinca o nokta
+     *                      geciktigi icin tik sayisi katlaniyor.
+     *
+     * Ikisi bambaska iki arama demek, ve bu ayrimi yapmadan devam etmek
+     * tahmin olur.
+     */
+    {
+      INT64 Frk = 0;
+      INT64 Bas = KeQueryPerformanceCounter (&Frk);
+
+      if (Frk > 0) {
+        while ((KeQueryPerformanceCounter (0) - Bas) < (Frk / 2)) {
+        }
+      }
+    }
+
     {
       UINT8 *P = (UINT8 *)gLog + 32;
       UINT32 V = (UINT32)gSpin;

@@ -96,7 +96,15 @@
 
 [080h 0128 001h]        Value to cause reset : 01
 //
-// PSCI KAPATILDI - TEK DEGISKENLI DENEY.
+// PSCI DENENDI VE GERI ALINDI - SONUC: WINDOWS PSCI'SIZ ACILMIYOR.
+//
+// Bit 0 yapilinca cihaz Silicium logosunda kaldi: cember hic gelmedi, yani
+// winload cekirdegi baslatmadan durdu ve b2lfb hic yuklenmedi. Sifirlama
+// da olmadi ama bu PSCI'yi aklamiyor - Windows zaten cok daha erken
+// olmustu. Olcum sifirlama hakkinda hicbir sey soylemiyor.
+//
+// ASAGIDAKI GEREKCE NEDEN HALA BURADA: eleme zinciri dogru, yalnizca bu
+// yontemle sinanamiyor.
 //
 // Eleme buraya kadar geldi. EbsTest ExitBootServices'ten sonra mesgul
 // dongude 30+ saniye yasiyor: yani platformda servis bekleyen bir sey de
@@ -121,8 +129,8 @@
 //
 // GERI ALMAK ICIN: 0001 / 1 yaz.
 //
-[081h 0129 002h]   ARM Flags (decoded below) : 0000
-                              PSCI Compliant : 0
+[081h 0129 002h]   ARM Flags (decoded below) : 0001
+                              PSCI Compliant : 1
                        Must use HVC for PSCI : 0
 
 [083h 0131 001h]         FADT Minor Revision : 00
