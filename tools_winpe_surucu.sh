@@ -8,6 +8,17 @@
 #   bash tools_winpe_surucu.sh hepsi-kapat      <- korumali olmayan hepsi
 #   bash tools_winpe_surucu.sh sadece-kapat X   <- hepsini ac, SADECE X kapali
 #   bash tools_winpe_surucu.sh hepsi-ac         <- temel duruma don
+#   bash tools_winpe_surucu.sh aralik A B      <- SADECE A..B arasi kapali
+#
+# "aralik" IKILI ARAMA ICIN. Sinyal artik kesin ayriliyor:
+#     surucular KAPALI -> Windows kullanici moduna variyor, 0xc000021a,
+#                         yesil cubuk, BUG=E
+#     surucular ACIK   -> ~10.7 saniyede sessiz sifirlama, BUG=H
+# Yani suclu kapatilan kumedeyse BUG=E, aciktaysa BUG=H. Alti yedi acilista
+# 54 adaydan tekine inilir.
+#
+# Liste sirasi KARARLI (hive'daki ls sirasi) ve "liste" komutu numaralari
+# yaziyor; elle isim kopyalamaya gerek yok.
 #
 # ---------------------------------------------------------------------------
 # FIKIR NEREDEN GELDI
@@ -177,7 +188,86 @@ servisler() {
   printf 'cd \\ControlSet001\\Services\nls\n' | hivexsh "$HV/SYSTEM" 2>/dev/null | sed '/^$/d'
 }
 
+#
+# Korumali olmayan, numaralandirilabilir aday listesi.
+#
+# "aralik" bunun uzerinden calisiyor. Korumalilar listeye HIC girmiyor,
+# boylece numaralar korumali kume degistiginde kaymiyor.
+#
+adaylar() {
+  servisler | while IFS= read -r S; do
+    [ -n "$S" ] || continue
+    echo " $KORUMALI " | grep -qi " $S " && continue
+    ST="$(hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start 2>/dev/null || true)"
+    case "$ST" in
+      0|0x0|0x00000000|4|0x4|0x00000004) echo "$S" ;;
+    esac
+  done
+}
+
 case "$KOMUT" in
+
+aralik)
+  A="${2:-}"; B="${3:-}"
+  case "$A$B" in
+    *[!0-9]*|"") echo "Kullanim: bash $0 aralik <ilk> <son>   ornek: aralik 1 27"; exit 1 ;;
+  esac
+
+  LST="$(adaylar)"
+  TOP=$(printf '%s\n' "$LST" | sed '/^$/d' | wc -l)
+  [ "$B" -le "$TOP" ] || { echo "Listede $TOP aday var, $B istendi."; exit 1; }
+
+  say "Aday sayisi: $TOP   kapatilacak: $A..$B"
+
+  : > "$HV/yaz.reg"
+  N=0
+  KAPANAN=0
+  while IFS= read -r S; do
+    [ -n "$S" ] || continue
+    N=$((N+1))
+    if [ "$N" -ge "$A" ] && [ "$N" -le "$B" ]; then
+      D=4; KAPANAN=$((KAPANAN+1))
+    else
+      D=0
+    fi
+    printf '[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\%s]\n"Start"=dword:0000000%s\n\n' \
+      "$S" "$D" >> "$HV/yaz.reg"
+  done <<EOF2
+$LST
+EOF2
+
+  hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$HV/SYSTEM" "$HV/yaz.reg"
+
+  #
+  # GERI OKU. Sinirlardaki uc servisi dogruluyoruz: A-1 acik, A kapali,
+  # B kapali, B+1 acik olmali. Yanlis araligi "denendi" sanmak, ikili
+  # aramanin tamamini gecersiz kilar.
+  #
+  N=0; HATA=0
+  while IFS= read -r S; do
+    [ -n "$S" ] || continue
+    N=$((N+1))
+    case "$N" in
+      "$A"|"$B") BEK=4 ;;
+      *) [ "$N" -gt "$A" ] && [ "$N" -lt "$B" ] && BEK=4 || BEK=0 ;;
+    esac
+    V="$(hivexget "$HV/SYSTEM" "ControlSet001\\Services\\$S" Start 2>/dev/null || echo '?')"
+    [ "$V" = "$BEK" ] || { echo "  ! $S (#$N) -> $V, beklenen $BEK"; HATA=1; }
+  done <<EOF3
+$LST
+EOF3
+  [ "$HATA" = 0 ] || { echo "Dogrulama basarisiz, hive yazilmadi."; exit 1; }
+  echo "  $KAPANAN servis kapatildi, kalani acik - hepsi dogrulandi"
+
+  wimlib-imagex update "$WIM" 1 \
+    --command="delete --force /Windows/System32/config/SYSTEM" >/dev/null 2>&1 || true
+  wimlib-imagex update "$WIM" 1 \
+    --command="add '$HV/SYSTEM' /Windows/System32/config/SYSTEM" >/dev/null
+  echo
+  echo "Simdi: bash cache_esp.sh --win --system"
+  echo "OKUMA: BUG=E -> suclu $A..$B arasinda    BUG=H -> disinda"
+  exit 0
+  ;;
 
 liste)
   #
