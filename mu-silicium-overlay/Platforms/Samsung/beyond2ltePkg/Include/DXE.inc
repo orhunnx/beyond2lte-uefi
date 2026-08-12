@@ -56,7 +56,28 @@
   # RUNTIME isaretli degil ve SetVirtualAddressMap sonrasi MMIO'ya dokunan
   # bir calisma zamani surucusu bosluga yaziyor.
   #
-  INF beyond2ltePkg/Drivers/B2LRtHookDxe/B2LRtHookDxe.inf
+  #
+  # ================= ALETSIZ TABAN OLCUMU =================
+  #
+  # Uc tani surucusu de GECICI OLARAK cikarildi. Sebebi bir deney:
+  # aylardir her olcumu KENDI KODUMUZ ICERIDEYKEN aldik ve bunlarin
+  # sifirlamaya katkisi hic sinanmadi.
+  #
+  #   B2LRtHookDxe  - Windows'un cagirdigi GetVariable/SetVariable/GetTime/
+  #                   ResetSystem'i sarmaliyor, gRT tablosunu degistirip
+  #                   CRC'sini yeniden hesapliyor. Windows bu kancalardan
+  #                   365 kez geciyor.
+  #   B2LSehDxe     - EL3'e istisna isleyicisi kaydediyor, PSCI SMC'leri
+  #                   yapiyor, SetVirtualAddressMap'te yeniden kaydediyor.
+  #   B2LGicSusDxe  - devir aninda butun SPI'lari kapatiyor.
+  #
+  # Sayaclar saglikli gorunuyor ama saglikli gormek masum olmak degil.
+  # Ustelik ilk gozlem hicbir aracimiz yokken ~15 saniyeydi, simdi ~10 -
+  # aradaki farki hic aciklamadik.
+  #
+  # GERI ALMAK: asagidaki uc satirin basindaki # isaretlerini kaldir.
+  #
+  # INF beyond2ltePkg/Drivers/B2LRtHookDxe/B2LRtHookDxe.inf
 
   #
   # Samsung EL3 monitorunun Smart Exception Handler kancasi.
@@ -67,7 +88,7 @@
   #
   # Gerekce ve delil zinciri: EL3_SEH_PLANI.md
   #
-  INF beyond2ltePkg/Drivers/B2LSehDxe/B2LSehDxe.inf
+  # INF beyond2ltePkg/Drivers/B2LSehDxe/B2LSehDxe.inf
 
   #
   # ExitBootServices aninda GIC'teki butun SPI'lari susturuyor.
@@ -77,7 +98,7 @@
   # acilis logosu icin calisir birakiyor, UEFI susturmuyor, Windows'un ise
   # surucusu yok. Gerekce B2LGicSusDxe.c basinda.
   #
-  INF beyond2ltePkg/Drivers/B2LGicSusDxe/B2LGicSusDxe.inf
+  # INF beyond2ltePkg/Drivers/B2LGicSusDxe/B2LGicSusDxe.inf
 
   INF SamsungPkg/Drivers/ChipInfoDxe/ChipInfoDxe.inf
   INF SamsungPkg/Drivers/GpioDxe/GpioDxe.inf
