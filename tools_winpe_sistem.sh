@@ -6,6 +6,12 @@
 #   bash tools_winpe_sistem.sh kapat     <- hepsini Start=4 yapar
 #   bash tools_winpe_sistem.sh ac        <- hepsini Start=1'e geri alir
 #   bash tools_winpe_sistem.sh tek AD    <- YALNIZCA o servisi Start=4 yapar
+#   bash tools_winpe_sistem.sh sadece a b c  <- adi verilenler KAPALI,
+#                                               kumedeki digerleri ACIK
+#
+# "sadece" idempotent: onceki durumdan bagimsiz, her cagri tam olarak
+# istenen durumu kurar. Kume bisect'i icin gerekli - "kapat" ve "ac"
+# birikimli calisiyor ve iki tur sonra neyin acik oldugunu kimse bilmiyor.
 #
 # "tek" modu bisect icin: b2lfb artik olurken yuklenen imajin adini
 # kaydediyor (IMG=npsvctrig.sys, CNT=00000010). Hepsini birden kapatmak
@@ -94,6 +100,53 @@ if [ "$KOMUT" = "liste" ]; then
   cat "$W/sistem.txt" | sed 's/^/  /'
   echo
   echo "Kapatmak icin: bash tools_winpe_sistem.sh kapat"
+  exit 0
+fi
+
+if [ "$KOMUT" = "sadece" ]; then
+  shift
+  HEDEFLER="$*"
+  [ -n "$HEDEFLER" ] || { echo "Kullanim: bash $0 sadece <isim> [isim...]"; exit 1; }
+
+  for H in $HEDEFLER; do
+    grep -qix "$H" "$W/sistem.txt" \
+      || { echo "'$H' kumede yok. Kume:"; sed 's/^/  /' "$W/sistem.txt"; exit 1; }
+  done
+
+  say "Kapatilacak: $HEDEFLER"
+  : > "$W/yaz.reg"
+  while IFS= read -r SRV; do
+    [ -n "$SRV" ] || continue
+    D=1
+    for H in $HEDEFLER; do
+      [ "$(echo "$SRV" | tr 'A-Z' 'a-z')" = "$(echo "$H" | tr 'A-Z' 'a-z')" ] && D=4
+    done
+    [ "$D" = 4 ] && printf '  %-16s KAPALI\n' "$SRV" || printf '  %-16s acik\n' "$SRV"
+    printf '[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\%s]\n"Start"=dword:0000000%s\n\n' \
+      "$SRV" "$D" >> "$W/yaz.reg"
+  done < "$W/sistem.txt"
+
+  hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$W/SYSTEM" "$W/yaz.reg"
+
+  HATA=0
+  while IFS= read -r SRV; do
+    [ -n "$SRV" ] || continue
+    BEK=1
+    for H in $HEDEFLER; do
+      [ "$(echo "$SRV" | tr 'A-Z' 'a-z')" = "$(echo "$H" | tr 'A-Z' 'a-z')" ] && BEK=4
+    done
+    V="$(hivexget "$W/SYSTEM" "ControlSet001\\Services\\$SRV" Start 2>/dev/null || echo '?')"
+    [ "$V" = "$BEK" ] || { echo "  ! $SRV -> $V, beklenen $BEK"; HATA=1; }
+  done < "$W/sistem.txt"
+  [ "$HATA" = 0 ] || { echo "Dogrulama basarisiz, hive yazilmadi."; exit 1; }
+  echo "  hepsi dogrulandi"
+
+  wimlib-imagex update "$WIM" 1 \
+    --command="delete --force /Windows/System32/config/SYSTEM" >/dev/null 2>&1 || true
+  wimlib-imagex update "$WIM" 1 \
+    --command="add '$W/SYSTEM' /Windows/System32/config/SYSTEM" >/dev/null
+  echo
+  echo "Simdi: bash cache_esp.sh --win --system"
   exit 0
 fi
 
