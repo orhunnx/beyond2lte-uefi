@@ -532,6 +532,21 @@ B2LGosterEntry (
     Yaz (Tik, 0x00FFFF40);
 
     //
+    // +0x80: DPC tikinin duvar saatiyle karsilastirmasi. QPD/F saniyedir.
+    // TIK tek basina zamanlayici DPC'sinin gecikmedigini varsayar; bu ham
+    // oran o varsayimi bir sonraki acilista sinar.
+    //
+    for (K = 0; K < 23; K++) {
+      Tik[K] = (CHAR16)FbLog[128 + K];
+      if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
+        Tik[K] = L' ';
+      }
+    }
+
+    Tik[23] = L'\0';
+    Yaz (Tik, 0x00FFFF40);
+
+    //
     // CNT/IMG SATIRLARI KALDIRILDI.
     //
     // Kaynagi olan kanca hem coktu (0x1E / b2lfb.sys) hem sinyal

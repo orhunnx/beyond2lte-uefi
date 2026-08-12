@@ -495,6 +495,38 @@ Yorum:
 - `B2LFB KAYDI YOK`: bu bir Windows sonucu değildir; sürücünün WIM'e girişi
   veya imza/yükleme doğrulaması önce çözülmelidir.
 
+#### İlk sonuç: PnP tamamlandı, fakat zaman ölçeği yeniden doğrulanacak
+
+Bu deneyde sonraki tanı ekranı şunu gösterdi:
+
+```
+TIK=0420 BUG=H
+MAX=011AE4D0
+SPN=5C04AB23
+BRI=0001 C=001
+RST_STAT=20000000
+```
+
+`BRI=0001 C=001` geçerli ve güçlü bir sonuçtur: I/O Manager, boot sürücüsü
+girdisinden sonraki ilk 100 ms tikinde aygıtları enumerate edip başlatma
+sınırını geçmiş. Bu nedenle önceki Start=0/Start=1 blokaj merdiveninden
+çıkan "PnP/ACPI sayımı on saniye sürüyor" yorumu artık geçerli değildir.
+Sıfırlama bu noktadan **çok sonra** gelmektedir.
+
+`TIK=0420` ilk bakışta 42.0 saniye demektir. Aynı kayıtta `SPN/MAX`, boşta
+engelleyici iş parçacığının yaklaşık 8.33 s CPU aldığını; kalan yaklaşık
+33.67 s'nin Windows işi olduğunu verir. Bu, daha önce kullanıcı tarafından
+ölçülen logo sonrası yaklaşık 15 saniyeyle uyumsuz göründüğü için tek başına
+duvar zamanı kabul edilmez: periyodik DPC gecikmiş veya fotoğraftaki logo
+öncesi süre hesaba katılmamış olabilir.
+
+Sonraki turda kayıt `QPD=xxxxxxxx F=xxxxxxxx` de gösterir. `QPD/F` gerçek
+saniyedir; 32 bit sayac bu kısa deney için yeterlidir. Böylece TIK=0420'nin
+gerçekten yaklaşık 42 s mi olduğunu, yoksa DPC sayımının duvar saatinden
+koptuğunu ayıracağız. Bu ek ölçüm yalnızca zaten kullanılan
+`KeQueryPerformanceCounter` çağrısını DPC'de kaydeder; yeni callback veya
+Windows davranışını değiştiren bir yol eklemez.
+
 ### 9820 S-Boot / uH araştırma notu (12 Ağustos 2026)
 
 S10/9820'ye ait S-Boot tersine mühendisliği, normal Samsung açılışında

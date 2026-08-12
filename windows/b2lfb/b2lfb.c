@@ -255,6 +255,16 @@ static void FillDword (PVOID Base, UINT64 Bytes, UINT32 Value)
 static PVOID gFb  = 0;
 static PVOID gLog = 0;
 
+/*
+ * TIK, zamanlayici DPC'sinin kac kez calistigini soyler; DPC yogunlukta
+ * gecikirse bunun duvar saatiyle bire bir oldugunu varsayamayiz. QPC ayni
+ * araligi bagimsiz sayar. Her ikili degeri 32 bite kisitliyoruz: bu deneyde
+ * saniyeler olculuyor, 19.2 MHz gibi tipik bir QPC'de 32 bit dakikalarca
+ * yeterlidir ve 64-bit bolme / CRT yardimcisi gerektirmez.
+ */
+static INT64 gQpcBaslangic = 0;
+static INT64 gQpcFrekans   = 0;
+
 /* Cekirdek bu alanin icine yaziyor; sifir olmasi ve sayfalanamaz olmasi yeter */
 static UINT64 gCallbackRecord[16];
 
@@ -265,6 +275,17 @@ __declspec(align(16)) static UINT64 gTimer[16];
 __declspec(align(16)) static UINT64 gDpc[16];
 
 static volatile UINT64 gTik = 0;
+
+static void B2LYazHex8 (volatile UINT8 *P, UINT32 V)
+{
+  int K;
+
+  for (K = 7; K >= 0; K--) {
+    UINT8 D = (UINT8)(V & 0xF);
+    P[K] = (UINT8)((D < 10) ? ('0' + D) : ('A' + D - 10));
+    V >>= 4;
+  }
+}
 
 /*
  * +0x70, 16 baytlik boot-reinit kaydi:
@@ -557,6 +578,28 @@ static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
     }
 
     /*
+     * +0x80: QPC duvar-zaman dogrulamasi.
+     *
+     * QPD = DriverEntry'den bu son DPC'ye sayac farki
+     * F   = saniyedeki sayac sayisi
+     *
+     * Sonraki UEFI ekraninda oran QPD/F dogrudan saniyedir. Bu alan
+     * sadece DPC tarafindan yazilir ve BRI (+0x70) ile cakisma yoktur.
+     */
+    if (gQpcFrekans > 0) {
+      INT64 Simdi = KeQueryPerformanceCounter (0);
+      volatile UINT8 *Q = (volatile UINT8 *)gLog + 128;
+
+      Q[0] = 'Q'; Q[1] = 'P'; Q[2] = 'D'; Q[3] = '=';
+      B2LYazHex8 (Q + 4,  (UINT32)(Simdi - gQpcBaslangic));
+      Q[12] = ' '; Q[13] = 'F'; Q[14] = '=';
+      B2LYazHex8 (Q + 15, (UINT32)gQpcFrekans);
+      Q[23] = ' '; Q[24] = ' '; Q[25] = ' '; Q[26] = ' ';
+      Q[27] = ' '; Q[28] = ' '; Q[29] = ' '; Q[30] = ' ';
+      Q[31] = ' ';
+    }
+
+    /*
      * GIC OKUMASI KALDIRILDI - ARACIMIZI DUSURDU.
      *
      * Windows'un icinden dagiticiyi okumak KMODE_EXCEPTION_NOT_HANDLED
@@ -706,6 +749,7 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
    * 2) FRAMEBUFFER - canli kanal.
    */
   gLog = Log;
+  gQpcBaslangic = KeQueryPerformanceCounter (&gQpcFrekans);
 
 
   Pa.QuadPart = (long long)FB_PHYS;
