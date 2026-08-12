@@ -140,14 +140,6 @@ __declspec(dllimport) long PsCreateSystemThread (
 __declspec(dllimport) PVOID KeGetCurrentThread (void);
 __declspec(dllimport) long  KeSetPriorityThread (PVOID Thread, long Priority);
 __declspec(dllimport) INT64 KeQueryPerformanceCounter (INT64 *Frequency);
-__declspec(dllimport) long  PsSetLoadImageNotifyRoutine (PVOID NotifyRoutine);
-
-/* WDK yok; ihtiyacimiz olan tek alan Buffer. */
-typedef struct {
-  unsigned short  Length;
-  unsigned short  MaximumLength;
-  unsigned short *Buffer;
-} B2L_UNICODE_STRING;
 
 __declspec(dllimport) void KeInitializeDpc (PVOID Dpc, PVOID Routine, PVOID Context);
 __declspec(dllimport) void KeInitializeTimer (PVOID Timer);
@@ -262,96 +254,24 @@ static UINT64 gTik = 0;
 static volatile UINT64 gSpin = 0;
 
 /*
- * SON YUKLENEN SURUCU.
+ * IMAJ YUKLEME KANCASI KALDIRILDI - HEM COKTU HEM SINYAL VERMIYORDU.
  *
- * Bu turda ogrendik ki sifirlama IS temelli: Windows acilista belli bir
- * noktaya variyor ve orada oluyor (CPU yariya indirilince TIK 0010'dan
- * 0018'e cikti). Oyleyse soru "o noktada ne yapiyordu" - ve bunun cevabini
- * tahmin etmeye gerek yok, cekirdek her surucu imaji yuklendiginde haber
- * veriyor.
+ * PsSetLoadImageNotifyRoutine ile her surucu imajinin adini kaydediyorduk.
+ * Iki ayri sebeple cikti:
  *
- * Geri cagri MINIMUM: yalnizca bayt kopyalama, fonksiyon cagrisi yok.
- * PsSetCreateProcessNotifyRoutine denemesi daha once bugcheck uretmisti;
- * o yuzden burada hicbir sey varsayilmiyor, isaretciler tek tek
- * kontrol ediliyor.
+ * 1) SINYAL YOKTU. Ayni goruntuyle uc acilista CNT 16, 3 ve 21 cikti, imaj
+ *    adi her seferinde baska. Olum ani ise kararli (TIK ~10, CPU yariya
+ *    inince 24). Yani son yuklenen imajin adi sucluyu degil, olumun
+ *    yukleme sirasinin neresine denk geldigini soyluyordu.
+ *
+ * 2) COKUYORDU. Cihaz KMODE_EXCEPTION_NOT_HANDLED (0x1E) / b2lfb.sys verdi.
+ *    PsSetCreateProcessNotifyRoutine denemesi de ayni sonu bulmustu.
+ *
+ * Olcum aracimizi dusuren ve karsiliginda bilgi vermeyen bir kanca
+ * tutulmaz. Ustelik ayni isi BCD'deki "sos" cekirdegin kendi tarafindan,
+ * hicbir seye kanca takmadan yapiyor: yuklenen surucileri ve baslatma
+ * iletilerini dogrudan ekrana yaziyor.
  */
-static UINT32 gImgSayi = 0;
-static UINT32 gImgIlk  = 0;   /* ilk imajin tiki (+1, sifir = hic yok) */
-static UINT32 gImgSon  = 0;   /* son imajin tiki */
-
-static void ImajYuklendi (B2L_UNICODE_STRING *Ad, PVOID Pid, PVOID Bilgi)
-{
-  UINT8         *P;
-  unsigned short *B;
-  int            Uzun, I, Bas;
-
-  (void)Pid; (void)Bilgi;
-
-  gImgSayi++;
-
-  /*
-   * ILK VE SON IMAJIN ZAMANI.
-   *
-   * Asil soru artik "hangi surucu" degil: Windows o 9 saniyeyi SURUCU
-   * YUKLEYEREK mi geciriyor, yoksa hizlica yukleyip sonra bir seyde
-   * DONEREK mi? Ikisi bambaska iki arama.
-   *
-   *   imajlar tikin sonuna kadar yayilmis -> yukleme suruyor, olum
-   *       yuklemenin icinde
-   *   imajlar basta bitmis, sonra uzun bir sessizlik -> yukleme cabuk
-   *       bitmis ve Windows baska bir seyde donuyor; surucu adlarini
-   *       kovalamak bosuna
-   */
-  if (gImgIlk == 0) {
-    gImgIlk = (UINT32)gTik + 1;
-  }
-
-  gImgSon = (UINT32)gTik;
-
-  if (gLog == 0 || Ad == 0 || Ad->Buffer == 0) {
-    return;
-  }
-
-  /* Sayac: kacinci surucude oldugumuzu da bilelim. */
-  P = (UINT8 *)gLog + 80;
-  {
-    UINT32 V = gImgSayi;
-    int    K;
-
-    P[0] = 'C'; P[1] = 'N'; P[2] = 'T'; P[3] = '=';
-    for (K = 7; K >= 0; K--) {
-      UINT8 D = (UINT8)(V & 0xF);
-      P[4 + K] = (UINT8)((D < 10) ? ('0' + D) : ('A' + D - 10));
-      V >>= 4;
-    }
-    P[12] = ' '; P[13] = ' '; P[14] = ' '; P[15] = ' ';
-  }
-
-  /* Yalnizca son yol bileseni; tam yol ekrana sigmaz. */
-  B    = Ad->Buffer;
-  Uzun = Ad->Length / 2;
-  if (Uzun <= 0 || Uzun > 512) {
-    return;
-  }
-
-  Bas = 0;
-  for (I = 0; I < Uzun; I++) {
-    if (B[I] == '\\' || B[I] == '/') {
-      Bas = I + 1;
-    }
-  }
-
-  P = (UINT8 *)gLog + 48;
-  P[0] = 'I'; P[1] = 'M'; P[2] = 'G'; P[3] = '=';
-
-  for (I = 0; I < 27; I++) {
-    unsigned short C = (Bas + I < Uzun) ? B[Bas + I] : ' ';
-
-    P[4 + I] = (UINT8)((C >= 0x20 && C < 0x7F) ? C : ' ');
-  }
-
-  P[31] = 0;
-}
 
 /*
  * Bosta is parcaciginin yerine gecen dongu. Oncelik 1: bosta is parcacigi
@@ -476,27 +396,6 @@ static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
       P[12] = ' '; P[13] = ' '; P[14] = ' '; P[15] = ' ';
     }
 
-    /*
-     * +0x60:  IL=nnnn SN=nnnn   ilk ve son imajin tiki (100 ms birimi)
-     */
-    {
-      UINT8 *Q = (UINT8 *)gLog + 96;
-      UINT32 A = (gImgIlk > 0) ? (gImgIlk - 1) : 0;
-      UINT32 B = gImgSon;
-
-      Q[0] = 'I'; Q[1] = 'L'; Q[2] = '=';
-      Q[3] = (UINT8)('0' + ((A / 1000) % 10));
-      Q[4] = (UINT8)('0' + ((A /  100) % 10));
-      Q[5] = (UINT8)('0' + ((A /   10) % 10));
-      Q[6] = (UINT8)('0' + ( A         % 10));
-      Q[7] = ' ';
-      Q[8] = 'S'; Q[9] = 'N'; Q[10] = '=';
-      Q[11] = (UINT8)('0' + ((B / 1000) % 10));
-      Q[12] = (UINT8)('0' + ((B /  100) % 10));
-      Q[13] = (UINT8)('0' + ((B /   10) % 10));
-      Q[14] = (UINT8)('0' + ( B         % 10));
-      Q[15] = ' ';
-    }
   }
 }
 
@@ -672,15 +571,6 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
     PsCreateSystemThread (&Th, 0x1F03FF, 0, 0, 0, (PVOID)BostaDongu, 0);
   }
 
-  /*
-   * Surucu yukleme bildirimi. Basarisiz olursa sessizce devam ediyoruz;
-   * geri cagrinin kendisi acilisi durdurmamali.
-   */
-  {
-    long R = PsSetLoadImageNotifyRoutine ((PVOID)ImajYuklendi);
-
-    if (gLog != 0) {
-      ((UINT8 *)gLog)[11] = (UINT8)((R == 0) ? 'I' : 'x');
     }
   }
 
