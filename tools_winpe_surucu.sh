@@ -219,20 +219,25 @@ servisler() {
 ADAY_KUME="atapi cdrom DXGKrnl EhStorClass EhStorTcgDrv fvevol GenPass \
 intelide NDIS nvdimm nvmedisk pci pciide pmem PRM qcgpio_i QcTrEE_i \
 sacdrv scmbus storahci stornvme storufs storvsc Tcpip TPM vmbus volmgrx \
-vpci WindowsTrustedRT WindowsTrustedRTProxy \
-BasicDisplay BasicRender cdfs udfs ws2ifsl"
+vpci WindowsTrustedRT WindowsTrustedRTProxy"
 
 #
-# SON BES ISIM SONRADAN EKLENDI.
+# BasicDisplay/BasicRender/cdfs/udfs/ws2ifsl BILEREK DISARIDA.
 #
-# Cihazdan alinan "liste" ciktisinda bunlar KAPALI gorunuyordu, o yuzden
-# kumeye girmemislerdi. Ama surucu araci yalnizca Start=0 ve Start=4
-# olanlari listeliyor; kapali gorunmelerinin tek aciklamasi daha onceki
-# bir "hepsi-kapat" cagrisi, yani ASLEN Start=0 olduklari.
+# Bir tur bunlari kumeye ekledim: "liste" ciktisinda KAPALI gorunuyorlardi
+# ve arac yalnizca Start=0 ile Start=4'u listeledigi icin "demek ki aslen
+# Start=0'dilar, bir hepsi-kapat kapatmis" diye cikardim.
 #
-# BasicDisplay bunlarin arasinda ve kritik: ekran surucusu kapaliyken
-# WinPE acilsa bile hicbir sey goremezdik. Kumede olmadiklari icin
-# "sadece" komutu onlara hic dokunmuyordu.
+# YANLISTI. Cihaz sunu verdi:
+#     File: \windows\system32\DRIVERS\udfs.sys   Status: 0xc0000428
+#
+# udfs/cdfs/ws2ifsl stok WinPE'de zaten devre disi. Onlari acilis
+# surucusune cevirince winload acilis zamani imza politikasiyla dogruluyor
+# ve gecemiyorlar - acilis hic baslamiyor.
+#
+# Ders: bir aracin FILTRESINDEN geriye donuk durum cikarmak olcum degil
+# tahmindir. Orijinal Start degerleri yalnizca dokunulmamis bir boot.wim'den
+# okunabilir; gerektiginde ISO'daki kopyadan alinacak.
 
 #
 # Hive'da gercekten var olanlari suz. Bir isim WinPE surumune gore
