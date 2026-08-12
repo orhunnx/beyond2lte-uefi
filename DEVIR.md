@@ -389,6 +389,19 @@ reddeder. Araç, kaynağı değiştirmeden tek indeksi `export --boot --compress
 ile yeni ve yazılabilir `esp/sources/boot.wim`e aktarır; ardından hive ve
 `startnet.cmd` eklenir.
 
+İlk `guvenli1g` ölçümünde `Loading files` tamamlandıktan sonra logo göründü
+ve logo kararıp cihaz **15 saniye** sonra sıfırlandı; `cmd.exe /k` kabuğu
+görünmedi. Bu, düşük bellek için açık bir yükleyici hatası değildir, fakat
+henüz bellek hipotezini kapatmaz: aynı turda hem ADK WinPE hem de fiziksel
+sınır değişti. Karşılaştırma zorunludur. Aynı ADK Media ile yalnızca
+`bcd_olustur.cmd tekcpu` üretilecek, `windows/BCD` kopyalanacak ve
+`tools_winpe_adk.sh` tekrar çalıştırılacaktır; UEFI yeniden derlenmez.
+
+- Bu karşılaştırma da 15 saniyede aynı reseti verirse `0xC0000000` sınırı
+  etkisizdir ve bellek-aralığı hipotezi kapanır.
+- Süre belirgin biçimde kısalır ya da uzarsa sınır tahsis zamanlamasını
+  değiştiriyordur; sonraki turda yalnız bellek sınırı basamaklı daraltılır.
+
 ### 9820 S-Boot / uH araştırma notu (12 Ağustos 2026)
 
 S10/9820'ye ait S-Boot tersine mühendisliği, normal Samsung açılışında
