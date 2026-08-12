@@ -72,6 +72,7 @@
 #define GICD_ISPEND 0x200           // bekleyen kesme bitleri
 #define FB_KAYIT    0xCF030000ULL   // b2lfb (Windows surucusu)
 #define HVC_KAYIT   0xCF030000ULL   // B2LEl2Dxe onceki HVC kaydi
+#define HVC_DXE_TANI (HVC_KAYIT + 0x100ULL)
 #define RT_KAYIT    0xCF040000ULL   // B2LRtHookDxe
 #define PMU_RST     0x15860404ULL
 
@@ -213,6 +214,7 @@ B2LGosterEntry (
   UINT32         *RtLog;
   UINT8          *FbLog;
   UINT32         *HvcLog;
+  UINT32         *HvcDxe;
   UINT32          Rst;
   EFI_INPUT_KEY   Key;
   UINTN           Index;
@@ -245,6 +247,7 @@ B2LGosterEntry (
   RtLog  = (UINT32 *)(UINTN)RT_KAYIT;
   FbLog  = (UINT8  *)(UINTN)FB_KAYIT;
   HvcLog = (UINT32 *)(UINTN)HVC_KAYIT;
+  HvcDxe = (UINT32 *)(UINTN)HVC_DXE_TANI;
   Rst    = *(volatile UINT32 *)(UINTN)PMU_RST;
 
   Yaz (L"=== BEYOND2LTE TANI ===", 0x00FFFFFF);
@@ -263,6 +266,16 @@ B2LGosterEntry (
     Deger (L"SON PSCI =", HvcLog[2], NULL, 0x0040FF40);
   } else {
     Yaz (L"PSCI HVC KAYDI YOK", 0x00808080);
+  }
+
+  if (HvcDxe[0] == 0x44483242) {  // "B2HD": HVC DXE yukleyicisi
+    Yaz (L"*** HVC DXE DURUMU ***", 0x0060C0FF);
+    Deger (L"EL2 SMC =", HvcDxe[1],
+           (HvcDxe[1] == 2) ? L"GERI" : L"CIKMADI", 0x0060C0FF);
+    Deger (L"VMM X0 =", HvcDxe[3], NULL, 0x0060C0FF);
+    Deger (L"VMM X1 =", HvcDxe[4], NULL, 0x0060C0FF);
+  } else {
+    Yaz (L"HVC DXE KAYDI YOK", 0x00FF4040);
   }
 
   mSatir += 12;

@@ -338,6 +338,14 @@ bir tuşa basıp `bootmgfw.efi`yi çalıştır; telefon yeniden açıldığında
 - Cihaz WinPE kabuğuna kadar gelirse sonraki ayrı turda `startnet.cmd`
   `cmd.exe /k` ile kalıcı kabuğa çevrilir.
 
+İlk uygulamada ikinci açılışta da `PSCI HVC KAYDI YOK` görüldü. Bu, EL2
+yükünün başlangıçta yazdığı `B2HV` imzasının da oluşmadığı anlamına gelir;
+henüz HVC/PSCI çağrısı hakkında sonuç çıkarılamaz. Sonraki aynı deney,
+`HVC DXE DURUMU` ile iki olasılığı ayırır: kayıt yoksa sürücü FV'de/çalışmada
+değildir; `EL2 SMC = 2 / GERI` görülür ama `B2HV` yoksa Samsung VMM arka
+kapısı yükümüze atlamamış veya dönüşte HYP durumunu geri almıştır. `VMM X0` ve
+`VMM X1` bu SMC'nin ham dönüşleridir.
+
 Normal hale dönüş için yalnızca `bash yap.sh` çalıştırmak yeterlidir:
 script FADT'yi yeniden SMC konduitine alır ve EL2 sürücüsünü tekrar derleme
 dışında bırakır.

@@ -39,6 +39,11 @@
 #define EL2_LOG         0xCF020000ULL   // bu acilis
 #define EL2_LOG_PREV    0xCF030000ULL   // onceki acilis (Shell burayi okur)
 #define EL2_LOG_SIZE    0x2000
+#define EL2_DXE_DIAG    0x100            // EL2_LOG icinde, HVC kaydindan ayri
+
+#define EL2_DXE_MAGIC   0x44483242U      // "B2HD" little-endian
+#define EL2_DXE_GIRDI   1
+#define EL2_DXE_DONDU   2
 
 #define VMM_SMC_MAGIC   0xC2000400ULL
 #define VMM_STACK_OFF   4096
@@ -57,6 +62,7 @@ B2LEl2Entry (
   UINTN         Boyut;
   VOID         *Kaynak;
   VOID         *Hedef;
+  UINT32       *DxeTani;
 
   Kaynak = (VOID *)&B2LEl2PayloadStart;
   Boyut  = (UINTN)(&B2LEl2PayloadEnd - &B2LEl2PayloadStart);
@@ -79,6 +85,14 @@ B2LEl2Entry (
   //
   CopyMem ((VOID *)(UINTN)EL2_LOG_PREV, (VOID *)(UINTN)EL2_LOG, EL2_LOG_SIZE);
   ZeroMem ((VOID *)(UINTN)EL2_LOG, EL2_LOG_SIZE);
+
+  // HVC kaydi yalnizca EL2 yuku "B2HV" imzasini yazarsa gorunur. Bu ayri
+  // kayit, DXE surucusunun calistigini ve VMM SMC'sinin donup donmedigini
+  // sonraki acilista B2LGoster'a bildirir.
+  DxeTani    = (UINT32 *)(UINTN)(EL2_LOG + EL2_DXE_DIAG);
+  DxeTani[0] = EL2_DXE_MAGIC;
+  DxeTani[1] = EL2_DXE_GIRDI;
+  DxeTani[2] = (UINT32)Boyut;
 
   {
     UINT32 *Onceki = (UINT32 *)(UINTN)EL2_LOG_PREV;
@@ -114,6 +128,10 @@ B2LEl2Entry (
   DEBUG ((EFI_D_ERROR, "B2L EL2: arka kapi cagriliyor (0x%lx)\n", VMM_SMC_MAGIC));
   ArmCallSmc (&Args);
   DEBUG ((EFI_D_ERROR, "B2L EL2: donus x0=0x%lx\n", (UINT64)Args.Arg0));
+
+  DxeTani[1] = EL2_DXE_DONDU;
+  DxeTani[3] = (UINT32)Args.Arg0;
+  DxeTani[4] = (UINT32)Args.Arg1;
 
   //
   // Donus degerini yorumlamiyoruz: bu arayuzun 9820'deki tam semantigi
