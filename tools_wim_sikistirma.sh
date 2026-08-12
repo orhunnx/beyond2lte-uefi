@@ -62,16 +62,31 @@ say "Mevcut boot.wim: $((ONCE/1024/1024)) MB"
 # bedel odedigimiz sey. Once/sonra dosya sayisi ve b2lfb.sys'in varligi
 # karsilastiriliyor; tutmuyorsa is durduruluyor ve eski dosya yerinde kaliyor.
 #
-ADET_ONCE=$(wimlib-imagex dir "$WIM" 1 2>/dev/null | wc -l)
-wimlib-imagex dir "$WIM" 1 2>/dev/null | grep -qi 'b2lfb.sys' \
+#
+# LISTE ONCE DEGISKENE ALINIYOR - "grep -q | pipefail" TUZAGI.
+#
+# Ilk surum soyleydi:
+#     wimlib-imagex dir ... | grep -qi 'b2lfb.sys' || hata
+#
+# grep -q ilk eslesmede HEMEN cikiyor, bu da wimlib-imagex'e SIGPIPE
+# gonderiyor; ureticinin cikis kodu sifirdan farkli oluyor ve pipefail
+# butun boruyu basarisiz sayiyor. Yani dogrulama, aradigini BULDUGU icin
+# basarisiz oldu ve "b2lfb.sys yok" dedi.
+#
+# Ciktiyi once degiskene alip sonra aramak bu tuzaga tamamen bagisik.
+#
+LISTE_ONCE="$(wimlib-imagex dir "$WIM" 1 2>/dev/null)"
+ADET_ONCE=$(printf '%s\n' "$LISTE_ONCE" | wc -l)
+printf '%s\n' "$LISTE_ONCE" | grep -i 'b2lfb' >/dev/null \
   || { echo "b2lfb.sys mevcut WIM'de yok - once tools_b2lfb.sh calistir"; exit 1; }
 
 YENI="$(mktemp -d)/boot.wim"
 say "Yeniden yaziliyor: --compress=$MOD"
 wimlib-imagex export "$WIM" 1 "$YENI" --compress="$MOD" >/dev/null
 
-ADET_SONRA=$(wimlib-imagex dir "$YENI" 1 2>/dev/null | wc -l)
-wimlib-imagex dir "$YENI" 1 2>/dev/null | grep -qi 'b2lfb.sys' \
+LISTE_SONRA="$(wimlib-imagex dir "$YENI" 1 2>/dev/null)"
+ADET_SONRA=$(printf '%s\n' "$LISTE_SONRA" | wc -l)
+printf '%s\n' "$LISTE_SONRA" | grep -i 'b2lfb' >/dev/null \
   || { echo "! b2lfb.sys yeni WIM'de YOK - eski dosya korundu"; exit 1; }
 
 if [ "$ADET_ONCE" != "$ADET_SONRA" ]; then
