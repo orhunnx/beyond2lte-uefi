@@ -243,6 +243,27 @@ aralik)
 
   say "Aday sayisi: $TOP   kapatilacak: $A..$B"
 
+  #
+  # HANGI ISIMLER KAPANIYOR - NUMARALARIYLA.
+  #
+  # Ilk surumde yalnizca sayilar yaziliyordu ve hive'in "ls" sirasinin
+  # alfabetik oldugunu VARSAYDIM. Varsayimla bisect yapmak, yanlis araligi
+  # elemeye ve butun aramayi cope atmaya yol acar. Isimler ekranda olsun.
+  #
+  N=0
+  while IFS= read -r S; do
+    [ -n "$S" ] || continue
+    N=$((N+1))
+    if [ "$N" -ge "$A" ] && [ "$N" -le "$B" ]; then
+      printf '  %2d  %-24s KAPALI\n' "$N" "$S"
+    else
+      printf '  %2d  %-24s acik\n' "$N" "$S"
+    fi
+  done <<EOF1
+$LST
+EOF1
+  echo
+
   : > "$HV/yaz.reg"
   N=0
   KAPANAN=0
