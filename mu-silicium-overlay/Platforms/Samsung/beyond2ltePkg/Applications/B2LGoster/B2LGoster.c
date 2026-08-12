@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    20
+#define B2L_SURUM    21
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 20"
+#define SURUM_METNI  L"SURUM 21"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -705,6 +705,20 @@ B2LGosterEntry (
       Deger (L"SUS SONRA=", (UINT32)Q[2],
              (Q[2] == 0) ? L"TEMIZ" : L"KALDI",
              (Q[2] == 0) ? 0x0040FF40 : 0x00FF4040);
+
+      //
+      // ACIK: susturma yazisi GECTI mi? Sifirsa gecti ve bekleyen bitler
+      // kaynaktan geri geliyor demektir. Sifirdan buyukse yazi hic
+      // gecmemis, yani o kesmeler guvenli tarafa ait ve bizim
+      // dokunmamiza izin yok.
+      //
+      // GRUP1: Non-secure olarak okunan SPI sayisi. Toplamdan cok
+      // kucukse cogu kesme guvenli tarafta demektir.
+      //
+      Deger (L"ACIK    =", (UINT32)Q[3],
+             (Q[3] == 0) ? L"YAZI GECTI" : L"YAZI GECMEDI",
+             (Q[3] == 0) ? 0x0040FF40 : 0x00FFFF40);
+      Deger (L"GRUP1   =", (UINT32)Q[4], NULL, 0x0060C0FF);
     } else {
       Yaz (L"GIC SUSTURMA: DEVIR YOK", 0x00808080);
     }

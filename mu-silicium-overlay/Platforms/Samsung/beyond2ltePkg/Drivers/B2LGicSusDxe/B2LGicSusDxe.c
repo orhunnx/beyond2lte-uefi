@@ -68,6 +68,8 @@
 #define GICD_ICENABLE 0x180
 #define GICD_ICPEND   0x280
 #define GICD_ISPEND   0x200
+#define GICD_ISENABLE 0x100
+#define GICD_IGROUP   0x080
 
 #define GIC_KAYIT     0xCF041300ULL
 #define GIC_ONCEKI    0xCF041340ULL
@@ -136,6 +138,42 @@ CikistaSustur (
   }
 
   Kayit[2] = BekleyenSay ();
+
+  //
+  // YAZDIGINI DOGRULA - IKI FARKLI SONUCU AYIRT EDIYOR.
+  //
+  // Ilk olcumde "once 8, sonra 8" cikti ve bunu "kaynak sinyali basili
+  // tutuyor" diye okudum. Ama ikinci bir aciklama daha var ve sinanmadi:
+  // YAZIMIZ HIC GECMEMIS olabilir.
+  //
+  // GICv2'de guvenlik uzantisi varsa Grup 0 kesmeleri GUVENLI tarafa aittir
+  // ve Non-secure taraftan yapilan GICD_ICENABLER yazmalari SESSIZCE YOK
+  // SAYILIR. Ekranda ikisi de ayni gorunuyor.
+  //
+  // Ayrimin sonucu buyuk:
+  //   yazma gecti, bekleyen geri geliyor -> aygiti (DECON) kapatmaliyiz
+  //   yazma hic gecmedi                  -> o kesmeler EL3'un, dokunamayiz
+  //                                         ve FIQ olarak EL3'e gidiyorlar
+  //
+  // Bu yuzden ISENABLER geri okunuyor (kac SPI HALA ACIK) ve IGROUPR
+  // dokuluyor (kac SPI Grup 1, yani Non-secure).
+  //
+  {
+    volatile UINT32 *Acik  = (volatile UINT32 *)(UINTN)(GICD + GICD_ISENABLE);
+    volatile UINT32 *Grup  = (volatile UINT32 *)(UINTN)(GICD + GICD_IGROUP);
+    UINT32           A = 0, G = 0;
+
+    for (I = 1; I < 32; I++) {
+      UINT32 V = Acik[I];
+      UINT32 W = Grup[I];
+
+      while (V != 0) { A++; V &= (V - 1); }
+      while (W != 0) { G++; W &= (W - 1); }
+    }
+
+    Kayit[3] = A;   // susturmadan SONRA hala acik olan SPI sayisi
+    Kayit[4] = G;   // Grup 1 (Non-secure) olarak okunan SPI sayisi
+  }
 }
 
 EFI_STATUS
