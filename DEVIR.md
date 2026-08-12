@@ -326,7 +326,10 @@ tuzaklayan `HCR_EL2.TSC` deneyi **kullanılmaz**. Köprü PSCI 0.2 `VERSION`,
 `SYSTEM_RESET` çağrılarını ilk turda `NOT_SUPPORTED` ile döndürüp HVC
 kaydına bırakır: eksik sistem güç işlemlerini uydurmak bu turun amacı değil.
 
-Bir sonraki açılışta `B2LGoster`ın üstünde şu kayıt okunur:
+İlk HVC açılışında `PSCI HVC KAYDI YOK` görünmesi zorunlu olarak beklenir:
+`B2LGoster`, kayıt tamponunu **Windows başlatılmadan önce** okur. Bu ekranda
+bir tuşa basıp `bootmgfw.efi`yi çalıştır; telefon yeniden açıldığında ikinci
+`B2LGoster` ekranında kayıt okunur. İkinci ekranda şu sonuçlar yorumlanır:
 
 - `PSCI HVC KOPRUSU` + `HVC SAYI` sıfırdan büyük: Windows gerçekten HVC
   yolunu kullandı; `SON PSCI` hangi işlevde kaldığını gösterir.
