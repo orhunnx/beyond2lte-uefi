@@ -219,7 +219,20 @@ servisler() {
 ADAY_KUME="atapi cdrom DXGKrnl EhStorClass EhStorTcgDrv fvevol GenPass \
 intelide NDIS nvdimm nvmedisk pci pciide pmem PRM qcgpio_i QcTrEE_i \
 sacdrv scmbus storahci stornvme storufs storvsc Tcpip TPM vmbus volmgrx \
-vpci WindowsTrustedRT WindowsTrustedRTProxy"
+vpci WindowsTrustedRT WindowsTrustedRTProxy \
+BasicDisplay BasicRender cdfs udfs ws2ifsl"
+
+#
+# SON BES ISIM SONRADAN EKLENDI.
+#
+# Cihazdan alinan "liste" ciktisinda bunlar KAPALI gorunuyordu, o yuzden
+# kumeye girmemislerdi. Ama surucu araci yalnizca Start=0 ve Start=4
+# olanlari listeliyor; kapali gorunmelerinin tek aciklamasi daha onceki
+# bir "hepsi-kapat" cagrisi, yani ASLEN Start=0 olduklari.
+#
+# BasicDisplay bunlarin arasinda ve kritik: ekran surucusu kapaliyken
+# WinPE acilsa bile hicbir sey goremezdik. Kumede olmadiklari icin
+# "sadece" komutu onlara hic dokunmuyordu.
 
 #
 # Hive'da gercekten var olanlari suz. Bir isim WinPE surumune gore

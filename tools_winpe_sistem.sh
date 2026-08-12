@@ -65,14 +65,27 @@ printf 'cd ControlSet001\\Services\nls\nquit\n' | hivexsh "$W/SYSTEM" \
 # BIZIM SURUCUMUZ HARIC. b2lfb Start=0 ama listeye karismasin diye acikca
 # atlanıyor - kalp atisi olcumun kendisi, onu kaybedemeyiz.
 #
-say "Start=1 servisleri araniyor"
+#
+# HEDEF LISTE SABIT - DURUMDAN OKUNMUYOR.
+#
+# Ilk surum "su an Start=1 olanlar" diye ariyordu. Bir kez kapatinca hepsi
+# Start=4 oluyor, liste bosaliyor ve "ac" komutu hicbir seyi geri
+# acamiyor - "0 adet Start=1 servisi" deyip cikiyordu.
+#
+# Ayni hatayi surucu aracindaki adaylar() fonksiyonunda da yapmistim.
+# Bir aracin hedefi, o aracin degistirdigi seye gore belirlenemez.
+#
+# Liste, cihazdan alinan ilk "liste" ciktisindaki 14 Start=1 servisi.
+#
+SISTEM_KUME="AFD CimFS Dfsc Msfs mssmbios NetBIOS NetBT Npfs npsvctrig \
+nsiproxy Null rdbss tdx uiomap"
+
+say "Start=1 servisleri"
 : > "$W/sistem.txt"
-while IFS= read -r SRV; do
-  [ -n "$SRV" ] || continue
-  [ "$SRV" = "b2lfb" ] && continue
-  V="$(hivexget "$W/SYSTEM" "ControlSet001\\Services\\$SRV" Start 2>/dev/null || echo "")"
-  [ "$V" = "1" ] && echo "$SRV" >> "$W/sistem.txt"
-done < "$W/hepsi.txt"
+for SRV in $SISTEM_KUME; do
+  hivexget "$W/SYSTEM" "ControlSet001\\Services\\$SRV" Start >/dev/null 2>&1 \
+    && echo "$SRV" >> "$W/sistem.txt"
+done
 ADET=$(wc -l < "$W/sistem.txt")
 echo "  $ADET adet Start=1 servisi"
 
