@@ -46,6 +46,8 @@
   # Windows surucusunun olum sonrasi halka tamponu icin zaten oraya
   # yazilacak (bkz. WINDOWS_SURUCU_PLANI.md, Faz 1b).
   #
+  # INF beyond2ltePkg/Drivers/B2LEl2Dxe/B2LEl2Dxe.inf
+
   #
   # Calisma zamani servisi kancasi. GetTime ve GetVariable sarmalanip
   # giris/cikis sayaci 0xCF040000'a yaziliyor. Gerekce B2LRtHookDxe.c
