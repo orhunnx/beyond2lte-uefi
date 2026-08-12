@@ -199,6 +199,24 @@ if errorlevel 1 echo   ! BASARISIZ: winpe      Yes
 bcdedit /store "%BCD%" /set %G% inherit {bootloadersettings}
 if errorlevel 1 echo   ! BASARISIZ: inherit {bootloadersettings}
 
+:: --- SOS: CEKIRDEGIN KENDI ACILIS METNI ---------------------------------
+::
+:: "sos" acikken winload ve ntoskrnl yukledikleri surucileri ve baslatma
+:: iletilerini EKRANA yaziyor. Bizim 16 baytlik kayit pencerelerimizden cok
+:: daha zengin: sirayi, adlari ve nerede takildigini dogrudan gosteriyor.
+::
+:: NEDEN SIMDI: IMG/CNT olcumu tek basina yaniltici cikti. Tek bir Start=1
+:: servisini kapatmak CNT'yi 16'dan 3'e dusurdu ama TIK 9-10'da kaldi -
+:: yani imajlar sonda bir salkim halinde yukleniyor ve son imajin adi
+:: sucluyu degil, olumun salkimin neresine denk geldigini soyluyor.
+:: Ekrana akan gercek liste bu belirsizligi tamamen kaldiriyor.
+::
+:: bootuxdisabled zaten acik, yani grafik acilis ekrani araya girmiyor ve
+:: metin sifirlamaya kadar ekranda kaliyor. Fotograflanabilir.
+::
+bcdedit /store "%BCD%" /set %G% sos Yes
+if errorlevel 1 echo   ! BASARISIZ: sos Yes
+
 :: --- TANI: sessiz cokmeyi gorunur kil ------------------------------------
 ::
 :: DIKKAT: bu ikisi TANIYI ENGELLIYORDU. "Kurtarma ekranina atlamasin" diye
