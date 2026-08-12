@@ -402,6 +402,23 @@ sınır değişti. Karşılaştırma zorunludur. Aynı ADK Media ile yalnızca
 - Süre belirgin biçimde kısalır ya da uzarsa sınır tahsis zamanlamasını
   değiştiriyordur; sonraki turda yalnız bellek sınırı basamaklı daraltılır.
 
+Karşılaştırma tamamlandı: **aynı ADK Media ve aynı WinPE WIM** ile yalnızca
+BCD `tekcpu` varyantına dönüldü (`truncatememory` yok). `Loading files`
+sonrasında UEFI logosu yine göründü ve cihaz yine **15 saniye** sonra
+sıfırlandı; `cmd.exe /k` kabuğu görünmedi. Böylece `0x80000000..0xBFFFFFFF`
+ile sınırlama, `seclog` başlangıcı (`0xC0000000`) ve üst bellek bankaları bu
+ölçekte sebep değildir. `azram`, `guvenli1g`, reserved-memory veya bellek
+sınırı denemeleri tekrar edilmemeli; yeni bir bellek hipotezi için farklı,
+adres-özgül bir kanıt gerekir.
+
+Bu temiz A/B'nin ardından normal SMC akışında yazılımla denenmemiş doğrudan
+bir düzeltme kalmadı: Windows'un ihtiyaç duyduğu PSCI 0.2 arayüzü stok EL3'te
+yok, onu sağlayacak HVC köprüsünün EL2 yük isteği de 9820'de `-1` ile
+reddedildi. Sonraki anlamlı ilerleme yeni bir BCD/WIM varyantı değil;
+Windows'un son SMC/erken-kernel davranışını dışarıdan görebilen UART gibi bir
+gözlem kanalı veya Samsung'un imzalı uH/EL3 arayüzü hakkında yeni, cihaz-özel
+kanıttır.
+
 ### 9820 S-Boot / uH araştırma notu (12 Ağustos 2026)
 
 S10/9820'ye ait S-Boot tersine mühendisliği, normal Samsung açılışında
