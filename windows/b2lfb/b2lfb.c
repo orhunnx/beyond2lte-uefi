@@ -202,9 +202,6 @@ __declspec(dllimport) UINT8 KeSetTimerEx (PVOID Timer, long long DueTime, int Pe
  *     dmem 0xCF030000 60
  * Yani bu adresi secmek, Shell tarafinda sifir degisiklik demek.
  */
-#define GICD_PHYS 0x10101000ULL
-#define GICD_LEN  0x1000ULL
-
 #define LOG_PHYS  0xCF030000ULL
 #define LOG_BYTES 0x100ULL
 
@@ -229,7 +226,6 @@ static void FillDword (PVOID Base, UINT64 Bytes, UINT32 Value)
  */
 static PVOID gFb  = 0;
 static PVOID gLog = 0;
-static PVOID gGic = 0;
 
 /* Cekirdek bu alanin icine yaziyor; sifir olmasi ve sayfalanamaz olmasi yeter */
 static UINT64 gCallbackRecord[16];
@@ -480,48 +476,22 @@ static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
     }
 
     /*
-     * +0x70:  GE=nnnn GP=nnnn   acik ve bekleyen SPI sayilari
+     * GIC OKUMASI KALDIRILDI - ARACIMIZI DUSURDU.
      *
-     * Cikista butun SPI'lari kapattik ve bekleyen bitlerini temizledik, ama
-     * bitler ANINDA geri geldi (SUS ONCE=8, SUS SONRA=8): kaynaklar canli,
-     * DECON kareyi taramaya devam ediyor.
+     * Windows'un icinden dagiticiyi okumak KMODE_EXCEPTION_NOT_HANDLED
+     * (0x1E) uretti. Sebebi mimari: ARM'de ayni fiziksel adresi FARKLI
+     * bellek nitelikleriyle iki kez haritalamak tanimsiz davranis. HAL
+     * GIC'i zaten Device olarak haritalamis durumda; MmMapIoSpace ile
+     * ikinci bir haritalama acmak tam olarak bu yasaga giriyor.
      *
-     * Ama KAPATILMIS bir kesme, bekleyen biti kalksa da CPU'ya ILETILMEZ.
-     * Firtina ancak Windows o SPI'lari kendisi ACARSA mumkun. Tahmin etmek
-     * yerine oluyoruz:
+     * Bu, olcum aracini ikinci kez dusurusum oldu - ilki
+     * PsSetLoadImageNotifyRoutine idi. Ikisi de ZAYIF bir hipotez icindi.
+     * Firtina hipotezi zaten sallantida: kapatilmis kesme CPU'ya
+     * iletilmiyor ve butun SPI'lari susturdugumuz denemede TIK hic
+     * degismedi (0097). Bunun icin b2lfb'yi riske atmaya degmez.
      *
-     *   GE buyuk -> Windows SPI'lari aciyor, firtina mumkun
-     *   GE sifir -> acmiyor, firtina hipotezi tamamen duser
+     * Aracin saglamligi, ondan alinacak tek bir olcumden daha degerli.
      */
-    if (gGic != 0) {
-      volatile UINT32 *Ac  = (volatile UINT32 *)((UINT8 *)gGic + 0x100);
-      volatile UINT32 *Bek = (volatile UINT32 *)((UINT8 *)gGic + 0x200);
-      UINT8           *R   = (UINT8 *)gLog + 112;
-      UINT32           A = 0, B = 0;
-      int              W;
-
-      /* Ilk kelime SGI/PPI: her zaman hareketli, sayilmiyor. */
-      for (W = 1; W < 32; W++) {
-        UINT32 V = Ac[W];
-        UINT32 Pn = Bek[W];
-
-        while (V != 0)  { A++; V  &= (V  - 1); }
-        while (Pn != 0) { B++; Pn &= (Pn - 1); }
-      }
-
-      R[0] = 'G'; R[1] = 'E'; R[2] = '=';
-      R[3] = (UINT8)('0' + ((A / 1000) % 10));
-      R[4] = (UINT8)('0' + ((A /  100) % 10));
-      R[5] = (UINT8)('0' + ((A /   10) % 10));
-      R[6] = (UINT8)('0' + ( A         % 10));
-      R[7] = ' ';
-      R[8] = 'G'; R[9] = 'P'; R[10] = '=';
-      R[11] = (UINT8)('0' + ((B / 1000) % 10));
-      R[12] = (UINT8)('0' + ((B /  100) % 10));
-      R[13] = (UINT8)('0' + ((B /   10) % 10));
-      R[14] = (UINT8)('0' + ( B         % 10));
-      R[15] = ' ';
-    }
   }
 }
 
@@ -619,16 +589,6 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
    */
   gLog = Log;
 
-  /*
-   * Dagitici da esleniyor. Basarisiz olursa sessizce devam: GIC olcumu
-   * ek bir kanal, kalp atisini kaybetmeye degmez.
-   */
-  {
-    PHYSICAL_ADDRESS G;
-
-    G.QuadPart = (long long)GICD_PHYS;
-    gGic = MmMapIoSpace (G, (UINT64)GICD_LEN, 0);
-  }
 
   Pa.QuadPart = (long long)FB_PHYS;
   Fb = MmMapIoSpace (Pa, FB_BYTES, MmNonCached);

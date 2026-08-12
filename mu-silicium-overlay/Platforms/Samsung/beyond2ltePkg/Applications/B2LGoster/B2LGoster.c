@@ -49,14 +49,14 @@
 // B2LSehDxe'deki B2L_SURUM ile AYNI olmali. Onceki acilisin degerleri
 // yalnizca damgalar tutuyorsa gosteriliyor.
 //
-#define B2L_SURUM    19
+#define B2L_SURUM    20
 
 //
 // Ekranin en ustundeki damga. Eski bir kopya calisirsa (birden fazla FAT
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 19"
+#define SURUM_METNI  L"SURUM 20"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -435,20 +435,6 @@ B2LGosterEntry (
     Tik[16] = L'\0';
     Yaz (Tik, 0x00FFFF40);
 
-    //
-    // GE/GP: Windows kosarken kac SPI ACIK, kac tanesi BEKLIYOR.
-    // Kapatilmis bir kesme iletilmez; firtina ancak Windows onlari
-    // kendisi acarsa mumkun. GE sifirsa hipotez tamamen duser.
-    //
-    for (K = 0; K < 16; K++) {
-      Tik[K] = (CHAR16)FbLog[112 + K];
-      if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
-        Tik[K] = L' ';
-      }
-    }
-
-    Tik[16] = L'\0';
-    Yaz (Tik, 0x0040FF40);
 
     //
     // MAX: bir tikte gorulen en buyuk tur sayisi = dongunun serbest hizi.
