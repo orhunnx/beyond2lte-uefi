@@ -140,6 +140,14 @@ __declspec(dllimport) long PsCreateSystemThread (
 __declspec(dllimport) PVOID KeGetCurrentThread (void);
 __declspec(dllimport) long  KeSetPriorityThread (PVOID Thread, long Priority);
 __declspec(dllimport) INT64 KeQueryPerformanceCounter (INT64 *Frequency);
+__declspec(dllimport) long  PsSetLoadImageNotifyRoutine (PVOID NotifyRoutine);
+
+/* WDK yok; ihtiyacimiz olan tek alan Buffer. */
+typedef struct {
+  unsigned short  Length;
+  unsigned short  MaximumLength;
+  unsigned short *Buffer;
+} B2L_UNICODE_STRING;
 
 __declspec(dllimport) void KeInitializeDpc (PVOID Dpc, PVOID Routine, PVOID Context);
 __declspec(dllimport) void KeInitializeTimer (PVOID Timer);
@@ -254,6 +262,77 @@ static UINT64 gTik = 0;
 static volatile UINT64 gSpin = 0;
 
 /*
+ * SON YUKLENEN SURUCU.
+ *
+ * Bu turda ogrendik ki sifirlama IS temelli: Windows acilista belli bir
+ * noktaya variyor ve orada oluyor (CPU yariya indirilince TIK 0010'dan
+ * 0018'e cikti). Oyleyse soru "o noktada ne yapiyordu" - ve bunun cevabini
+ * tahmin etmeye gerek yok, cekirdek her surucu imaji yuklendiginde haber
+ * veriyor.
+ *
+ * Geri cagri MINIMUM: yalnizca bayt kopyalama, fonksiyon cagrisi yok.
+ * PsSetCreateProcessNotifyRoutine denemesi daha once bugcheck uretmisti;
+ * o yuzden burada hicbir sey varsayilmiyor, isaretciler tek tek
+ * kontrol ediliyor.
+ */
+static UINT32 gImgSayi = 0;
+
+static void ImajYuklendi (B2L_UNICODE_STRING *Ad, PVOID Pid, PVOID Bilgi)
+{
+  UINT8         *P;
+  unsigned short *B;
+  int            Uzun, I, Bas;
+
+  (void)Pid; (void)Bilgi;
+
+  gImgSayi++;
+
+  if (gLog == 0 || Ad == 0 || Ad->Buffer == 0) {
+    return;
+  }
+
+  /* Sayac: kacinci surucude oldugumuzu da bilelim. */
+  P = (UINT8 *)gLog + 80;
+  {
+    UINT32 V = gImgSayi;
+    int    K;
+
+    P[0] = 'C'; P[1] = 'N'; P[2] = 'T'; P[3] = '=';
+    for (K = 7; K >= 0; K--) {
+      UINT8 D = (UINT8)(V & 0xF);
+      P[4 + K] = (UINT8)((D < 10) ? ('0' + D) : ('A' + D - 10));
+      V >>= 4;
+    }
+    P[12] = ' '; P[13] = ' '; P[14] = ' '; P[15] = ' ';
+  }
+
+  /* Yalnizca son yol bileseni; tam yol ekrana sigmaz. */
+  B    = Ad->Buffer;
+  Uzun = Ad->Length / 2;
+  if (Uzun <= 0 || Uzun > 512) {
+    return;
+  }
+
+  Bas = 0;
+  for (I = 0; I < Uzun; I++) {
+    if (B[I] == '\\' || B[I] == '/') {
+      Bas = I + 1;
+    }
+  }
+
+  P = (UINT8 *)gLog + 48;
+  P[0] = 'I'; P[1] = 'M'; P[2] = 'G'; P[3] = '=';
+
+  for (I = 0; I < 27; I++) {
+    unsigned short C = (Bas + I < Uzun) ? B[Bas + I] : ' ';
+
+    P[4 + I] = (UINT8)((C >= 0x20 && C < 0x7F) ? C : ' ');
+  }
+
+  P[31] = 0;
+}
+
+/*
  * Bosta is parcaciginin yerine gecen dongu. Oncelik 1: bosta is parcacigi
  * (0) disinda HER SEY bundan once calisir, dolayisiyla acilis yavaslamaz.
  */
@@ -349,35 +428,16 @@ static void HeartbeatDpc (PVOID Dpc, PVOID Ctx, PVOID A1, PVOID A2)
      *       kanitlamiyor ve once onu duzeltmek gerekir
      */
     /*
-     * FREN: her tikte YARIM SANIYE burada mesgul bekliyoruz.
+     * FREN KALDIRILDI - SORUSUNU CEVAPLADI.
      *
-     * NEDEN: sifirlamanin "10 saniye gecince" mi yoksa "Windows belli bir
-     * noktaya varinca" mi oldugunu hic ayirmadik. Ikisi de simdiye kadarki
-     * butun olcumlere uyuyor - blokede hic olmuyor, birakinca tam 10 saniye
-     * sonra oluyor.
+     * Her tikte yarim saniye DISPATCH_LEVEL'da beklenmisti, yani CPU'nun
+     * tam yarisi alinmisti. Sonuc: TIK 0010'dan 0018'e cikti. Sifirlama
+     * SURE temelli degil IS temelli - Windows acilista belli bir noktaya
+     * variyor ve orada oluyor. Sabit sure sayan bir seyin (watchdog,
+     * zamanlayici) boyle davranmasi mumkun degil.
      *
-     * Bu kod DISPATCH_LEVEL'da donuyor, yani zamanlayici devrede degil:
-     * CPU'nun tam yarisini deterministik olarak aliyor. Zamanlamaya bagli
-     * bir "oncelik ver, umarim calisir" duzenegi degil.
-     *
-     *   TIK yine ~0010  -> sure temelli. Windows baslar baslamaz 10 saniye
-     *                      sayan bir sey var ve isin miktari onemsiz.
-     *   TIK ~0020'ye cikar -> is temelli. Windows belli bir noktaya
-     *                      variyor ve orada oluyor; yavaslatinca o nokta
-     *                      geciktigi icin tik sayisi katlaniyor.
-     *
-     * Ikisi bambaska iki arama demek, ve bu ayrimi yapmadan devam etmek
-     * tahmin olur.
+     * Fren artik sadece olcumu yavaslatirdi, o yuzden cikti.
      */
-    {
-      INT64 Frk = 0;
-      INT64 Bas = KeQueryPerformanceCounter (&Frk);
-
-      if (Frk > 0) {
-        while ((KeQueryPerformanceCounter (0) - Bas) < (Frk / 2)) {
-        }
-      }
-    }
 
     {
       UINT8 *P = (UINT8 *)gLog + 32;
@@ -567,6 +627,18 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   {
     PVOID Th = 0;
     PsCreateSystemThread (&Th, 0x1F03FF, 0, 0, 0, (PVOID)BostaDongu, 0);
+  }
+
+  /*
+   * Surucu yukleme bildirimi. Basarisiz olursa sessizce devam ediyoruz;
+   * geri cagrinin kendisi acilisi durdurmamali.
+   */
+  {
+    long R = PsSetLoadImageNotifyRoutine ((PVOID)ImajYuklendi);
+
+    if (gLog != 0) {
+      ((UINT8 *)gLog)[11] = (UINT8)((R == 0) ? 'I' : 'x');
+    }
   }
 
   KeInitializeDpc ((PVOID)gDpc, (PVOID)HeartbeatDpc, 0);

@@ -70,6 +70,7 @@ KeInitializeDpc
 KeInitializeTimer
 KeSetTimerEx
 KeQueryPerformanceCounter
+PsSetLoadImageNotifyRoutine
 DEF
 llvm-dlltool -m arm64 -d "$OUT/ntoskrnl.def" -l "$OUT/ntoskrnl.lib"
 echo "  $(basename "$OUT/ntoskrnl.lib") hazir"
