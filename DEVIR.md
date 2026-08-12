@@ -672,19 +672,58 @@ servis kaydının doğru yerleştirildiğini kanıtlar; Start=1 konumundaki iki
 yeni imajın gerçekten yüklenebilir olduğunun yürütme kanıtı değildir.
 
 Bu ayrımı kapatmak için `bash tools_b2lfb.sh kontrol` eklendi. Bu kip, mevcut
-imajları değiştirmeden yalnızca bir sonraki turda `b2lsg0` ve `b2lsys`i
-`Start=0`, `ErrorControl=3` yapar; `b2lauto`yu `Start=4` ile devre dışı
-bırakır. Beklenen sonuç şudur:
+imajları değiştirmeden yalnızca bir sonraki turda grupsuz `b2lsys`i
+`Start=0`, `ErrorControl=3` yapar; `b2lsg0` ve `b2lauto`yu `Start=4` ile
+devre dışı bırakır. Beklenen sonuç şudur:
 
 | Kontrol sonucu | Dar yorum |
 |---|---|
-| `SYG=INI`, `SYS=INI` | İki imaj ve imza zinciri boot aşamasında çalışır; normal kiptir tekrar `Start=1` sonucu faz sınırı olarak yorumlanabilir. |
+| `SYS=INI` | `b2lsys` imajı ve imza zinciri boot aşamasında çalışır; normal kipteki `SYS=REG` faz sınırı olarak yorumlanabilir. |
 | Yükleyici hata ekranı | İmzalama/yükleme reddi vardır; ekrandaki kod izlenecek somut nedendir. |
-| Damgalardan biri yok | O sürücünün çalıştırılabilirlik zinciri sorunludur; normal Start=1 sonucuna faz anlamı yüklenmez. |
+| `SYS=REG` | `b2lsys`in çalıştırılabilirlik zinciri sorunludur; normal Start=1 sonucuna faz anlamı yüklenmez. |
 
 Kontrolden sonra normal yapı için `bash tools_b2lfb.sh` çalıştırılır; bu hem
 servis kayıtlarını hem de `ErrorControl=0` değerlerini normal deney haline
 geri kurar.
+
+#### Kontrol sonucu: `b2lsys` yüklenebilir; grup damgasının bu kipte negatif anlamı yok
+
+Kontrol turunda ekran şunu verdi:
+
+```
+TIK=0426 BUG=H
+MAX=012D43EC
+SPN=5CD0F699
+BRI=0001 C=001
+QPD=42059E1B F=018CBA80
+AUT=REG C=000
+SYS=INI C=001
+SYG=REG C=000
+RST_STAT=20000000
+```
+
+`QPD/F = 42.602477 s`; süre yine yerleşik 42–44 saniye bandındadır.
+`SYS=INI`, `b2lsys.sys`in dosya yolu, test imzası, ARM64 kodu ve
+`MmMapIoSpace` ile kayıt yazma yolunun boot-start yüklemede gerçekten
+çalıştığının yürütme kanıtıdır. Dolayısıyla normal kipte görülen
+`SYS=REG`, yerleştirme ya da imza sorunu değil, Windows'un bu grupsuz
+`SERVICE_SYSTEM_START` sürücüsünün `DriverEntry` noktasına ulaşmadığı
+sonucunu artık güvenilir biçimde taşır.
+
+Bu fotoğraftaki `SYG=REG` ters yönde kanıt değildir. Kontrolün eski
+uygulamasında `b2lfb` ve `b2lsg0` ikisi de `Start=0`, aynı
+`System Bus Extender` grubunda ve etiketsizdi. Windows, aynı grup içindeki
+etiketsiz sürücülerin göreli sırasını garanti etmez. `b2lsg0` önce
+`SYG=INI` yazmış, `b2lfb` daha sonra başlangıç damgası `SYG=REG` ile bunun
+üzerine yazmış olabilir. Bu yüzden kontrol kipi güncellendi: sonraki
+kontrollerde `b2lsg0` devre dışı kalır ve yalnız anlamlı `SYS` kontrolü
+yapılır.
+
+Şimdi normal deneye dönülür: `bash tools_b2lfb.sh` `b2lsys`i yeniden
+`Start=1` yapar. Yeni normal turda `SYS=REG` ise reset, b2lsys'in ait olduğu
+grupsuz kalan `SERVICE_SYSTEM_START` yükleme adımına girilmeden gelmektedir;
+`SYS=INI` ise bu adımın geçildiğini ve odağın SCM öncesi sonraki işe
+daraltılacağını gösterir.
 
 Kaynaklar: [Microsoft — AddService StartType](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-addservice-directive),
 [Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order).

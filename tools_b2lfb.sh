@@ -50,12 +50,17 @@ set -euo pipefail
 # Kapali haldeyken sayi okunamaz, olcum kronometreyle yapilir. Amac zaten
 # sayi degil: sifirlama VAR MI ve kabaca ne zaman.
 #
-# "kontrol" iki Start=1 damga surucusunu bir tur icin Start=0 yapar.
+# "kontrol" grupsuz b2lsys damga surucusunu bir tur icin Start=0 yapar.
 # WIM/hive geri okumasi dosyalarin KONULDUGUNU kanitlar, fakat Start=1
 # asamasinda gercekten yuklenebildigini kanitlamaz. Bu kontrol o boslugu
-# kapatir: b2lsg0 ve b2lsys boot surucusu olarak calisirsa, bir sonraki
-# normal Start=1 sonucunu faz siniri olarak yorumlamak mumkun olur.
-# ErrorControl=3 sayesinde imza/yukleme reddi de sessizce atlanmaz.
+# kapatir: b2lsys boot surucusu olarak calisirsa, bir sonraki normal
+# Start=1 sonucunu faz siniri olarak yorumlamak mumkun olur.
+#
+# b2lsg0 KONTROLDE KAPALIDIR. b2lfb ile ayni LoadOrderGroup'tadir ve ikisi
+# arasinda Tag olmadigindan b2lsg0 once calisip SYG=INI yazsa bile b2lfb
+# sonra SYG=REG ile ustune yazabilir. Bu nedenle SYG, bu kontrol kipinde
+# negatif yuklenebilirlik kaniti olamaz. ErrorControl=3 sayesinde b2lsys
+# icin imza/yukleme reddi de sessizce atlanmaz.
 #
 B2L_MOD="${1:-kur}"
 case "$B2L_MOD" in
@@ -103,13 +108,13 @@ if [ "$B2L_MOD" != "kur" ]; then
       SYSG_ERR=0; SYS_ERR=0
       ;;
     kontrol)
-      DEG=0; SYSG_DEG=0; SYS_DEG=0; AUTO_DEG=4
-      SYSG_ERR=3; SYS_ERR=3
+      DEG=0; SYSG_DEG=4; SYS_DEG=0; AUTO_DEG=4
+      SYSG_ERR=0; SYS_ERR=3
       ;;
   esac
 
   if [ "$B2L_MOD" = "kontrol" ]; then
-    say "KONTROL: b2lsg0/b2lsys Start=0 ErrorControl=3, b2lauto Start=4 yapiliyor"
+    say "KONTROL: b2lsys Start=0 ErrorControl=3, b2lsg0/b2lauto Start=4 yapiliyor"
   else
     say "b2lfb Start=$DEG, b2lsg0/b2lsys Start=$SYSG_DEG/$SYS_DEG, b2lauto Start=$AUTO_DEG yapiliyor"
   fi
