@@ -56,7 +56,7 @@
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 24"
+#define SURUM_METNI  L"SURUM 25"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -555,6 +555,22 @@ B2LGosterEntry (
     //
     for (K = 0; K < 16; K++) {
       Tik[K] = (CHAR16)FbLog[160 + K];
+      if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
+        Tik[K] = L' ';
+      }
+    }
+
+    Tik[16] = L'\0';
+    Yaz (Tik, 0x00FFFF40);
+
+    //
+    // +0xB0: ayri Start=1 b2lsys.sys'nin sistem-ilklendirme damgasi.
+    // SYS=REG C=000 b2lfb'nin taze baslangic degeridir; SYS=INI C=001
+    // ise Windows'un SERVICE_SYSTEM_START asamasinin bu surucuye kadar
+    // ilerledigini kanitlar. Start=2/SCM damgasi bundan sonra gelir.
+    //
+    for (K = 0; K < 16; K++) {
+      Tik[K] = (CHAR16)FbLog[176 + K];
       if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
         Tik[K] = L' ';
       }

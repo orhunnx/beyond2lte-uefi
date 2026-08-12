@@ -560,6 +560,50 @@ gösterir; fakat `cmd.exe` kabuğunun çalıştığını tek başına kanıtlama
 satırda ise `b2lauto.sys` WIM'e ve SYSTEM hive'a yazılıp geri okunarak
 doğrulandığından, bir sonraki odak Start=1/SCM arasıdır.
 
+İkinci, bağımsız tur da aynı sonucu verdi:
+
+```
+TIK=0427 BUG=H
+MAX=01241608
+SPN=5CBFDFA2
+BRI=0001 C=001
+QPD=422D5CB7 F=018CBA80
+AUT=REG C=000
+RST_STAT=20000000
+```
+
+Bu sefer `QPD/F = 42.702658 s` ve DPC ortalaması `100.006 ms`; önceki
+42–43 saniyelik zaman aralığı yeniden üretildi. `AUT=REG C=000`,
+`b2lfb`'nin yeni başlangıç damgası yazdığını fakat **SCM'nin auto-start
+aşamasına ulaşılmadığını** gösterir. Böylece pencere PnP tamamlandıktan
+sonra, fakat `Start=2` öncesindedir.
+
+### Sıradaki ayrım: Start=1 sistem ilklendirmesi
+
+Bu pencereyi ikiye bölmek için `b2lsys.sys` adlı ikinci bir minicik sürücü
+eklendi. `Start=1`, `ErrorControl=0`, grup/dependency yoktur; yalnızca
+`0xCF030000+0xB0` alanına yazar ve döner. Microsoft'un tanımladığı sıralama
+gereği PnP aygıt sürücülerinden sonra kalan `SERVICE_SYSTEM_START`
+sürücüleri yüklenir; bu aşama SCM auto-start'tan öncedir.
+
+```
+SYS=REG C=000   reset, Start=1 sistem sürücülerine ulaşmadan oldu
+SYS=INI C=001   Windows b2lsys'i sistem ilklendirmesinde başlattı
+```
+
+Sonraki turda `AUT` ile birlikte yorumlanır:
+
+| Kayıt | Anlamı |
+|---|---|
+| `SYS=REG`, `AUT=REG` | PnP sonrası ile kalan Start=1 sürücüleri arası |
+| `SYS=INI`, `AUT=REG` | Start=1 sistem ilklendirmesi başladı; reset SCM auto-start öncesinde |
+| `SYS=INI`, `AUT=SCM` | SCM aşaması geçildi; bu mevcut sonucun dışındadır |
+
+`SYS=INI`, öteki bütün Start=1 sürücülerinin de yüklendiğini tek başına
+kanıtlamaz; grup sırası bu sürücünün onlardan önce ya da sonra gelmesini
+belirleyebilir. Kanıtladığı dar ve doğru ifade, Windows'un PnP sonrası
+`SERVICE_SYSTEM_START` yükleme evresine girmiş olduğudur.
+
 Kaynaklar: [Microsoft — AddService StartType](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-addservice-directive),
 [Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order).
 

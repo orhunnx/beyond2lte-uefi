@@ -313,6 +313,31 @@ static void B2LAutoStartRecord (void)
 }
 
 /*
+ * +0xB0, SERVICE_SYSTEM_START ayrim damgasi:
+ *
+ *   SYS=REG C=000  -> boot surucusu sonraki asama icin damgayi kurdu
+ *   SYS=INI C=001  -> Start=1 b2lsys.sys, sistem ilklendirmesinde baslatildi
+ *
+ * Start=1, Start=2/SCM'den onceki resmi Windows yukleme asamasidir. Bu
+ * ilk deger her DriverEntry'de yenilenir; onceki sicak sifirlamadan kalan
+ * SYS=INI sonucu sonraki acilista yanlis pozitif olamaz.
+ */
+static void B2LSystemStartRecord (void)
+{
+  volatile UINT8 *P;
+
+  if (gLog == 0) {
+    return;
+  }
+
+  P = (volatile UINT8 *)gLog + 176;
+  P[0]  = 'S'; P[1]  = 'Y'; P[2]  = 'S'; P[3]  = '=';
+  P[4]  = 'R'; P[5]  = 'E'; P[6]  = 'G'; P[7]  = ' ';
+  P[8]  = 'C'; P[9]  = '='; P[10] = '0'; P[11] = '0'; P[12] = '0';
+  P[13] = ' '; P[14] = ' '; P[15] = ' ';
+}
+
+/*
  * +0x70, 16 baytlik boot-reinit kaydi:
  *
  *   BRI=REG C=000   -> callback kaydedildi, henuz cagrilmadi
@@ -776,6 +801,7 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   gLog = Log;
   gQpcBaslangic = KeQueryPerformanceCounter (&gQpcFrekans);
   B2LAutoStartRecord ();
+  B2LSystemStartRecord ();
 
 
   Pa.QuadPart = (long long)FB_PHYS;
