@@ -53,6 +53,16 @@ command -v openssl      >/dev/null || { echo "openssl yok -> sudo apt install -y
 #
 # 1) ntoskrnl import kitapligi
 #
+# X18 AYRILIYOR - ACIKCA.
+#
+# Windows ARM64'te x18 platform yazmaci: cekirdek modunda HER ZAMAN o anki
+# KPCR yapisini gosteriyor (ARM64 Windows internals). Onu bozan kod, cekirdek
+# baglaminda cagrilan her seyi patlatir.
+#
+# Clang'in aarch64-windows-msvc hedefi x18'i zaten ayiriyor olmali, ama bunu
+# hic dogrulamadik ve iki kez KMODE_EXCEPTION_NOT_HANDLED aldik. Acikca
+# yazmak bedava; varsayimi ortadan kaldiriyor.
+#
 # lld-link "MmMapIoSpace nerede" diye soracak. Cevabi bir .def dosyasi:
 # fonksiyon adlari ve hangi DLL'de olduklari. llvm-dlltool bundan gercek
 # bir .lib uretiyor; ntoskrnl.exe'nin kendisine ihtiyac yok.
@@ -80,12 +90,13 @@ echo "  $(basename "$OUT/ntoskrnl.lib") hazir"
 # -ffreestanding : C kutuphanesi yok, cekirdekte zaten olmaz
 # -fno-stack-protector : __security_cookie sembolunu istemesin
 # -mno-stack-arg-probe : __chkstk istemesin
+# -ffixed-x18 : x18 PLATFORM YAZMACI, cekirdek modunda KPCR'yi gosteriyor
 # Ucu de "linkte cozulemeyen sembol" hatasini onlemek icin; WDK olmadan
 # derlerken en sik carpilan uc tas bunlar.
 #
 say "Derleniyor (aarch64-windows-msvc)"
 clang -target aarch64-windows-msvc \
-      -ffreestanding -fno-stack-protector -mno-stack-arg-probe \
+      -ffreestanding -fno-stack-protector -mno-stack-arg-probe -ffixed-x18 \
       -O1 -Wall -Wextra \
       -c "$SRC/b2lfb.c" -o "$OUT/b2lfb.obj"
 echo "  b2lfb.obj: $(stat -c%s "$OUT/b2lfb.obj") bayt"
