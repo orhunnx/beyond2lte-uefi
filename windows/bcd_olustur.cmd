@@ -15,6 +15,11 @@ setlocal enabledelayedexpansion
 ::   azram    truncatememory 0x100000000 -> RAM'i 4 GB'a kirpar
 ::                          Cokme yuksek bellek adreslerinden geliyorsa bu gecer.
 ::                          8 GB'lik haritamizin ust kismi supheli olabilir.
+::   guvenli1g Windows'a yalnizca 0x80000000..0xBFFFFFFF arasindaki
+::              GERCEK 1 GiB RAM'i birakir. Sinir 0xC0000000'dir;
+::              DRAM 0'dan degil 0x80000000'dan baslar. Boylece stock
+::              DTB'deki seclog ve onun ustundeki bolgeler disarida kalir.
+::              Bu, kucuk ADK WinPE ile birlikte kullanilmalidir.
 ::   zamanlayici  numproc 1 + disabledynamictick + useplatformclock
 ::                          CEKIRDEK 5-6 SANIYE CALISIP SONRA SESSIZCE
 ::                          SIFIRLIYOR. Anlik cokme degil; bu ARM portlarinda
@@ -328,6 +333,13 @@ if /i "%VAR%"=="azram" (
   bcdedit /store "%BCD%" /set %G% truncatememory 0x100000000
   if errorlevel 1 echo   ! BASARISIZ: truncatememory 0x100000000
   echo   AYAR: truncatememory 4 GB
+)
+if /i "%VAR%"=="guvenli1g" (
+  bcdedit /store "%BCD%" /set %G% numproc 1
+  if errorlevel 1 echo   ! BASARISIZ: numproc 1
+  bcdedit /store "%BCD%" /set %G% truncatememory 0xC0000000
+  if errorlevel 1 echo   ! BASARISIZ: truncatememory 0xC0000000
+  echo   AYAR: numproc 1 + 0x80000000..0xBFFFFFFF (1 GiB)
 )
 
 :: --- boot manager ---------------------------------------------------------

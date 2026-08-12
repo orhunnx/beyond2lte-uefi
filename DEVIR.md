@@ -363,6 +363,26 @@ isteğini `-1` ile reddediyor; `x1` de giriş adresi olarak değişmeden kalıyo
 PSCI 0.2 köprüsü kuramaz; bu deney tekrar edilmemeli ve normal SMC modu
 kullanılmalıdır.
 
+### Sonraki deney: `seclog` altı 1 GiB + çıplak ADK WinPE
+
+EL2 gözlem yolu reddedildiği için sonraki tek değişken fiziksel bellek
+aralığıdır. Stok DTB'nin `seclog` bölgesi `0xC0000000`'da başlar; DRAM ise
+`0x80000000`'dan başlar. Bu nedenle 1 GiB deneyi `truncatememory`
+değerini `0x40000000` yapamaz: o değer gerçek DRAM'in tamamını keser.
+Doğru üst fiziksel sınır **`0xC0000000`**'dır ve Windows'a yalnızca
+`0x80000000..0xBFFFFFFF` aralığını bırakır.
+
+742 MB'lık ISO WinPE bu alanda güvenilir bir test değildir. `tools_winpe_adk.sh`,
+ADK'nin yaklaşık 250 MB'lık çıplak ARM64 WinPE'sini kullanır; `guvenli1g`
+BCD varyantı da tek çekirdeği zorlayıp bu fiziksel sınırı yazar. `startnet.cmd`
+artık kapatma istemez, `cmd.exe /k` ile kabuğu açık bırakır. Sonuçlar:
+
+- WinPE kabuğu görünür veya reset eşiği anlamlı biçimde ileri giderse,
+  `0xC0000000` ve üstü bellek/firmware etkileşimi tekrar açılır.
+- Yükleyici "yetersiz bellek" ile açık hata verirse imaj daha da küçültülür;
+  sessiz resetle aynı şey değildir.
+- Aynı sessiz reset sürerse bu bellek aralığı hipotezi kapanır.
+
 ### 9820 S-Boot / uH araştırma notu (12 Ağustos 2026)
 
 S10/9820'ye ait S-Boot tersine mühendisliği, normal Samsung açılışında
