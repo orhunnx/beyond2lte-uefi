@@ -1129,8 +1129,9 @@ alındı. Bu olay cihaza yazma yapmadı.
 kimliğiyle tutarlıdır. Böylece HWC1 stok ikilisinden çıkarılan U-H yolu,
 artık cihazın gerçek S-BOOT sürümünde de denetlendi. HWC2'de:
 
-- `f_load_hypervisor` dosya ofseti `0x15c688`, çalışma adresi
-  `0x2035c688`dir.
+- `f_load_hypervisor` dosya ofseti `0x15c688`dir. Bu ham LUN imajından
+  çıkarılan **tek güvenli adres** budur; aşağıdaki yükleme/yer değiştirme
+  notu nedeniyle çalışma adresi artık kesin diye yazılmaz.
 - SMC sarmalayıcısı `0x15c618`dedir; `dsb sy; smc #0; isb; ret` biçimindedir.
 - U-H yükleyici, HWC1'deki gibi aynen
   `x0=0xC2000400`, `x1=0x87001000`, `x2=0x2000`, `x3=1`,
@@ -1141,12 +1142,43 @@ artık cihazın gerçek S-BOOT sürümünde de denetlendi. HWC2'de:
   bayt aynıdır.
 
 Bu, "HWC2 U-H için farklı bir SMC ABI kullanıyor" varsayımını kapatır.
-Ancak yükleyicinin bulunması onun her custom `BOOT` akışında çağrıldığını
-tek başına kanıtlamaz. S-BOOT içinde yükleyiciye tek doğrudan `bl`,
-`0x0f9008`deki küçük sarmalayıcıdandır; bu sarmalayıcının doğrudan bir
-`bl` çağırıcısı yoktur. Bu, kodun kullanılmadığını kanıtlamaz: çağrı bir
-fonksiyon tablosu, dolaylı `blr` veya önceki boot aşaması üzerinden
-gelebilir. Sonraki çevrimdışı hedef bu dispatch/başlatma koşulunu izlemektir.
+
+#### HWC2 S-BOOT dispatch sınırı: ham imaj neyi kanıtlıyor, neyi kanıtlamıyor
+
+İlk çözümlemede dosya ofsetine sabit bir DRAM tabanı eklenmişti. Bu doğru
+değildir. İmajın erken önyükleme kodu `+0x10`da `0x02020018`e dallanır ve
+`+0x70`deki literal `0x02023AAC`tır; bunlar platformdaki `0x02020000` IRAM
+bölgesiyle uyumludur. Dört MiB'lik ana S-BOOT evresinin tamamı IRAM'a
+sığamayacağı için daha sonra DRAM'a taşınır, fakat hedef adres/taşıma
+koşulu salt ham LUN'dan henüz çıkarılmamıştır. Bu yüzden `+0x15c688` gibi
+dosya ofsetleri kullanılmalı, türetilmiş "çalışma adresleri" kullanılmamalıdır.
+
+Statik çağrı taraması aşağıdaki dar sonucu verir:
+
+- `+0x0f9008`deki kısa sarmalayıcı önce boş bir hazırlık yordamını, ardından
+  `f_load_hypervisor`ı çağırır.
+- Bu sarmalayıcıya imajda doğrudan bir `b`/`bl` çağrısı veya onun adresini
+  içeren sabit 32/64 bit işaretçi yoktur. Bu **çağrılmadığı anlamına gelmez**;
+  yalnız doğrudan çağrı grafiğinin burada bittiğini söyler.
+- `+0x0f9024`deki genel yürütücü, sıfır-sonlu bir işaretçi listesinde `blr`
+  ile dolaşır. Liste imajda `+0x21FE40`dadır ve görünen ilk girdileri
+  `0xC9054F68`, `0xC9003434`, `0xC9004350` … şeklindedir. Bunların hepsi
+  projenin UEFI FD için yapılandırdığı `0xC9000000` penceresindedir. Bu
+  adreslerin o anda S-BOOT'a mı, yüklenmiş boot imajına mı ait olduğu ham
+  LUN tek başına ayırt edilemez.
+- U-H sarmalayıcısının statik adresi bu listede yoktur. Liste başka bir
+  önyükleme moduna ait olabilir veya çalışma sırasında değiştiriliyor olabilir;
+  imajda bu listeyi dolduran doğrudan atama da bulunmadı.
+
+Dolayısıyla bu imaj, U-H ABI'sini ve doğrulama/yükleme yordamını kanıtlar;
+ama custom `BOOT` yolunda U-H'nin gerçekten çağrıldığını ya da atlandığını
+kanıtlamaz. Mevcut ekran ölçümleri UEFI'nin EL1'de çalıştığını, HVC yükünün
+reddedildiğini ve U-H bellek rezervinin reseti çözmediğini zaten gösteriyor.
+Bu nedenle sonuç bir S-BOOT/U-H/UHCFG yazma veya yeni HVC flash deneyi için
+gerekçe değildir. Yeni bir doğrulama, canlı S-BOOT/EL3 gözlemi ya da çağrı
+seçimini etkileyen bir boot yapılandırmasının **salt-okunur** kanıtını
+gerektirir.
+
 Bu sonuçla HVC payload'ı, U-H belleği rezervi veya aynı Windows açılışları
 yeniden denenmez.
 
