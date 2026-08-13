@@ -109,7 +109,8 @@ depolama cihazının arkasında çalışan bir sürücü olması gerekiyor.
 ## Bellek yerleşimi (beyond1lte'den, değiştirilmedi)
 
 ```
-0x87000000  EL2 Code           2 MB
+0x87000000  Samsung U-H EL2    2 MB (stok S-Boot burada imzalı U-H'yi çalıştırır;
+                                    Windows'a Reserved olarak verilmeli)
 0xC9000000  UEFI FD            2 MB
 0xC9200000  UEFI Stack       256 KB
 0xC9240000  DXE Heap          60 MB

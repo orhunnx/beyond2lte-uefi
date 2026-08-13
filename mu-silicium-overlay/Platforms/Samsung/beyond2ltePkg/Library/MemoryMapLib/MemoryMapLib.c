@@ -12,7 +12,22 @@ gMemoryDescriptor[] = {
   // framebuffer'in uzerine tahsis yapar. Heap'i Display'in ardina tasidik.
   // Sonraki DTB rezervi modem_spare 0xD0000000 -> 16 MB bosluk kaliyor.
   //
-  {"EL2 Code",           0x87000000, 0x00200000, AddMem, SYS_MEM, SYS_MEM_CAP, BsCode, WRITE_BACK},
+  //
+  // Samsung U-H / EL2 - kalici S-Boot hipervizoru.
+  //
+  // Stok G975FXXSGHWC1 BL, imzali UH bolumunu burada yukleyip
+  // x0=0xC2000400, x1=0x87001000, x2=0x2000, x3=1,
+  // x4=0x87000000, x5=0x100000 ile EL2'ye giriyor. UH ELF'i 0x87000000'a
+  // bagli; 0x8701b800'e VBAR_EL2 kuruyor, veri alanini ve 0x87046000'e
+  // kadar olan EL2 yigini kullaniyor. BOOT bolumune UEFI yazmak UH
+  // bolumunu degistirmez, dolayisiyla bu kod UEFI/Windows devrinde yasiyor.
+  //
+  // BsCode yanlisti: ExitBootServices sonrasinda Windows bu sayfalari
+  // normal tahsis havuzuna geri katabilir. U-H'nin kodunu/verisini ezmek
+  // sessiz EL2 reseti icin dogrudan bir adaydir. Stok yukleyici x5'te 1 MiB
+  // ister; mevcut 2 MiB rezervi eksiksiz koruyoruz.
+  //
+  {"Samsung U-H EL2",    0x87000000, 0x00200000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_BACK},
   {"UEFI FD",            0xC9000000, 0x00200000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
   {"UEFI Stack",         0xC9200000, 0x00040000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
   {"Display Reserved",   0xCA000000, 0x01400000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},

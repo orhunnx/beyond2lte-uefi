@@ -929,26 +929,70 @@ Kaynaklar: [Microsoft — AddService StartType](https://learn.microsoft.com/en-u
 [Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order),
 [Microsoft — 0xc000021a](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/bug-check-0xc000021a--winlogin-fatal-error).
 
-### 9820 S-Boot / uH araştırma notu (12 Ağustos 2026)
+### 9820 S-Boot / uH araştırma notu (12–13 Ağustos 2026)
 
-S10/9820'ye ait S-Boot tersine mühendisliği, normal Samsung açılışında
-imzası denetlenmiş ayrı `UH` bölümünün `0x87000000` alanına yüklendiğini ve
-aynı `0xC2000400` SMC arayüzüyle EL2'ye başlatıldığını gösteriyor. Bu,
-`0xC2000400` değerinin uydurma olmadığını teyit eder; fakat arayüzün S-Boot
-dışındaki bir çağrıda özel, imzasız yük kabul edip etmediğini **göstermez**.
-Kaynak, stok çağrının `dsb; smc #0; isb` sıralamasını da kullanır.
+Stok `G975FXXSGHWC1` paketinin kendi `sboot.bin` ve `uh.bin` dosyaları
+doğrudan incelendi. Bu, internetten çıkarım değil cihazda kullanılacak aynı
+BL/UH ikilisinin ikili kanıtıdır.
 
-Önemli düzeltme: Linux'un/UEFI'nin `CurrentEL = EL1` ölçümü tek başına EL2'nin
-boş olduğunu kanıtlamaz; çalışan bir hipervizörün misafiri de EL1'de olur.
-Özel UEFI akışında stok `UH` yükünün gerçekten etkin olup olmadığı henüz
-bilinmiyor. Bu nedenle B2HD ayrımı önceliklidir: `EL2 SMC = 2 / GERI` ama
-`B2HV` yoksa sorun Windows'un HVC çağrısından önce, özel EL2 yükünün kabulü,
-görünürlüğü veya geri alınması aşamasındadır. Bu sonucu almadan payload'ın
-adresini stok `0x870...` alanına taşımak doğru değildir; o alan stok uH'nin
-kendi bellek varsayımlarına aittir.
+- `UH` PIT'te `BOOT`tan ayrı 2 MiB bölümdür. Projenin Odin paketi yalnız
+  `BOOT`u değiştirir; `S-BOOT` ve `UH` olduğu gibi kalır. Bu nedenle normal
+  S-Boot zinciri UEFI'ye geçmeden önce stok U-H yükünü hâlâ yürütür.
+- `uh.bin`, 4 KiB'lik `GREENTEA` kapsül başlığı, `0x42388` baytlık AArch64
+  ELF ve sonrasında 0x310 baytlık imza malzemesinden oluşur. S-Boot önce
+  kapsül boyutunu, `GREENTEA` sihrini ve ECDSA imzasını denetler. Bu yüzden
+  dosyayı veya özel bir payload'ı doğrudan bu alana kopyalamak geçerli bir
+  U-H yükleme deneyi değildir.
+- ELF'nin yük adresi `0x87000000`, entry point'i `0x87001000`, bellek sonu
+  `0x87054000`dır. Başlangıçta yalnız `CurrentEL == EL2` kabul edilir; aksi
+  halde `x1=0xffff` ile çıkış yoluna gider. Kod `VBAR_EL2 = 0x8701B800`
+  kurar, EL2 vektörlerini kullanır ve stack alanı `0x87046000`a uzanır.
+- Stok S-Boot yükleme çağrısı tamamen çözüldü:
 
-Kaynaklar: [S10 RKP/uH incelemesi](https://blog.impalabs.com/2101_samsung-rkp-compendium.html),
-[Samsung Exynos KVM arayüzü incelemesi](https://github.com/sleirsgoevy/exynos-kvm-patch).
+  ```text
+  dsb sy
+  x0 = 0xC2000400       # VMM giriş kapısı
+  x1 = 0x87001000       # U-H entry point
+  x2 = 0x00002000       # çekirdek başına EL2 stack offset'i
+  x3 = 1                # AArch64 kipi
+  x4 = 0x87000000       # U-H image base (EL2 x0)
+  x5 = 0x00100000       # ayrılmış U-H alanı (EL2 x1)
+  smc #0
+  isb
+  ```
+
+  U-H dönmek istediğinde `x0=0xC2000401`, `x1=status`, `smc #0` kullanır.
+  Böylece önceki özel denemede görülen `x0=-1, x1=0xCF000800` sonucu artık
+  daha dar yorumlanır: çağrı numarası doğruydu, fakat S-Boot'un imzalı U-H
+  akışına ait adres/alan sözleşmesi sağlanmadı ve kendi payload'ımız EL2'ye
+  hiç girmedi. Bu HVC payload deneyi kapalı kalır; yeniden denenmez.
+
+#### Yeni, tek değişkenli düzeltme: stok U-H belleğini Windows'tan koru
+
+`MemoryMapLib` bu alanı eskiden `EfiBootServicesCode` (`BsCode`) olarak
+veriyordu. Bu tür `ExitBootServices()` sonrasında Windows'un tahsis
+havuzuna geri dönebilir. Oysa aynı fiziksel sayfalarda çalışan U-H EL2
+vektörü, kodu, verisi ve stack'i vardır. Windows'un bu sayfalardan birini
+ilerleyen tahsislerde ezmesi, bugcheck üretmeden EL2'nin cihazı sıfırlaması
+için somut ve zamanlamayla uyumlu bir mekanizmadır.
+
+Bu yüzden tüm mevcut 2 MiB aralık (`0x87000000..0x871FFFFF`), `MEM_RES` /
+`EfiReservedMemoryType` olarak bildirildi. Stok yükleyici yalnız 1 MiB
+istese de mevcut iki MiB'lik platform rezervini daraltmak için kanıt yoktur.
+Bu, önceki geniş bellek sınırı denemelerinden farklıdır: doğrudan stok
+ikilisinin çalışan EL2 adreslerine dayalı, geri alınabilir tek bir
+harita değişikliğidir.
+
+Kontrol: ilk B2LGoster ekranında `RAM MB` eski `00001F29` yerine iki MiB
+eksik olan `00001F27` görünmelidir. U-H belleğine UEFI'den ek bir okuma
+yapılmaz: EL2'nin bu sayfaları koruyor olma ihtimali, salt-okunur olsa bile
+testin tek değişkenini bozabilir. `RAM MB` koşulu görülmeden Windows'a
+geçilmemeli. Görülürse yalnız temiz ADK WinPE ile bir açılış yapılır; önceki
+sürücü, WIM, PSCI veya bellek-sınırı denemeleri bu turda tekrar edilmez.
+
+Kaynaklar: stok `BL_G975FXXSGHWC1...tar.md5` içindeki `sboot.bin.lz4` ve
+`uh.bin.lz4`; [Samsung Exynos KVM arayüzü incelemesi](https://github.com/sleirsgoevy/exynos-kvm-patch),
+[aynı S10 stok açılış günlüğü](https://gist.github.com/Piecuuu/390f776533c7fddc1278de3d1e2612bc).
 
 Normal hale dönüş için yalnızca `bash yap.sh` çalıştırmak yeterlidir:
 script FADT'yi yeniden SMC konduitine alır ve EL2 sürücüsünü tekrar derleme
