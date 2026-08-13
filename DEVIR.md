@@ -1025,13 +1025,32 @@ verdiği olasılığını tek başına elemez; fakat bu imajla aynı bellek-dene
 tekrar edilmez. Sonraki çevrimdışı iş, S-Boot'ta U-H yükleyicisinin çağrı
 koşulunu ve U-H'ın Windows öncesi gerçekten etkin olup olmadığını ayırmaktır.
 
-#### Sıradaki güvenli veri: cihazdaki `UHCFG`nin salt-okunur kopyası
+#### Sonuç: cihazdaki `UHCFG` boş; ayar kapısı yok
 
 `UHCFG`, PIT'te `UH`dan ayrı, 4 MiB'lik bölümdür. Stok BL paketinde bu bölüm
-dosyası yoktur; U-H'nin açılış politikası veya doğrulama durumuyla ilgili
-cihaz-özel veri taşıyorsa bunu yalnız cihazdaki ham kopya gösterebilir.
-İlk adım **yalnız okuma**dır: `sboot`, `uh`, `uhcfg`, `boot` veya `vbmeta`ya
-yazılmaz ve Odin kullanılmaz.
+dosyası yoktur. Cihazdan salt-okunur alınan kopya `/dev/block/sda11` ile
+eşleşti; boyutu `4194304` bayt ve hem cihazda hem çekilen dosyada SHA-256
+değeri şudur:
+
+```text
+bb9f8df61474d25e71fa00722318cd387396ca1736605e1248821cc0de3d3af8
+```
+
+Dosyanın bütün 4 MiB'si `0x00`dır: sihir, kapsül, metin, imza ya da
+etkinleştirme bayrağı yoktur. Dolayısıyla `UHCFG`den U-H'yi güvenle kapatan
+bir ayar çıkarılamaz; bu bölüme yazmak için hiçbir gerekçe yoktur.
+
+`UH` cihazda `/dev/block/sda10`dur ve bölümün tamamının SHA-256 değeri
+`61cd66d5e24076fec67bd632c8d283b5f0001ca9fac712af138a091e1f2eb801`dir.
+Bu, stok paketten açılan `uh.bin` ile **henüz karşılaştırılamaz**: bölüm
+2 MiB iken paket içindeki imzalı `GREENTEA` kapsülü `276120` (`0x43698`)
+bayttır. Bölüm sonundaki dolgu/eski veri farklı olabilir. Karşılaştırma
+yalnız iki kopyanın ilk `0x43698` baytında yapılmalıdır.
+
+#### Sıradaki güvenli veri: cihazdaki `UH`nin salt-okunur kopyası
+
+İlk iki alma işlemi yalnız okumaydı; bu üçüncü işlem de aynıdır. `sboot`,
+`uh`, `uhcfg`, `boot` veya `vbmeta`ya yazılmaz ve Odin kullanılmaz.
 
 Custom recovery içindeki `adb shell` ile Windows PowerShell'de çalışacak
 komutlar:
@@ -1039,19 +1058,17 @@ komutlar:
 ```powershell
 $adb = "C:\Users\orhun\OneDrive\Masaüstü\projectfiles\platform-tools\adb.exe"
 & $adb devices
-& $adb shell "readlink -f /dev/block/by-name/uh; readlink -f /dev/block/by-name/uhcfg"
-& $adb shell "ls -l /dev/block/by-name/uh /dev/block/by-name/uhcfg; sha256sum /dev/block/by-name/uh /dev/block/by-name/uhcfg"
-& $adb shell "dd if=/dev/block/by-name/uhcfg of=/tmp/uhcfg-G975F.img bs=4M"
-& $adb shell "wc -c /tmp/uhcfg-G975F.img; sha256sum /tmp/uhcfg-G975F.img"
-& $adb pull /tmp/uhcfg-G975F.img "$env:USERPROFILE\Desktop\uhcfg-G975F.img"
-& $adb shell "rm /tmp/uhcfg-G975F.img"
-Get-FileHash "$env:USERPROFILE\Desktop\uhcfg-G975F.img" -Algorithm SHA256
+& $adb shell "dd if=/dev/block/by-name/uh of=/tmp/uh-G975F.img bs=2M"
+& $adb shell "wc -c /tmp/uh-G975F.img; sha256sum /tmp/uh-G975F.img"
+& $adb pull /tmp/uh-G975F.img "$env:USERPROFILE\Desktop\uh-G975F.img"
+& $adb shell "rm /tmp/uh-G975F.img"
+Get-FileHash "$env:USERPROFILE\Desktop\uh-G975F.img" -Algorithm SHA256
 ```
 
-Beklenen boyut tam `4194304` bayttır. `adb pull`dan önce ve sonra görünen
-SHA-256 aynı olmalıdır. `dd`nin yönü özellikle `if=/dev/block/by-name/uhcfg`
-olup `of=/tmp/...`dir; tersine çevrilmez. Dosya alındıktan sonra yalnız bu
-kopya ve stok `uh.bin` üzerinde karşılaştırma yapılır. Yazma veya bölüm
+Beklenen boyut tam `2097152` bayttır. `adb pull`dan önce ve sonra görünen
+SHA-256 aynı olmalıdır. `dd`nin yönü özellikle `if=/dev/block/by-name/uh`
+olup `of=/tmp/...`dir; tersine çevrilmez. Dosya alındıktan sonra stok
+`uh.bin`in ilk `0x43698` baytıyla karşılaştırılır. Yazma veya bölüm
 değiştirme için ayrıca, eldeki ikili kanıtın belirlediği bir gerekçe gerekir.
 
 Kaynaklar: stok `BL_G975FXXSGHWC1...tar.md5` içindeki `sboot.bin.lz4` ve
