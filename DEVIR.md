@@ -1239,6 +1239,39 @@ verilmemesi gereken RAM'e tahsis yapmasından kaynaklandığı pratikte
 doğrulandı. Bu hipotez için eski reset döngüsü ya da RAM yaz/geri-oku
 taramaları yeniden çalıştırılmaz.
 
+#### Giriş aygıtı olmadan WinPE tanısı
+
+Kabuğun görünmesi, cihazda kullanılabilir bir klavye, fare veya dokunmatik
+olduğu anlamına gelmez. Bu turda hiçbir giriş aygıtı yoktur; dolayısıyla
+`startnet.cmd` artık `cmd.exe` öncesinde otomatik olarak şunları yapar:
+
+- `wpeinit.exe` ile PnP/WMI başlangıcını tamamlar;
+- toplam fiziksel belleği, birimleri, diskleri ve `Keyboard`/`Mouse` PnP
+  sınıflarını; USB PnP düğümlerini, fiziksel ağ bağdaştırıcılarını ve IP
+  yapılandırmasını sorgular;
+- kısa raporu doğrudan CMD penceresine basar ve istemi açık bırakır.
+
+Bu mekanizma **giriş gerektirmez** ve kullanıcıdan komut yazmasını istemez.
+HID sorgusu boş kalırsa bu, Windows'a herhangi bir klavye/fare düğümünün
+gelmediğinin ölçümüdür; dokunmatiği var saymak için kanıt değildir. Sadece
+SYSTEM ESP yeniden paketlenir; çalışan UEFI `BOOT` imajı değiştirilmez.
+
+Bu rapor aynı zamanda bilgisayardan **canlı** komut vermek için önkoşulu
+ölçer. Kabloyu bilgisayara takmak WinPE içinde ADB veya bir terminal kanalı
+oluşturmaz: Android'in `adbd`si çalışan işletim sistemi değildir. Bir canlı
+kanal için hedefte DWC3 aygıt-modunun, PHY/Type-C rolünün ve aşağıdakilerden
+en az birinin Windows ARM64 sürücüsünün çalışması gerekir:
+
+- USB CDC-ACM seri aygıtı; veya
+- USB Ethernet/RNDIS ve ardından WinRM/SSH benzeri bir servis.
+
+`USB` PnP satırları ve bir fiziksel ağ bağdaştırıcısı görünmeden bu yola
+sunucu/istemci eklemek anlamlı değildir. Mevcut UEFI'de USB bus/host sürücüsü
+olmadığı biliniyor; bu, WinPE çekirdeğinin DWC3 aygıt-modunu da çalıştırdığı
+anlamına gelmez. Rapor boşsa kısa vadeli güvenilir kanal otomatik ESP günlüğü
+yerine ekrandaki raporun fotoğrafı ve yeniden flaşlama döngüsüdür; canlı USB
+kanalı ayrı bir DWC3 Windows sürücüsü portu olur.
+
 Normal hale dönüş için yalnızca `bash yap.sh` çalıştırmak yeterlidir:
 script FADT'yi yeniden SMC konduitine alır ve EL2 sürücüsünü tekrar derleme
 dışında bırakır.
