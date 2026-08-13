@@ -24,7 +24,10 @@ gMemoryDescriptor[] = {
   //
   // BsCode yanlisti: ExitBootServices sonrasinda Windows bu sayfalari
   // normal tahsis havuzuna geri katabilir. U-H'nin kodunu/verisini ezmek
-  // sessiz EL2 reseti icin dogrudan bir adaydir. Stok yukleyici x5'te 1 MiB
+  // sessiz EL2 reseti icin sinanabilir bir adaydi. Koruma uygulaninca RAM
+  // 0x1F29'dan 0x1F27'ye indi ama Windows reseti surdu; yani bu ezilme ana
+  // neden degil. Buna ragmen platformun calisan EL2 sayfalarini Windows'a
+  // vermek yanlis oldugundan rezerv korunur. Stok yukleyici x5'te 1 MiB
   // ister; mevcut 2 MiB rezervi eksiksiz koruyoruz.
   //
   {"Samsung U-H EL2",    0x87000000, 0x00200000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_BACK},

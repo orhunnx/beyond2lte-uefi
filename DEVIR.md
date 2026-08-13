@@ -990,6 +990,39 @@ testin tek değişkenini bozabilir. `RAM MB` koşulu görülmeden Windows'a
 geçilmemeli. Görülürse yalnız temiz ADK WinPE ile bir açılış yapılır; önceki
 sürücü, WIM, PSCI veya bellek-sınırı denemeleri bu turda tekrar edilmez.
 
+#### Sonuç: U-H sayfalarının Windows tarafından ezilmesi elendi
+
+Koruma uygulandıktan sonra üç ardışık açılışın tanı ekranı `RAM MB=00001F27`
+gösterdi; yani iki MiB gerçekten Windows'un tahsis edebileceği RAM'den çıktı.
+Windows'tan sonraki üçüncü ekranda ölçüm sürücüsünün geçerli kaydı da oluştu:
+
+```text
+TIK=0104 BUG=H
+MAX=00B30A43
+SPN=09D8E9D5
+BRI=0001 C=001
+QPD=101F37F8 F=018CBA80
+AUT=REG C=000
+SYS=REG C=000
+SYG=REG C=000
+USR=REG C=000
+RST_STAT=20000000
+```
+
+`QPD/F = 10.403131 s`. `BRI=0001 C=001`, Windows'un PnP/boot aygıt
+başlatma sınırını geçtiğini yeniden kanıtlar. Buna rağmen Start=1, SCM ve
+WinPE kullanıcı-modu için yerleştirilen işaretçilerin hiçbiri çalışmamış ve
+PMU yine yazılım reseti bildirmiştir. İlk iki ardışık açılışta `B2LFB KAYDI
+YOK` görüldüğü için, o iki ekran Windows'un hangi faza ulaştığı hakkında
+sonuç vermez; kaydın yokluğundan ek bir neden çıkarılmaz.
+
+Dolayısıyla **U-H'nin 0x87000000 sayfalarının Windows tahsisiyle ezilmesi
+ana neden değildir.** Rezerv doğru platform davranışı olduğu için geri
+alınmaz. Bu sonuç, çalışan U-H/EL3'ün başka bir politika ihlaliyle reset
+verdiği olasılığını tek başına elemez; fakat bu imajla aynı bellek-deneyi
+tekrar edilmez. Sonraki çevrimdışı iş, S-Boot'ta U-H yükleyicisinin çağrı
+koşulunu ve U-H'ın Windows öncesi gerçekten etkin olup olmadığını ayırmaktır.
+
 Kaynaklar: stok `BL_G975FXXSGHWC1...tar.md5` içindeki `sboot.bin.lz4` ve
 `uh.bin.lz4`; [Samsung Exynos KVM arayüzü incelemesi](https://github.com/sleirsgoevy/exynos-kvm-patch),
 [aynı S10 stok açılış günlüğü](https://gist.github.com/Piecuuu/390f776533c7fddc1278de3d1e2612bc).
