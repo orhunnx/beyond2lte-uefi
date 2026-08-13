@@ -23,7 +23,7 @@ StorPort arayüzüne taşımak.
 
 ## Üç engel, ikisi zaten ölçülmüş
 
-### 1. İmza — AÇIK
+### 1. İmza — test yolu açık, üretim imzası kapsam dışı
 
 ARM64 Windows çekirdek modu sürücü imzası istiyor. Bunu bir kez gördük:
 
@@ -32,7 +32,15 @@ File: \windows\System32\Drivers\ws2ifsl.sys
 Status: 0xc0000428   (STATUS_INVALID_IMAGE_HASH)
 ```
 
-Çözüm: kendi sertifikamızla imzalayıp BCD'de `testsigning on`.
+Çözüm: mevcut kendi sertifikamızla imzalama ve BCD'de `testsigning on`
+yoludur.
+
+> **Geçerli çalışma kuralı:** Bu proje hâlâ donanım get-up/test evresindedir.
+> Mevcut test-imzalama akışı korunur; WHQL/üretim imzası, imza politikası
+> sertleştirme veya test modunu kaldırma şu an kapsam dışıdır. Her yeni
+> `b2l*` test sürücüsü önce aynı yol üzerinden denenir. Böylece her flaş
+> sürücünün donanım davranışına dair tek bir soruyu cevaplar; imza zinciri
+> yeni bir değişken olmaz.
 
 Secure Boot'un zorlamadığını **tahmin etmiyoruz, ölçtük**: kendi derlediğimiz,
 hiç imzalanmamış `EBSTEST.EFI` cihazda çalıştı ve `bootmgfw.efi` yüklenirken
