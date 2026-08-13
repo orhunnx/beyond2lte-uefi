@@ -830,8 +830,8 @@ USR=REG C=000
 Dolayısıyla ne `Npfs` ile 63.9 saniyelik yol kararlı çıktı ne de `USR=REG`
 tek başına Startnet öncesini kanıtladı. Aynı durumu yeniden ölçmek yerine
 sonraki tek değişiklik, temel kullanıcı/komut yolu adaylarından yalnız
-`Null` hizmetini geri koymaktır. Bu, ağ, dosya sistemi veya ek sürücü
-kümesini geri açmadan `Npfs`'ye tek hizmet ekler:
+`Null` hizmetini geri koymaktı. Bu, ağ, dosya sistemi veya ek sürücü
+kümesini geri açmadan `Npfs`'ye tek hizmet ekledi:
 
 ```bash
 bash yap.sh
@@ -840,10 +840,31 @@ bash tools_winpe_sistem.sh birak Npfs Null
 bash cache_esp.sh --win --system
 ```
 
-Bu turda `uefi-boot.tar` **BOOT**'a ve `system-esp.tar` **SYSTEM**'e birlikte
-flaşlanır. Fotoğrafta `USR=CMD` görülürse `startnet`in b2lcmd satırına
-ulaştığını; kabuğun açıldığını ise yalnız ekrandaki WinPE isteminin
-görünmesi kanıtlar.
+Sonuç yine kısa sessiz yoldu:
+
+```
+TIK=0090 BUG=H
+QPD=0DF334DF F=018CBA80     -> 9.001638 s
+USR=REG C=000
+```
+
+Bu, `Null`'ı tek başına çözüm adayı olmaktan çıkarır. Ancak bu sürümde
+çekirdek, kullanıcı olayını yalnız saniyede bir yokluyordu; 9. saniyenin
+sonunda başlayan `b2lcmd` sonraki yoklama gelmeden resetle kaçabilirdi.
+Bu nedenle sonraki tur **hizmet kümesini değiştirmez**. Yalnız yoklama
+aralığını 100 ms'ye indirir ve mevcut `Npfs + Null` SYSTEM hive'ını korur:
+
+```bash
+bash tools_b2lfb.sh
+bash cache_esp.sh --win --system
+```
+
+Bu turda yalnız `system-esp.tar` **SYSTEM** bölümüne flaşlanır. `USR=CMD`
+görülürse `startnet`in b2lcmd satırına ulaştığını; kabuğun açıldığını ise
+yalnız ekrandaki WinPE isteminin görünmesi kanıtlar. `USR=REG` yine kalırsa,
+100 ms çözünürlükte olayın hiç görülmediği kesinleşir; fakat olayı yaratan
+Win32 çağrısının mı, yoksa Startnet yolunun mu eksik kaldığını ayırmak için
+bir sonraki araç değişikliği gerekir.
 
 Kaynaklar: [Microsoft — AddService StartType](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-addservice-directive),
 [Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order),

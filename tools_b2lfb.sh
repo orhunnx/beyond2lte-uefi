@@ -616,7 +616,8 @@ BEKLENEN OKUMA  (ErrorControl=3 ile artik hepsi ayirt edilebiliyor):
     AUT=SCM C=001  -> b2lauto, Service Control Manager tarafindan baslatildi
 
   KULLANICI-MODU SINIRI (sonraki B2LGoster ekraninda):
-    USR=REG C=000  -> b2lcmd olayini surucu gormedi. Bu; resetin olay
+    USR=REG C=000  -> b2lcmd olayini 100 ms aralikla yoklayan surucu gormedi.
+                       Bu; resetin olay
                        yaratilmadan gelmesi, CreateEventW basarisizligi ya da
                        kernelin olayi acamamasi arasinda ayrim yapmaz.
     USR=CMD C=001  -> Win32 + startnet.cmd b2lcmd satirina ulasti. b2lcmd,

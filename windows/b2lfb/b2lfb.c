@@ -166,7 +166,8 @@ __declspec(dllimport) void IoRegisterBootDriverReinitialization (
  * KULLANICI-MODU SINIRI - SADECE YOKLAMA
  *
  * Kullanici programi Global\\B2LCmd adinda bir event olusturur. Bu surucu
- * kendi sistem thread'inden (PASSIVE_LEVEL) event'i yoklar; gorurse sonraki
+ * kendi sistem thread'inden (PASSIVE_LEVEL) her kalp atisinda (100 ms)
+ * event'i yoklar; gorurse sonraki
  * UEFI acilisinda okunacak RAM kaydina damga birakir. Event'e sinyal
  * gondermiyoruz, beklemiyoruz ve DPC/bugcheck yolundan hic cagirmiyoruz.
  */
@@ -602,8 +603,15 @@ static void BostaDongu (PVOID Ctx)
     I++;
     gSpin++;
 
-    /* PASSIVE_LEVEL'de, saniyede en fazla bir kez kullanici damgasi yokla. */
-    if ((gTik != SonTik) && ((gTik % 10) == 0)) {
+    /*
+     * PASSIVE_LEVEL'de her 100 ms'de bir kullanici damgasini yokla.
+     *
+     * b2lcmd olayini 3 saniye acik tutuyor. Onceki saniyede-bir yoklama,
+     * program son saniyede baslarsa sicak reset gelmeden onu hic
+     * gorememeye yol aciyordu. Burada yalniz adlandirilmis olay aciliyor;
+     * Windows hizmet durumu veya donanim ayarlari degismiyor.
+     */
+    if (gTik != SonTik) {
       SonTik = gTik;
       B2LKullaniciYokla ();
     }
