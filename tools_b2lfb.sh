@@ -605,14 +605,19 @@ BEKLENEN OKUMA  (ErrorControl=3 ile artik hepsi ayirt edilebiliyor):
   Sonraki acilista startup.nsh dokumunde 0xCF030000'da "42 32 4C 46" (B2LF)
   gorunuyorsa surucu calismis demektir - macenta cikmasa bile.
 
-  UFS HCI ANLIK GORUNTUSU (sonraki B2LGoster ekraninda, SURUM 31):
+  UFS HCI ANLIK GORUNTUSU (sonraki B2LGoster ekraninda, SURUM 32):
     UFS C=xxxxxxxx V=xxxxxxxx
     UFS H=xxxxxxxx T=xxxxxxxx
   Bu dort deger b2lfb'nin DriverEntry asamasinda bir kez, SALT-OKUNUR
   alinir: CAP, VER, HCE ve Samsung 1US_TO_CNT. Eslendikten hemen sonra
   MmUnmapIoSpace cagrilir; HCE/UIC/DME/kesme ya da UFS LUN'larina dokunulmaz.
   T degerinin alt 10 biti UEFI tarafindaki 166 MHz ayari icin 000000A6
-  olmalidir. "UFS MAP=YOK" gorunurse HCI erisimi basarisizdir.
+  olmalidir. "UFS MAP=YOK" gorunurse HCI eslemesi basarisizdir.
+  "UFS GIRIS" gorunurse b2lfb snapshot'a girdi fakat HCI eslemesi veya
+  ilk MMIO okumasi tamamlanmadan reset geldi; o durumda daha fazla UFS
+  erisimi eklenmeden once bu fiziksel erisim siniri incelenmelidir.
+  "UFS KAYDI YOK" ise yuklenen b2lfb eski, baslatilmamis veya kayit soguk
+  yeniden baslatmada silinmistir; HCI sonucu olarak yorumlanamaz.
 
   SCM SINIRI (sonraki B2LGoster ekraninda):
     SYG=REG C=000  -> sirali System Bus Extender grubuna dair isaret yok

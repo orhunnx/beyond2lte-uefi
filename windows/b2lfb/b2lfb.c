@@ -360,6 +360,16 @@ static void B2LUfsHciSnapshot (void)
     Kayit[I] = ' ';
   }
 
+  /*
+   * Ilk once kalici bir kirinti birak. MmMapIoSpace veya ilk MMIO okumasinda
+   * makine beklenmedik bicimde resetlenirse sonraki UEFI ekrani bunun eski
+   * bir b2lfb.sys mi yoksa HCI erisim siniri mi oldugunu ayirabilsin.
+   * Basarili yol, asagida bu metnin tamamini dort yazmacla ezer.
+   */
+  Kayit[0] = 'U'; Kayit[1] = 'F'; Kayit[2] = 'S'; Kayit[3] = ' ';
+  Kayit[4] = 'G'; Kayit[5] = 'I'; Kayit[6] = 'R'; Kayit[7] = 'I';
+  Kayit[8] = 'S';
+
   Pa.QuadPart = (long long)UFS_HCI_PHYS;
   Hci = MmMapIoSpace (Pa, UFS_HCI_SNAPSHOT_BYTES, MmNonCached);
   if (Hci == 0) {
