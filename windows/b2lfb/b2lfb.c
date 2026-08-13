@@ -70,6 +70,17 @@ __declspec(dllimport) PVOID MmMapIoSpace (
   UINT32           CacheType);
 
 /*
+ * UFS HCI anlik goruntusu kalici bir esleme DEGILDIR. PnP/storufs kendi
+ * eslemesini kurmadan once, DriverEntry'de dort salt-okunur yazmaci alir ve
+ * ayni fonksiyon icinde bu eslemeyi geri birakir. ARM'de ayni MMIO sayfasini
+ * farkli bellek nitelikleriyle ikinci kez eslemek tanimsiz oldugu icin bu
+ * "map-and-keep" degil, kasitli olarak "map-read-unmap" yoludur.
+ */
+__declspec(dllimport) void MmUnmapIoSpace (
+  PVOID  BaseAddress,
+  UINT64 NumberOfBytes);
+
+/*
  * BUGCHECK GERI CAGRISI - FAZ 2'NIN TEK AMACI
  *
  * Otuz turdur cevaplayamadigimiz soru: 10 saniyelik olum bir bugcheck mi,
@@ -265,6 +276,18 @@ __declspec(dllimport) NTSTATUS ZwClose (HANDLE Handle);
 #define LOG_PHYS  0xCF030000ULL
 #define LOG_BYTES 0x100ULL
 
+/*
+ * Exynos 9820 UFS HCI. 0x110C'teki Samsung 1-us sayaci, standart 4 KiB HCI
+ * alaninin disindadir; UEFI PlatformUfsLib bu yazmaci zaten okur. Bellek
+ * haritasi tum 0x13D60000..0x13D6FFFF alanini Device/uncached olarak ayirir.
+ */
+#define UFS_HCI_PHYS             0x13D60000ULL
+#define UFS_HCI_SNAPSHOT_BYTES   0x00001110ULL
+#define UFSHCI_CAP               0x0000U
+#define UFSHCI_VER               0x0008U
+#define UFSHCI_HCE               0x0034U
+#define UFSHCI_VS_1US_TO_CNT     0x110CU
+
 static void FillDword (PVOID Base, UINT64 Bytes, UINT32 Value)
 {
   UINT32 *P = (UINT32 *)Base;
@@ -286,6 +309,81 @@ static void FillDword (PVOID Base, UINT64 Bytes, UINT32 Value)
  */
 static PVOID gFb  = 0;
 static PVOID gLog = 0;
+
+/*
+ * +0x30..+0x5F: UFS HCI'nin Windows boot-driver asamasindaki salt-okunur
+ * goruntusu. 48 baytlik sabit ASCII bicim:
+ *
+ *   UFS C=XXXXXXXX V=XXXXXXXX H=XXXXXXXX T=XXXXXXXX
+ *
+ * C=CAP, V=VER, H=HCE ve T=Samsung 1US_TO_CNT'dir. Bu alan, diger b2lfb
+ * kayitlariyla cakismayan onceki bos bolgedir; startup.nsh'nin 0x100 baytlik
+ * mevcut dmem okumasi zaten tumunu kapsar.
+ */
+#define UFS_LOG_OFFSET 48U
+#define UFS_LOG_BYTES  48U
+
+static void B2LYazHex8 (volatile UINT8 *P, UINT32 V)
+{
+  int K;
+
+  for (K = 7; K >= 0; K--) {
+    UINT8 D = (UINT8)(V & 0xF);
+    P[K] = (UINT8)((D < 10) ? ('0' + D) : ('A' + D - 10));
+    V >>= 4;
+  }
+}
+
+/*
+ * Yalniz DriverEntry'de, StorPort/PnP henuz HCI'yi sahiplenmeden once
+ * cagrilir. Hicbir HCI durum biti temizlenmez, HCE degistirilmez, UIC/DME
+ * komutu gonderilmez ve kesme maskesine dokunulmaz.
+ */
+static void B2LUfsHciSnapshot (void)
+{
+  PHYSICAL_ADDRESS Pa;
+  volatile UINT8  *Kayit;
+  PVOID            Hci;
+  volatile UINT32 *Reg;
+  UINT32           Cap;
+  UINT32           Ver;
+  UINT32           Hce;
+  UINT32           Tick;
+  UINT32           I;
+
+  if (gLog == 0) {
+    return;
+  }
+
+  Kayit = (volatile UINT8 *)gLog + UFS_LOG_OFFSET;
+  for (I = 0; I < UFS_LOG_BYTES; ++I) {
+    Kayit[I] = ' ';
+  }
+
+  Pa.QuadPart = (long long)UFS_HCI_PHYS;
+  Hci = MmMapIoSpace (Pa, UFS_HCI_SNAPSHOT_BYTES, MmNonCached);
+  if (Hci == 0) {
+    Kayit[0] = 'U'; Kayit[1] = 'F'; Kayit[2] = 'S'; Kayit[3] = ' ';
+    Kayit[4] = 'M'; Kayit[5] = 'A'; Kayit[6] = 'P'; Kayit[7] = '=';
+    Kayit[8] = 'Y'; Kayit[9] = 'O'; Kayit[10] = 'K';
+    return;
+  }
+
+  Reg  = (volatile UINT32 *)Hci;
+  Cap  = Reg[UFSHCI_CAP / sizeof(UINT32)];
+  Ver  = Reg[UFSHCI_VER / sizeof(UINT32)];
+  Hce  = Reg[UFSHCI_HCE / sizeof(UINT32)];
+  Tick = Reg[UFSHCI_VS_1US_TO_CNT / sizeof(UINT32)];
+
+  Kayit[0]  = 'U'; Kayit[1]  = 'F'; Kayit[2]  = 'S'; Kayit[3]  = ' ';
+  Kayit[4]  = 'C'; Kayit[5]  = '='; B2LYazHex8 (Kayit + 6,  Cap);
+  Kayit[14] = ' '; Kayit[15] = 'V'; Kayit[16] = '='; B2LYazHex8 (Kayit + 17, Ver);
+  Kayit[25] = ' '; Kayit[26] = 'H'; Kayit[27] = '='; B2LYazHex8 (Kayit + 28, Hce);
+  Kayit[36] = ' '; Kayit[37] = 'T'; Kayit[38] = '='; B2LYazHex8 (Kayit + 39, Tick);
+
+  /* PnP/storufs ayni HCI'yi daha sonra kendi niteligiyle esleyecek. */
+  MmUnmapIoSpace (Hci, UFS_HCI_SNAPSHOT_BYTES);
+}
 
 /*
  * TIK, zamanlayici DPC'sinin kac kez calistigini soyler; DPC yogunlukta
@@ -364,17 +462,6 @@ static void B2LKullaniciYokla (void)
     ZwClose (Olay);
     gKullaniciGoruldu = 1;
     B2LKullaniciKaydi (1);
-  }
-}
-
-static void B2LYazHex8 (volatile UINT8 *P, UINT32 V)
-{
-  int K;
-
-  for (K = 7; K >= 0; K--) {
-    UINT8 D = (UINT8)(V & 0xF);
-    P[K] = (UINT8)((D < 10) ? ('0' + D) : ('A' + D - 10));
-    V >>= 4;
   }
 }
 
@@ -929,6 +1016,7 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
    * 2) FRAMEBUFFER - canli kanal.
   */
   gLog = Log;
+  B2LUfsHciSnapshot ();
   gQpcBaslangic = KeQueryPerformanceCounter (&gQpcFrekans);
   B2LAutoStartRecord ();
   B2LSystemStartRecord ();

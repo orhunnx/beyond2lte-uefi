@@ -56,7 +56,7 @@
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 30"
+#define SURUM_METNI  L"SURUM 31"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -528,7 +528,9 @@ B2LGosterEntry (
   // 3) Windows surucusunun olum sonrasi kaydi ve calisma zamani sayaclari.
   //
   if (FbLog[0] == 'B' && FbLog[1] == '2' && FbLog[2] == 'L' && FbLog[3] == 'F') {
-    CHAR16 Tik[24];
+    // UFS CAP/VER satiri 25 gorunur karakterdir; onceki 24 elemanli
+    // tampon sadece eski 16/23 karakterlik b2lfb damgalari icindi.
+    CHAR16 Tik[32];
     UINTN  K;
 
     for (K = 0; K < 16; K++) {
@@ -668,6 +670,32 @@ B2LGosterEntry (
 
     Tik[16] = L'\0';
     Yaz (Tik, 0x00FFFF40);
+
+    //
+    // +0x30: Windows boot-driver aninda, PnP/storufs HCI'yi sahiplenmeden
+    // once alinan SALT-OKUNUR UFS goruntusu. Bir satir 1440 px'e sigmadigi
+    // icin CAP/VER ve HCE/1US_TO_CNT iki satira ayriliyor.
+    //
+    if (FbLog[48] == 'U' && FbLog[49] == 'F' && FbLog[50] == 'S') {
+      for (K = 0; K < 25; K++) {
+        Tik[K] = (CHAR16)FbLog[48 + K];
+        if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
+          Tik[K] = L' ';
+        }
+      }
+      Tik[25] = L'\0';
+      Yaz (Tik, 0x0060C0FF);
+
+      Tik[0] = L'U'; Tik[1] = L'F'; Tik[2] = L'S';
+      for (K = 0; K < 22; K++) {
+        Tik[3 + K] = (CHAR16)FbLog[48 + 25 + K];
+        if (Tik[3 + K] < 0x20 || Tik[3 + K] > 0x7E) {
+          Tik[3 + K] = L' ';
+        }
+      }
+      Tik[25] = L'\0';
+      Yaz (Tik, 0x0060C0FF);
+    }
 
     //
     // CNT/IMG SATIRLARI KALDIRILDI.

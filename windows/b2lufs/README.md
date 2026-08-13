@@ -23,6 +23,27 @@ yinelenen, memory olmayan veya kısa bir pencere güvenli biçimde reddedilir.
 Bu katman fiziksel adres keşfetmez, MMIO haritalamaz ve **hiçbir register'a
 yazmaz**.
 
+## Mevcut WinPE turu: sahiplenmeden önce HCI anlık görüntüsü
+
+`b2lfb.sys`, b2lufs sürücüsü değildir ve UFS'ye bağlanmaz. Ancak sonraki
+miniport başlatmasının doğru yerde kurulabilmesi için, Windows'un en erken
+boot-driver aşamasında HCI'nin gerçekten hangi durumda olduğunu kalıcı
+diagnostik kayda alır. Ölçüm `CAP`, `VER`, `HCE` ve Samsung
+`1US_TO_CNT` yazmaçlarını **yalnız okur**. Eşleme aynı `DriverEntry`
+çağrısında geri bırakılır; PnP/storufs ile eşzamanlı veya kalıcı ikinci bir
+MMIO eşlemesi yoktur.
+
+Sonraki UEFI açılışında B2LGoster şu iki satırı gösterir:
+
+```
+UFS C=xxxxxxxx V=xxxxxxxx
+UFS H=xxxxxxxx T=xxxxxxxx
+```
+
+`T` değerinin alt 10 biti UEFI'nin beklediği `166` değerini göstermelidir.
+Bu kayıt HCE'yi değiştirmez, UIC/DME komutu göndermez, kesme durumunu
+okumaz/temizlemez ve hiçbir UFS LUN'una erişmez.
+
 `b2lufs_storport.c`, gerçek WDK `HwFindAdapter` çağrısını bu katmana bağlar.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin

@@ -64,27 +64,7 @@ call :PhotoPause
 
 echo.
 echo [UFS: ACPI UFSHCI kimligi ve storufs]
-if exist "%SystemRoot%\System32\pnputil.exe" (
-  echo --- UFS0: CID, eslesen surucu ve stack ---
-  pnputil /enum-devices /instanceid "ACPI\SMSN9820\0" /deviceids /drivers /services
-  call :PhotoPause
-  echo --- UFS0: yalniz PnP kok degerleri (Properties agaci atlandi) ---
-  rem /s, Properties altindaki ikili verileri yuzlerce satir yaziyordu.
-  rem Kimlik/servis zaten yukaridaki PnPUtil satirinda gorunuyor.
-  reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0"
-  reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0\Control" 2>nul
-  call :PhotoPause
-  echo --- SCSIAdapter sinifi ---
-  pnputil /enum-devices /connected /class SCSIAdapter /drivers
-  call :PhotoPause
-  echo --- Tum sorunlu PnP aygitlari ---
-  pnputil /enum-devices /connected /problem
-  call :PhotoPause
-) else (
-  rem Eski WinPE'de de Properties alt agacini dokme.
-  reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820"
-  call :PhotoPause
-)
+call :UfsReport
 
 echo.
 echo --- storufs: inbox dosya, DriverStore ve servis kaydi ---
@@ -111,6 +91,37 @@ echo === Tani sonu ===
 echo.
 echo Rapor yukarida; istem acik kalacak. Giris aygiti gerekmez.
 cmd.exe /k
+goto :eof
+
+:UfsReport
+rem UFS raporu ana betikteki parantezli PnP raporundan bilerek ayridir.
+rem Cihazdaki onceki ekranda bu basliktan hemen sonra ana betik bitti.
+rem Foto tek basina sebebi ayirt etmiyor; bu alt yordam o belirsiz ana
+rem blok akisini ortadan kaldirir ve her iki yolu exit /b ile ana rapora dondurur.
+if not exist "%SystemRoot%\System32\pnputil.exe" goto :UfsWithoutPnP
+
+echo --- UFS0: CID, eslesen surucu ve stack ---
+pnputil /enum-devices /instanceid "ACPI\SMSN9820\0" /deviceids /drivers /services
+call :PhotoPause
+echo --- UFS0: yalniz PnP kok degerleri; Properties agaci atlandi ---
+rem /s, Properties altindaki ikili verileri yuzlerce satir yaziyordu.
+rem Kimlik/servis zaten yukaridaki PnPUtil satirinda gorunuyor.
+reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0"
+reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0\Control" 2>nul
+call :PhotoPause
+echo --- SCSIAdapter sinifi ---
+pnputil /enum-devices /connected /class SCSIAdapter /drivers
+call :PhotoPause
+echo --- Tum sorunlu PnP aygitlari ---
+pnputil /enum-devices /connected /problem
+call :PhotoPause
+exit /b 0
+
+:UfsWithoutPnP
+rem Eski WinPE'de de Properties alt agacini dokme.
+reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820"
+call :PhotoPause
+exit /b 0
 
 :PhotoPause
 if exist "%SystemRoot%\System32\timeout.exe" (

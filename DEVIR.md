@@ -1307,6 +1307,24 @@ WinPE `boot.wim` RAM diskidir. Böylece sonraki sorun sürücü seçimi değil,
 çıkışı doğrudan konsola bölümler hâlinde basar ve her salt-okunur komuttan sonra
 iki saniye bekler; `b2lcmd`/`findstr` yokluğu artık yalancı hata satırı üretmez.
 
+**Sıradaki güvenli ölçüm:** `b2lfb`, PnP/storufs denetleyiciyi sahiplenmeden
+önce yalnız bir kez `0x13D60000` UFS HCI penceresini `MmNonCached` ile eşleyip
+`CAP`, `VER`, `HCE` ve Samsung `1US_TO_CNT` yazmaçlarını okur. Eşleme aynı
+`DriverEntry` içinde `MmUnmapIoSpace` ile bırakılır; HCE, UIC/DME, kesme durumu
+ve hiçbir UFS LUN'u değiştirilmez. Bu, daha önce geçersiz olan GIC deneyi gibi
+HAL tarafından zaten sahiplenilmiş bir pencereyi kalıcı ikinci kez eşlemek
+değildir. Sonraki B2LGoster ekranındaki iki `UFS ...` satırı boot devri
+durumunu, `startnet.cmd` ise Code 10 sonrasındaki PnP raporunu gösterir.
+Windows bellek yöneticisinin eşle/çöz sözleşmesi bu kullanımda özellikle
+aynı aralığın çözülmesini ister. ([MmMapIoSpace](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-mmmapiospace), [MmUnmapIoSpace](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-mmunmapiospace))
+
+Bu turdaki `startnet.cmd` düzeltmesi ayrı fakat gerekli bir kabuk belirsizliğini
+ortadan kaldırır: önceki sürüm cihazda tam `[UFS: ...]` başlığından sonra
+istemciye dönmüştü; fotoğraf tek başına bunun nedenini ayırmaz. UFS raporu bu
+nedenle büyük PnP `IF (...)` bloğunun dışındaki `:UfsReport` alt yordamına
+taşındı. Yeni yol her durumda `exit /b` ile ana rapora döner ve disk/driver
+tanısını kesmez.
+
 Kullanıcının verdiği Exynos kaynak dosyası ayrıca ikinci, sonraki aşamadaki
 engeli netleştirir: Linux sürücüsü `LINKSTARTUP` **öncesinde** saat/refclk,
 auto-clock-gating ve hata katmanlarını ayarlayıp `ufs_cal_pre_link()` çağırır;
