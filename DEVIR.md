@@ -1246,9 +1246,8 @@ olduğu anlamına gelmez. Bu turda hiçbir giriş aygıtı yoktur; dolayısıyla
 `startnet.cmd` artık `cmd.exe` öncesinde otomatik olarak şunları yapar:
 
 - `wpeinit.exe` ile PnP/WMI başlangıcını tamamlar;
-- toplam fiziksel belleği, birimleri, diskleri ve `Keyboard`/`Mouse` PnP
-  sınıflarını; USB PnP düğümlerini, fiziksel ağ bağdaştırıcılarını ve IP
-  yapılandırmasını sorgular;
+- DiskPart ile disk/birimleri; PnPUtil varsa UFS, sorunlu PnP aygıtlarını,
+  `Keyboard`/`Mouse`/USB/ağ sınıflarını ve IP yapılandırmasını sorgular;
 - kısa raporu doğrudan CMD penceresine basar ve istemi açık bırakır.
 
 Bu mekanizma **giriş gerektirmez** ve kullanıcıdan komut yazmasını istemez.
@@ -1271,6 +1270,31 @@ olmadığı biliniyor; bu, WinPE çekirdeğinin DWC3 aygıt-modunu da çalışt�
 anlamına gelmez. Rapor boşsa kısa vadeli güvenilir kanal otomatik ESP günlüğü
 yerine ekrandaki raporun fotoğrafı ve yeniden flaşlama döngüsüdür; canlı USB
 kanalı ayrı bir DWC3 Windows sürücüsü portu olur.
+
+İlk raporun kesin sonuçları şunlardır: ADK WinPE `10.0.28000.1` içinde
+`wmic.exe` yoktur; onun hata metinleri ölçüm değildir. DiskPart ise doğrudan
+`There are no fixed disks to show` ve `There are no volumes` yazdı. Aktif
+DSDT'de `UFS0` bütünüyle yorumda olduğundan bu beklenen tabandır: Windows'a
+UFS aygıtı hiç ilan edilmemiştir.
+
+Sıradaki tur, WinPE'nin artık kararlı olan bellek haritası üzerinde yalnız
+UFS0'ı geri ekler. `_CLS={01,09,01}` Windows'un `ACPI\CC_010901`
+uyumluluk kimliğini üretir ve kutudan çıkan `storufs.sys` ile eşleşir.
+`_CRS`, stok DTB'den gelen tek standart `0x13D60000/0x1000` UFSHCI alanını
+ve GSIV 281'i verir; Samsung vendor/UniPro/PHY alanları jenerik sürücüye
+verilmez. Yeni rapor UFS bölümünü en sonda gösterir; DiskPart ve PnPUtil
+sonucu fotoğrafla okunabilir.
+
+Windows açılışında dönen çemberin görünmemesi ayrıca beklenir. Kendi BCD
+üreticimiz önceki sessiz-reset tanısı için `bootuxdisabled on` ve
+`bootmenupolicy Legacy` yazar; `quietboot` zaten `No`dur. Bu ayar WinPE'nin
+çalışmasına dair kanıt değildir ve UFS turunda değiştirilmez.
+
+Bu turda `boot.img` (UFS ACPI), `system.img` (WinPE raporu) ve boşaltılmış
+`cache.img` birlikte güncellenmelidir. `tools_odin_winpe_bundle.sh`, üç
+önceden doğrulanmış tar içinden yalnız bu üç adı kabul eder ve tek
+`out/beyond2lte-winpe-ufs.tar` üretir. Böylece Odin'e tek AP dosyası verilir;
+eski CACHE ESP'nin `startup.nsh` dosyasını seçmesi engellenir.
 
 Normal hale dönüş için yalnızca `bash yap.sh` çalıştırmak yeterlidir:
 script FADT'yi yeniden SMC konduitine alır ve EL2 sürücüsünü tekrar derleme

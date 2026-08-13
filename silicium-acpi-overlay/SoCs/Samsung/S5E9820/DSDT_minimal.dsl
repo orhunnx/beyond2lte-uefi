@@ -131,7 +131,7 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
         //
         //
         // ==================================================================
-        // UFS0 TAMAMEN KALDIRILDI - AD ALANINDA SADECE CPU0 KALIYOR
+        // UFS0 YENIDEN ETKIN - WinPE'de disk numaralandirma turu
         // ==================================================================
         //
         // Blokaj merdiveni tetikleyiciyi su pencereye sikistirdi: acilis
@@ -155,8 +155,45 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
         //                              KOK aygitlarinda ya da Faz 1'in ACPI
         //                              disi islerinde.
         //
-        // Tam metin asagida, geri koymak icin yorumu kaldirmak yeterli.
+        // Bu temel olcum artik tamamlandi: WinPE kabugu kararlı, DiskPart
+        // "no fixed disks" diyor. Bu, UFS donaniminin Windows'a ilan
+        // edilmedigini kanitlar; sonraki tek degisken aygiti geri eklemektir.
         //
+        // Eski yorumlu blok tarihsel not olarak asagida kalir. Etkin tanim
+        // onun onundedir; yalniz standart UFSHCI penceresini verir.
+        //
+        Device (UFS0)
+        {
+            // _CLS -> ACPI\CC_010901; Windows ARM64 storufs.sys bu
+            // uyumluluk kimligine baglanir.
+            Name (_HID, "SMSN9820")
+            Name (_UID, Zero)
+            Name (_CLS, Package (0x03)
+            {
+                0x01,   // Mass Storage
+                0x09,   // UFS
+                0x01    // UFSHCI
+            })
+
+            // Stok DTB'deki ufs-io-coherency nedeniyle cihaz koherent.
+            Name (_CCA, One)
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+            Name (_CRS, ResourceTemplate ()
+            {
+                // DTB: ufs@13D60000. Jenerik surucuye yalniz UFSHCI alanini
+                // bildir; Samsung vendor/UniPro/PHY pencereleri verilmez.
+                Memory32Fixed (ReadWrite, 0x13D60000, 0x00001000)
+                // DTB SPI 249 -> GIC GSIV 249 + 32 = 281.
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+                {
+                    0x00000119
+                }
+            })
+        }
+
         // Device (UFS0)
         // {
         // //
@@ -247,4 +284,3 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
         //
     }
 }
-

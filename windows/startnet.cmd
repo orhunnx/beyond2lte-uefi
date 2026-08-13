@@ -29,29 +29,32 @@ rem damgalar. Tani komutlarindan once kalmasi kasitlidir.
   echo [Windows]
   ver
   echo.
-  echo [Fiziksel bellek]
-  wmic computersystem get TotalPhysicalMemory
-  echo.
-  echo [Mantiksal birimler]
-  wmic logicaldisk get DeviceID,DriveType,FileSystem,FreeSpace,Size,VolumeName
-  echo.
   echo [DiskPart: diskler ve birimler]
   diskpart /s "%DPSCRIPT%"
   echo.
-  echo [PnP: klavye]
-  wmic path Win32_PnPEntity where "PNPClass='Keyboard'" get Name,Status
-  echo.
-  echo [PnP: fare/dokunmatik HID]
-  wmic path Win32_PnPEntity where "PNPClass='Mouse'" get Name,Status
-  echo.
-  echo [PnP: USB aygitlari]
-  wmic path Win32_PnPEntity where "PNPDeviceID like 'USB%%'" get Name,Status,PNPDeviceID
-  echo.
-  echo [Ag bagdastiricilari]
-  wmic path Win32_NetworkAdapter where "PhysicalAdapter=true" get Name,NetConnectionStatus,PNPDeviceID
+  echo [PnP: klavye/fare/USB/ag]
+  if exist "%SystemRoot%\System32\pnputil.exe" (
+    pnputil /enum-devices /connected /class Keyboard /drivers
+    pnputil /enum-devices /connected /class Mouse /drivers
+    pnputil /enum-devices /connected /bus USB /drivers
+    pnputil /enum-devices /connected /class Net /drivers
+  ) else (
+    echo PnPUtil yok; HID/USB agaci olculemedi.
+    reg query "HKLM\SYSTEM\CurrentControlSet\Enum\HID" /s
+    reg query "HKLM\SYSTEM\CurrentControlSet\Enum\USB" /s
+  )
   echo.
   echo [IP yapilandirmasi]
   ipconfig /all
+  echo.
+  echo [UFS: ACPI UFSHCI ve storufs]
+  if exist "%SystemRoot%\System32\pnputil.exe" (
+    pnputil /enum-devices /connected /class SCSIAdapter /drivers
+    pnputil /enum-devices /connected /problem
+  ) else (
+    reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820" /s
+  )
+  sc.exe query storufs
   echo.
   echo === Tani sonu ===
 ) > "%LOG%" 2>&1
