@@ -618,6 +618,9 @@ BEKLENEN OKUMA  (ErrorControl=3 ile artik hepsi ayirt edilebiliyor):
   erisimi eklenmeden once bu fiziksel erisim siniri incelenmelidir.
   "UFS KAYDI YOK" ise yuklenen b2lfb eski, baslatilmamis veya kayit soguk
   yeniden baslatmada silinmistir; HCI sonucu olarak yorumlanamaz.
+  Guncel startnet.cmd tani raporundan sonra `wpeutil reboot` cagirir; UFS
+  sonucunu okumak icin cihaz bu YAZILIMSAL reset ile
+  sonraki UEFI ekranina gelmelidir. Telefonu elle kapatma.
 
   SCM SINIRI (sonraki B2LGoster ekraninda):
     SYG=REG C=000  -> sirali System Bus Extender grubuna dair isaret yok

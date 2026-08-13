@@ -89,7 +89,13 @@ echo.
 echo === Tani sonu ===
 
 echo.
-echo Rapor yukarida; istem acik kalacak. Giris aygiti gerekmez.
+echo UFS kaydini sonraki UEFI ekraninda gostermek icin hemen yazilimsal
+echo yeniden baslatma yapiliyor. Telefonu kapatma veya guc kesme.
+%SystemRoot%\System32\wpeutil.exe reboot
+
+rem wpeutil normalde bu noktaya donmez. Donerse ekrani kaybetmeden bekle;
+rem kullaniciya soguk yeniden baslatma yaptirmak DRAM kaydini siler.
+echo UYARI: wpeutil reboot dondu; otomatik reset istegi tamamlanmadi.
 cmd.exe /k
 goto :eof
 

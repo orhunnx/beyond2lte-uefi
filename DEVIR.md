@@ -1282,7 +1282,12 @@ olduğu anlamına gelmez. Bu turda hiçbir giriş aygıtı yoktur; dolayısıyla
 - `wpeinit.exe` ile PnP/WMI başlangıcını tamamlar;
 - DiskPart ile disk/birimleri; PnPUtil varsa UFS, sorunlu PnP aygıtlarını,
   `Keyboard`/`Mouse`/USB/ağ sınıflarını ve IP yapılandırmasını sorgular;
-- kısa raporu doğrudan CMD penceresine basar ve istemi açık bırakır.
+- kısa raporu doğrudan CMD penceresine basar ve hemen `wpeutil reboot` ile
+  **yazılımsal** yeniden başlatır.
+
+Bu reset, sonraki UEFI `B2LGoster` ekranında `b2lfb`nin `UFS ...` kaydını
+okumak için gereklidir. CMD istemini açık bırakmak bu deneyde doğru değildir:
+giriş aygıtı yoktur ve elle güç kesmek sıcak-reset DRAM kanıtını yok eder.
 
 Bu mekanizma **giriş gerektirmez** ve kullanıcıdan komut yazmasını istemez.
 HID sorgusu boş kalırsa bu, Windows'a herhangi bir klavye/fare düğümünün
