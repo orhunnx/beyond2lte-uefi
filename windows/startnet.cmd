@@ -49,7 +49,7 @@ rem damgalar. Tani komutlarindan once kalmasi kasitlidir.
   echo.
   echo [UFS: ACPI UFSHCI kimligi ve storufs]
   if exist "%SystemRoot%\System32\pnputil.exe" (
-    echo --- UFS0: cihaz/uyumlu kimlikler, eslesen surucu ve stack ---
+    echo --- UFS0: CID, eslesen surucu ve stack ---
     pnputil /enum-devices /instanceid "ACPI\SMSN9820\0" /deviceids /drivers /services
     echo --- SCSIAdapter sinifi ---
     pnputil /enum-devices /connected /class SCSIAdapter /drivers
@@ -66,6 +66,8 @@ rem damgalar. Tani komutlarindan once kalmasi kasitlidir.
     echo storufs.sys YOK: bu WinPE imajinda UFS miniportu bulunmuyor olabilir.
   )
   dir /b /s "%SystemRoot%\System32\DriverStore\FileRepository\storufs.inf_*" 2^>nul
+  echo --- storufs INF: CC_010901 esleme satirlari ---
+  for /d %%D in ("%SystemRoot%\System32\DriverStore\FileRepository\storufs.inf_*") do findstr /i /c:"CC_010901" "%%~fD\storufs.inf" 2^>nul
   reg query "HKLM\SYSTEM\CurrentControlSet\Services\storufs" /s
   echo.
   echo === Tani sonu ===

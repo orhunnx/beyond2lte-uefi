@@ -138,10 +138,16 @@ oldu ve UEFI UFS okumasının çalışmasını açıklıyor.
 Windows'un kutudan çıkan `storufs` sürücüsü bu Samsung varyant çağrılarını
 bilmez. HCE/LinkStartup sonrasında bu kalibrasyon yeniden gerekirse, yalnız
 ACPI `_CRS`/`_CLS` nesneleri bunu yerine getiremez; çözüm kendi Exynos StorPort
-miniportumuz olur. Fakat WinPE'de önce `ACPI\SMSN9820\0` için Code 28 görüldü:
-bu, miniport henüz hiç seçilmediği için bu donanım sorusundan **önceki**
-driver-store/eşleşme aşamasıdır. Önce `storufs.inf` paketinin WIM'de varlığı ve
-`ACPI\CC_010901` compatible ID'si ölçülmelidir.
+miniportumuz olur. Fakat WinPE'de önce `ACPI\SMSN9820\0` için Code 28 görüldü.
+Sonraki otomatik rapor `storufs.sys`in, DriverStore paketinin ve boot-start
+servis kaydının WIM'de gerçekten bulunduğunu kanıtladı. Aynı rapor,
+`_CLS={01,09,01}`in `ACPI\CC_010901` değil
+`ACPI\CLS_0001&SUBCLS_0009&PI_01` yayınladığını gösterdi. Bu nedenle hata
+miniportun hiç seçilmediği, donanım başlangıcından **önceki** eşleşme
+aşamasındadır. Aktif sonraki deneme, geçerli `SMSN9820` vendor `_HID`ini
+koruyup ACPI'nin tanımladığı standart `_CID="PCI\CC_010901"`i ekler. Rapor
+bu WIM'in gerçek `storufs.inf` eşleşme satırını da çıkarır; sürücü seçilirse
+ancak ondan sonra Exynos'a özgü kalibrasyon sorusu test edilmeye başlanmış olur.
 
 ## `mclk_rate` — ÇÖZÜLDÜ
 

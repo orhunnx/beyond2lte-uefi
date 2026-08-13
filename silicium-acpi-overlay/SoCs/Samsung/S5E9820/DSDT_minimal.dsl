@@ -122,12 +122,18 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
         // girdisi var, Qualcomm'a ozel degil. "CC_010901" bir satici kimligi
         // degil, PCI sinif kodu: 01 yigin depolama / 09 UFS / 01 UFSHCI.
         //
-        // Bu kimlik _HID'den gelmiyor - gelemez de, ACPI kimlikleri 4 harf +
-        // 4 onaltilik hane olmak zorunda ve "CC_010901" dokuz karakter.
-        // Windows bunu ACPI 6.0'la gelen _CLS nesnesinden turetiyor ve
-        // "ACPI\CC_<sinif><altsinif><arayuz>" biciminde bir UYUMLULUK kimligi
-        // uretiyor. O yuzden _HID satici kimligi olarak kaliyor, esleme _CLS
-        // uzerinden oluyor.
+        // Onceki _CLS varsayimi YANLISTI. WinPE'deki PnP raporu bunun
+        // sonucunu dogrudan olctu: _CLS = { 01, 09, 01 } su kimlikleri
+        // uretiyor:
+        //
+        //   ACPI\CLS_0001&SUBCLS_0009&PI_01
+        //
+        // Bu, storufs.inf'teki ACPI\CC_010901 ile eslesmiyor; bu nedenle
+        // Code 28, denetleyici MMIO'suna ulasilmadan once goruldu.
+        //
+        // ACPI spec, PCI sinif bilgisini _CID ile PCI\CC_ccsspp biciminde
+        // vermeyi tanimliyor. Etkin tanim bu standart uyumlu kimligi ilan
+        // eder; vendor _HID korunur.
         //
         //
         // ==================================================================
@@ -164,10 +170,14 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
         //
         Device (UFS0)
         {
-            // _CLS -> ACPI\CC_010901; Windows ARM64 storufs.sys bu
-            // uyumluluk kimligine baglanir.
+            // Vendor HID gecerlidir ve korunur. WinPE olcumu, _CLS'in tek
+            // basina storufs.inf ile eslesmedigini kanitladi.
             Name (_HID, "SMSN9820")
             Name (_UID, Zero)
+            // ACPI 6.4'te tanimli bus-specific PCI class CID. _HID degil
+            // _CID kullanmak gecerli vendor kimligini korur. ASL string'inde
+            // literal ters bolu iki ters bolu ile escape edilir.
+            Name (_CID, "PCI\\CC_010901")
             Name (_CLS, Package (0x03)
             {
                 0x01,   // Mass Storage
