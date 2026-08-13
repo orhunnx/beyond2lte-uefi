@@ -1232,6 +1232,13 @@ yeniden denetler. Ekranda `DTB ACIK=00000000 KORUNDU` ve `RAM ... ATLANDI`
 görülmeden Windows sonucu yorumlanmaz; farklı bir DTB değeri, Windows'un hâlâ
 sabit bir rezervi görebildiğini ve testin geçersiz olduğunu söyler.
 
+**Sonuç (13 Ağustos 2026):** Bu imajla cihaz, uzun WinPE yükleme süresinin
+ardından `X:\Windows\System32>` kabuğuna ulaştı. Böylece önceki yaklaşık
+10–15 saniyelik temiz `RST_STAT=0x20000000` sıfırlamasının Windows'un
+verilmemesi gereken RAM'e tahsis yapmasından kaynaklandığı pratikte
+doğrulandı. Bu hipotez için eski reset döngüsü ya da RAM yaz/geri-oku
+taramaları yeniden çalıştırılmaz.
+
 Normal hale dönüş için yalnızca `bash yap.sh` çalıştırmak yeterlidir:
 script FADT'yi yeniden SMC konduitine alır ve EL2 sürücüsünü tekrar derleme
 dışında bırakır.

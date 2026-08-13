@@ -58,6 +58,10 @@ Display Reserved  0xCA000000 – 0xCB400000
 DXE Heap          0xCB400000 – 0xCF000000
 ```
 
+13 Ağustos 2026'da koruyucu WinPE bellek bütçesiyle `X:\Windows\System32>`
+kabuk istemine ulaşıldı. Önceki temiz yeniden başlatmanın sebebi RAM
+tahsisiydi; bu tanı hattı kapandı.
+
 Sonraki DTB rezervi `modem_spare` `0xD0000000` → 16 MB boşluk kalıyor.
 
 > Bu iki düzeltme upstream'e gönderilmeye değer. İkincisi `beyond1lte`'yi de
