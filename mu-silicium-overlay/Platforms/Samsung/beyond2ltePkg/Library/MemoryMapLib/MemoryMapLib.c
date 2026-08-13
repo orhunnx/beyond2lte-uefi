@@ -13,21 +13,22 @@ gMemoryDescriptor[] = {
   // Sonraki DTB rezervi modem_spare 0xD0000000 -> 16 MB bosluk kaliyor.
   //
   //
-  // Samsung U-H / EL2 - kalici S-Boot hipervizoru.
+  // Samsung U-H / EL2 - S-Boot'un imzali U-H calisma alani.
   //
   // Stok G975FXXSGHWC1 BL, imzali UH bolumunu burada yukleyip
   // x0=0xC2000400, x1=0x87001000, x2=0x2000, x3=1,
   // x4=0x87000000, x5=0x100000 ile EL2'ye giriyor. UH ELF'i 0x87000000'a
   // bagli; 0x8701b800'e VBAR_EL2 kuruyor, veri alanini ve 0x87046000'e
   // kadar olan EL2 yigini kullaniyor. BOOT bolumune UEFI yazmak UH
-  // bolumunu degistirmez, dolayisiyla bu kod UEFI/Windows devrinde yasiyor.
+  // bolumunu degistirmez. U-H'nin custom BOOT yolunda etkin olup olmadigi
+  // S-Boot cagrı kosulu ve cihazdaki UHCFG ile ayri olarak dogrulanacak.
   //
   // BsCode yanlisti: ExitBootServices sonrasinda Windows bu sayfalari
   // normal tahsis havuzuna geri katabilir. U-H'nin kodunu/verisini ezmek
   // sessiz EL2 reseti icin sinanabilir bir adaydi. Koruma uygulaninca RAM
   // 0x1F29'dan 0x1F27'ye indi ama Windows reseti surdu; yani bu ezilme ana
-  // neden degil. Buna ragmen platformun calisan EL2 sayfalarini Windows'a
-  // vermek yanlis oldugundan rezerv korunur. Stok yukleyici x5'te 1 MiB
+  // neden degil. Buna ragmen etkinlesirse calisacak EL2 sayfalarini Windows'a
+  // vermek yanlis olacagindan rezerv korunur. Stok yukleyici x5'te 1 MiB
   // ister; mevcut 2 MiB rezervi eksiksiz koruyoruz.
   //
   {"Samsung U-H EL2",    0x87000000, 0x00200000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_BACK},

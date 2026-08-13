@@ -936,8 +936,10 @@ doğrudan incelendi. Bu, internetten çıkarım değil cihazda kullanılacak ayn
 BL/UH ikilisinin ikili kanıtıdır.
 
 - `UH` PIT'te `BOOT`tan ayrı 2 MiB bölümdür. Projenin Odin paketi yalnız
-  `BOOT`u değiştirir; `S-BOOT` ve `UH` olduğu gibi kalır. Bu nedenle normal
-  S-Boot zinciri UEFI'ye geçmeden önce stok U-H yükünü hâlâ yürütür.
+  `BOOT`u değiştirir; `S-BOOT`, `UH` ve `UHCFG` olduğu gibi kalır. Bu,
+  U-H'nin S-Boot'taki yükleme yolunun kullanılabilir kaldığını kanıtlar;
+  fakat bu yolun kilidi açık/custom `BOOT` yolunda gerçekten çağrılıp
+  çağrılmadığı ayrı bir sorudur ve aşağıda çevrimdışı incelenir.
 - `uh.bin`, 4 KiB'lik `GREENTEA` kapsül başlığı, `0x42388` baytlık AArch64
   ELF ve sonrasında 0x310 baytlık imza malzemesinden oluşur. S-Boot önce
   kapsül boyutunu, `GREENTEA` sihrini ve ECDSA imzasını denetler. Bu yüzden
@@ -1022,6 +1024,35 @@ alınmaz. Bu sonuç, çalışan U-H/EL3'ün başka bir politika ihlaliyle reset
 verdiği olasılığını tek başına elemez; fakat bu imajla aynı bellek-deneyi
 tekrar edilmez. Sonraki çevrimdışı iş, S-Boot'ta U-H yükleyicisinin çağrı
 koşulunu ve U-H'ın Windows öncesi gerçekten etkin olup olmadığını ayırmaktır.
+
+#### Sıradaki güvenli veri: cihazdaki `UHCFG`nin salt-okunur kopyası
+
+`UHCFG`, PIT'te `UH`dan ayrı, 4 MiB'lik bölümdür. Stok BL paketinde bu bölüm
+dosyası yoktur; U-H'nin açılış politikası veya doğrulama durumuyla ilgili
+cihaz-özel veri taşıyorsa bunu yalnız cihazdaki ham kopya gösterebilir.
+İlk adım **yalnız okuma**dır: `sboot`, `uh`, `uhcfg`, `boot` veya `vbmeta`ya
+yazılmaz ve Odin kullanılmaz.
+
+Custom recovery içindeki `adb shell` ile Windows PowerShell'de çalışacak
+komutlar:
+
+```powershell
+$adb = "C:\Users\orhun\OneDrive\Masaüstü\projectfiles\platform-tools\adb.exe"
+& $adb devices
+& $adb shell "readlink -f /dev/block/by-name/uh; readlink -f /dev/block/by-name/uhcfg"
+& $adb shell "ls -l /dev/block/by-name/uh /dev/block/by-name/uhcfg; sha256sum /dev/block/by-name/uh /dev/block/by-name/uhcfg"
+& $adb shell "dd if=/dev/block/by-name/uhcfg of=/tmp/uhcfg-G975F.img bs=4M"
+& $adb shell "wc -c /tmp/uhcfg-G975F.img; sha256sum /tmp/uhcfg-G975F.img"
+& $adb pull /tmp/uhcfg-G975F.img "$env:USERPROFILE\Desktop\uhcfg-G975F.img"
+& $adb shell "rm /tmp/uhcfg-G975F.img"
+Get-FileHash "$env:USERPROFILE\Desktop\uhcfg-G975F.img" -Algorithm SHA256
+```
+
+Beklenen boyut tam `4194304` bayttır. `adb pull`dan önce ve sonra görünen
+SHA-256 aynı olmalıdır. `dd`nin yönü özellikle `if=/dev/block/by-name/uhcfg`
+olup `of=/tmp/...`dir; tersine çevrilmez. Dosya alındıktan sonra yalnız bu
+kopya ve stok `uh.bin` üzerinde karşılaştırma yapılır. Yazma veya bölüm
+değiştirme için ayrıca, eldeki ikili kanıtın belirlediği bir gerekçe gerekir.
 
 Kaynaklar: stok `BL_G975FXXSGHWC1...tar.md5` içindeki `sboot.bin.lz4` ve
 `uh.bin.lz4`; [Samsung Exynos KVM arayüzü incelemesi](https://github.com/sleirsgoevy/exynos-kvm-patch),
