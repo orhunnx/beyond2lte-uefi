@@ -511,7 +511,8 @@ static void B2LUfsRaporDosyayaYaz (void)
     "Read-only b2lfb DriverEntry sample (before PnP/storufs):\r\n";
   static const UINT8 Son[] =
     "\r\nNote: this file is on the WinPE RAM disk; no UFS disk write occurred.\r\n";
-  UINT8             Metin[192];
+  /* Baslik + 48 bayt snapshot + son not, CRLF'lerle birlikte 256'nin altinda. */
+  UINT8             Metin[256];
   UNICODE_STRING    Isim;
   OBJECT_ATTRIBUTES Nitelik;
   IO_STATUS_BLOCK   Durum;
