@@ -219,9 +219,10 @@ dayanıyor.
 
 ## 6. Ölçülen olgular — açıklanması gereken tablo
 
-1. **Windows çekirdeğinin ömrü, seçili hizmet kümesine bağlı.** Önceki
-   yapılandırmalar yaklaşık 10 saniyede sessiz sıfırlanırken yalnız `Npfs`
-   açık yapılandırması 63.902 saniye yaşadı. Her iki yolda da
+1. **Windows çekirdeğinin ömrü seçili hizmet kümesiyle birlikte değişebiliyor,
+   fakat tek açılış belirleyici değil.** `Npfs` tek açıkken bir açılış
+   63.902 saniye yaşadı; aynı kümenin, kullanıcı-modu damgası eklenmiş sonraki
+   açılışı 8.802 saniyede sessiz sıfırlandı. Her iki yolda da
    `RST_STAT = 0x20000000` (yazılım sıfırlaması), DRAM hayatta kalıyor.
 
 2. **Bugcheck yok.** `BUG=H`. Geri çağrı iki yönde de doğrulandı (gerçek bir
@@ -292,9 +293,10 @@ dayanıyor.
 
 ## 7. Şu anki tıkanma noktası
 
-**Windows, seçili hizmet kümesine bağlı olarak kullanıcı-modu öncesinde ya
-da sonrasında sessizce sıfırlanıyor. Ne olduğu bilinmiyor.** Normal kısa
-yol yaklaşık 10 saniye iken, yalnız `Npfs` açık yol 63.902 saniyeye ulaştı.
+**Windows, seçili hizmet kümesi ve açılış zamanlamasıyla birlikte kullanıcı
+modu öncesinde ya da sonrasında sessizce sıfırlanıyor. Ne olduğu bilinmiyor.**
+Normal kısa yol yaklaşık 10 saniye. `Npfs` tek açıkken bir kez 63.902 saniyeye
+ulaştı, fakat sonraki aynı hizmet kümesi 8.802 saniyede kısa yola döndü.
 
 Önceki kısa-yolun CPU-süresi ölçümü:
 
@@ -776,7 +778,7 @@ bash tools_winpe_sistem.sh birak Npfs
 bash cache_esp.sh --win --system
 ```
 
-Bu tur yalnız bir kez yapıldı ve iki sonucu kesinleştirdi:
+Bu tur yalnız bir kez çalıştı; değerli fakat tek örnek olan şu kaydı verdi:
 
 ```
 TIK=0639 BUG=H
@@ -792,10 +794,10 @@ saniye CPU işi** yaptı. Bu, eski 8.6 saniyelik `0xc000021a` yolundan da,
 sayaç", watchdog ve WFI/PMU zaman aşımı açıklamaları bu imaj için geçerli
 değildir.
 
-`0xc000021a` görünmedi. Bu, yalnız Npfs'nin geri gelmesiyle oldu; Npfs
-eksikliğinin kritik kullanıcı-modu IPC'yi bozduğu hipotezi doğrulandı.
-Fakat `cmd.exe /k` görünmediği için 63.9 saniyelik resetin `startnet.cmd`
-öncesinde mi, içinde mi olduğu hâlâ ayrı bir sorudur.
+`0xc000021a` bu turda görünmedi. Bu, `Npfs` eksikliğinin kritik kullanıcı-modu
+IPC'sini bozduğu hipotezini güçlendirir; fakat tek örnek nedenselliği
+kesinleştirmez. `cmd.exe /k` görünmediği için 63.9 saniyelik resetin
+`startnet.cmd` öncesinde mi, içinde mi olduğu da henüz bilinmiyordu.
 
 Sonraki tek tur bunu ayırır. `tools_b2lfb.sh` artık `b2lcmd.exe` adlı 2 KB'lık
 bir kullanıcı programını **ve onu çağıran güncel `startnet.cmd`yi** WIM'e
@@ -804,8 +806,8 @@ olayı oluşturur. Boot sürücüsü olayı düşük öncelikli sistem thread'in
 saniyede en fazla bir kez yoklar ve kalıcı kayda aşağıdakilerden birini yazar:
 
 ```
-USR=REG C=000  reset Startnet'ten önce
-USR=CMD C=001  cmd.exe/startnet kullanici-modu calisti
+USR=REG C=000  b2lcmd olayi cekirdek surucusu tarafindan gorulmedi
+USR=CMD C=001  Win32/startnet b2lcmd satirina ulasti (kabuk henuz degil)
 ```
 
 Komutlar:
@@ -817,12 +819,31 @@ bash tools_winpe_sistem.sh birak Npfs
 bash cache_esp.sh --win --system
 ```
 
-Bu sonuçta yeni hizmet kümesi denenmeyecek. `USR=REG` ise sonraki odağımız
-Win32 alt sisteminden önceki çekirdek geçişi; `USR=CMD` ise `wpeinit` ve
-başlatılan kullanıcı işlemlerinin yaptığı ilk donanım erişimleridir.
+Bu sürümün sonucu şöyledir:
+
+```
+TIK=0088 BUG=H
+QPD=0DA3E1E4 F=018CBA80     -> 8.801692 s
+USR=REG C=000
+```
+
+Dolayısıyla ne `Npfs` ile 63.9 saniyelik yol kararlı çıktı ne de `USR=REG`
+tek başına Startnet öncesini kanıtladı. Aynı durumu yeniden ölçmek yerine
+sonraki tek değişiklik, temel kullanıcı/komut yolu adaylarından yalnız
+`Null` hizmetini geri koymaktır. Bu, ağ, dosya sistemi veya ek sürücü
+kümesini geri açmadan `Npfs`'ye tek hizmet ekler:
+
+```bash
+bash yap.sh
+bash tools_b2lfb.sh
+bash tools_winpe_sistem.sh birak Npfs Null
+bash cache_esp.sh --win --system
+```
+
 Bu turda `uefi-boot.tar` **BOOT**'a ve `system-esp.tar` **SYSTEM**'e birlikte
-flaşlanır. UEFI tarafındaki tek fark tanı ekranındaki `USR` satırıdır;
-Windows'a yeni firmware davranışı eklenmez.
+flaşlanır. Fotoğrafta `USR=CMD` görülürse `startnet`in b2lcmd satırına
+ulaştığını; kabuğun açıldığını ise yalnız ekrandaki WinPE isteminin
+görünmesi kanıtlar.
 
 Kaynaklar: [Microsoft — AddService StartType](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-addservice-directive),
 [Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order),
@@ -867,8 +888,9 @@ iki yönlü A/B bile yapıldı ve tutarlıydı. Ama `MAX` ölçümü eklendikten
 
 > Bir sürücüyü çıkarmak kullanıcı-modu altyapısını da eksiltebilir.
 > Özellikle Npfs çıkarıldığında Windows kullanıcı-moduna ulaşıp
-> `0xc000021a` alıyor; Npfs geri gelince bu bugcheck kalkıyor ve bambaşka,
-> 63.9 saniyelik sessiz yol seçiliyor.
+> `0xc000021a` aldı. Npfs geri geldiğinde tek bir açılışta bu bugcheck
+> görünmedi ve 63.9 saniyelik sessiz yol görüldü; sonraki açılış 8.8 saniyede
+> sıfırlandı. Bu yüzden gözlem, kesin bir sürücü suçluluğu değildir.
 
 Yani `storufs` ve `rdbss` bulguları **başlangıç bağımlılıkları ve iş
 miktarı** üzerinden açıklanıyor, donanıma dokunmaları üzerinden değil. Bu
@@ -1002,6 +1024,7 @@ bash tools_winpe_surucu.sh hepsi-ac              # temel duruma don
 bash tools_winpe_sistem.sh liste
 bash tools_winpe_sistem.sh sadece rdbss
 bash tools_winpe_sistem.sh birak Npfs
+bash tools_winpe_sistem.sh birak Npfs Null
 bash tools_winpe_sistem.sh kapat / ac
 ```
 

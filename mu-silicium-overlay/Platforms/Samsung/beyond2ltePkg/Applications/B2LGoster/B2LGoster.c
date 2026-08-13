@@ -596,9 +596,11 @@ B2LGosterEntry (
     Yaz (Tik, 0x00FFFF40);
 
     //
-    // +0xD0: startnet.cmd'nin baslattigi b2lcmd.exe damgasi.
-    // USR=CMD C=001, Win32/cmd.exe kullanici-modu yolunun calistigini
-    // kanitlar. USR=REG C=000 ise reset bu programa gelmeden olmustur.
+    // +0xD0: startnet.cmd'nin cmd.exe /k satirindan ONCE baslattigi
+    // b2lcmd.exe damgasi. USR=CMD, Win32 ve startnet'in bu noktaya
+    // ulastigini kanitlar; kabugun acildigini kanitlamaz. USR=REG ise
+    // b2lcmd olayi gorulmedi demektir: reset, CreateEventW basarisizligi
+    // ve kernelin olayi acamama durumlarini birbirinden ayiramaz.
     //
     for (K = 0; K < 16; K++) {
       Tik[K] = (CHAR16)FbLog[208 + K];

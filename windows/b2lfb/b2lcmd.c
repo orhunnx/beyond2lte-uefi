@@ -5,8 +5,9 @@
  * Ekrana, diske veya aygit surucusune dokunmaz. Yalnizca adlandirilmis
  * Global\\B2LCmd olayini yaratir ve cikar. b2lfb.sys bu olayi kendi dusuk
  * oncelikli sistem thread'inden gorunce 0xCF030000+0xD0'a
- * "USR=CMD C=001" yazar. Dolayisiyla sonraki UEFI ekraninda bu satir varsa
- * Win32 alt sistemi, cmd.exe ve startnet.cmd gercekten calismistir.
+ * "USR=CMD C=001" yazar. Bu satir Win32 alt sistemi ve startnet.cmd'nin
+ * b2lcmd satirina ulastigini gosterir. b2lcmd, cmd.exe /k satirindan once
+ * cagrildigi icin kabugun gorundugunu tek basina kanitlamaz.
  */
 
 typedef void       *PVOID;

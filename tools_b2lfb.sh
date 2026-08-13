@@ -616,8 +616,11 @@ BEKLENEN OKUMA  (ErrorControl=3 ile artik hepsi ayirt edilebiliyor):
     AUT=SCM C=001  -> b2lauto, Service Control Manager tarafindan baslatildi
 
   KULLANICI-MODU SINIRI (sonraki B2LGoster ekraninda):
-    USR=REG C=000  -> reset startnet.cmd'nin b2lcmd.exe satirina gelmeden oldu
-    USR=CMD C=001  -> b2lcmd.exe calisti; cmd.exe/WinPE kullanici modu aktif
+    USR=REG C=000  -> b2lcmd olayini surucu gormedi. Bu; resetin olay
+                       yaratilmadan gelmesi, CreateEventW basarisizligi ya da
+                       kernelin olayi acamamasi arasinda ayrim yapmaz.
+    USR=CMD C=001  -> Win32 + startnet.cmd b2lcmd satirina ulasti. b2lcmd,
+                       cmd.exe /k satirindan once oldugu icin kabugu kanitlamaz.
 
   DIKKAT: cokusten sonra cihazi ELLE KAPATMA. RAM kaydi yalnizca sicak
   sifirlamada kaliyor.
