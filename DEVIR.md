@@ -1291,10 +1291,13 @@ Windows açılışında dönen çemberin görünmemesi ayrıca beklenir. Kendi B
 çalışmasına dair kanıt değildir ve UFS turunda değiştirilmez.
 
 Bu turda `boot.img` (UFS ACPI), `system.img` (WinPE raporu) ve boşaltılmış
-`cache.img` birlikte güncellenmelidir. `tools_odin_winpe_bundle.sh`, üç
-önceden doğrulanmış tar içinden yalnız bu üç adı kabul eder ve tek
-`out/beyond2lte-winpe-ufs.tar` üretir. Böylece Odin'e tek AP dosyası verilir;
-eski CACHE ESP'nin `startup.nsh` dosyasını seçmesi engellenir.
+`cache.img` birlikte güncellenmelidir. `tools_odin_winpe_bundle.sh`, ham
+`out/system.img` ve `out/cache.img` girdilerini kendi içinde `img2simg` ile
+Android sparse biçimine çevirir. Sparse sihirli sayısını (`ed26ff3a`) ve son
+tar'dan çıkarılmış her imajın SHA-256 eşitliğini doğruladıktan sonra tek
+`out/beyond2lte-winpe-ufs.tar` üretir. `boot.img` kasıtlı olarak ham kalır:
+çalışan UEFI Odin paketi de bu bölümü ham taşıyordu. Böylece Odin'e tek AP
+dosyası verilir; eski CACHE ESP'nin `startup.nsh` dosyasını seçmesi engellenir.
 
 Normal hale dönüş için yalnızca `bash yap.sh` çalıştırmak yeterlidir:
 script FADT'yi yeniden SMC konduitine alır ve EL2 sürücüsünü tekrar derleme
