@@ -1061,11 +1061,16 @@ HWC1'i HWC2 diye varsayamayız.
 
 #### Sıradaki güvenli veri: cihazdaki `S-BOOT`un salt-okunur kopyası
 
-PIT, `BOOTLOADER` bölümünü `sboot.bin` olarak tanımlar; tam boyutu 4 MiB'dir.
-Önce recovery'nin bu bölümü hangi Android `by-name` takma adıyla gösterdiği
-okunur, sonra yalnız o takma ad alınır. İlk üç alma işlemi yalnız okumaydı;
-bu işlem de aynıdır. `sboot`, `uh`, `uhcfg`, `boot` veya `vbmeta`ya yazılmaz
-ve Odin kullanılmaz.
+PIT, `BOOTLOADER` bölümünü `sboot.bin` olarak tanımlar: UFS aygıt türünde,
+başlangıç blok `0`, uzunluk `1024` blok, yani 4 MiB'dir. Recovery'deki
+`/dev/block/by-name` listesinin `sboot` veya `bootloader` içermemesi hata
+değildir: bu liste yalnız kullanıcı LUN'undaki GPT bölümlerini (`sda1…`)
+gösterir. `BOOTLOADER` ise ayrı bir ham UFS boot LUN'udur.
+
+Bu nedenle `/dev/block/sdb`yi tahminen seçmek doğru değildir. Önce bütün
+görünen ham LUN'ların boyutu ve salt-okunur durumu okunur; 4 MiB olan aday
+buradan belirlenir. İlk üç alma işlemi yalnız okumaydı; bu işlem de aynıdır.
+`sboot`, `uh`, `uhcfg`, `boot` veya `vbmeta`ya yazılmaz ve Odin kullanılmaz.
 
 Custom recovery içindeki `adb shell` ile Windows PowerShell'de çalışacak
 komutlar:
@@ -1073,15 +1078,19 @@ komutlar:
 ```powershell
 $adb = "C:\Users\orhun\OneDrive\Masaüstü\projectfiles\platform-tools\adb.exe"
 & $adb devices
-& $adb shell "ls -l /dev/block/by-name | grep -Ei 'sboot|bootloader'"
+& $adb shell 'for x in sda sdb sdc sdd sde; do printf "%s bytes=" "$x"; blockdev --getsize64 "/dev/block/$x"; printf "%s ro=" "$x"; cat "/sys/block/$x/ro"; done'
 ```
 
-Bu çıktıda görünen gerçek takma adı `SBOOT` değişkenine koyduktan sonra:
+Bu komut **yalnız okur**; çıktı gelmeden `dd` çalıştırılmaz. Tam `4194304`
+bayt gösteren ham aday veya adaylar ile `ro` değerlerini kaydet. Aday birden
+fazlaysa ilk 64 bayt stok `sboot.bin`in başıyla karşılaştırılır; böylece
+doğru boot LUN imza ile seçilir.
+
+Doğrulanmış aygıt adı örneğin `sdb` ise, ancak o zaman:
 
 ```powershell
-$SBOOT = "sboot"   # önceki komutun gösterdiği TAKMA AD ile degistir
-& $adb shell "readlink -f /dev/block/by-name/$SBOOT"
-& $adb shell "dd if=/dev/block/by-name/$SBOOT of=/tmp/sboot-G975F.img bs=4M"
+$SBOOT = "sdb"   # sadece imza ile dogrulanan ham LUN adi
+& $adb shell "dd if=/dev/block/$SBOOT of=/tmp/sboot-G975F.img bs=4M"
 & $adb shell "wc -c /tmp/sboot-G975F.img; sha256sum /tmp/sboot-G975F.img"
 & $adb pull /tmp/sboot-G975F.img "$env:USERPROFILE\Desktop\sboot-G975F.img"
 & $adb shell "rm /tmp/sboot-G975F.img"
@@ -1089,11 +1098,11 @@ Get-FileHash "$env:USERPROFILE\Desktop\sboot-G975F.img" -Algorithm SHA256
 ```
 
 Beklenen boyut tam `4194304` bayttır. `adb pull`dan önce ve sonra görünen
-SHA-256 aynı olmalıdır. `dd`nin yönü özellikle `if=/dev/block/by-name/$SBOOT`
-olup `of=/tmp/...`dir; tersine çevrilmez. Dosya alındıktan sonra HWC1
-`sboot.bin` ile karşılaştırılır ve yalnız HWC2'nin gerçek çağrı koşulundan
-sonuç çıkarılır. Yazma veya bölüm değiştirme için ayrıca, eldeki ikili
-kanıtın belirlediği bir gerekçe gerekir.
+SHA-256 aynı olmalıdır. `dd`nin yönü özellikle `if=/dev/block/$SBOOT` olup
+`of=/tmp/...`dir; tersine çevrilmez. Dosya alındıktan sonra HWC1 `sboot.bin`
+ile karşılaştırılır ve yalnız HWC2'nin gerçek çağrı koşulundan sonuç çıkarılır.
+Yazma veya bölüm değiştirme için ayrıca, eldeki ikili kanıtın belirlediği bir
+gerekçe gerekir.
 
 Kaynaklar: stok `BL_G975FXXSGHWC1...tar.md5` içindeki `sboot.bin.lz4` ve
 `uh.bin.lz4`; [Samsung Exynos KVM arayüzü incelemesi](https://github.com/sleirsgoevy/exynos-kvm-patch),
