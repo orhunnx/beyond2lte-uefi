@@ -1338,7 +1338,7 @@ script FADT'yi yeniden SMC konduitine alır ve EL2 sürücüsünü tekrar derlem
 dışında bırakır.
 
 Diğer FAT biriminde eski bir ESP kalmamalı. SYSTEM'e bu imaj yazılıyorsa,
-CACHE'i ayrıca `bash cache_esp.sh --bos` ile silip iki tar'ı aynı flash
+CACHE'i ayrıca `bash cache_esp.sh --win --bos` ile silip iki tar'ı aynı flash
 turunda yazmak gerekir; aksi halde Shell eski `startup.nsh`'i bulup bütün
 deneyi geçersiz kılabilir.
 

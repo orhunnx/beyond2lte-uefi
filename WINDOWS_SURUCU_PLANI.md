@@ -71,6 +71,26 @@ kendi durumunu ekrana yazabildiği için tur başına öğrenilen bilgi katlanı
 
 ## Sıra
 
+### Faz 2.5 — StorPort kaynak sözleşmesi (başladı)
+
+İlk yanlış yaklaşım, Windows'un genel `storufs` sürücüsüne bir yardımcı
+sürücü ekleyip sabit fiziksel adreslerden Exynos ayarı yazmak olurdu. Bu hem
+iki sürücünün aynı denetleyiciye sahip çıkmasına yol açar, hem de PnP'nin
+verdiği kaynakları atlar. Doğru sınır artık `windows/b2lufs/` altındadır:
+
+- `b2lufs_resources.c`, altı 9820 kaynağını **taban adresine göre** doğrular;
+  kaynakların `_CRS` içindeki sırasını varsaymaz;
+- saf birim testi WDK olmadan çalışır;
+- sonraki b2lufs INF turunda `_CID` yalnız yeni miniporta verilecek ve
+  `storufs` aynı aygıta bağlanmayacaktır; o ilk bağlı tur yalnız kaynakları
+  raporlayıp HCE yazmadan başarıyla duracaktır;
+- HCE, DME, PHY, CAL veya UFS'ye yazma henüz yoktur.
+
+Bu, Microsoft'un StorPort modeline uyar: PnP'nin sağladığı `ACCESS_RANGE`
+dışında başka HBA adresi aranmaz. Windows'un örnek deposu WDK/INF ve PnP
+iskeletini doğrulamak için kullanılacak; 9820'nin register ve CAL içeriği
+stok kaynak ile çalışan UEFI portundan gelecek.
+
 ### Faz 1 — "yaşıyorum" çubuğu
 
 Yüz satırlık bir WDM/KMDF sürücüsü. `DriverEntry` içinde:

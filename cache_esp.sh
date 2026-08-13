@@ -6,7 +6,7 @@
 #   out/cache.img       ham imaj   -> recovery + adb dd yolu
 #   out/cache-esp.tar   sparse tar -> Odin, AP slotu
 #
-#   bash cache_esp.sh [--baseline|--psci-hvc] [iceri-konacak-dosya.efi]
+#   bash cache_esp.sh [--win] [--baseline|--psci-hvc|--bos] [iceri-konacak-dosya.efi]
 #
 # Argüman verilmezse Mu-Silicium build'indeki Shell.efi aranir.
 #
@@ -38,6 +38,8 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 # --win   : sadece Windows dosyalarini koy (Linux kernel/initramfs haric).
 # --linux : Linux dosyalarini BILEREK buyuk boluma yaz. Asagidaki korumayi
 #           kaldirmaz, niyeti acikca soyler.
+# --bos   : eski CACHE ESP'sini gecersiz kil. Bu bir Windows WinPE turudur;
+#           bayraksiz calisma Linux modu oldugu icin --win zorunludur.
 #
 # 600 MiB'lik bolume hem 570 MB'lik boot.wim hem 68 MB'lik Linux dosyalari
 # sigmiyor - bir tur mcopy "Disk full" verdi ve sources/ bos kaldi.
@@ -69,7 +71,6 @@ for a in "$@"; do
   esac
 done
 if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
-if [ "$WINONLY" = 1 ]; then say "MOD: Windows"; else say "MOD: Linux"; fi
 
 #
 # --baseline: Windows'un kendisi disinda B2L tani kodu calistirmayan ESP.
@@ -96,6 +97,12 @@ if [ "$PSCI_HVC" = 1 ] && [ "$BASELINE" = 1 ]; then
   echo "--psci-hvc ve --baseline birlikte kullanilmaz: HVC deneyinde onceki acilisin HVC kaydi ekranda okunur."
   exit 1
 fi
+if [ "$BOSALT" = 1 ] && [ "$WINONLY" = 0 ]; then
+  echo "--bos yalnizca Windows WinPE turunde kullanilir: bash cache_esp.sh --win --bos"
+  echo "Bayraksiz calisma Linux modu oldugu icin bos CACHE imaji yanlis moda etiketlenmez."
+  exit 1
+fi
+if [ "$WINONLY" = 1 ]; then say "MOD: Windows"; else say "MOD: Linux"; fi
 if [ "$BASELINE" = 1 ]; then
   say "MOD: Windows temiz taban (B2L tani yok)"
 fi
@@ -221,7 +228,7 @@ say "Icerik: $APP ($(du -h "$APP" | cut -f1))"
 #
 #
 # ---------------------------------------------------------------------------
-# --bos : BOLUMU SIL, ICINE HICBIR SEY KOYMA
+# --bos : WINDOWS TURUNDE BOLUMU SIL, ICINE HICBIR SEY KOYMA
 # ---------------------------------------------------------------------------
 # NEDEN GEREKTI - BES TURLUK KAFA KARISIKLIGININ SEBEBI BUYDU:
 #
@@ -236,7 +243,8 @@ say "Icerik: $APP ($(du -h "$APP" | cut -f1))"
 # edilmedi - eski map ciktisi, kaybolmayan B2L UFS satirlari, bulunamayan
 # EBSTEST.EFI, degismeyen 15 saniye, hepsi bundan.
 #
-# Bu mod bolumun basina 16 MiB sifir yaziyor. FAT onyukleme sektoru gidince
+# Bu mod yalnizca `--win --bos` ile cagrilir ve bolumun basina 16 MiB sifir
+# yaziyor. FAT onyukleme sektoru gidince
 # birim hic taninmiyor ve ortada tek bir startup.nsh kaliyor.
 #
 if [ "$BOSALT" = 1 ]; then

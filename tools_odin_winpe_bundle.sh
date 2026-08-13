@@ -15,6 +15,8 @@
 # kalir: daha once calisan uefi-boot.tar da boot.img'yi bu bicimde tasiyordu.
 #
 # Kullanim (yap.sh, tools_b2lfb.sh ve iki cache_esp.sh cagrisindan sonra):
+#   bash cache_esp.sh --win --system
+#   bash cache_esp.sh --win --bos
 #   bash tools_odin_winpe_bundle.sh
 #
 set -euo pipefail

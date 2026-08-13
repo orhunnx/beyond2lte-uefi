@@ -1,0 +1,41 @@
+; B2LUFS Faz 0 INF şablonu. Bu dosya WIM'e konmaz ve şu an ASLA bağlanmaz.
+; Bağlama turunda DSDT UFS0 için yalnız ACPI\B2LU9820 kimliği yayınlayacak;
+; PCI\CC_010901 kaldırılacak, böylece storufs ve b2lufs aynı HBA'ya yarışmaz.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=SCSIAdapter
+ClassGuid={4d36e97b-e325-11ce-bfc1-08002be10318}
+Provider=%B2L%
+CatalogFile=b2lufs.cat
+DriverVer=08/13/2026,0.0.1.0
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[Manufacturer]
+%B2L%=B2L,NTarm64
+
+[B2L.NTarm64]
+%B2LUfs.DeviceDesc%=B2LUfs_Install, ACPI\B2LU9820
+
+[B2LUfs_Install.NT]
+CopyFiles=B2LUfs_CopyFiles
+
+[B2LUfs_CopyFiles]
+b2lufs.sys
+
+[B2LUfs_Install.NT.Services]
+AddService=b2lufs,0x00000002,B2LUfs_Service
+
+[B2LUfs_Service]
+DisplayName=%B2LUfs.ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\b2lufs.sys
+
+[Strings]
+B2L="beyond2lte"
+B2LUfs.DeviceDesc="Beyond2LTE Exynos 9820 UFS Host Controller"
+B2LUfs.ServiceDesc="Beyond2LTE Exynos 9820 UFS StorPort Miniport"
