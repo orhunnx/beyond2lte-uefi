@@ -866,6 +866,65 @@ yalnız ekrandaki WinPE isteminin görünmesi kanıtlar. `USR=REG` yine kalırsa
 Win32 çağrısının mı, yoksa Startnet yolunun mu eksik kaldığını ayırmak için
 bir sonraki araç değişikliği gerekir.
 
+100 ms yoklamalı tur da `USR=REG` bıraktı:
+
+```
+TIK=0086 BUG=H
+MAX=003AA7B0
+SPN=003AA7B0
+BRI=0001 C=001
+QPD=00546BA6 F=018CBA80
+AUT=REG C=000
+SYS=REG C=000
+SYG=REG C=000
+USR=REG C=000
+RST_STAT=20000000
+```
+
+Bu, `b2lcmd.exe` olayı üç saniye açık kalsa bile Windows'un onu gören
+çekirdek iş parçacığına ulaşamadığını gösterir. `BRI=0001`, PnP aygıt
+başlatma çizgisinin ilk 100 ms'de tamamlandığını tekrar doğrular; `SYS`,
+`SYG`, `AUT` ve `USR` ise sırasıyla sistem-başlangıç gruplarına, SCM
+auto-start'e ve `startnet.cmd` içindeki kullanıcı koduna geçilmediğini
+gösterir. Bu yüzden WinPE hizmet kümesini tekrar değiştirip aynı sınırı
+ölçmek doğru sonraki adım değildir.
+
+Bu turdaki `QPD/F = 0.213 s`, 86 adet 100 ms DPC tikiyle açıkça çelişir.
+Önceki turlarda iki kanal birbirini doğrulamış olsa da, bu örnekte QPC
+değeri kesintisiz zaman tabanı değildir; onunla yeni bir süre veya neden
+çıkarımı yapılmaz. `TIK=0086` de DPC gecikirse gerçek duvar zamanını
+olduğundan küçük sayabilir. Bu nedenle güvenli çıkarım yalnız şudur:
+çekirdek PnP çizgisini geçmiş, fakat kullanıcı/SCM çizgilerine gelmeden
+bugcheck vermeden yazılımsal sıfırlamaya gitmiştir.
+
+### PSCI yerine "MP parking" protokolünü taklit etme sınırı
+
+Windows'un PSCI desteklemeyen Arm platformları için tanımladığı alternatif,
+UEFI'den Windows'a sürekli bilgi dönen bir protokol değildir. Firmware
+`ExitBootServices()` öncesinde ACPI MADT'de her işlemcinin 4 KiB mailbox
+fiziksel adresini verir. Sonra Windows, AP'yi başlatmak istediğinde mailbox'a
+işlemci kimliği ve giriş adresini yazar; çekirdekler firmware'in önceden
+kurduğu WFI/interrupt döngüsünde o mailbox'u izleyip verilen adrese dallanır.
+Bu işlem `ExitBootServices()` sonrasındadır; sıradan bir DXE sürücüsü orada
+Windows ile araya girip istek cevaplayamaz.
+
+Mevcut ACPI bunun parking sürümü değildir: `APIC.dsl`de CPU1--CPU7 kapalı,
+her GICC için `Parking Protocol Version = 0` ve `Parked Address = 0`dır.
+FADT'deki PSCI biti kapatılıp sahte bir mailbox adresi vermek tek başına
+işe yaramaz; her AP'nin gerçekten park edilmiş, aynı koherens alanında ve
+GIC kesmesiyle uyanabilir olması gerekir. Exynos'ta bu, S-Boot/EL3'ün
+ikincil çekirdek ve güç denetimine sahip olmayı gerektirir. Mevcut
+`0xC2000400` özel EL2 yük isteği bunu vermediğinden, bu protokolü yalnız
+DXE kodu ekleyerek taklit etmek yüksek olasılıkla winload'da daha erken
+durmaya yol açar; flash turu harcamaya değmez.
+
+Dolayısıyla PSCI çağrılarını gerçekten araya almak için gereken şey DXE
+değil, Windows sonrası SMC/HVC geçişini yakalayabilecek çalışan EL2 ya da
+EL3 kodudur. HVC yükünün reddedildiği deney bu yolun şimdilik kapalı
+olduğunu gösterir. Kaynaklar: [Microsoft'un Windows Arm UEFI
+gereksinimi](https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/uefi-requirements-that-apply-to-all-windows-platforms),
+[Microsoft MP startup belirtimi](https://cdrdv2.intel.com/v1/dl/getContent/772757).
+
 Kaynaklar: [Microsoft — AddService StartType](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-addservice-directive),
 [Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order),
 [Microsoft — 0xc000021a](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/bug-check-0xc000021a--winlogin-fatal-error).
