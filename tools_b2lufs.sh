@@ -96,7 +96,7 @@ while IFS= read -r Header; do
   break
 done < <(find "$WDK_INC" -type f -iname ntdef.h -print 2>/dev/null | sort | head -n 1)
 
-[ -n "$WDK_NTDEF_INC" ] || die "ntdef.h WDK icinde bulunamadi: $WDK_INC"
+[ -n "$WDK_NTDEF_INC" ] || die "ntdef.h yok: eslesen Windows SDK Headers kurulmamış. WDK $WDK_VERSION icin ayni build numarali Windows SDK'yi kur; ADK tek basina yeterli degil. Beklenen yol: $WDK_INC/shared/ntdef.h"
 
 say "WDK ve MSVC bulundu"
 echo "  WDK : $WDK_VERSION"

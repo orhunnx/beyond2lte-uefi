@@ -91,7 +91,10 @@ yayınlar ve altı MMIO penceresini yalnız b2lufs'a verir. Böylece inbox
 otomatik yapar; fotoğrafta hedef PnP durumu `b2lufs.inf` + `Started`dır.
 
 `tools_b2lufs.sh`, WSL'den Windows WDK'nin ARM64 `storport.lib` ve
-`ntoskrnl.lib` kitaplıklarını kullanır. Ayrıca `Inf2Cat.exe` ile INF+SYS
+`ntoskrnl.lib` kitaplıklarını kullanır. WDK ile **aynı build numaralı Windows
+SDK Headers** da kurulmuş olmalıdır: `ntdef.h` SDK'nın `shared` başlığıdır;
+ADK bunu sağlamaz. Örneğin `10.0.28000.0` WDK seçilmişse beklenen dosya
+`Include/10.0.28000.0/shared/ntdef.h` olur. Ayrıca `Inf2Cat.exe` ile INF+SYS
 hash'lerini içeren `b2lufs.cat` üretir, onu ve SYS'yi b2lfb'nin var olan
 test sertifikasıyla imzalar. PnP yüklemesi için yalnız gömülü SYS imzasına
 güvenmek doğru değildir.
