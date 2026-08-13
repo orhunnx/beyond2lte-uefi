@@ -1277,13 +1277,36 @@ kanalı ayrı bir DWC3 Windows sürücüsü portu olur.
 DSDT'de `UFS0` bütünüyle yorumda olduğundan bu beklenen tabandır: Windows'a
 UFS aygıtı hiç ilan edilmemiştir.
 
-Sıradaki tur, WinPE'nin artık kararlı olan bellek haritası üzerinde yalnız
-UFS0'ı geri ekler. `_CLS={01,09,01}` Windows'un `ACPI\CC_010901`
-uyumluluk kimliğini üretir ve kutudan çıkan `storufs.sys` ile eşleşir.
-`_CRS`, stok DTB'den gelen tek standart `0x13D60000/0x1000` UFSHCI alanını
-ve GSIV 281'i verir; Samsung vendor/UniPro/PHY alanları jenerik sürücüye
-verilmez. Yeni rapor UFS bölümünü en sonda gösterir; DiskPart ve PnPUtil
-sonucu fotoğrafla okunabilir.
+Sonraki turda UFS0, WinPE'nin artık kararlı olan bellek haritası üzerinde geri
+eklendi. `_CLS={01,09,01}` Windows'un `ACPI\CC_010901` uyumluluk kimliğini
+üretmek için doğru ACPI nesnesidir; ACPI tanımı, PCI sınıfı üzerinden ACPI-dışı
+veriyolundaki jenerik sürücüleri eşleştirmek için özellikle bunu öngörür.
+([ACPI _CLS tanımı](https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/06_Device_Configuration/Device_Configuration.html))
+`_CRS`, stok DTB'den gelen tek standart `0x13D60000/0x1000` UFSHCI alanını ve
+GSIV 281'i verir; Samsung vendor/UniPro/PHY alanları jenerik sürücüye verilmez.
+
+**İlk UFS0 WinPE sonucu:** PnP aygıtı gerçekten oluşturdu:
+`ACPI\SMSN9820\0`, ancak `Problem Code 28 (CM_PROB_FAILED_INSTALL)` ile kaldı;
+`DiskPart` hâlâ disk/birim bulmadı. Bu, önceki "UFS0 hiç ilan edilmedi"
+tabanından ilerlemedir, fakat `storufs`un bağlandığını kanıtlamaz. Code 28,
+MMIO veya kesme kullanımı başlamadan önceki sürücü seçimi/kurulumu aşamasıdır.
+ADK'nin çıplak WinPE WIM'inde `storufs` paketinin hiç olmaması ya da üretilen
+uyumlu kimliğin paketteki kimlikle eşleşmemesi iki olası açıklamadır. Yeni
+otomatik rapor, UFS0'ın tam Device/Compatible ID listesini, seçilen sürücüyü,
+`storufs.sys` dosyasını, DriverStore paketini ve servis kaydını aynı fotoğrafta
+gösterir. `sc.exe` bu ADK WinPE'sinde bulunmadığından bu kontrol registry ile
+yapılır.
+
+Kullanıcının verdiği Exynos kaynak dosyası ayrıca ikinci, sonraki aşamadaki
+engeli netleştirir: Linux sürücüsü `LINKSTARTUP` **öncesinde** saat/refclk,
+auto-clock-gating ve hata katmanlarını ayarlayıp `ufs_cal_pre_link()` çağırır;
+**sonrasında** `ufs_cal_post_link()` ve güç-modu CAL tablolarını çalıştırır.
+([ufs-exynos.c](https://github.com/ianmacd/d2s/blob/master/drivers/scsi/ufs/ufs-exynos.c))
+Bu akış, bizim UEFI `PlatformUfsLib` CAL zincirimizle uyumludur ve jenerik
+`storufs`un HCE resetinden sonra Exynos'a özgü kalibrasyonu yeniden kuramadığı
+riskini doğrular. Ancak bugünkü Code 28 bu donanım aşamasından önce oluşur;
+önce inbox sürücüsünün WIM'de bulunup bulunmadığı ve `ACPI\CC_010901`in gerçekten
+üretildiği kanıtlanmalıdır.
 
 Windows açılışında dönen çemberin görünmemesi ayrıca beklenir. Kendi BCD
 üreticimiz önceki sessiz-reset tanısı için `bootuxdisabled on` ve

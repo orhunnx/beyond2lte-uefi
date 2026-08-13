@@ -47,14 +47,26 @@ rem damgalar. Tani komutlarindan once kalmasi kasitlidir.
   echo [IP yapilandirmasi]
   ipconfig /all
   echo.
-  echo [UFS: ACPI UFSHCI ve storufs]
+  echo [UFS: ACPI UFSHCI kimligi ve storufs]
   if exist "%SystemRoot%\System32\pnputil.exe" (
+    echo --- UFS0: cihaz/uyumlu kimlikler, eslesen surucu ve stack ---
+    pnputil /enum-devices /instanceid "ACPI\SMSN9820\0" /deviceids /drivers /services
+    echo --- SCSIAdapter sinifi ---
     pnputil /enum-devices /connected /class SCSIAdapter /drivers
+    echo --- Tum sorunlu PnP aygitlari ---
     pnputil /enum-devices /connected /problem
   ) else (
     reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820" /s
   )
-  sc.exe query storufs
+  echo --- storufs: inbox dosya, DriverStore ve servis kaydi ---
+  if exist "%SystemRoot%\System32\drivers\storufs.sys" (
+    echo storufs.sys bulundu:
+    dir /-c "%SystemRoot%\System32\drivers\storufs.sys"
+  ) else (
+    echo storufs.sys YOK: bu WinPE imajinda UFS miniportu bulunmuyor olabilir.
+  )
+  dir /b /s "%SystemRoot%\System32\DriverStore\FileRepository\storufs.inf_*" 2^>nul
+  reg query "HKLM\SYSTEM\CurrentControlSet\Services\storufs" /s
   echo.
   echo === Tani sonu ===
 ) > "%LOG%" 2>&1

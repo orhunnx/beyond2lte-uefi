@@ -125,6 +125,24 @@ Sonra ayrı bir aşama olarak power mode change (`ufs_cal_pre_pmc` / `post_pmc`)
 HS-Gear 3'e çıkıyor. **İlk hedefte buna gerek yok** — PWM/slow modda da okuma
 yapılabilir, sadece yavaş olur. Boot için yeterli.
 
+### Windows açısından kritik sınır
+
+Bu akış yalnızca Linux'a özgü bir yorum değildir. Aynı 9820 türevindeki
+[`ufs-exynos.c`](https://github.com/ianmacd/d2s/blob/master/drivers/scsi/ufs/ufs-exynos.c),
+`link_startup_notify(PRE_CHANGE)` içinde önce hata katmanlarını, refclk'i ve
+clock-gating'i ayarlıyor, sonra `ufs_pre_link()` ile `ufs_cal_pre_link()`i
+çağırıyor. `POST_CHANGE` tarafında da `ufs_post_link()` ile
+`ufs_cal_post_link()` çalışıyor. UEFI portunun CAL dizileri bu sebeple gerekli
+oldu ve UEFI UFS okumasının çalışmasını açıklıyor.
+
+Windows'un kutudan çıkan `storufs` sürücüsü bu Samsung varyant çağrılarını
+bilmez. HCE/LinkStartup sonrasında bu kalibrasyon yeniden gerekirse, yalnız
+ACPI `_CRS`/`_CLS` nesneleri bunu yerine getiremez; çözüm kendi Exynos StorPort
+miniportumuz olur. Fakat WinPE'de önce `ACPI\SMSN9820\0` için Code 28 görüldü:
+bu, miniport henüz hiç seçilmediği için bu donanım sorusundan **önceki**
+driver-store/eşleşme aşamasıdır. Önce `storufs.inf` paketinin WIM'de varlığı ve
+`ACPI\CC_010901` compatible ID'si ölçülmelidir.
+
 ## `mclk_rate` — ÇÖZÜLDÜ
 
 Tablolardaki bazı değerler sabit değil, `mclk_rate`'ten türetiliyor.
