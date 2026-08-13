@@ -1,13 +1,14 @@
 @echo off
 setlocal EnableExtensions
 title Beyond2LTE WinPE automatic diagnostics
-rem Yatayda yazinin kuculmemesi icin genislik sabit; uzun fotograf icin yukseklik buyuk.
-mode con: cols=112 lines=144 >nul 2>&1
+rem Yatayda yazinin kuculmemesi icin genislik sabit; gecmis cikti icin tampon yuksektir.
+mode con: cols=112 lines=220 >nul 2>&1
 
 rem Bu portta henuz klavye, fare veya dokunmatik girisi yoktur. Dolayisiyla
 rem bu betik her seyi kendiliginden calistirir; `pause` veya kullanici
 rem girdisi bekleyen bir komut kullanmaz.
 set "DPSCRIPT=%SystemDrive%\B2LDISK.TXT"
+set "UFSBOOTREPORT=%SystemRoot%\B2LUFS.TXT"
 
 echo.
 echo === Beyond2LTE WinPE: otomatik tani ===
@@ -89,13 +90,14 @@ echo.
 echo === Tani sonu ===
 
 echo.
-echo UFS kaydini sonraki UEFI ekraninda gostermek icin hemen yazilimsal
-echo yeniden baslatma yapiliyor. Telefonu kapatma veya guc kesme.
-%SystemRoot%\System32\wpeutil.exe reboot
-
-rem wpeutil normalde bu noktaya donmez. Donerse ekrani kaybetmeden bekle;
-rem kullaniciya soguk yeniden baslatma yaptirmak DRAM kaydini siler.
-echo UYARI: wpeutil reboot dondu; otomatik reset istegi tamamlanmadi.
+echo [B2LUFS: erken, salt-okunur HCI kaydi]
+if exist "%UFSBOOTREPORT%" (
+  type "%UFSBOOTREPORT%"
+) else (
+  echo B2LUFS.TXT bulunamadi: b2lfb, b2lcmd olayini veya WinPE RAM diskini gormemis olabilir.
+)
+echo.
+echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
 cmd.exe /k
 goto :eof
 
@@ -130,9 +132,5 @@ call :PhotoPause
 exit /b 0
 
 :PhotoPause
-if exist "%SystemRoot%\System32\timeout.exe" (
-  "%SystemRoot%\System32\timeout.exe" /t 2 /nobreak >nul 2>&1
-) else (
-  ping.exe -n 3 127.0.0.1 >nul 2>&1
-)
+rem Bu turda fotograf arasi bekleme kapali: tarama hizla son kayda gelir.
 exit /b

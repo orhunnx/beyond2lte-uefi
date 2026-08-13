@@ -172,6 +172,8 @@ KeSetTimerEx
 KeQueryPerformanceCounter
 IoRegisterBootDriverReinitialization
 ZwOpenEvent
+ZwCreateFile
+ZwWriteFile
 ZwClose
 DEF
 llvm-dlltool -m arm64 -d "$OUT/ntoskrnl.def" -l "$OUT/ntoskrnl.lib"
@@ -618,9 +620,11 @@ BEKLENEN OKUMA  (ErrorControl=3 ile artik hepsi ayirt edilebiliyor):
   erisimi eklenmeden once bu fiziksel erisim siniri incelenmelidir.
   "UFS KAYDI YOK" ise yuklenen b2lfb eski, baslatilmamis veya kayit soguk
   yeniden baslatmada silinmistir; HCI sonucu olarak yorumlanamaz.
-  Guncel startnet.cmd tani raporundan sonra `wpeutil reboot` cagirir; UFS
-  sonucunu okumak icin cihaz bu YAZILIMSAL reset ile
-  sonraki UEFI ekranina gelmelidir. Telefonu elle kapatma.
+  WinPE'nin bu cihazdaki yazilimsal reset istegi geri dondugu icin UFS
+  sonucunun ana kanali artik CMD'dir: b2lcmd olayi goruldukten sonra
+  b2lfb, salt-okunur kaydi `%SystemRoot%\B2LUFS.TXT` olarak WinPE RAM
+  diskine yazar ve startnet onu taninin sonunda ekrana basar. Bu fiziksel
+  UFS diskine yazmaz. Soguk kapatma sonrasi UEFI kaydi yine silinir.
 
   SCM SINIRI (sonraki B2LGoster ekraninda):
     SYG=REG C=000  -> sirali System Bus Extender grubuna dair isaret yok

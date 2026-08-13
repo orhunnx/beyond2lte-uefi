@@ -33,7 +33,17 @@ diagnostik kayda alır. Ölçüm `CAP`, `VER`, `HCE` ve Samsung
 çağrısında geri bırakılır; PnP/storufs ile eşzamanlı veya kalıcı ikinci bir
 MMIO eşlemesi yoktur.
 
-Sonraki UEFI açılışında B2LGoster şu iki satırı gösterir:
+Yazılımsal reset bu platformda WinPE'den dönemediği için, aynı kayıt
+`b2lcmd` görüldükten sonra WinPE RAM diskine de aktarılır:
+
+```
+%SystemRoot%\B2LUFS.TXT
+```
+
+`startnet.cmd` bunu otomatik tanının sonunda ekrana basar. Bu ikinci kanal
+yalnız CMD'den fotoğraflanabilirlik içindir: dosya `X:` RAM diskindedir ve
+UFS LUN'una yazı yapılmaz. Sıcak reset çalıştığında B2LGoster yine şu iki
+satırı da gösterir:
 
 ```
 UFS C=xxxxxxxx V=xxxxxxxx

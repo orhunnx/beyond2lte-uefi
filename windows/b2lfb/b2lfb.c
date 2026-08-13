@@ -46,6 +46,22 @@ typedef void              *PVOID;
 typedef void              *HANDLE;
 
 #define STATUS_SUCCESS ((NTSTATUS)0x00000000L)
+#define NT_SUCCESS(Status) ((NTSTATUS)(Status) >= STATUS_SUCCESS)
+
+/*
+ * WinPE kullanici-modu sinirina aktardigimiz kucuk rapor icin gereken
+ * NtCreateFile/NtWriteFile durum blogu. WDK basligi kullanmiyoruz; burada
+ * kullanilan iki alan hem ARM64 hem de x64 Windows'ta ABI'nin ilk iki
+ * alanidir. Bu tanim herhangi bir I/O istegi yapmaz, yalniz sonuc sayisini
+ * okuyabilmemize yarar.
+ */
+typedef struct _IO_STATUS_BLOCK {
+  union {
+    NTSTATUS Status;
+    PVOID    Pointer;
+  } u;
+  UINT64 Information;
+} IO_STATUS_BLOCK;
 
 typedef union _PHYSICAL_ADDRESS {
   struct {
@@ -202,6 +218,42 @@ __declspec(dllimport) NTSTATUS ZwOpenEvent (
   UINT32             DesiredAccess,
   OBJECT_ATTRIBUTES *ObjectAttributes);
 __declspec(dllimport) NTSTATUS ZwClose (HANDLE Handle);
+
+/*
+ * Bu ikisi sadece BostaDongu'nun PASSIVE_LEVEL yolunda kullanilir ve hedef
+ * \SystemRoot\B2LUFS.TXT'dir: WinPE'nin RAM diskindeki gecici dosya. UFS
+ * LUN'una, UFS MMIO'suna veya herhangi bir fiziksel depolama aygitina yazmaz.
+ */
+__declspec(dllimport) NTSTATUS ZwCreateFile (
+  HANDLE            *FileHandle,
+  UINT32             DesiredAccess,
+  OBJECT_ATTRIBUTES *ObjectAttributes,
+  IO_STATUS_BLOCK   *IoStatusBlock,
+  PVOID              AllocationSize,
+  UINT32             FileAttributes,
+  UINT32             ShareAccess,
+  UINT32             CreateDisposition,
+  UINT32             CreateOptions,
+  PVOID              EaBuffer,
+  UINT32             EaLength);
+__declspec(dllimport) NTSTATUS ZwWriteFile (
+  HANDLE           FileHandle,
+  HANDLE           Event,
+  PVOID            ApcRoutine,
+  PVOID            ApcContext,
+  IO_STATUS_BLOCK *IoStatusBlock,
+  PVOID            Buffer,
+  UINT32           Length,
+  PVOID            ByteOffset,
+  PVOID            Key);
+
+#define OBJ_KERNEL_HANDLE              0x00000200U
+#define FILE_WRITE_DATA                0x00000002U
+#define FILE_SHARE_READ                0x00000001U
+#define FILE_OVERWRITE_IF              5U
+#define FILE_SYNCHRONOUS_IO_NONALERT   0x00000020U
+#define FILE_NON_DIRECTORY_FILE        0x00000040U
+#define SYNCHRONIZE                    0x00100000U
 
 /* ------------------------------------------------------------------------ */
 
@@ -416,6 +468,7 @@ __declspec(align(16)) static UINT64 gDpc[16];
 
 static volatile UINT64 gTik = 0;
 static volatile UINT8  gKullaniciGoruldu = 0;
+static volatile UINT8  gUfsRaporDenendi = 0;
 
 /* +0xD0: Startnet'ten calisan kullanici programi siniri. */
 static void B2LKullaniciKaydi (UINT8 Goruldu)
@@ -435,6 +488,85 @@ static void B2LKullaniciKaydi (UINT8 Goruldu)
   P[8] = 'C'; P[9] = '='; P[10] = Goruldu ? '0' : '0';
   P[11] = Goruldu ? '0' : '0'; P[12] = Goruldu ? '1' : '0';
   P[13] = ' '; P[14] = ' '; P[15] = ' ';
+}
+
+/*
+ * HCI snapshot'ini UEFI'nin sicak-reset kaydina ek olarak WinPE kabuguna
+ * tasir. Bu, ilk donanimsal bring-up karari icin fotografla okunabilir bir
+ * yol; bir "log surucusu" ya da UFS erisimi degildir.
+ *
+ * Neden burada? DriverEntry'de \SystemRoot henuz bagli olmayabilir. b2lcmd
+ * olayi ise startnet.cmd'nin wpeinit sonrasinda calistigini kanitlar; o anda
+ * X: RAM diski ve \SystemRoot kullanima hazirdir. Bu fonksiyon yalniz
+ * BostaDongu sistem thread'inde, PASSIVE_LEVEL'de ve sadece bir kez cagrilir.
+ */
+static void B2LUfsRaporDosyayaYaz (void)
+{
+  static UINT16 DosyaAdi[] = {
+    '\\', 'S', 'y', 's', 't', 'e', 'm', 'R', 'o', 'o', 't',
+    '\\', 'B', '2', 'L', 'U', 'F', 'S', '.', 'T', 'X', 'T', 0
+  };
+  static const UINT8 Baslik[] =
+    "B2LUFS early HCI snapshot\r\n"
+    "Read-only b2lfb DriverEntry sample (before PnP/storufs):\r\n";
+  static const UINT8 Son[] =
+    "\r\nNote: this file is on the WinPE RAM disk; no UFS disk write occurred.\r\n";
+  UINT8             Metin[192];
+  UNICODE_STRING    Isim;
+  OBJECT_ATTRIBUTES Nitelik;
+  IO_STATUS_BLOCK   Durum;
+  HANDLE            Dosya;
+  NTSTATUS          Sonuc;
+  UINT32            N;
+  UINT32            I;
+
+  if ((gUfsRaporDenendi != 0) || (gLog == 0)) {
+    return;
+  }
+  gUfsRaporDenendi = 1;
+
+  N = 0;
+  for (I = 0; I < (UINT32)(sizeof (Baslik) - 1U); ++I) {
+    Metin[N++] = Baslik[I];
+  }
+  for (I = 0; I < UFS_LOG_BYTES; ++I) {
+    UINT8 C = *((volatile UINT8 *)gLog + UFS_LOG_OFFSET + I);
+    /* Bozuk/ikili kalici kayit, CMD konsolunu bozmamalidir. */
+    Metin[N++] = ((C >= 0x20U) && (C <= 0x7EU)) ? C : (UINT8)'?';
+  }
+  for (I = 0; I < (UINT32)(sizeof (Son) - 1U); ++I) {
+    Metin[N++] = Son[I];
+  }
+
+  Isim.Length        = (UINT16)((sizeof (DosyaAdi) / sizeof (DosyaAdi[0]) - 1U) * sizeof (UINT16));
+  Isim.MaximumLength = Isim.Length;
+  Isim.Buffer        = DosyaAdi;
+
+  Nitelik.Length                   = (UINT32)sizeof (Nitelik);
+  Nitelik.RootDirectory            = 0;
+  Nitelik.ObjectName               = &Isim;
+  Nitelik.Attributes               = OBJ_KERNEL_HANDLE;
+  Nitelik.SecurityDescriptor       = 0;
+  Nitelik.SecurityQualityOfService = 0;
+
+  Dosya = 0;
+  Sonuc = ZwCreateFile (&Dosya,
+                         FILE_WRITE_DATA | SYNCHRONIZE,
+                         &Nitelik,
+                         &Durum,
+                         0,
+                         0,
+                         FILE_SHARE_READ,
+                         FILE_OVERWRITE_IF,
+                         FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+                         0,
+                         0);
+  if (!NT_SUCCESS (Sonuc)) {
+    return;
+  }
+
+  (void)ZwWriteFile (Dosya, 0, 0, 0, &Durum, Metin, N, 0, 0);
+  ZwClose (Dosya);
 }
 
 /*
@@ -472,6 +604,7 @@ static void B2LKullaniciYokla (void)
     ZwClose (Olay);
     gKullaniciGoruldu = 1;
     B2LKullaniciKaydi (1);
+    B2LUfsRaporDosyayaYaz ();
   }
 }
 
