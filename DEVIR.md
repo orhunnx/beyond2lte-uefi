@@ -1081,26 +1081,31 @@ $adb = "C:\Users\orhun\OneDrive\Masaüstü\projectfiles\platform-tools\adb.exe"
 & $adb shell 'for x in sda sdb sdc sdd sde; do printf "%s bytes=" "$x"; blockdev --getsize64 "/dev/block/$x"; printf "%s ro=" "$x"; cat "/sys/block/$x/ro"; done'
 ```
 
-Bu komut **yalnız okur**; çıktı gelmeden `dd` çalıştırılmaz. Tam `4194304`
-bayt gösteren ham aday veya adaylar ile `ro` değerlerini kaydet. Aday birden
-fazlaysa ilk 64 bayt stok `sboot.bin`in başıyla karşılaştırılır; böylece
-doğru boot LUN imza ile seçilir.
+Bu komut **yalnız okur**; çıktı gelmeden `dd` çalıştırılmaz. 2026-08-13
+cihaz çıktısı şudur: `sda=127943049216`, `sdb=4194304 ro=1`,
+`sdc=4194304 ro=1`, `sdd=8388608 ro=1`, `sde=8388608 ro=1`. Buna göre
+`sdb` ve `sdc` iki adet 4 MiB boot-LUN adayıdır ve ikisi de donanımsal
+salt-okunurdur. İlk 64 bayt iki boot kopyasında da aynı olabileceği için
+hangisinin çalışma anında seçildiği yalnız başlıkla tahmin edilmez; iki aday
+da salt-okunur biçimde alınır, sonra hash ve içerik karşılaştırılır.
 
-Doğrulanmış aygıt adı örneğin `sdb` ise, ancak o zaman:
+Aşağıdaki komut yalnız `if=/dev/block/...` yönünde okur; `uh`, `uhcfg`,
+`boot` veya bir GPT bölümüne erişmez:
 
 ```powershell
-$SBOOT = "sdb"   # sadece imza ile dogrulanan ham LUN adi
-& $adb shell "dd if=/dev/block/$SBOOT of=/tmp/sboot-G975F.img bs=4M"
-& $adb shell "wc -c /tmp/sboot-G975F.img; sha256sum /tmp/sboot-G975F.img"
-& $adb pull /tmp/sboot-G975F.img "$env:USERPROFILE\Desktop\sboot-G975F.img"
-& $adb shell "rm /tmp/sboot-G975F.img"
-Get-FileHash "$env:USERPROFILE\Desktop\sboot-G975F.img" -Algorithm SHA256
+& $adb shell 'for x in sdb sdc; do dd if=/dev/block/$x of=/tmp/sboot-$x-G975F.img bs=4M; wc -c /tmp/sboot-$x-G975F.img; sha256sum /tmp/sboot-$x-G975F.img; done'
+& $adb pull /tmp/sboot-sdb-G975F.img "$env:USERPROFILE\Desktop\sboot-sdb-G975F.img"
+& $adb pull /tmp/sboot-sdc-G975F.img "$env:USERPROFILE\Desktop\sboot-sdc-G975F.img"
+Get-FileHash "$env:USERPROFILE\Desktop\sboot-sdb-G975F.img" -Algorithm SHA256
+Get-FileHash "$env:USERPROFILE\Desktop\sboot-sdc-G975F.img" -Algorithm SHA256
+& $adb shell 'rm /tmp/sboot-sdb-G975F.img /tmp/sboot-sdc-G975F.img'
 ```
 
-Beklenen boyut tam `4194304` bayttır. `adb pull`dan önce ve sonra görünen
-SHA-256 aynı olmalıdır. `dd`nin yönü özellikle `if=/dev/block/$SBOOT` olup
-`of=/tmp/...`dir; tersine çevrilmez. Dosya alındıktan sonra HWC1 `sboot.bin`
-ile karşılaştırılır ve yalnız HWC2'nin gerçek çağrı koşulundan sonuç çıkarılır.
+Her dosyanın beklenen boyutu tam `4194304` bayttır. `adb pull`dan önce ve
+sonra görünen SHA-256, her dosya için aynı olmalıdır. Her `dd`nin yönü
+özellikle `if=/dev/block/$x` olup `of=/tmp/...`dir; tersine çevrilmez.
+Dosyalar alındıktan sonra ikisi de HWC1 `sboot.bin` ile karşılaştırılır;
+yalnız HWC2'nin gerçek U-H yükleme/çağırma koşulu sonuç için kullanılacaktır.
 Yazma veya bölüm değiştirme için ayrıca, eldeki ikili kanıtın belirlediği bir
 gerekçe gerekir.
 
