@@ -1,7 +1,8 @@
 @echo off
 setlocal EnableExtensions
 title Beyond2LTE WinPE automatic diagnostics
-mode con: cols=112 lines=45 >nul 2>&1
+rem Daha yuksek konsol, taninin tek bir fotografla okunabilmesini saglar.
+mode con: cols=112 lines=64 >nul 2>&1
 
 rem Bu portta henuz klavye, fare veya dokunmatik girisi yoktur. Dolayisiyla
 rem bu betik her seyi kendiliginden calistirir; `pause` veya kullanici
