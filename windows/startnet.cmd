@@ -2,5 +2,5 @@
 echo.
 echo === Beyond2LTE WinPE shell ===
 echo.
-b2lcmd.exe
+%SystemRoot%\System32\b2lcmd.exe
 cmd.exe /k
