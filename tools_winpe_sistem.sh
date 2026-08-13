@@ -8,9 +8,11 @@
 #   bash tools_winpe_sistem.sh tek AD    <- YALNIZCA o servisi Start=4 yapar
 #   bash tools_winpe_sistem.sh sadece a b c  <- adi verilenler KAPALI,
 #                                               kumedeki digerleri ACIK
+#   bash tools_winpe_sistem.sh birak a b c   <- adi verilenler ACIK,
+#                                               kumedeki digerleri KAPALI
 #
-# "sadece" idempotent: onceki durumdan bagimsiz, her cagri tam olarak
-# istenen durumu kurar. Kume bisect'i icin gerekli - "kapat" ve "ac"
+# "sadece" ve "birak" idempotent: onceki durumdan bagimsiz, her cagri tam
+# olarak istenen durumu kurar. Kume bisect'i icin gerekli - "kapat" ve "ac"
 # birikimli calisiyor ve iki tur sonra neyin acik oldugunu kimse bilmiyor.
 #
 # "tek" modu bisect icin: b2lfb artik olurken yuklenen imajin adini
@@ -103,23 +105,29 @@ if [ "$KOMUT" = "liste" ]; then
   exit 0
 fi
 
-if [ "$KOMUT" = "sadece" ]; then
+if [ "$KOMUT" = "sadece" ] || [ "$KOMUT" = "birak" ]; then
   shift
   HEDEFLER="$*"
-  [ -n "$HEDEFLER" ] || { echo "Kullanim: bash $0 sadece <isim> [isim...]"; exit 1; }
+  [ -n "$HEDEFLER" ] || { echo "Kullanim: bash $0 $KOMUT <isim> [isim...]"; exit 1; }
 
   for H in $HEDEFLER; do
     grep -qix "$H" "$W/sistem.txt" \
       || { echo "'$H' kumede yok. Kume:"; sed 's/^/  /' "$W/sistem.txt"; exit 1; }
   done
 
-  say "Kapatilacak: $HEDEFLER"
+  if [ "$KOMUT" = "sadece" ]; then
+    say "Kapatilacak: $HEDEFLER"
+  else
+    say "Acik birakilacak: $HEDEFLER"
+  fi
   : > "$W/yaz.reg"
   while IFS= read -r SRV; do
     [ -n "$SRV" ] || continue
-    D=1
+    if [ "$KOMUT" = "sadece" ]; then D=1; else D=4; fi
     for H in $HEDEFLER; do
-      [ "$(echo "$SRV" | tr 'A-Z' 'a-z')" = "$(echo "$H" | tr 'A-Z' 'a-z')" ] && D=4
+      if [ "$(echo "$SRV" | tr 'A-Z' 'a-z')" = "$(echo "$H" | tr 'A-Z' 'a-z')" ]; then
+        if [ "$KOMUT" = "sadece" ]; then D=4; else D=1; fi
+      fi
     done
     [ "$D" = 4 ] && printf '  %-16s KAPALI\n' "$SRV" || printf '  %-16s acik\n' "$SRV"
     printf '[HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\%s]\n"Start"=dword:0000000%s\n\n' \
@@ -131,9 +139,11 @@ if [ "$KOMUT" = "sadece" ]; then
   HATA=0
   while IFS= read -r SRV; do
     [ -n "$SRV" ] || continue
-    BEK=1
+    if [ "$KOMUT" = "sadece" ]; then BEK=1; else BEK=4; fi
     for H in $HEDEFLER; do
-      [ "$(echo "$SRV" | tr 'A-Z' 'a-z')" = "$(echo "$H" | tr 'A-Z' 'a-z')" ] && BEK=4
+      if [ "$(echo "$SRV" | tr 'A-Z' 'a-z')" = "$(echo "$H" | tr 'A-Z' 'a-z')" ]; then
+        if [ "$KOMUT" = "sadece" ]; then BEK=4; else BEK=1; fi
+      fi
     done
     V="$(hivexget "$W/SYSTEM" "ControlSet001\\Services\\$SRV" Start 2>/dev/null || echo '?')"
     [ "$V" = "$BEK" ] || { echo "  ! $SRV -> $V, beklenen $BEK"; HATA=1; }
@@ -170,7 +180,7 @@ case "$KOMUT" in
     echo "$AD" > "$W/sistem.txt"
     ADET=1
     ;;
-  *)     echo "Bilinmeyen komut: $KOMUT (liste|kapat|ac|tek)"; exit 1 ;;
+  *)     echo "Bilinmeyen komut: $KOMUT (liste|kapat|ac|tek|sadece|birak)"; exit 1 ;;
 esac
 
 [ "$ADET" -gt 0 ] || { echo "Islenecek servis yok."; exit 1; }

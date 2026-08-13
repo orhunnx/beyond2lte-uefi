@@ -755,12 +755,28 @@ işaretçisinin global Start=1 ya da kullanıcı-modu sınırı olmadığını
 doğrudan kanıtlar. Bu nedenle bundan sonra `SYS=REG` üzerinden faz ismi
 verilmeyecek.
 
-Özgün 14 Start=1 hizmeti kapalı iken hem bu bugcheck yolunun hem de daha
-önceki sessiz yolun raporlanabilmesi, sonucu tek açılışla deterministik
-saymayı engeller. İkili aramaya geçmeden önce aynı flaş ile tekrarlı açılış
-sayımı yapılmalıdır. Her turda `BUG`, `TIK`, `QPD` ve görünen stop kodu
-kaydedilir. Bir yarım-küme ancak üç ardışık açılışta aynı sınıf sonucu
-verirse bisect sinyali sayılacaktır.
+Bu bugcheck artık yeniden üretilmeye çalışılmayacak. Tek gözlem şu iki
+sonucu zaten yeterince kesinleştirir: Windows kullanıcı-modu başlangıcına
+ulaşabiliyor ve **14 hizmetin tümünü kapatmak WinPE'nin kendi kritik
+altyapısını bozuyor**. `0xc000021a` bu imajdaki platform hatasının doğrudan
+kimliği değildir.
+
+İlk ve en dar geri-dönüş deneyi yalnız `Npfs`'yi açık bırakır. `Npfs.sys`,
+CSRSS'nin kullandığı named-pipe altyapısını sağlar; onsuz kritik süreçlerin
+birbirleriyle konuşamaması `0xc000021a` için doğrudan ve beklenen bir
+açıklamadır. Yeni `birak` modu önceki WIM durumundan bağımsızdır:
+
+```bash
+bash tools_b2lfb.sh
+bash tools_winpe_sistem.sh birak Npfs
+bash cache_esp.sh --win --system
+```
+
+Bu tur yalnız bir kez yapılır. `0xc000021a` kaybolur ama `BUG=H` ile sıfır
+görülürse Npfs hipotezi doğrulanır ve eski yazılımsal reset bağımsız kalır.
+WinPE kabuğu gelirse doğru minimum bileşen bulunmuştur. Aynı stop kodu
+kalırsa tekrar saymak yerine sıradaki geri-dönüş kümesi `Npfs` ile birlikte
+`Msfs` olacaktır.
 
 Kaynaklar: [Microsoft — AddService StartType](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-addservice-directive),
 [Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order),
@@ -937,10 +953,11 @@ bash tools_winpe_surucu.sh hepsi-ac              # temel duruma don
 
 bash tools_winpe_sistem.sh liste
 bash tools_winpe_sistem.sh sadece rdbss
+bash tools_winpe_sistem.sh birak Npfs
 bash tools_winpe_sistem.sh kapat / ac
 ```
 
-`sadece` ve `aralik` **idempotent**: önceki durumdan bağımsız, her çağrı
+`sadece`, `birak` ve `aralik` **idempotent**: önceki durumdan bağımsız, her çağrı
 tam olarak istenen durumu kurar ve yazdığını geri okuyup doğrular.
 
 ### BCD
