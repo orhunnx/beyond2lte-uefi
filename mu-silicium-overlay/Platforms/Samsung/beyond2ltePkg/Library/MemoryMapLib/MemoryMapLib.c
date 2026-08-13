@@ -31,9 +31,25 @@ gMemoryDescriptor[] = {
   // vermek yanlis olacagindan rezerv korunur. Stok yukleyici x5'te 1 MiB
   // ister; mevcut 2 MiB rezervi eksiksiz koruyoruz.
   //
+  // KORUYUCU WinPE TESTI: Windows'a yalniz 0x900000000..0x980000000 banki
+  // birakilir (2 GiB). Stok DTB'nin secure video penceresi
+  // 0x40000000..0xF0000000, ABOX penceresi 0xC0000000..0xE0000000'dir; ikisi
+  // de dusuk banktadir. Stok Linux dmesg'i genel CMA'nin son ust bankta
+  // yerlesebildigini gosterir. Linux'un kendi ayirmasi S-Boot'tan sonra
+  // calisir; bu, o CMA alaninin UEFI'de mutlaka etkin oldugunun kaniti
+  // DEGILDIR. Yine de WinPE 2 GiB ile calisabildigi icin, belirsizligin
+  // riskini almamak adina UEFI'nin zorunlu parcalari disinda dusuk, ilk ust
+  // ve son ust banklar bu turda Reserved tutulur.
+  {"Lower dynamic guard",0x80000000, 0x07000000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
   {"Samsung U-H EL2",    0x87000000, 0x00200000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_BACK},
-  {"UEFI FD",            0xC9000000, 0x00200000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
-  {"UEFI Stack",         0xC9200000, 0x00040000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
+  {"Lower dynamic guard",0x87200000, 0x41E00000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
+  // BootShim, Resources/Configs/beyond2lte.toml'daki FD_SIZE kadar veriyi
+  // 0xC9000000'a kopyalar. FD_SIZE=4 MiB iken eski 2 MiB tanim ve
+  // 0xC9200000 stack'i FD'nin ikinci yarisini Windows'a vermis ve stack'i
+  // calisan firmware'in ustune koymustu. FD ve stack kesinlikle ayrik kalmali.
+  {"UEFI FD",            0xC9000000, 0x00400000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
+  {"UEFI Stack",         0xC9400000, 0x00040000, AddMem, SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
+  {"Lower dynamic guard",0xC9440000, 0x00BC0000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
   {"Display Reserved",   0xCA000000, 0x01400000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
   {"DXE Heap",           0xCB400000, 0x03C00000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK},
 
@@ -79,6 +95,15 @@ gMemoryDescriptor[] = {
   // kodu yaziyor ve sicak sifirlamada icerik zaten kaliyor.
   //
   {"B2L RT Log",         0xCF040000, 0x00010000, AddMem, SYS_MEM, SYS_MEM_CAP, RtData, WRITE_BACK},
+  {"Lower dynamic guard",0xCF050000, 0x30FB0000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
+
+  // 0x880000000..0x900000000, DTB'deki sec_rdx_bootdev'i de icerir.
+  {"Upper bank guard", 0x880000000ULL, 0x080000000ULL, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
+
+  // 0x900000000..0x980000000 Windows/WinPE icin birakilan tek DRAM bankidir.
+
+  // Koruyucu testte Windows'a verilmez; stok Linux'ta genel CMA burada goruldu.
+  {"Upper bank guard", 0x980000000ULL, 0x080000000ULL, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
 
   //
   // ==========================================================================
@@ -111,48 +136,29 @@ gMemoryDescriptor[] = {
   // BAS SUPHELI: "exynos,seclog" 0xC0000000. Adindan belli - GUVENLI GUNLUK,
   // TrustZone'un. Ustelik dusuk bir adres, yani Windows erken tahsis ediyor.
   //
-  // Kaynak: stock DTB, /reserved-memory dugumu (dtb-analiz/exynos9820-base.dts).
-  // Sabit "reg" adresi olan butun girdiler alindi; "size" ile tanimlanan
-  // dinamik olanlar (ion, abox_rmem) atlandi cunku adresleri calisma aninda
-  // belirleniyor ve UEFI'de karsiligi yok.
+  // Kaynak: stock DTB, /reserved-memory dugumu
+  // (Resources/DTBs/beyond2lte.dts). Sabit "reg" adresi olan HER girdi
+  // burada EfiReservedMemoryType olarak bulunmali: Android/Linux bu dugumu
+  // kendisi okur, Windows ise okumaz. "ion,recyclable" kamera alani bile
+  // generic Windows ayiricisi icin kullanilabilir RAM degildir. Dusuk banki
+  // kaplayan Lower dynamic guard, bu listenin o banktaki tum girdilerini de
+  // kapsar; ayri descriptor koymak bindirmeye yol acar.
+  //
+  // "size"/"alloc-ranges" ile tanimlanan ion_video_stream ve abox-rmem
+  // sabit fiziksel adres tasimaz; fakat olasi pencerelerinin tamami dusuk
+  // guard tarafinda kalir. ion_crypto'nun alloc-ranges'i yoktur; bu nedenle
+  // onun yeri statik olarak kanitlanamaz. Ortadaki bankin ayri tutulmasi,
+  // kanitlanmis bir S-Boot rezervi degil, WinPE icin secilmis koruyucu
+  // bellek butcesidir.
+  // tools_reserved_memory_audit.py, sabit DTB listesi ile bu tablonun
+  // eksiksizligini derleme oncesi zorunlu olarak denetler.
   //
   //
-  // 3 GB USTU KESME KALDIRILDI - DELIGE DUSMUSTU.
-  //
-  // 0x140000000'a Reserved konmustu ve cihazda hicbir etkisi olmadi: harita
-  // yine 7977 MB gosterdi. Sebebi stok DTB'de: RAM tek parca degil.
-  //
-  //   memory@80000000    0x80000000  .. 0x100000000
-  //   memory@880000000   0x880000000 .. 0x900000000
-  //   memory@900000000   0x900000000 .. 0x980000000
-  //
-  // 0x100000000 - 0x880000000 arasi DELIK. Kesme tam oraya dusmustu, yani
-  // zaten RAM olmayan bir yeri "RAM degil" diye isaretledik.
-  //
-  // Kesmeyi dogru yere koymadan once UEFI'nin bu bankalari nasil beyan
-  // ettigini olcmek gerekiyor: dogru mu kurmus, yoksa 0x80000000'dan duz
-  // devam edip deligi de RAM sanmis mi? Toplam ikisinde de ~8 GB cikar,
-  // ayirt eden sey EN YUKSEK ADRES. B2LGoster onu gosteriyor.
-  //
-
-  {"sec_debug_magic",    0x80000000, 0x00001000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"mm_debug",           0x91200000, 0x00001000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"seclog",             0xC0000000, 0x00080000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-
-  // debug-snapshot ailesi - cekirdek/platform cokme gunlukleri
-  {"dss_log_pstore",     0xEB308000, 0x00008000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"dss_log_s2d",        0xEB310000, 0x01500000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"dss_log_arraydump",  0xEC810000, 0x00A00000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"dss_header",         0xFD900000, 0x00010000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"dss_log_kernel",     0xFD910000, 0x00200000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"dss_log_platform",   0xFDB10000, 0x00400000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"dss_log_sfr",        0xFDF10000, 0x00100000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"dss_log_cachedump",  0xFE010000, 0x00A00000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"dss_log_etm",        0xFEA10000, 0x00100000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"dss_log_bcm",        0xFEB10000, 0x00400000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"dss_log_llc",        0xFEF10000, 0x00400000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"dss_log_dbgc",       0xFF310000, 0x000F0000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
-  {"dss_log_kevents",    0xFF400000, 0x00C00000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
+  // Ayrik DRAM banklari:
+  //   0x80000000    .. 0x100000000    (dusuk)
+  //   0x880000000   .. 0x900000000    (ilk ust)
+  //   0x900000000   .. 0x980000000    (Windows)
+  //   0x980000000   .. 0xA00000000    (son ust)
 
   // iRAM Regions
   {"IRAM",               0x02020000, 0x00018000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   DEVICE},

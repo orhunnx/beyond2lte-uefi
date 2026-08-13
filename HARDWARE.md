@@ -106,14 +106,14 @@ ACPI tabloları hiç derlenmiyor. Windows ACPI olmadan boot etmez — Status.md'
 Sıralama önemli: ACPI'yi yazmak UFS'ten sonra anlamlı, çünkü DSDT'de tanımlayacağın
 depolama cihazının arkasında çalışan bir sürücü olması gerekiyor.
 
-## Bellek yerleşimi (beyond1lte'den, değiştirilmedi)
+## Bellek yerleşimi
 
 ```
 0x87000000  Samsung U-H EL2    2 MB (stok S-Boot burada imzalı U-H'yi çalıştırır;
                                     Windows'a Reserved olarak verilmeli)
-0xC9000000  UEFI FD            2 MB
-0xC9200000  UEFI Stack       256 KB
-0xC9240000  DXE Heap          60 MB
+0xC9000000  UEFI FD            4 MB (BootShim FD_SIZE kadarını buraya kopyalar)
+0xC9400000  UEFI Stack       256 KB (FD'nin dışında kalmak zorunda)
+0xCB400000  DXE Heap          60 MB
 0xCA000000  Display Reserved  20 MB
 ```
 

@@ -45,7 +45,9 @@
   #
   # UEFI Stack
   #
-  gArmPlatformTokenSpaceGuid.PcdCPUCoresStackBase|0xC9200000
+  # BootShim'in 4 MiB'lik FD kopyasi 0xC9000000..0xC9400000'i kaplar.
+  # Stack bu araligin icinde olamaz; MemoryMapLib ile birlikte tasinir.
+  gArmPlatformTokenSpaceGuid.PcdCPUCoresStackBase|0xC9400000
   gArmPlatformTokenSpaceGuid.PcdCPUCorePrimaryStackSize|0x40000
 
   #

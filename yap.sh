@@ -38,6 +38,14 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 say "Proje: $PROJ"
 say "Mu-Silicium: $MU"
 
+# BootShim, configteki FD_SIZE kadar veriyi FD_BASE'e kopyalar. UEFI FD
+# descriptoru veya CPU stack bu aralikla cakisirsa firmware kendi kodunu
+# ezebilir; derlemeden (ve dolayisiyla flashtan) once bunu kesin denetle.
+say "UEFI bellek yerlesimi dogrulaniyor"
+python3 "$PROJ/tools_uefi_layout_check.py"
+say "Windows korumali RAM denetleniyor"
+python3 "$PROJ/tools_reserved_memory_audit.py" --check
+
 # ---------------------------------------------------------------- ACPI
 if [ "$DO_ACPI" = 1 ]; then
   say "ACPI tablolari derleniyor"

@@ -1182,6 +1182,56 @@ gerektirir.
 Bu sonuçla HVC payload'ı, U-H belleği rezervi veya aynı Windows açılışları
 yeniden denenmez.
 
+#### Düzeltme: FD/stack çakışması ve açık kalan DTB rezervleri
+
+Aktif `BOOT`, son üretilen UEFI imajıdır; cihazdan tekrar alınması bu aşamada
+yeni bir kanıt üretmez. S-BOOT'taki `0xC9054F68`, `0xC9003434` ve
+`0xC9004350` genel çağrı-listesi girdilerinin hepsi proje FD tabanı
+`0xC9000000` içindedir. Mu-Silicium'un BootShim kaynağı, konfigurasyondaki
+`FD_SIZE` kadar baytı bu tabana kopyalayıp doğrudan oraya dallandığını
+gösterir. Konfigürasyonda `FD_SIZE=0x400000` iken eski bellek haritası yalnız
+iki MiB `UEFI FD` beyan ediyor ve CPU stack'ini `0xC9200000`a, yani çalışan
+FD kopyasının ikinci yarısına koyuyordu.
+
+Bu bir Windows tahsis deneyi değil, doğrudan firmware yerleşim hatasıdır:
+
+- FD `0xC9000000..0xC9400000` olarak 4 MiB beyan edilir.
+- Birincil CPU stack `0xC9400000..0xC9440000`a taşınır.
+- `tools_uefi_layout_check.py`, configteki FD, MemoryMapLib descriptorü,
+  DSC stack PCD'si ve framebuffer çakışmasını derleme öncesi doğrular.
+
+Windows'un korumalı RAM'e dokunup dokunamayacağı ayrıca statik olarak
+denetlendi. Stok DTB'deki `/reserved-memory` altında sabit `reg` ile
+tanımlanan **23** aralığın önceki haritada 7'si Windows'a tahsis edilebilir
+görünüyordu: `secure_camera`, `camera_contig`, `camera`, `modem_spare`,
+`modem_if`, `cp_ram_logging` ve ikinci DRAM bankındaki `sec_rdx_bootdev`.
+İlk ikisi açıkça `ion,secure`; diğerleri de Linux'un ayırdığı sabit fiziksel
+alanlardır. Bunların hepsinin TrustZone tarafından erişim-ihlalinde reset
+üreteceği henüz kanıtlanmış değildir; fakat Windows'a verilmemeleri kesindir.
+
+Yedi bölge ve kalan 16 sabit bölge, artık kapsayıcı `EfiReservedMemoryType`
+aralıklarıyla korunur. `yap.sh`, `tools_reserved_memory_audit.py --check`
+çağrısıyla sabit DTB bölgesinin tek bir tanesi bile açık kalırsa derlemeyi
+flaştan önce durdurur.
+
+Dinamik bölgeler için [beyond1lte/Exynos 9820 Linux açılış günlüğü](https://gist.github.com/kreatoo/874e618a706c1ac758fc9795af9fc780), ABOX'un
+`0xDC400000..0xE0000000` içine, genel CMA'nın ise en üst DRAM bankına
+yerleşebildiğini somut olarak gösterir. DTB'nin `ion_video_stream` penceresi
+de düşük bankın içindedir. Bu satırlar Linux'un kendi başlangıcında oluşur;
+S-Boot'un Windows yolunda aynı dinamik alanları hâlâ ayırdığını **kanıtlamaz**.
+Fakat WinPE'nin az RAM gerektiren bu turunda gereksiz riske girmemek için
+Windows'a dört 2 GiB banktan yalnız `0x900000000..0x980000000` aralığı
+verilir; düşük bank ve ilk/son üst bank tamamen rezerve edilir. Bu bir
+koruyucu bellek bütçesidir, yeni bir S-Boot olgusu değildir. `ion_crypto`nun
+`alloc-ranges`i yoktur; yerini statik olarak kanıtlamak olanaksızdır.
+B2LGoster'ın yaz/geri-oku banka ve sayfa taramaları da devre dışıdır:
+belirsiz bir Android rezervine UEFI'nin kendisi de yazmaz.
+
+Yeni B2LGoster `SURUM 28`, UEFI'nin fiilî bellek haritasından aynı 23 aralığı
+yeniden denetler. Ekranda `DTB ACIK=00000000 KORUNDU` ve `RAM ... ATLANDI`
+görülmeden Windows sonucu yorumlanmaz; farklı bir DTB değeri, Windows'un hâlâ
+sabit bir rezervi görebildiğini ve testin geçersiz olduğunu söyler.
+
 Normal hale dönüş için yalnızca `bash yap.sh` çalıştırmak yeterlidir:
 script FADT'yi yeniden SMC konduitine alır ve EL2 sürücüsünü tekrar derleme
 dışında bırakır.

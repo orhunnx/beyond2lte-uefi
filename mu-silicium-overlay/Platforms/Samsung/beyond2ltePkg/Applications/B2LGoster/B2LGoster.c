@@ -56,7 +56,7 @@
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 27"
+#define SURUM_METNI  L"SURUM 28"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -76,11 +76,109 @@
 #define RT_KAYIT    0xCF040000ULL   // B2LRtHookDxe
 #define PMU_RST     0x15860404ULL
 
+typedef struct {
+  UINT64  Base;
+  UINT64  Boyut;
+} B2L_DTB_REZERV;
+
+// Stok DTB'nin /reserved-memory dugumundeki sabit reg araliklari.
+// Android bunlari DTB'den gorur; Windows icin tek yetkili kaynak EFI memory
+// map'tir. Bu liste, yeni imajin gercekte hepsini ConventionalMemory disinda
+// biraktigini ekranda dogrulamak icindir.
+STATIC B2L_DTB_REZERV CONST mDtbRezervleri[] = {
+  {0x0000000080000000ULL, 0x00001000ULL},
+  {0x0000000091200000ULL, 0x00001000ULL},
+  {0x0000000096000000ULL, 0x02200000ULL},
+  {0x0000000098200000ULL, 0x00E00000ULL},
+  {0x0000000099000000ULL, 0x1B800000ULL},
+  {0x00000000C0000000ULL, 0x00080000ULL},
+  {0x00000000D0000000ULL, 0x01600000ULL},
+  {0x00000000EB308000ULL, 0x00008000ULL},
+  {0x00000000EB310000ULL, 0x01500000ULL},
+  {0x00000000EC810000ULL, 0x00A00000ULL},
+  {0x00000000F0000000ULL, 0x0B900000ULL},
+  {0x00000000FB900000ULL, 0x02000000ULL},
+  {0x00000000FD900000ULL, 0x00010000ULL},
+  {0x00000000FD910000ULL, 0x00200000ULL},
+  {0x00000000FDB10000ULL, 0x00400000ULL},
+  {0x00000000FDF10000ULL, 0x00100000ULL},
+  {0x00000000FE010000ULL, 0x00A00000ULL},
+  {0x00000000FEA10000ULL, 0x00100000ULL},
+  {0x00000000FEB10000ULL, 0x00400000ULL},
+  {0x00000000FEF10000ULL, 0x00400000ULL},
+  {0x00000000FF310000ULL, 0x000F0000ULL},
+  {0x00000000FF400000ULL, 0x00C00000ULL},
+  {0x0000000880000000ULL, 0x0AD00000ULL}
+};
+
 STATIC EFI_GRAPHICS_OUTPUT_PROTOCOL *mGop;
 STATIC EFI_HII_FONT_PROTOCOL        *mFont;
 STATIC UINT32                       *mFb;
 STATIC UINT32                        mSatirBasi;   // piksel/satir (stride)
 STATIC UINT32                        mSatir;       // o anki y
+
+/**
+  Sabit DTB rezervlerinden kac tanesi EFI'de tam olarak
+  EfiReservedMemoryType ile kapsanmiyor? Windows ExitBootServices sonrasinda
+  BootServices turlerini geri alabilir; bu nedenle yalnizca "Conventional
+  degil" denetimi yeterli degildir. Sifir, Windows'un bu araliklari tahsis
+  edemeyecegi anlamina gelir.
+**/
+STATIC
+UINT32
+DtbAcikRezervSayisi (
+  VOID)
+{
+  EFI_MEMORY_DESCRIPTOR *Harita;
+  UINTN                  Boyut, Anahtar, TanimBoy, I, R;
+  UINT32                 Surum;
+  UINT32                 Acik;
+
+  Harita = NULL;
+  Boyut  = 0;
+  Acik   = 0;
+
+  gBS->GetMemoryMap (&Boyut, Harita, &Anahtar, &TanimBoy, &Surum);
+  Boyut += 8 * TanimBoy;
+  if (EFI_ERROR (gBS->AllocatePool (EfiLoaderData, Boyut, (VOID **)&Harita))) {
+    return 0xFFFFFFFF;
+  }
+
+  if (!EFI_ERROR (gBS->GetMemoryMap (&Boyut, Harita, &Anahtar, &TanimBoy, &Surum))) {
+    for (R = 0; R < ARRAY_SIZE (mDtbRezervleri); R++) {
+      UINT64 HedefSon;
+      BOOLEAN Korundu;
+
+      HedefSon = mDtbRezervleri[R].Base + mDtbRezervleri[R].Boyut;
+      Korundu  = FALSE;
+
+      for (I = 0; I < Boyut / TanimBoy; I++) {
+        EFI_MEMORY_DESCRIPTOR *D;
+        UINT64                 Son;
+
+        D = (EFI_MEMORY_DESCRIPTOR *)((UINT8 *)Harita + I * TanimBoy);
+        if (D->Type != EfiReservedMemoryType) {
+          continue;
+        }
+
+        Son = D->PhysicalStart + D->NumberOfPages * 4096;
+        if (D->PhysicalStart <= mDtbRezervleri[R].Base && Son >= HedefSon) {
+          Korundu = TRUE;
+          break;
+        }
+      }
+
+      if (!Korundu) {
+        Acik++;
+      }
+    }
+  } else {
+    Acik = 0xFFFFFFFF;
+  }
+
+  gBS->FreePool (Harita);
+  return Acik;
+}
 
 /**
   Tek karakter ciz. Glif HII'den geliyor, her piksel OLCEK x OLCEK blok.
@@ -216,6 +314,7 @@ B2LGosterEntry (
   UINT32         *HvcLog;
   UINT32         *HvcDxe;
   UINT32          Rst;
+  UINT32          AcikRezerv;
   EFI_INPUT_KEY   Key;
   UINTN           Index;
 
@@ -336,58 +435,16 @@ B2LGosterEntry (
     Deger (L"RAM MB  =", (UINT32)((Sayfa * 4) / 1024), NULL, 0x00808080);
   }
 
-  //
-  // BANKA SINAMASI - BEYAN DEGIL OLCUM.
-  //
-  // Harita dort banka beyan ediyor (0x80000000, 0x880000000, 0x900000000,
-  // 0x980000000; her biri 2 GB, tepe 0xA00000000). Bu beyanin DOGRU oldugunu
-  // kimse olcmedi - ne biz ne UEFI. Beyan edilen bellegin bir kismi gercekte
-  // yoksa ya da baska bir adrese takla atiyorsa (aliasing), Windows'un
-  // ayiricisi oraya vardigi anda veri yolu hatasi olur: bugcheck yok,
-  // ResetSystem yok, temiz yazilim sifirlamasi. Tam gordugumuz imza.
-  //
-  // Her bankanin sonuna FARKLI bir desen yaziyoruz, hepsini yazdiktan SONRA
-  // hepsini okuyoruz. Tek tek yazip okumak aliasing'i kacirirdi: takla atan
-  // bir adres kendi yazdigini geri verir. Sonuc bit maskesi:
-  //
-  //   0000000F -> dort banka da gercek ve birbirinden bagimsiz
-  //   eksik bit -> o banka yok ya da baska bir yere takla atiyor
-  //
-  // Eski icerik saklanip geri yaziliyor; bu bellek su an bos olmayabilir.
-  //
-  {
-    STATIC UINT64 CONST Adresler[4] = {
-      0x0FFFF0000ULL, 0x8FFFF0000ULL, 0x97FFF0000ULL, 0x9FFFF0000ULL
-    };
+  AcikRezerv = DtbAcikRezervSayisi ();
+  Deger (L"DTB ACIK=", AcikRezerv,
+         (AcikRezerv == 0) ? L"KORUNDU" :
+         (AcikRezerv == 0xFFFFFFFF) ? L"OKUNAMADI" : L"WINDOWS GOREBILIR",
+         (AcikRezerv == 0) ? 0x0040FF40 : 0x00FF4040);
 
-    volatile UINT64 *P;
-    UINT64           Eski[4];
-    UINT32           Maske;
-    UINTN            K;
-
-    for (K = 0; K < 4; K++) {
-      P       = (volatile UINT64 *)(UINTN)Adresler[K];
-      Eski[K] = *P;
-      *P      = 0xB2B2000000000000ULL | (K + 1);
-    }
-
-    Maske = 0;
-    for (K = 0; K < 4; K++) {
-      P = (volatile UINT64 *)(UINTN)Adresler[K];
-      if (*P == (0xB2B2000000000000ULL | (K + 1))) {
-        Maske |= (1u << K);
-      }
-    }
-
-    for (K = 0; K < 4; K++) {
-      P  = (volatile UINT64 *)(UINTN)Adresler[K];
-      *P = Eski[K];
-    }
-
-    Deger (L"BANKA   =", Maske,
-           (Maske == 0xF) ? L"HEPSI GERCEK" : L"EKSIK VAR",
-           (Maske == 0xF) ? 0x0040FF40 : 0x00FF4040);
-  }
+  // Banka yaz/geri-oku deneyi onceki turlarda tamamlandi. Dinamik Android
+  // rezervlerinin fiziksel yeri kesin degilken bir sayfaya bile yazmak, bu
+  // koruyucu Windows turunda gereksiz risk olur.
+  Yaz (L"RAM YAZMA TARAMASI ATLANDI", 0x00808080);
   mSatir += 12;
 
   //
@@ -673,6 +730,10 @@ B2LGosterEntry (
   // dokunulan adres elimizde oluyor - tek acilista 1 MB cozunurlukle
   // bisect.
   //
+  // Bu turda hicbir belirsiz RAM sayfasina yazilmayacak. GIC goruntusu de
+  // onceki turlarda kayda alindi; yeni bellek koruma sonucunu karistirmasin.
+  Yaz (L"RAM TARAMASI ATLANDI", 0x00808080);
+#if 0
   {
     UINT64          *T = (UINT64 *)(UINTN)TARA_KAYIT;
     volatile UINT32 *G = (volatile UINT32 *)(UINTN)(GICD + GICD_ISPEND);
@@ -835,6 +896,7 @@ B2LGosterEntry (
       Deger (L"BEKLEYEN=", Kac, L"SPI", 0x0060C0FF);
     }
   }
+#endif
 
   //
   // B2LGicSusDxe: ExitBootServices aninda SPI'lar susturuldu mu?

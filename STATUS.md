@@ -52,8 +52,8 @@ eziliyor ve ekranda bootloader'ın son karesi kalıyor — bizde tam olarak bu o
 Düzeltilmiş beyond2lte yerleşimi:
 
 ```
-UEFI FD           0xC9000000 – 0xC9200000
-UEFI Stack        0xC9200000 – 0xC9240000
+UEFI FD           0xC9000000 – 0xC9400000  (BootShim'in 4 MiB FD kopyasi)
+UEFI Stack        0xC9400000 – 0xC9440000  (FD'nin disinda)
 Display Reserved  0xCA000000 – 0xCB400000
 DXE Heap          0xCB400000 – 0xCF000000
 ```
