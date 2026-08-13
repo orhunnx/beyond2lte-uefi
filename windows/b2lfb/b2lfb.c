@@ -37,11 +37,13 @@
 
 typedef long               NTSTATUS;
 typedef unsigned char      UINT8;
+typedef unsigned short     UINT16;
 typedef unsigned int       UINT32;
 typedef unsigned long long UINT64;
 /* KeQueryPerformanceCounter isaretli doner; WDK yok, tipi elle tanimliyoruz. */
 typedef signed long long   INT64;
 typedef void              *PVOID;
+typedef void              *HANDLE;
 
 #define STATUS_SUCCESS ((NTSTATUS)0x00000000L)
 
@@ -160,6 +162,35 @@ __declspec(dllimport) void IoRegisterBootDriverReinitialization (
   PDRIVER_REINITIALIZE DriverReinitializationRoutine,
   PVOID Context);
 
+/*
+ * KULLANICI-MODU SINIRI - SADECE YOKLAMA
+ *
+ * Kullanici programi Global\\B2LCmd adinda bir event olusturur. Bu surucu
+ * kendi sistem thread'inden (PASSIVE_LEVEL) event'i yoklar; gorurse sonraki
+ * UEFI acilisinda okunacak RAM kaydina damga birakir. Event'e sinyal
+ * gondermiyoruz, beklemiyoruz ve DPC/bugcheck yolundan hic cagirmiyoruz.
+ */
+typedef struct _UNICODE_STRING {
+  UINT16 Length;
+  UINT16 MaximumLength;
+  UINT16 *Buffer;
+} UNICODE_STRING;
+
+typedef struct _OBJECT_ATTRIBUTES {
+  UINT32          Length;
+  HANDLE          RootDirectory;
+  UNICODE_STRING *ObjectName;
+  UINT32          Attributes;
+  PVOID           SecurityDescriptor;
+  PVOID           SecurityQualityOfService;
+} OBJECT_ATTRIBUTES;
+
+__declspec(dllimport) NTSTATUS ZwOpenEvent (
+  HANDLE            *EventHandle,
+  UINT32             DesiredAccess,
+  OBJECT_ATTRIBUTES *ObjectAttributes);
+__declspec(dllimport) NTSTATUS ZwClose (HANDLE Handle);
+
 /* ------------------------------------------------------------------------ */
 
 /*
@@ -275,6 +306,65 @@ __declspec(align(16)) static UINT64 gTimer[16];
 __declspec(align(16)) static UINT64 gDpc[16];
 
 static volatile UINT64 gTik = 0;
+static volatile UINT8  gKullaniciGoruldu = 0;
+
+/* +0xD0: Startnet'ten calisan kullanici programi siniri. */
+static void B2LKullaniciKaydi (UINT8 Goruldu)
+{
+  volatile UINT8 *P;
+
+  if (gLog == 0) {
+    return;
+  }
+
+  P = (volatile UINT8 *)gLog + 208;
+  P[0] = 'U'; P[1] = 'S'; P[2] = 'R'; P[3] = '=';
+  P[4] = Goruldu ? 'C' : 'R';
+  P[5] = Goruldu ? 'M' : 'E';
+  P[6] = Goruldu ? 'D' : 'G';
+  P[7] = ' ';
+  P[8] = 'C'; P[9] = '='; P[10] = Goruldu ? '0' : '0';
+  P[11] = Goruldu ? '0' : '0'; P[12] = Goruldu ? '1' : '0';
+  P[13] = ' '; P[14] = ' '; P[15] = ' ';
+}
+
+/*
+ * Bu yalnizca BostaDongu sistem thread'inden cagrilir. BaseNamedObjects
+ * Win32 alt sistemi ayaga kalkmadan mevcut degildir; bu yuzden DriverEntry
+ * ya da DPC'de yaratmaya/yoklamaya calismak yanlis olur.
+ */
+static void B2LKullaniciYokla (void)
+{
+  static UINT16 Ad[] = {
+    '\\', 'B', 'a', 's', 'e', 'N', 'a', 'm', 'e', 'd', 'O', 'b', 'j', 'e', 'c', 't', 's',
+    '\\', 'B', '2', 'L', 'C', 'm', 'd', 0
+  };
+  UNICODE_STRING    Isim;
+  OBJECT_ATTRIBUTES Nitelik;
+  HANDLE            Olay;
+
+  if (gKullaniciGoruldu != 0) {
+    return;
+  }
+
+  Isim.Length        = (UINT16)((sizeof (Ad) / sizeof (Ad[0]) - 1) * sizeof (UINT16));
+  Isim.MaximumLength = Isim.Length;
+  Isim.Buffer        = Ad;
+
+  Nitelik.Length                   = (UINT32)sizeof (Nitelik);
+  Nitelik.RootDirectory            = 0;
+  Nitelik.ObjectName               = &Isim;
+  Nitelik.Attributes               = 0x00000200U; /* OBJ_KERNEL_HANDLE */
+  Nitelik.SecurityDescriptor       = 0;
+  Nitelik.SecurityQualityOfService = 0;
+
+  Olay = 0;
+  if (ZwOpenEvent (&Olay, 0x00000001U, &Nitelik) == STATUS_SUCCESS) { /* EVENT_QUERY_STATE */
+    ZwClose (Olay);
+    gKullaniciGoruldu = 1;
+    B2LKullaniciKaydi (1);
+  }
+}
 
 static void B2LYazHex8 (volatile UINT8 *P, UINT32 V)
 {
@@ -485,6 +575,7 @@ static UINT32 gSpinAzami  = 0;
 static void BostaDongu (PVOID Ctx)
 {
   volatile UINT64 I = 0;
+  UINT64          SonTik = ~0ULL;
 
   (void)Ctx;
 
@@ -510,6 +601,12 @@ static void BostaDongu (PVOID Ctx)
   for (;;) {
     I++;
     gSpin++;
+
+    /* PASSIVE_LEVEL'de, saniyede en fazla bir kez kullanici damgasi yokla. */
+    if ((gTik != SonTik) && ((gTik % 10) == 0)) {
+      SonTik = gTik;
+      B2LKullaniciYokla ();
+    }
   }
 }
 
@@ -828,6 +925,7 @@ NTSTATUS DriverEntry (PVOID DriverObject, PVOID RegistryPath)
   B2LAutoStartRecord ();
   B2LSystemStartRecord ();
   B2LSystemGroupRecord ();
+  B2LKullaniciKaydi (0);
 
 
   Pa.QuadPart = (long long)FB_PHYS;

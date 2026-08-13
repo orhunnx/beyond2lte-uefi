@@ -2,4 +2,5 @@
 echo.
 echo === Beyond2LTE WinPE shell ===
 echo.
+b2lcmd.exe
 cmd.exe /k

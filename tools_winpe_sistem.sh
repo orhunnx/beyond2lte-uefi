@@ -44,9 +44,11 @@
 # ---------------------------------------------------------------------------
 # WinPE BOZULURSA SORUN DEGIL
 # ---------------------------------------------------------------------------
-# Amac WinPE'yi acmak degil, SIFIRLAMANIN DURUP DURMADIGINI olcmek. Kalp
-# atisi Start=0 surucumuzden geliyor ve Start=1 surucileri kapali olsa da
-# calisiyor. Seritler 10'u geciyorsa suclu o listede.
+# Amac tek bir servisi "suclu" diye etiketlemek degil, baslangic zincirindeki
+# zorunlu bagimliliklari kontrollu olarak ayirmak. Kalp atisi Start=0
+# surucumuzden geliyor. Npfs deneyi, bir Start=1 servisinin hem hata turunu
+# hem de omru 8.6 saniyeden 63.9 saniyeye degistirebildigini gosterdi;
+# serit sayisi tek basina artik bir hizmeti elemez.
 #
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -223,8 +225,9 @@ SIRA:
   bash tools_b2lfb.sh          <- b2lfb'nin kaydini geri yazar
   bash cache_esp.sh --win --system
 
-BEKLENEN OKUMA:
-  Seritler 10'u geciyor  -> Suclu Start=1 listesinde. Ikili aramayla bulunur.
-  Yine ~10 serit         -> Start=1 de degil; geriye cekirdegin kendi
-                            Faz 1 isleri kaliyor.
+OKUMA:
+  BUG/TIK/QPD birlikte kaydedilir. Npfs, 0xc000021a'nin hizmet eksikliginden
+  geldigi ve hizmet durumunun omru de degistirebildigi icin, tek acilisin
+  suresiyle ikili arama yapilmaz. "birak" yalniz gerekli kullanici-modu
+  bagimliliklarini geri koymak icin kullanilir.
 SON

@@ -56,7 +56,7 @@
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 26"
+#define SURUM_METNI  L"SURUM 27"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -587,6 +587,21 @@ B2LGosterEntry (
     //
     for (K = 0; K < 16; K++) {
       Tik[K] = (CHAR16)FbLog[192 + K];
+      if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
+        Tik[K] = L' ';
+      }
+    }
+
+    Tik[16] = L'\0';
+    Yaz (Tik, 0x00FFFF40);
+
+    //
+    // +0xD0: startnet.cmd'nin baslattigi b2lcmd.exe damgasi.
+    // USR=CMD C=001, Win32/cmd.exe kullanici-modu yolunun calistigini
+    // kanitlar. USR=REG C=000 ise reset bu programa gelmeden olmustur.
+    //
+    for (K = 0; K < 16; K++) {
+      Tik[K] = (CHAR16)FbLog[208 + K];
       if (Tik[K] < 0x20 || Tik[K] > 0x7E) {
         Tik[K] = L' ';
       }

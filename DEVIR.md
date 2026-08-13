@@ -219,7 +219,9 @@ dayanıyor.
 
 ## 6. Ölçülen olgular — açıklanması gereken tablo
 
-1. **Windows çekirdeği ~10 saniye yaşayıp cihaz sessizce sıfırlanıyor.**
+1. **Windows çekirdeğinin ömrü, seçili hizmet kümesine bağlı.** Önceki
+   yapılandırmalar yaklaşık 10 saniyede sessiz sıfırlanırken yalnız `Npfs`
+   açık yapılandırması 63.902 saniye yaşadı. Her iki yolda da
    `RST_STAT = 0x20000000` (yazılım sıfırlaması), DRAM hayatta kalıyor.
 
 2. **Bugcheck yok.** `BUG=H`. Geri çağrı iki yönde de doğrulandı (gerçek bir
@@ -227,7 +229,8 @@ dayanıyor.
 
 3. **Windows `ResetSystem`'i çağırmıyor**, PSCI kapalıyken bile.
 
-4. **Duvar saati oynak, Windows'un CPU süresi sabit:**
+4. **Önceki kısa-yol ölçümlerinde duvar saati oynak, Windows CPU süresi
+   tutarlıydı:**
 
    ```
    TIK=100  MAX=5.82M/100ms  SPN=12.6M   -> Windows CPU  9.78 s
@@ -289,10 +292,11 @@ dayanıyor.
 
 ## 7. Şu anki tıkanma noktası
 
-**Windows, kendi CPU'sunda yaklaşık 10 saniye çalıştıktan sonra cihaz
-sessizce sıfırlanıyor. Ne olduğu bilinmiyor.**
+**Windows, seçili hizmet kümesine bağlı olarak kullanıcı-modu öncesinde ya
+da sonrasında sessizce sıfırlanıyor. Ne olduğu bilinmiyor.** Normal kısa
+yol yaklaşık 10 saniye iken, yalnız `Npfs` açık yol 63.902 saniyeye ulaştı.
 
-Bu sayı:
+Önceki kısa-yolun CPU-süresi ölçümü:
 
 - sürücü kümesinden bağımsız
 - CPU frekansından bağımsız
@@ -772,11 +776,53 @@ bash tools_winpe_sistem.sh birak Npfs
 bash cache_esp.sh --win --system
 ```
 
-Bu tur yalnız bir kez yapılır. `0xc000021a` kaybolur ama `BUG=H` ile sıfır
-görülürse Npfs hipotezi doğrulanır ve eski yazılımsal reset bağımsız kalır.
-WinPE kabuğu gelirse doğru minimum bileşen bulunmuştur. Aynı stop kodu
-kalırsa tekrar saymak yerine sıradaki geri-dönüş kümesi `Npfs` ile birlikte
-`Msfs` olacaktır.
+Bu tur yalnız bir kez yapıldı ve iki sonucu kesinleştirdi:
+
+```
+TIK=0639 BUG=H
+MAX=012D3CFE
+SPN=0D0B30AA
+QPD=6307DBE3 F=018CBA80
+```
+
+`QPD/F = 63.902286 s`. `SPN/MAX = 11.085` tik olduğundan b2lfb'nin boşta
+döngüsü yaklaşık 1.109 saniye CPU aldı; Windows'un kendisi yaklaşık **62.8
+saniye CPU işi** yaptı. Bu, eski 8.6 saniyelik `0xc000021a` yolundan da,
+önceki kısa sessiz resetlerden de ayrıdır. Dolayısıyla "sabit 10 saniyelik
+sayaç", watchdog ve WFI/PMU zaman aşımı açıklamaları bu imaj için geçerli
+değildir.
+
+`0xc000021a` görünmedi. Bu, yalnız Npfs'nin geri gelmesiyle oldu; Npfs
+eksikliğinin kritik kullanıcı-modu IPC'yi bozduğu hipotezi doğrulandı.
+Fakat `cmd.exe /k` görünmediği için 63.9 saniyelik resetin `startnet.cmd`
+öncesinde mi, içinde mi olduğu hâlâ ayrı bir sorudur.
+
+Sonraki tek tur bunu ayırır. `tools_b2lfb.sh` artık `b2lcmd.exe` adlı 2 KB'lık
+bir kullanıcı programını **ve onu çağıran güncel `startnet.cmd`yi** WIM'e
+koyup ikisini SHA-1 ile geri doğrular. Program yalnız `Global\\B2LCmd` adlı
+olayı oluşturur. Boot sürücüsü olayı düşük öncelikli sistem thread'inden
+saniyede en fazla bir kez yoklar ve kalıcı kayda aşağıdakilerden birini yazar:
+
+```
+USR=REG C=000  reset Startnet'ten önce
+USR=CMD C=001  cmd.exe/startnet kullanici-modu calisti
+```
+
+Komutlar:
+
+```bash
+bash yap.sh                         # B2LGoster SURUM 27: USR satirini gosterir
+bash tools_b2lfb.sh
+bash tools_winpe_sistem.sh birak Npfs
+bash cache_esp.sh --win --system
+```
+
+Bu sonuçta yeni hizmet kümesi denenmeyecek. `USR=REG` ise sonraki odağımız
+Win32 alt sisteminden önceki çekirdek geçişi; `USR=CMD` ise `wpeinit` ve
+başlatılan kullanıcı işlemlerinin yaptığı ilk donanım erişimleridir.
+Bu turda `uefi-boot.tar` **BOOT**'a ve `system-esp.tar` **SYSTEM**'e birlikte
+flaşlanır. UEFI tarafındaki tek fark tanı ekranındaki `USR` satırıdır;
+Windows'a yeni firmware davranışı eklenmez.
 
 Kaynaklar: [Microsoft — AddService StartType](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-addservice-directive),
 [Microsoft — driver load order](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/specifying-driver-load-order),
@@ -815,17 +861,19 @@ deneyi geçersiz kılabilir.
 ### Sürücü bisect'inin yanlış okunması (dürüstlük notu)
 
 Bir süre `storufs` ve `rdbss`'i "suçlu" olarak kaydettik. `storufs` için
-iki yönlü A/B bile yapıldı ve tutarlıydı. Ama `MAX` ölçümü eklendikten
-sonra anlaşıldı ki bisect'in ölçtüğü şey suçluluk değil:
+iki yönlü A/B bile yapıldı ve tutarlıydı. Ama `MAX` ölçümü eklendikten ve
+`Npfs` geri-dönüş deneyi yapıldıktan sonra anlaşıldı ki bisect'in ölçtüğü
+şey suçluluk değil, başlangıç bağımlılıklarının hangi yolu seçtirdiğiydi:
 
-> Sürücü çıkarınca iş azalıyor, Windows 10 saniyelik bütçe dolmadan
-> kullanıcı moduna varıyor ve `0xc000021a` alıyoruz. İş fazla olunca bütçe
-> önce doluyor ve sessizce sıfırlanıyoruz.
+> Bir sürücüyü çıkarmak kullanıcı-modu altyapısını da eksiltebilir.
+> Özellikle Npfs çıkarıldığında Windows kullanıcı-moduna ulaşıp
+> `0xc000021a` alıyor; Npfs geri gelince bu bugcheck kalkıyor ve bambaşka,
+> 63.9 saniyelik sessiz yol seçiliyor.
 
-Yani `storufs` ve `rdbss` bulguları **iş miktarı** üzerinden açıklanıyor,
-donanıma dokunmaları üzerinden değil. Bu düzeltme geç yapıldı; belgeyi
-okuyan biri eski kayıtlarda "suçlu bulundu" ifadesi görürse bu paragrafı
-esas almalı.
+Yani `storufs` ve `rdbss` bulguları **başlangıç bağımlılıkları ve iş
+miktarı** üzerinden açıklanıyor, donanıma dokunmaları üzerinden değil. Bu
+düzeltme geç yapıldı; belgeyi okuyan biri eski kayıtlarda "suçlu bulundu"
+ifadesi görürse bu paragrafı esas almalı.
 
 ---
 
@@ -880,10 +928,10 @@ yorumlanırken bunlar akılda tutulmalı:
 Aşağıdakiler bizim cevaplayamadığımız, taze bir gözün faydalı olabileceği
 noktalar:
 
-1. **Windows ARM64'te, çekirdeğin yaklaşık 10 saniyelik CPU çalışmasından
-   sonra bugcheck üretmeden platformu sıfırlatabilecek bir mekanizma var
-   mı?** Sayaç duvar saatine değil işe orantılı. Windows `ResetSystem`
-   çağırmıyor, bugcheck yok, EL3 istisnası yok.
+1. **Windows ARM64'te, hizmet kümesine göre 8.6–63.9 saniye CPU işi
+   sonrasında bugcheck üretmeden platformu sıfırlatabilecek bir mekanizma
+   var mı?** Windows `ResetSystem` çağırmıyor, kısa yolda bugcheck yok,
+   EL3 istisnası yok.
 
 2. **PSCI 0.1 sunan bir platformda Windows ARM64 ne yapar?**
    `PSCI_VERSION` `0xFFFFFFFF` dönüyor. `CPU_SUSPEND` kimliği 0.2 ile aynı

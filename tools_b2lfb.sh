@@ -171,9 +171,22 @@ KeInitializeTimer
 KeSetTimerEx
 KeQueryPerformanceCounter
 IoRegisterBootDriverReinitialization
+ZwOpenEvent
+ZwClose
 DEF
 llvm-dlltool -m arm64 -d "$OUT/ntoskrnl.def" -l "$OUT/ntoskrnl.lib"
 echo "  $(basename "$OUT/ntoskrnl.lib") hazir"
+
+cat > "$OUT/kernel32.def" <<'DEF'
+LIBRARY kernel32.dll
+EXPORTS
+CreateEventW
+CloseHandle
+Sleep
+ExitProcess
+DEF
+llvm-dlltool -m arm64 -d "$OUT/kernel32.def" -l "$OUT/kernel32.lib"
+echo "  $(basename "$OUT/kernel32.lib") hazir"
 
 #
 # 2) Derleme
@@ -206,6 +219,11 @@ clang -target aarch64-windows-msvc \
       -O1 -Wall -Wextra \
       -c "$SRC/b2lauto.c" -o "$OUT/b2lauto.obj"
 echo "  b2lauto.obj: $(stat -c%s "$OUT/b2lauto.obj") bayt"
+clang -target aarch64-windows-msvc \
+      -ffreestanding -fno-stack-protector -mno-stack-arg-probe \
+      -O1 -Wall -Wextra \
+      -c "$SRC/b2lcmd.c" -o "$OUT/b2lcmd.obj"
+echo "  b2lcmd.obj: $(stat -c%s "$OUT/b2lcmd.obj") bayt"
 
 #
 # 3) Baglama
@@ -235,6 +253,11 @@ lld-link /driver /subsystem:native /entry:DriverEntry /machine:arm64 \
          /out:"$OUT/b2lauto.sys" "$OUT/b2lauto.obj" "$OUT/ntoskrnl.lib"
 echo "  b2lauto.sys: $(stat -c%s "$OUT/b2lauto.sys") bayt"
 file "$OUT/b2lauto.sys" | sed 's/^/  /'
+lld-link /subsystem:console /entry:mainCRTStartup /machine:arm64 \
+         /nodefaultlib \
+         /out:"$OUT/b2lcmd.exe" "$OUT/b2lcmd.obj" "$OUT/kernel32.lib"
+echo "  b2lcmd.exe: $(stat -c%s "$OUT/b2lcmd.exe") bayt"
+file "$OUT/b2lcmd.exe" | sed 's/^/  /'
 
 #
 # 4) Sertifika (bir kez uretiliyor, sonra tekrar kullaniliyor)
@@ -317,19 +340,51 @@ wimlib-imagex update "$WIM" 1 \
 wimlib-imagex update "$WIM" 1 \
   --command="add '$OUT/b2lauto.sys' /Windows/System32/drivers/b2lauto.sys" >/dev/null
 echo "  /Windows/System32/drivers/b2lauto.sys"
+wimlib-imagex update "$WIM" 1 \
+  --command="delete --force /Windows/System32/b2lcmd.exe" >/dev/null 2>&1 || true
+wimlib-imagex update "$WIM" 1 \
+  --command="add '$OUT/b2lcmd.exe' /Windows/System32/b2lcmd.exe" >/dev/null
+echo "  /Windows/System32/b2lcmd.exe"
 
-for SURUCU in b2lfb b2lsg0 b2lsys b2lauto; do
-  CK="$OUT/dogrulama-$SURUCU"; rm -rf "$CK"; mkdir -p "$CK"
-  if wimlib-imagex extract "$WIM" 1 "/Windows/System32/drivers/$SURUCU.sys" \
+#
+# b2lcmd.exe'nin tek cagrildigi yer startnet.cmd'dir. Bu ikisini ayri
+# yerlestirip startnet'i eski bir kopyada birakmak, WIM'de dogru EXE varken
+# kullanici-modu damgasinin hic yazilmamasi demek olur. CRLF'ye cevir,
+# once sil, sonra ekle ve hash'ini geri oku.
+#
+SNTMP="$OUT/startnet.cmd"
+sed 's/\r$//; s/$/\r/' "$HERE/windows/startnet.cmd" > "$SNTMP"
+wimlib-imagex update "$WIM" 1 \
+  --command="delete --force /Windows/System32/startnet.cmd" >/dev/null 2>&1 || true
+wimlib-imagex update "$WIM" 1 \
+  --command="add '$SNTMP' /Windows/System32/startnet.cmd" >/dev/null
+CK="$OUT/dogrulama-startnet"; rm -rf "$CK"; mkdir -p "$CK"
+if wimlib-imagex extract "$WIM" 1 /Windows/System32/startnet.cmd \
+     --dest-dir="$CK" --no-acls >/dev/null 2>&1; then
+  A="$(sha1sum "$SNTMP" | cut -c1-16)"
+  B="$(sha1sum "$CK/startnet.cmd" | cut -c1-16)"
+  [ "$A" = "$B" ] || {
+    echo "  ! startnet.cmd WIM'de farkli ($A != $B); flaslama."; exit 1;
+  }
+  echo "  dogrulandi: startnet.cmd b2lcmd ile ayni ($A)"
+else
+  echo "  ! startnet.cmd WIM'den geri okunamadi - dogrulanamiyor"; exit 1
+fi
+rm -rf "$CK"
+
+for ARTEFAKT in b2lfb.sys b2lsg0.sys b2lsys.sys b2lauto.sys b2lcmd.exe; do
+  CK="$OUT/dogrulama-$ARTEFAKT"; rm -rf "$CK"; mkdir -p "$CK"
+  if [[ "$ARTEFAKT" = *.sys ]]; then WIM_YOL="/Windows/System32/drivers/$ARTEFAKT"; else WIM_YOL="/Windows/System32/$ARTEFAKT"; fi
+  if wimlib-imagex extract "$WIM" 1 "$WIM_YOL" \
        --dest-dir="$CK" --no-acls >/dev/null 2>&1; then
-    A="$(sha1sum "$OUT/$SURUCU.sys" | cut -c1-16)"
-    B="$(sha1sum "$CK/$SURUCU.sys"  | cut -c1-16)"
+    A="$(sha1sum "$OUT/$ARTEFAKT" | cut -c1-16)"
+    B="$(sha1sum "$CK/$ARTEFAKT"  | cut -c1-16)"
     if [ "$A" = "$B" ]; then
-      echo "  dogrulandi: $SURUCU.sys WIM'de derledigimizle AYNI ($A)"
+      echo "  dogrulandi: $ARTEFAKT WIM'de derledigimizle AYNI ($A)"
     else
       echo
       echo "  ###############################################################"
-      echo "  # WIM'DEKI $SURUCU.SYS FARKLI - eski surum kalmis."
+      echo "  # WIM'DEKI $ARTEFAKT FARKLI - eski surum kalmis."
       echo "  #   derlenen: $A"
       echo "  #   WIM'deki: $B"
       echo "  # Flaslamak bosuna; cihaza eski kod gider."
@@ -337,7 +392,7 @@ for SURUCU in b2lfb b2lsg0 b2lsys b2lauto; do
       exit 1
     fi
   else
-    echo "  ! $SURUCU.sys WIM'den geri okunamadi - dogrulanamiyor"
+    echo "  ! $ARTEFAKT WIM'den geri okunamadi - dogrulanamiyor"
     exit 1
   fi
   rm -rf "$CK"
@@ -527,7 +582,7 @@ else
 fi
 
 say "Dogrulama"
-wimlib-imagex dir "$WIM" 1 2>/dev/null | grep -Ei "b2lfb|b2lsg0|b2lsys|b2lauto" | sed 's/^/  /' || echo "  ! b2lfb/b2lsg0/b2lsys/b2lauto WIM'de gorunmuyor"
+wimlib-imagex dir "$WIM" 1 2>/dev/null | grep -Ei "b2lfb|b2lsg0|b2lsys|b2lauto|b2lcmd" | sed 's/^/  /' || echo "  ! b2lfb/b2lsg0/b2lsys/b2lauto/b2lcmd WIM'de gorunmuyor"
 
 cat <<'SON'
 
@@ -559,6 +614,10 @@ BEKLENEN OKUMA  (ErrorControl=3 ile artik hepsi ayirt edilebiliyor):
     AUT=REG C=000  -> b2lfb taze kayit yazdi; SCM auto-start asamasina dair
                       isaret yok
     AUT=SCM C=001  -> b2lauto, Service Control Manager tarafindan baslatildi
+
+  KULLANICI-MODU SINIRI (sonraki B2LGoster ekraninda):
+    USR=REG C=000  -> reset startnet.cmd'nin b2lcmd.exe satirina gelmeden oldu
+    USR=CMD C=001  -> b2lcmd.exe calisti; cmd.exe/WinPE kullanici modu aktif
 
   DIKKAT: cokusten sonra cihazi ELLE KAPATMA. RAM kaydi yalnizca sicak
   sifirlamada kaliyor.
