@@ -84,9 +84,24 @@ fi
 
 [ -f "$MSVC_INC/vadefs.h" ] || die "vadefs.h yok; Visual Studio Build Tools C++ bilesenini kur veya B2L_MSVC_INCLUDE ver"
 
+# WDK 28000 ile birlikte ntdef.h her kurulumda km/ altinda olmuyor. Ornegin
+# bazi SDK yerlesimlerinde km/crt/ altina tasiniyor. wdm.h bunu acik bir
+# acili parantez include'u ile istedigi icin clang, km/ dizini verilse bile
+# onu kendiliginden bulamaz. WDK kokunun icinde yeri kesin olarak bulup
+# yalniz o dizini ekliyoruz; um/km basliklarini topluca arama yoluna eklemek
+# yanlis platform basliklarinin secilmesine yol acabilir.
+WDK_NTDEF_INC=""
+while IFS= read -r Header; do
+  WDK_NTDEF_INC="$(dirname "$Header")"
+  break
+done < <(find "$WDK_INC" -type f -iname ntdef.h -print 2>/dev/null | sort | head -n 1)
+
+[ -n "$WDK_NTDEF_INC" ] || die "ntdef.h WDK icinde bulunamadi: $WDK_INC"
+
 say "WDK ve MSVC bulundu"
 echo "  WDK : $WDK_VERSION"
 echo "  MSVC: $MSVC_INC"
+echo "  ntdef: $WDK_NTDEF_INC/ntdef.h"
 
 mkdir -p "$OUT"
 
@@ -97,6 +112,7 @@ CFLAGS=(
   -ffreestanding -fno-stack-protector -mno-stack-arg-probe -ffixed-x18
   -fms-extensions -D_KERNEL_MODE -D_WIN32_WINNT=0x0A00
   -isystem "$WDK_INC/km" -isystem "$WDK_INC/shared"
+  -isystem "$WDK_NTDEF_INC"
   -isystem "$WDK_INC/ucrt" -isystem "$WDK_INC/um"
   -isystem "$MSVC_INC"
   -O1 -Wall -Wextra -Werror
