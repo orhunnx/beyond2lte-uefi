@@ -1113,6 +1113,43 @@ Kaynaklar: stok `BL_G975FXXSGHWC1...tar.md5` içindeki `sboot.bin.lz4` ve
 `uh.bin.lz4`; [Samsung Exynos KVM arayüzü incelemesi](https://github.com/sleirsgoevy/exynos-kvm-patch),
 [aynı S10 stok açılış günlüğü](https://gist.github.com/Piecuuu/390f776533c7fddc1278de3d1e2612bc).
 
+#### Cihazdaki iki UFS boot LUN'unun sonucu (13 Ağustos 2026)
+
+Recovery'den yalnız-okunur olarak iki 4 MiB aday alındı. İndirme öncesi ve
+sonrası boyutlar tam `4194304` bayttır. Yanlış ilk `adb pull` yolu hiçbir
+dosyaya erişemeden hata verdi; ardından doğru iki geçici dosya ayrı ayrı
+alındı. Bu olay cihaza yazma yapmadı.
+
+| LUN | SHA-256 | İkili kanıt | Sonuç |
+| --- | --- | --- | --- |
+| `/dev/block/sdb` | `b5dbc38ef77e67bc7a6b4ca772231f7a33baa101f2074626464be26d959c670c` | AArch64 başlangıç kodu, `G975FXXSGHWC2`, `f_load_hypervisor` ve U-H yükleme dizeleri | Cihazın güncel HWC2 S-BOOT imajı |
+| `/dev/block/sdc` | `3fe6dcf6d313bde8d5ff4be7ede95f32bb4d3c053e63141c4021a277bf21f62e` | İlk 64 bayt sıfır; yalnız eski `G975FXXS9DTK9` imza metadatası kalmış | Eski/boş ikinci boot kopyası; analiz hedefi değildir |
+
+`sdb`nin HWC2 kimliği, cihazdan daha önce alınan U-H footer'ındaki HWC2
+kimliğiyle tutarlıdır. Böylece HWC1 stok ikilisinden çıkarılan U-H yolu,
+artık cihazın gerçek S-BOOT sürümünde de denetlendi. HWC2'de:
+
+- `f_load_hypervisor` dosya ofseti `0x15c688`, çalışma adresi
+  `0x2035c688`dir.
+- SMC sarmalayıcısı `0x15c618`dedir; `dsb sy; smc #0; isb; ret` biçimindedir.
+- U-H yükleyici, HWC1'deki gibi aynen
+  `x0=0xC2000400`, `x1=0x87001000`, `x2=0x2000`, `x3=1`,
+  `x4=0x87000000`, `x5=0x100000` ile bu sarmalayıcıyı çağırır.
+- HWC1 ile `0x15c618..0x15c8e8` arasındaki fark sadece 11 talimattaki
+  tanı metni/tablo adresi kaymasıdır. Çağrı argümanları, doğrulama akışı,
+  `smc` ve dönüş yolu aynıdır. Küçük `0x0f9008` sarmalayıcısı da bayt
+  bayt aynıdır.
+
+Bu, "HWC2 U-H için farklı bir SMC ABI kullanıyor" varsayımını kapatır.
+Ancak yükleyicinin bulunması onun her custom `BOOT` akışında çağrıldığını
+tek başına kanıtlamaz. S-BOOT içinde yükleyiciye tek doğrudan `bl`,
+`0x0f9008`deki küçük sarmalayıcıdandır; bu sarmalayıcının doğrudan bir
+`bl` çağırıcısı yoktur. Bu, kodun kullanılmadığını kanıtlamaz: çağrı bir
+fonksiyon tablosu, dolaylı `blr` veya önceki boot aşaması üzerinden
+gelebilir. Sonraki çevrimdışı hedef bu dispatch/başlatma koşulunu izlemektir.
+Bu sonuçla HVC payload'ı, U-H belleği rezervi veya aynı Windows açılışları
+yeniden denenmez.
+
 Normal hale dönüş için yalnızca `bash yap.sh` çalıştırmak yeterlidir:
 script FADT'yi yeniden SMC konduitine alır ve EL2 sürücüsünü tekrar derleme
 dışında bırakır.
