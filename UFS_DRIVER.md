@@ -138,16 +138,34 @@ oldu ve UEFI UFS okumasının çalışmasını açıklıyor.
 Windows'un kutudan çıkan `storufs` sürücüsü bu Samsung varyant çağrılarını
 bilmez. HCE/LinkStartup sonrasında bu kalibrasyon yeniden gerekirse, yalnız
 ACPI `_CRS`/`_CLS` nesneleri bunu yerine getiremez; çözüm kendi Exynos StorPort
-miniportumuz olur. Fakat WinPE'de önce `ACPI\SMSN9820\0` için Code 28 görüldü.
-Sonraki otomatik rapor `storufs.sys`in, DriverStore paketinin ve boot-start
-servis kaydının WIM'de gerçekten bulunduğunu kanıtladı. Aynı rapor,
+miniportumuz olur.
+
+### WinPE kanıtı — eşleşme geçti, denetleyici başlatma başarısız
+
+İlk WinPE denemesinde `ACPI\SMSN9820\0` için Code 28 görülmüştü. Bunun nedeni,
 `_CLS={01,09,01}`in `ACPI\CC_010901` değil
-`ACPI\CLS_0001&SUBCLS_0009&PI_01` yayınladığını gösterdi. Bu nedenle hata
-miniportun hiç seçilmediği, donanım başlangıcından **önceki** eşleşme
-aşamasındadır. Aktif sonraki deneme, geçerli `SMSN9820` vendor `_HID`ini
-koruyup ACPI'nin tanımladığı standart `_CID="PCI\CC_010901"`i ekler. Rapor
-bu WIM'in gerçek `storufs.inf` eşleşme satırını da çıkarır; sürücü seçilirse
-ancak ondan sonra Exynos'a özgü kalibrasyon sorusu test edilmeye başlanmış olur.
+`ACPI\CLS_0001&SUBCLS_0009&PI_01` yayınlamasıydı. Vendor `_HID` korunarak
+eklenen standart `_CID="PCI\CC_010901"` bu engeli kaldırdı. Sonraki gerçek
+cihaz raporu şunları gösterdi:
+
+- `Driver Name: storufs.inf`, `Matching Device ID: PCI\CC_010901`,
+  `Service: storufs`;
+- aygıt sınıfı `SCSIAdapter`, sürücü durumu `Best Ranked / Installed`;
+- ardından `Problem Code 10 (CM_PROB_FAILED_START)`, durum
+  `0xC0000182`.
+
+Dolayısıyla Windows artık UFS denetleyicisini tanıyor ve inbox sürücüsünün
+başlatma yolunu gerçekten çalıştırıyor. Code 10, bir UFS diski veya LUN'un
+oluştuğunu **göstermez**: aynı turda DiskPart fiziksel disk/birim göstermedi.
+`X:` de dahili depolama değildir; WinPE'nin `boot.wim` için kurduğu RAM
+diskidir.
+
+Bu sonuç hata eksenini ACPI kimliğinden denetleyici başlatmaya taşır. En güçlü
+mevcut açıklama, jenerik HCE resetinden sonra Exynos'un vendor saat/refclk,
+clock-gating ve CAL zincirinin yeniden kurulmamış olmasıdır; fakat bunu henüz
+kanıtlanmış gerçek olarak değil, sonraki kontrollü testin hipotezi olarak
+tutarız. Bu noktadan sonra UFS'ye yazma yapılmaz; yalnız PnP ve DiskPart
+salt-okunur tanılarıyla her değişken ayrı ölçülür.
 
 ## `mclk_rate` — ÇÖZÜLDÜ
 

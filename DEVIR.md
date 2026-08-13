@@ -1284,22 +1284,28 @@ verilmez.
 
 **İlk UFS0 WinPE sonucu:** PnP aygıtı gerçekten oluşturdu:
 `ACPI\SMSN9820\0`, ancak `Problem Code 28 (CM_PROB_FAILED_INSTALL)` ile kaldı;
-`DiskPart` hâlâ disk/birim bulmadı. Otomatik ikinci rapor, belirsizliği kapattı:
-`storufs.sys`, DriverStore paketi ve boot-start servis kaydı WIM'de mevcut.
-Sorun kimlik eşleşmesidir. Windows, `_CLS={01,09,01}` için
+`DiskPart` fiziksel disk/birim bulmadı. Otomatik ikinci rapor, belirsizliği
+kapattı: `storufs.sys`, DriverStore paketi ve boot-start servis kaydı WIM'de
+mevcut. Windows, `_CLS={01,09,01}` için
 `ACPI\CLS_0001&SUBCLS_0009&PI_01` üretti; `storufs.inf` ise
-`ACPI\CC_010901` istiyor. Dolayısıyla Code 28, MMIO veya kesme kullanılmadan
-önceki PnP eşleşme aşamasındadır.
+`ACPI\CC_010901` istiyordu. Yani ilk Code 28, MMIO veya kesme kullanılmadan
+önceki PnP eşleşme aşamasındaydı.
 
-Sıradaki tek değişken bu eşleşmedir. Geçerli vendor `_HID` korunurken UFS0'a
-ACPI'nin tanımladığı standart `_CID="PCI\CC_010901"` verilir. Bu, Windows'un
-`storufs.inf` paketinin desteklediği diğer yayımlanmış UFS uyumluluk kimliğidir;
-rapor bu WIM'in gerçek INF satırını da ekrana basacaktır. ACPI, `_CID` üzerinden
-PCI sınıf kimliğinin bu biçimini açıkça tanımlar.
+Geçerli vendor `_HID` korunurken UFS0'a ACPI'nin tanımladığı standart
+`_CID="PCI\CC_010901"` verildi. Bu, Windows'un `storufs.inf` paketinin
+desteklediği yayımlanmış UFS uyumluluk kimliğidir; ACPI, `_CID` üzerinden PCI
+sınıf kimliğinin bu biçimini tanımlar.
 ([ACPI _CID tanımı](https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/06_Device_Configuration/Device_Configuration.html))
-Yeni otomatik rapor hem eski hem yeni aygıt örneğini, hem de WIM'deki gerçek
-`storufs.inf` eşleşme satırlarını gösterecek. Böylece sonraki fiziksel hata
-varsa, sürücü seçiminden kesin olarak ayrılmış olur.
+
+**Bu eşleşme turunun sonucu:** cihazdaki rapor artık `Driver Name:
+storufs.inf`, `Matching Device ID: PCI\CC_010901`, `Service: storufs` ve
+`Best Ranked / Installed` gösteriyor. Kimlik sorunu kapanmıştır. Aynı aygıt
+ardından `Problem Code 10 (CM_PROB_FAILED_START)` ve `0xC0000182` ile kalır;
+DiskPart yine fiziksel disk/birim bulmaz. Fotoğraftaki `X:` birimi UFS değildir,
+WinPE `boot.wim` RAM diskidir. Böylece sonraki sorun sürücü seçimi değil,
+`storufs`un Exynos denetleyicisini başlatma yoludur. Tanı betiği bundan sonra
+çıkışı doğrudan konsola bölümler hâlinde basar ve her salt-okunur komuttan sonra
+iki saniye bekler; `b2lcmd`/`findstr` yokluğu artık yalancı hata satırı üretmez.
 
 Kullanıcının verdiği Exynos kaynak dosyası ayrıca ikinci, sonraki aşamadaki
 engeli netleştirir: Linux sürücüsü `LINKSTARTUP` **öncesinde** saat/refclk,
@@ -1308,9 +1314,10 @@ auto-clock-gating ve hata katmanlarını ayarlayıp `ufs_cal_pre_link()` çağı
 ([ufs-exynos.c](https://github.com/ianmacd/d2s/blob/master/drivers/scsi/ufs/ufs-exynos.c))
 Bu akış, bizim UEFI `PlatformUfsLib` CAL zincirimizle uyumludur ve jenerik
 `storufs`un HCE resetinden sonra Exynos'a özgü kalibrasyonu yeniden kuramadığı
-riskini doğrular. Ancak bugünkü Code 28 bu donanım aşamasından önce oluşur;
-önce inbox sürücüsünün WIM'de bulunup bulunmadığı ve doğru kimliğin gerçekten
-yayınlanması kanıtlanmalıdır. Bu artık ölçülen sonraki adımdır.
+riskini doğrular. Code 28 artık geçilmiş olsa da, yeni Code 10 bu donanım
+aşamasına ulaşıldığını tek başına kanıtlamaz: sürücünün hangi ilk başlatma
+adımında `0xC0000182` döndüğünü ayırmak gerekir. Bu nedenle sıradaki tur yalnız
+PnP yapılandırmasını ve DiskPart'i gözlemleyecek; UFS'ye yazma yapılmayacaktır.
 
 Windows açılışında dönen çemberin görünmemesi ayrıca beklenir. Kendi BCD
 üreticimiz önceki sessiz-reset tanısı için `bootuxdisabled on` ve
