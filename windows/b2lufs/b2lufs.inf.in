@@ -1,6 +1,8 @@
-; B2LUFS Faz 0 INF şablonu. Bu dosya WIM'e konmaz ve şu an ASLA bağlanmaz.
-; Bağlama turunda DSDT UFS0 için yalnız ACPI\B2LU9820 kimliği yayınlayacak;
-; PCI\CC_010901 kaldırılacak, böylece storufs ve b2lufs aynı HBA'ya yarışmaz.
+; B2LUFS Faz 0 INF şablonu. Yalnız test WinPE WIM'ine konur.
+; DSDT UFS0 için yalnız ACPI\BYND9820 compatible kimliği yayınlar;
+; PCI\CC_010901 kaldırılmıştır, böylece storufs ve b2lufs aynı HBA'ya yarışmaz.
+; tools_b2lufs.sh, INF+SYS hash'lerini kapsayan bu katalogu WDK Inf2Cat ile
+; uretir ve mevcut b2lfb test sertifikasi ile imzalar.
 
 [Version]
 Signature="$WINDOWS NT$"
@@ -17,7 +19,7 @@ DefaultDestDir = 12
 %B2L%=B2L,NTarm64
 
 [B2L.NTarm64]
-%B2LUfs.DeviceDesc%=B2LUfs_Install, ACPI\B2LU9820
+%B2LUfs.DeviceDesc%=B2LUfs_Install, ACPI\BYND9820
 
 [B2LUfs_Install.NT]
 CopyFiles=B2LUfs_CopyFiles

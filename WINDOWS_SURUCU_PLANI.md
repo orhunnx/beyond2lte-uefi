@@ -81,10 +81,20 @@ verdiği kaynakları atlar. Doğru sınır artık `windows/b2lufs/` altındadır
 - `b2lufs_resources.c`, altı 9820 kaynağını **taban adresine göre** doğrular;
   kaynakların `_CRS` içindeki sırasını varsaymaz;
 - saf birim testi WDK olmadan çalışır;
-- sonraki b2lufs INF turunda `_CID` yalnız yeni miniporta verilecek ve
+- b2lufs INF turunda `_CID=BYND9820` yalnız yeni miniporta verilecek ve
   `storufs` aynı aygıta bağlanmayacaktır; o ilk bağlı tur yalnız kaynakları
   raporlayıp HCE yazmadan başarıyla duracaktır;
+- PnP paketi, gömülü SYS imzasına ek olarak INF+SYS hash'lerini kapsayan
+  aynı test sertifikalı bir `b2lufs.cat` içerir;
 - HCE, DME, PHY, CAL veya UFS'ye yazma henüz yoktur.
+
+İlk gerçek HCI kanıtı da alındı: `CAP=1303FF1F`, `VER=00000300`, `HCE=1`,
+`1US_TO_CNT=000000A6`. Bu, denetleyicinin firmware devrinden sonra canlı
+kaldığını, 32 UTR (`CAP[4:0]+1`), 4 UTMR (`CAP[18:16]+1`) ve 64-bit DMA
+adreslemesini desteklediğini gösterir. Dolayısıyla generic `storufs`un Code
+10 sonucu "denetleyici kapalı" değildir; Exynos'a özgü reset-sonrası PHY/CAL
+get-up eksikliğiyle uyumludur. Bu dört kapasite değeri tekrar ölçülmeyecek;
+sonraki tur PnP'nin yalnız `b2lufs.inf` ile **Started** oluşunu kanıtlar.
 
 Bu, Microsoft'un StorPort modeline uyar: PnP'nin sağladığı `ACCESS_RANGE`
 dışında başka HBA adresi aranmaz. Windows'un örnek deposu WDK/INF ve PnP

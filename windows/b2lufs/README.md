@@ -77,9 +77,30 @@ ayrı, imzalı test sürücüsü ve tamamlanma kaydı olmadan etkinleştirilmez.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
 `InIoSpace` parametresi için terslenir. Kısmi/uyuşmayan kaynak dizisi hemen
-geri bırakılır. `HwInitialize` şu an bilerek `FALSE` döner ve eşlemeleri
-serbest bırakır; INF de WIM'e yerleştirilmemiştir. Böylece iskelet ne
-`storufs` ile yarışır ne de herhangi bir UFS komutu başlatır.
+geri bırakılır. İlk bağlı testte `HwInitialize` **TRUE** döner; bu, yalnız
+PnP'nin kaynak sözleşmesini "Started" olarak göstermesi içindir. Sürücü
+HCI/PHY/UniPro register'ı okumaz ya da yazmaz, DMA ayırmaz, kesme kabul
+etmez ve `HwStartIo` ile her isteği `INVALID_REQUEST` olarak tamamlar.
+Dolayısıyla DiskPart'ın hâlâ dahili disk göstermemesi bu testin beklenen
+sonucudur.
+
+Bu testte DSDT `UFS0` aygıtı yalnız `ACPI\\BYND9820` compatible ID'sini
+yayınlar ve altı MMIO penceresini yalnız b2lufs'a verir. Böylece inbox
+`storufs` ile aynı HBA'ya iki sürücünün bağlanması mümkün değildir. WinPE
+`startnet.cmd`, paket eklendiyse `pnputil /add-driver ... /install` çağrısını
+otomatik yapar; fotoğrafta hedef PnP durumu `b2lufs.inf` + `Started`dır.
+
+`tools_b2lufs.sh`, WSL'den Windows WDK'nin ARM64 `storport.lib` ve
+`ntoskrnl.lib` kitaplıklarını kullanır. Ayrıca `Inf2Cat.exe` ile INF+SYS
+hash'lerini içeren `b2lufs.cat` üretir, onu ve SYS'yi b2lfb'nin var olan
+test sertifikasıyla imzalar. PnP yüklemesi için yalnız gömülü SYS imzasına
+güvenmek doğru değildir.
+
+Ölçülen ilk HCI durumu: `CAP=1303FF1F`, `VER=00000300`, `HCE=1`,
+`1US_TO_CNT=000000A6`. CAP alanında NUTRS `[4:0]` ve NUTMRS `[18:16]`
+sırasıyla `31` ve `3` olduğundan ilk gerçek DMA turu 32 UTR + 4 UTMR yuvası
+kullanacak; bit 24 de 64-bit adreslemeyi bildirir. Bu DMA turu henüz pakete
+dahil değildir.
 
 Yerel doğrulama:
 
@@ -91,11 +112,11 @@ clang -std=c11 -Wall -Wextra -Werror \
 
 ## Sonraki üç değişiklik
 
-1. Yalnız b2lufs için ayrı ACPI `_CID`/INF ve yukarıdaki altı `_CRS` kaynağı.
-   Jenerik `storufs` ile aynı aygıta birlikte bağlanmayacak.
-2. Ayrı ACPI `_CID`/INF'yi WDK ile **yalnız test WIM'ine** paketle ve altı
+1. Ayrı ACPI `_CID`/INF'yi WDK ile **yalnız test WIM'ine** paketle ve altı
    `_CRS` kaynağının tam geldiğini fotoğraf logu ile doğrula. Bu değişiklik
-   `PCI\\CC_010901`i kaldırarak genel `storufs` bağlamasını bitirecek.
+   `PCI\\CC_010901`i kaldırarak genel `storufs` bağlamasını bitirdi.
+2. CAP kanıtına göre UTR (32), UTMR (4) ve 64-bit DMA ringlerini ayır;
+   önce yalnız fiziksel-adres/zeroing kaydını doğrula.
 3. UEFI'den Exynos başlatması: VCC/PHY isolation, IO coherency,
    `1US_TO_CNT=166`, saat/refclk/clock-gating, CAL pre-link, standart
    `DME_LINKSTARTUP`, CAL post-link. UTRD/UPIU/SCSI bundan sonra gelir.

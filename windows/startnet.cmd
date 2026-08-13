@@ -2,13 +2,14 @@
 setlocal EnableExtensions
 title Beyond2LTE WinPE automatic diagnostics
 rem Yatayda yazinin kuculmemesi icin genislik sabit; gecmis cikti icin tampon yuksektir.
-mode con: cols=112 lines=220 >nul 2>&1
+mode con: cols=112 lines=176 >nul 2>&1
 
 rem Bu portta henuz klavye, fare veya dokunmatik girisi yoktur. Dolayisiyla
 rem bu betik her seyi kendiliginden calistirir; `pause` veya kullanici
 rem girdisi bekleyen bir komut kullanmaz.
 set "DPSCRIPT=%SystemDrive%\B2LDISK.TXT"
 set "UFSBOOTREPORT=%SystemRoot%\B2LUFS.TXT"
+set "B2LUFSDIR=%SystemRoot%\B2LUFS"
 
 echo.
 echo === Beyond2LTE WinPE: otomatik tani ===
@@ -40,6 +41,10 @@ echo Not: X: WinPE'nin boot.wim RAM diski; dahili UFS diski degil.
 call :PhotoPause
 
 echo.
+echo [B2LUFS Faz 0: ozel miniportu PnP'ye ekle]
+call :B2LUfsInstall
+
+echo.
 echo [PnP: klavye/fare/USB/ag]
 if exist "%SystemRoot%\System32\pnputil.exe" (
   pnputil /enum-devices /connected /class Keyboard /drivers
@@ -64,7 +69,7 @@ ipconfig /all
 call :PhotoPause
 
 echo.
-echo [UFS: ACPI UFSHCI kimligi ve storufs]
+echo [UFS: ACPI UFSHCI kimligi ve secilen miniport]
 call :UfsReport
 
 echo.
@@ -100,6 +105,23 @@ echo.
 echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
 cmd.exe /k
 goto :eof
+
+:B2LUfsInstall
+rem Paket yoksa bu WIM onceki, yalniz storufs tani turudur.
+if not exist "%B2LUFSDIR%\b2lufs.inf" (
+  echo B2LUFS paketi yok; inbox storufs tanisi ile devam ediliyor.
+  exit /b 0
+)
+if not exist "%SystemRoot%\System32\pnputil.exe" (
+  echo PnPUtil yok; B2LUFS paketi WinPE'ye eklenemedi.
+  exit /b 1
+)
+echo INF ekleniyor ve yalniz ACPI\BYND9820 eslemesi kuruluyor:
+pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install
+echo PnP yeniden taraniyor:
+pnputil /scan-devices
+echo Beklenen: b2lufs Started, DiskPart'ta hala dahili disk YOK.
+exit /b 0
 
 :UfsReport
 rem UFS raporu ana betikteki parantezli PnP raporundan bilerek ayridir.

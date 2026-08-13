@@ -3,8 +3,8 @@
  *
  * Bu dosya HCI'yi BAŞLATMAZ ve I/O ALMAZ. Tek görevi StorPort'un verdiği
  * ACPI kaynaklarını işletim sistemi bağımsız B2LUfsBindResources katmanına
- * aktarmaktır. b2lufs.inf henüz WIM'e yerleştirilmediği için bu dosya mevcut
- * WinPE davranışına dokunmaz.
+ * aktarmaktır. İlk bağlı turda HwInitialize basariyla döner; bu yalnız PnP
+ * kaynak sözleşmesini ölçer, hiçbir UFS register'ına dokunmaz ve LUN kurmaz.
  */
 #include <ntddk.h>
 #include <storport.h>
@@ -14,6 +14,20 @@
 typedef struct B2LUFS_ADAPTER {
     B2LUFS_RESOURCES Resources;
 } B2LUFS_ADAPTER;
+
+/*
+ * Faz 0 derlemesi CRT'ye baglanmaz. RtlZeroMemory'nin libc'ye donusme
+ * olasiligini da ortadan kaldirmak icin bu kucuk yerel yardimci kullanilir.
+ */
+static VOID
+B2LUfsZeroMemory(_Out_ PVOID Buffer, _In_ SIZE_T ByteCount)
+{
+    PUCHAR Cursor = (PUCHAR)Buffer;
+
+    while (ByteCount-- != 0) {
+        *Cursor++ = 0;
+    }
+}
 
 /*
  * HwFindAdapter yarıda başarısız olursa StorPort eşlemelerini aynı çağrıda
@@ -74,7 +88,7 @@ B2LUfsFindAdapter(
         return SP_RETURN_BAD_CONFIG;
     }
 
-    RtlZeroMemory(Given, sizeof(Given));
+    B2LUfsZeroMemory(Given, sizeof(Given));
     for (Index = 0; Index < B2LUFS_RESOURCE_COUNT; ++Index) {
         PACCESS_RANGE Range = &ConfigInfo->AccessRanges[Index];
 
@@ -101,6 +115,7 @@ B2LUfsFindAdapter(
     }
 
     Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
+    B2LUfsZeroMemory(Adapter, sizeof(*Adapter));
     if (B2LUfsBindResources(Given, B2LUFS_RESOURCE_COUNT,
                             &Adapter->Resources) != 0) {
         B2LUfsReleaseGivenResources(DeviceExtension, Given);
@@ -108,9 +123,9 @@ B2LUfsFindAdapter(
     }
 
     /*
-     * Bunlar Faz 0'da asla I/O'ya ulaşmaz; HwInitialize bilerek FALSE döner.
-     * Buna rağmen StorPort sözleşmesi için sınırları açıkça bildiriyoruz.
-     * UTRD/PRDT gelince gerçek HCI kapasitesine göre yeniden hesaplanacak.
+     * Bu turda kaynaklar yalnız elde tutulur; bir register okunmaz ya da
+     * yazılmaz. UTRD/PRDT sinirlari gerçek HCI kapasitesi kanitlandiktan
+     * sonra ayri bir değişiklikte hesaplanacak.
      */
     ConfigInfo->MaximumTransferLength = PAGE_SIZE;
     ConfigInfo->NumberOfPhysicalBreaks = 1;
@@ -126,15 +141,14 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
 
+    UNREFERENCED_PARAMETER(Adapter);
+
     /*
-     * Bağlı ilk sürümde buraya sırayla VCC/PHY isolation, IO coherency,
-     * 1US_TO_CNT, refclk/clock-gating, CAL pre-link, DME_LINKSTARTUP ve
-     * CAL post-link gelecek. Bu tamamlanmadan TRUE dönmek güvenli değildir.
-     * Faz 0 başlatmayı reddettiği için bu çağrıda alınan eşlemeleri de geri
-     * veriyoruz; hiçbir kalıcı donanım sahibi bırakmıyoruz.
+     * Bu "kaynak sözleşmesi" turu için başarı, donanımın başladığı anlamına
+     * gelmez. Bunun tek etkisi PnP'nin b2lufs.inf'i Started göstermesidir.
+     * HCE, UIC/DME, PHY/CAL, DMA ve LUN taraması sonraki faza kadar YOKTUR.
      */
-    B2LUfsReleaseAdapterResources(Adapter);
-    return FALSE;
+    return TRUE;
 }
 
 static HW_STARTIO B2LUfsStartIo;
@@ -186,21 +200,20 @@ B2LUfsAdapterControl(
 
         Supported = (PSCSI_SUPPORTED_CONTROL_TYPE_LIST)Parameters;
         if (Supported == NULL ||
-            Supported->MaxControlType <= ScsiRestartAdapter) {
+            Supported->MaxControlType <= ScsiStopAdapter) {
             return ScsiAdapterControlUnsuccessful;
         }
 
         /* Faz 0 aygıtı başlatmaz; yine de PnP stop/restart sözleşmesini tutar. */
         Supported->SupportedTypeList[ScsiQuerySupportedControlTypes] = TRUE;
         Supported->SupportedTypeList[ScsiStopAdapter] = TRUE;
-        Supported->SupportedTypeList[ScsiRestartAdapter] = TRUE;
         return ScsiAdapterControlSuccess;
     }
 
-    if (ControlType == ScsiStopAdapter || ControlType == ScsiRestartAdapter) {
-        UNREFERENCED_PARAMETER(DeviceExtension);
+    if (ControlType == ScsiStopAdapter) {
+        B2LUfsReleaseAdapterResources((B2LUFS_ADAPTER *)DeviceExtension);
         UNREFERENCED_PARAMETER(Parameters);
-        /* Donanım başlatılmadığı için durdurulacak/yeniden kurulacak I/O yok. */
+        /* Donanım başlatılmadığı için durdurulacak I/O veya resetlenecek HCI yok. */
         return ScsiAdapterControlSuccess;
     }
 
@@ -214,7 +227,7 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
 {
     HW_INITIALIZATION_DATA InitData;
 
-    RtlZeroMemory(&InitData, sizeof(InitData));
+    B2LUfsZeroMemory(&InitData, sizeof(InitData));
     InitData.HwInitializationDataSize = sizeof(InitData);
     InitData.AdapterInterfaceType = Internal;
     InitData.HwFindAdapter = B2LUfsFindAdapter;

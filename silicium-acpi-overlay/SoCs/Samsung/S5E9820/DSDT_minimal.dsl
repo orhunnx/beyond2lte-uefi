@@ -174,16 +174,14 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             // basina storufs.inf ile eslesmedigini kanitladi.
             Name (_HID, "SMSN9820")
             Name (_UID, Zero)
-            // ACPI 6.4'te tanimli bus-specific PCI class CID. _HID degil
-            // _CID kullanmak gecerli vendor kimligini korur. ASL string'inde
-            // literal ters bolu iki ters bolu ile escape edilir.
-            Name (_CID, "PCI\\CC_010901")
-            Name (_CLS, Package (0x03)
-            {
-                0x01,   // Mass Storage
-                0x09,   // UFS
-                0x01    // UFSHCI
-            })
+            // Bu testte UFSHCI'yi yalniz bizim StorPort miniportumuz alir.
+            // PCI\\CC_010901 kaldirilirsa inbox storufs.sys ayni HBA'ya
+            // baglanamaz; vendor _HID ise sabit kalir ve tani komutlari
+            // ACPI\\SMSN9820\\0 yolunu kullanmaya devam eder.
+            //
+            // BYND9820, bu deney icin ozel compatible kimliktir.
+            // b2lufs.inf yalniz buna eslesir; fiziksel _HID degismez.
+            Name (_CID, "BYND9820")
 
             // Stok DTB'deki ufs-io-coherency nedeniyle cihaz koherent.
             Name (_CCA, One)
@@ -193,9 +191,15 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             }
             Name (_CRS, ResourceTemplate ()
             {
-                // DTB: ufs@13D60000. Jenerik surucuye yalniz UFSHCI alanini
-                // bildir; Samsung vendor/UniPro/PHY pencereleri verilmez.
+                // Bu alti pencere yalniz b2lufs'a tahsis edilir. Miniport
+                // tabana gore eksiksizligini dogrular; ilk bagli turda
+                // HCI/PHY/UniPro yazmaclarina hicbir yazma yapmaz.
                 Memory32Fixed (ReadWrite, 0x13D60000, 0x00001000)
+                Memory32Fixed (ReadWrite, 0x13D61100, 0x00000200)
+                Memory32Fixed (ReadWrite, 0x13D50000, 0x00008000)
+                Memory32Fixed (ReadWrite, 0x13D64000, 0x00000800)
+                Memory32Fixed (ReadWrite, 0x13C10700, 0x00000004)
+                Memory32Fixed (ReadWrite, 0x15860724, 0x00000004)
                 // DTB SPI 249 -> GIC GSIV 249 + 32 = 281.
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
                 {
