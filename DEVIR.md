@@ -179,10 +179,44 @@ Bu zincir ancak `ExitBootServices` öncesindeki UEFI kayıtlarını USB belleğe
 yazabilir. Mevcut 15 saniyelik Windows sıfırlamasında UEFI kodu artık
 çalışmadığından, sıfırlama anında dosyaya yazma sağlamaz.
 
-Windows'un USB kernel-debug seçeneği de bunun kısayolu değildir: hedefte
-Intel xHCI Debug Capability (DbC) bulunan bir xHCI denetleyicisi ve özel
-USB 3.0 debug kablosu ister. Exynos DWC3 OTG için böyle bir DbC desteği
-doğrulanmış değildir; ayrıca bu platformda PCI/xHCI aygıtı yoktur.
+Klasik Windows USB kernel-debug (`KDUSB`) bunun kısayolu değildir: hedefte
+xHCI Debug Capability (DbC) bulunan bir xHCI denetleyicisi ve özel USB 3.0
+debug kablosu ister. Exynos DWC3 OTG için böyle bir DbC desteği doğrulanmış
+değildir; ayrıca bu platformda PCI/xHCI aygıtı yoktur.
+
+### 4.6 KDNET-EEM: ayrı bir Windows USB aygıt-modu olasılığı
+
+Bu, klasik `KDUSB` ile karıştırılmamalıdır. Microsoft'un ARM için sunduğu
+`KDNET-EEM-USB`, hedefte bir **Synopsys USB 3.0 dual-role controller**'ın
+USB-C portuna bağlı olmasını ve firmware'in denetleyiciyi ACPI `DBG2`
+tablosunda bir debug aygıtı olarak bildirmesini ister. ARM'de BCD
+`busparams`, PCI BDF değil, bu tablodaki debug-device dizinidir.
+([KDNET-EEM gereksinimleri](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/setting-up-kernel-mode-debugging-over-usb-eem-arm-kdnet), [DBG2 biçimi](https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/acpi-debug-port-table))
+
+Bu cihaz için donanım önkoşulu **olumlu ama yeterli değildir**: stok DTB'de
+`synopsys,dwc3`, `dr_mode = "otg"`, `0x10C00000/0x10000` denetleyici alanı,
+USB2/USB3 PHY bağları ve etkin Exynos USBDRD PHY bulunur. Dolayısıyla EEM,
+"imkânsız xHCI DbC" değil, araştırmaya değer bir sonraki nesil debug kanalıdır.
+
+Bugün kullanılamaz; etkin ACPI yalnız temel tabloları/UFS0'ı bildirir, `DBG2`
+tablosu ve DWC3 aygıt-modu düğümü yoktur; WinPE PnP raporu da USB aygıtı
+görmemektedir. Üstelik `kdnet.exe` ayarının hedefte Windows içinden bir kez
+yazılması gerekir; giriş aygıtı/uzak kanal yokken bunun BCD'ye çevrimdışı
+yerleştirilmesi ayrıca tasarlanmalıdır. Bu nedenle UFS Code 10 turuna
+karıştırılmayacak.
+
+EEM için güvenli, ayrı get-up sırası şudur:
+
+1. Stok Linux'tan DWC3/PHY saat-reset/Type-C device-role sırasını çıkar;
+   UFS MMIO veya mevcut ACPI tanımlarını değiştirme.
+2. DSDT'de yalnız DWC3 aygıtı ve kesin kaynaklarını tanımla; Windows'un
+   desteklediği aygıt-modu kimliği olmadan yükleme yapma.
+3. `DBG2` tablosını RSDT/XSDT'ye ekle ve ilk EEM girişinin dizinini sabitle.
+4. WinPE'de `kdnet.exe` ile desteklenen USB controller/busparams çıktısını
+   doğrula; ancak bundan sonra test BCD'sine KDNET anahtarını yaz.
+
+Bu dört koşulun herhangi biri yoksa host bilgisayara standart USB-C kablosu
+takmak bir kernel debug bağlantısı oluşturmaz.
 
 **Karar:** USB yığını, ayrı ve büyük bir UEFI portudur; 15 saniyelik
 sıfırlamayı teşhis etmek için şimdi başlatılmayacak. Mevcut güvenli kanal

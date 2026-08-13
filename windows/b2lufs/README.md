@@ -44,6 +44,25 @@ UFS H=xxxxxxxx T=xxxxxxxx
 Bu kayıt HCE'yi değiştirmez, UIC/DME komutu göndermez, kesme durumunu
 okumaz/temizlemez ve hiçbir UFS LUN'una erişmez.
 
+Başka bir S9+ Windows get-up ekranında görülen “one-shot NOP” yaklaşımı,
+bizim için bir uygulama tarifi değil bir **önkoşul listesi**dir. Kaynak kodu
+ve donanım revizyonu bilinmediği için onun register yazma sırasını kopyalamak
+güvenli değildir. Buna rağmen doğrulanacak noktalar doğru sıralamayı verir:
+
+1. `CAP` içinden NUTRS/NTMRS ve adresleme kapasitesi; UTRD/UTMR ring boyutu
+   tahmin edilmez.
+2. `HCE` ve UFS owner/link durumu; firmware hâlâ sahibiyse denetleyici
+   resetlenmez veya yeniden başlatılmaz.
+3. StorPort'un verdiği fiziksel DMA belleğinin düşük-4-GB, bitişik ve
+   sıfırlanmış olup olmadığı; bu varsayım yalnız `CAP` doğrulandıktan sonra
+   kullanılabilir.
+4. Bunlar kayda geçtikten sonra, **tek** yazmayan UTP NOP Out komutu ve
+   yalnız tamamlanma kodunun okunması. UIC/DME/power-mode veya LUN I/O'su
+   bu adımdan önce gelmez.
+
+Mevcut Faz 0 yalnız ilk iki maddenin salt-okunur tarafını ölçer. NOP/DMA yolu
+ayrı, imzalı test sürücüsü ve tamamlanma kaydı olmadan etkinleştirilmez.
+
 `b2lufs_storport.c`, gerçek WDK `HwFindAdapter` çağrısını bu katmana bağlar.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
