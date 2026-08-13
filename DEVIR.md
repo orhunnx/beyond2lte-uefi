@@ -1042,15 +1042,30 @@ bir ayar çıkarılamaz; bu bölüme yazmak için hiçbir gerekçe yoktur.
 
 `UH` cihazda `/dev/block/sda10`dur ve bölümün tamamının SHA-256 değeri
 `61cd66d5e24076fec67bd632c8d283b5f0001ca9fac712af138a091e1f2eb801`dir.
-Bu, stok paketten açılan `uh.bin` ile **henüz karşılaştırılamaz**: bölüm
-2 MiB iken paket içindeki imzalı `GREENTEA` kapsülü `276120` (`0x43698`)
-bayttır. Bölüm sonundaki dolgu/eski veri farklı olabilir. Karşılaştırma
-yalnız iki kopyanın ilk `0x43698` baytında yapılmalıdır.
+Bu, stok paketten açılan `uh.bin` ile cihazdan alınan kopyanın ilk `0x43698`
+baytında karşılaştırıldı. Sonuç:
 
-#### Sıradaki güvenli veri: cihazdaki `UH`nin salt-okunur kopyası
+- Kapsülün `GREENTEA` başlığı ile `0x1000..0x43388` aralığındaki bütün
+  `271240` baytlık AArch64 ELF yürütme kodu **byte-for-byte aynı**dır.
+- Farkların tamamı `0x43388..0x43698` imza altbilgisindedir. Stok dosya
+  `G975FXXSGHWC1` / `62768724R` / `20230302103951`, cihazdaki dosya ise
+  `G975FXXSGHWC2` / `62822459R` / `20230303171316` sürümünü taşır; ECDSA
+  imzası bu nedenle farklıdır.
+- `0x43698..0x200000` bölüm sonu tamamen sıfırdır. Burada ikinci bir kapsül,
+  ayar veya eski veri yoktur.
 
-İlk iki alma işlemi yalnız okumaydı; bu üçüncü işlem de aynıdır. `sboot`,
-`uh`, `uhcfg`, `boot` veya `vbmeta`ya yazılmaz ve Odin kullanılmaz.
+Yani U-H'nin incelediğimiz EL2 kodu cihazdaki kodla aynıdır. Buna karşılık
+S-Boot'u HWC1 paketinden çözdük, cihazdaki U-H ise HWC2 imzalıdır; S-Boot'un
+custom `BOOT` yolunda U-H yükleme çağrısını hangi koşulda yaptığı konusunda
+HWC1'i HWC2 diye varsayamayız.
+
+#### Sıradaki güvenli veri: cihazdaki `S-BOOT`un salt-okunur kopyası
+
+PIT, `BOOTLOADER` bölümünü `sboot.bin` olarak tanımlar; tam boyutu 4 MiB'dir.
+Önce recovery'nin bu bölümü hangi Android `by-name` takma adıyla gösterdiği
+okunur, sonra yalnız o takma ad alınır. İlk üç alma işlemi yalnız okumaydı;
+bu işlem de aynıdır. `sboot`, `uh`, `uhcfg`, `boot` veya `vbmeta`ya yazılmaz
+ve Odin kullanılmaz.
 
 Custom recovery içindeki `adb shell` ile Windows PowerShell'de çalışacak
 komutlar:
@@ -1058,18 +1073,27 @@ komutlar:
 ```powershell
 $adb = "C:\Users\orhun\OneDrive\Masaüstü\projectfiles\platform-tools\adb.exe"
 & $adb devices
-& $adb shell "dd if=/dev/block/by-name/uh of=/tmp/uh-G975F.img bs=2M"
-& $adb shell "wc -c /tmp/uh-G975F.img; sha256sum /tmp/uh-G975F.img"
-& $adb pull /tmp/uh-G975F.img "$env:USERPROFILE\Desktop\uh-G975F.img"
-& $adb shell "rm /tmp/uh-G975F.img"
-Get-FileHash "$env:USERPROFILE\Desktop\uh-G975F.img" -Algorithm SHA256
+& $adb shell "ls -l /dev/block/by-name | grep -Ei 'sboot|bootloader'"
 ```
 
-Beklenen boyut tam `2097152` bayttır. `adb pull`dan önce ve sonra görünen
-SHA-256 aynı olmalıdır. `dd`nin yönü özellikle `if=/dev/block/by-name/uh`
-olup `of=/tmp/...`dir; tersine çevrilmez. Dosya alındıktan sonra stok
-`uh.bin`in ilk `0x43698` baytıyla karşılaştırılır. Yazma veya bölüm
-değiştirme için ayrıca, eldeki ikili kanıtın belirlediği bir gerekçe gerekir.
+Bu çıktıda görünen gerçek takma adı `SBOOT` değişkenine koyduktan sonra:
+
+```powershell
+$SBOOT = "sboot"   # önceki komutun gösterdiği TAKMA AD ile degistir
+& $adb shell "readlink -f /dev/block/by-name/$SBOOT"
+& $adb shell "dd if=/dev/block/by-name/$SBOOT of=/tmp/sboot-G975F.img bs=4M"
+& $adb shell "wc -c /tmp/sboot-G975F.img; sha256sum /tmp/sboot-G975F.img"
+& $adb pull /tmp/sboot-G975F.img "$env:USERPROFILE\Desktop\sboot-G975F.img"
+& $adb shell "rm /tmp/sboot-G975F.img"
+Get-FileHash "$env:USERPROFILE\Desktop\sboot-G975F.img" -Algorithm SHA256
+```
+
+Beklenen boyut tam `4194304` bayttır. `adb pull`dan önce ve sonra görünen
+SHA-256 aynı olmalıdır. `dd`nin yönü özellikle `if=/dev/block/by-name/$SBOOT`
+olup `of=/tmp/...`dir; tersine çevrilmez. Dosya alındıktan sonra HWC1
+`sboot.bin` ile karşılaştırılır ve yalnız HWC2'nin gerçek çağrı koşulundan
+sonuç çıkarılır. Yazma veya bölüm değiştirme için ayrıca, eldeki ikili
+kanıtın belirlediği bir gerekçe gerekir.
 
 Kaynaklar: stok `BL_G975FXXSGHWC1...tar.md5` içindeki `sboot.bin.lz4` ve
 `uh.bin.lz4`; [Samsung Exynos KVM arayüzü incelemesi](https://github.com/sleirsgoevy/exynos-kvm-patch),
