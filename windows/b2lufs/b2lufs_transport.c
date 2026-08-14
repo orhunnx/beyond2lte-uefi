@@ -378,6 +378,7 @@ B2LUfsCdbIsExplicitlyReadOnly(_In_reads_bytes_(16) const UCHAR *Cdb)
     case B2LUFS_SCSI_READ_BUFFER:
     case B2LUFS_SCSI_MODE_SENSE_10:
     case B2LUFS_SCSI_READ_16:
+        return TRUE;
     case B2LUFS_SCSI_SERVICE_ACTION_IN_16:
         /* 0x9e has several service actions; only READ CAPACITY(16) is used. */
         return (Cdb[1] & 0x1FU) == B2LUFS_SCSI_SAI_READ_CAPACITY_16;
