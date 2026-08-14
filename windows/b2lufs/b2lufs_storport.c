@@ -256,7 +256,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 5;
+    ULONG SchemaVersion = 6;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -367,11 +367,9 @@ B2LUfsPassiveInitialize(_In_ PVOID DeviceExtension)
     B2LUfsPublishLunSnapshot(DeviceExtension, Adapter);
 
     /*
-     * StorPort must see this only after HwInitialize has returned success.
-     * This notification asks it to scan BTL8 bus 0; it does not replace the
-     * explicit legacy-SRB/BTL8 contract negotiated in DriverEntry and
-     * HwFindAdapter. At PASSIVE_LEVEL the miniport is fully live and its
-     * diagnostic snapshot is already published.
+     * LUN 0 is the static BTL8 path declared in HwFindAdapter.  The
+     * notification is only a post-initialization rescan trigger; PDO and
+     * unit lifecycle still use the BuildIo/UnitControl PnP contracts below.
      */
     StorPortNotification(BusChangeDetected, DeviceExtension, (UCHAR)0);
     return TRUE;
@@ -403,6 +401,86 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
 }
 
 static HW_STARTIO B2LUfsStartIo;
+static HW_BUILDIO B2LUfsBuildIo;
+static HW_UNIT_CONTROL B2LUfsUnitControl;
+
+_Use_decl_annotations_
+static BOOLEAN
+B2LUfsBuildIo(_In_ PVOID DeviceExtension, _In_ PSCSI_REQUEST_BLOCK Srb)
+{
+    B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
+
+    /*
+     * StorAHCI handles PnP before normal StartIo processing.  The legacy
+     * equivalent is SCSI_PNP_REQUEST_BLOCK; completing it here prevents it
+     * from being misread as a CDB by the UFS transport.
+     */
+    if (Srb->Function == SRB_FUNCTION_PNP) {
+        B2LUfsHandlePnpSrb(DeviceExtension, Adapter, Srb);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+static BOOLEAN
+B2LUfsUnitAddressIsLun0(_In_ const STOR_ADDR_BTL8 *Address)
+{
+    return Address != NULL &&
+           Address->Type == STOR_ADDRESS_TYPE_BTL8 &&
+           Address->AddressLength == STOR_ADDR_BTL8_ADDRESS_LENGTH &&
+           Address->Path == 0 && Address->Target == 0 && Address->Lun == 0;
+}
+
+_Use_decl_annotations_
+static SCSI_UNIT_CONTROL_STATUS
+B2LUfsUnitControl(
+    _In_ PVOID DeviceExtension,
+    _In_ SCSI_UNIT_CONTROL_TYPE ControlType,
+    _In_ PVOID Parameters)
+{
+    B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
+
+    if (ControlType == ScsiQuerySupportedUnitControlTypes) {
+        PSCSI_SUPPORTED_CONTROL_TYPE_LIST Supported;
+
+        Supported = (PSCSI_SUPPORTED_CONTROL_TYPE_LIST)Parameters;
+        if (Supported == NULL) {
+            return ScsiUnitControlUnsuccessful;
+        }
+
+        /* Never index outside the MaxControlType supplied by StorPort. */
+        if (Supported->MaxControlType > ScsiQuerySupportedUnitControlTypes) {
+            Supported->SupportedTypeList[ScsiQuerySupportedUnitControlTypes] = TRUE;
+        }
+        if (Supported->MaxControlType > ScsiUnitStart) {
+            Supported->SupportedTypeList[ScsiUnitStart] = TRUE;
+        }
+        if (Supported->MaxControlType > ScsiUnitRemove) {
+            Supported->SupportedTypeList[ScsiUnitRemove] = TRUE;
+        }
+        if (Supported->MaxControlType > ScsiUnitSurpriseRemoval) {
+            Supported->SupportedTypeList[ScsiUnitSurpriseRemoval] = TRUE;
+        }
+        return ScsiUnitControlSuccess;
+    }
+
+    if (ControlType == ScsiUnitStart ||
+        ControlType == ScsiUnitRemove ||
+        ControlType == ScsiUnitSurpriseRemoval) {
+        if (!B2LUfsUnitAddressIsLun0((const STOR_ADDR_BTL8 *)Parameters)) {
+            return ScsiUnitControlUnsuccessful;
+        }
+
+        /* Unit transitions must not reset or write the live UFS device. */
+        if (ControlType == ScsiUnitStart && !Adapter->TransportReady) {
+            return ScsiUnitControlUnsuccessful;
+        }
+        return ScsiUnitControlSuccess;
+    }
+
+    return ScsiUnitControlUnsuccessful;
+}
 
 _Use_decl_annotations_
 static BOOLEAN
@@ -519,10 +597,12 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
     InitData.HwFindAdapter = B2LUfsFindAdapter;
 #pragma warning(pop)
     InitData.HwInitialize = B2LUfsInitialize;
+    InitData.HwBuildIo = B2LUfsBuildIo;
     InitData.HwStartIo = B2LUfsStartIo;
     InitData.HwInterrupt = B2LUfsInterrupt;
     InitData.HwResetBus = B2LUfsResetBus;
     InitData.HwAdapterControl = B2LUfsAdapterControl;
+    InitData.HwUnitControl = B2LUfsUnitControl;
     InitData.DeviceExtensionSize = sizeof(B2LUFS_ADAPTER);
     InitData.NumberOfAccessRanges = B2LUFS_RESOURCE_COUNT;
     /* Match HwFindAdapter: discovery READ buffers need a valid DataBuffer. */
@@ -533,7 +613,8 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
     InitData.AutoRequestSense = TRUE;
     InitData.MultipleRequestPerLu = FALSE;
     InitData.FeatureSupport = STOR_FEATURE_ADAPTER_NOT_REQUIRE_IO_PORT |
-                              STOR_FEATURE_SET_ADAPTER_INTERFACE_TYPE;
+                              STOR_FEATURE_SET_ADAPTER_INTERFACE_TYPE |
+                              STOR_FEATURE_FULL_PNP_DEVICE_CAPABILITIES;
 
     return StorPortInitialize(Argument1, Argument2, &InitData, NULL);
 }

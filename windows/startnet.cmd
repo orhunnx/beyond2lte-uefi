@@ -179,9 +179,10 @@ if not exist "%SystemRoot%\System32\wevtutil.exe" (
   echo wevtutil yok; B2LUFS UFS okuma kaydi gosterilemiyor.
   exit /b 0
 )
-echo Son 12 B2LUFS SRB kaydi StorPort Operational gunlugunden okunuyor:
+echo Son B2LUFS SRB ve PnP/LUN yasam-dongusu kayitlari StorPort Operational gunlugunden okunuyor:
 echo Her "BLS1" ikili kaydinin son 64 bayti UFS'in dondugu ham veridir.
 echo CDB=12 INQUIRY, 25 READ_CAPACITY, 28/88 READ; Result=0 ve SCSI=0 basaridir.
+echo "BLP1" kaydi legacy BTL8 PnP istegidir; UFS medya verisi veya CDB icermez.
 wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:true /f:text /c:24 2>nul
 exit /b 0
 

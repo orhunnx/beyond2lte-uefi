@@ -11,6 +11,7 @@
  */
 #include <ntddk.h>
 #include <storport.h>
+#include <srb.h>
 
 #include "b2lufs_transport.h"
 
@@ -55,8 +56,10 @@
  */
 #define B2LUFS_COMMAND_TIMEOUT_US         50000UL
 #define B2LUFS_TRACE_BUDGET                  12UL
+#define B2LUFS_PNP_TRACE_BUDGET               16UL
 #define B2LUFS_TRACE_SAMPLE_BYTES            64UL
 #define B2LUFS_ETW_SCSI_TRACE        0x42324C02UL
+#define B2LUFS_ETW_PNP_TRACE         0x42324C03UL
 
 #define B2LUFS_HCE_ENABLE                    0x00000001UL
 #define B2LUFS_UTRL_RUN_STOP                 0x00000001UL
@@ -211,6 +214,28 @@ typedef struct B2LUFS_SCSI_TRACE_DATA {
 
 C_ASSERT(sizeof(B2LUFS_SCSI_TRACE_DATA) == 96);
 
+/*
+ * Legacy StorPort sends SRB_FUNCTION_PNP as SCSI_PNP_REQUEST_BLOCK, not as
+ * a SCSI CDB.  Keep a separate record so normal BLS1 tracing never reads a
+ * non-existent CDB from a PnP request.  BLP1 contains only lifecycle state
+ * and no UFS-media bytes.
+ */
+typedef struct B2LUFS_PNP_TRACE_DATA {
+    ULONG Magic;
+    ULONG Sequence;
+    ULONG PnpAction;
+    ULONG SrbPnpFlags;
+    ULONG DataTransferLength;
+    ULONG SrbStatus;
+    ULONG TransportReady;
+    UCHAR SrbFunction;
+    UCHAR PathId;
+    UCHAR TargetId;
+    UCHAR Lun;
+} B2LUFS_PNP_TRACE_DATA;
+
+C_ASSERT(sizeof(B2LUFS_PNP_TRACE_DATA) == 32);
+
 static VOID
 B2LUfsZeroMemory(_Out_ PVOID Buffer, _In_ SIZE_T ByteCount)
 {
@@ -308,6 +333,51 @@ B2LUfsLogScsiTrace(
         &Data);
 }
 
+static VOID
+B2LUfsLogPnpTrace(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _In_ PSCSI_PNP_REQUEST_BLOCK Pnp)
+{
+    B2LUFS_PNP_TRACE_DATA Data;
+    volatile LONG *Budget = (volatile LONG *)&Adapter->PnpTraceBudget;
+    LONG Previous;
+
+    /* HwBuildIo can run concurrently; reserve one diagnostic slot atomically. */
+    for (;;) {
+        Previous = *Budget;
+        if (Previous <= 0) {
+            return;
+        }
+        if (InterlockedCompareExchange(Budget, Previous - 1, Previous) ==
+            Previous) {
+            break;
+        }
+    }
+
+    B2LUfsZeroMemory(&Data, sizeof(Data));
+    Data.Magic = 0x31504C42UL; /* "BLP1" little-endian */
+    Data.Sequence = (ULONG)InterlockedIncrement(
+        (volatile LONG *)&Adapter->PnpTraceSequence);
+    Data.PnpAction = (ULONG)Pnp->PnPAction;
+    Data.SrbPnpFlags = Pnp->SrbPnPFlags;
+    Data.DataTransferLength = Pnp->DataTransferLength;
+    Data.SrbStatus = Pnp->SrbStatus;
+    Data.TransportReady = Adapter->TransportReady ? 1UL : 0UL;
+    Data.SrbFunction = Pnp->Function;
+    Data.PathId = Pnp->PathId;
+    Data.TargetId = Pnp->TargetId;
+    Data.Lun = Pnp->Lun;
+
+    (void)StorPortEtwLogError(
+        DeviceExtension,
+        NULL,
+        B2LUFS_ETW_PNP_TRACE,
+        L"B2LUFS legacy BTL8 PnP lifecycle trace; binary data is BLP1",
+        sizeof(Data),
+        &Data);
+}
+
 static ULONG
 B2LUfsReadHci(_In_ PVOID DeviceExtension, _In_ B2LUFS_ADAPTER *Adapter, _In_ ULONG Offset)
 {
@@ -395,6 +465,99 @@ static VOID
 B2LUfsComplete(_In_ PVOID DeviceExtension, _Inout_ PSCSI_REQUEST_BLOCK Srb, _In_ UCHAR SrbStatus)
 {
     Srb->SrbStatus = SrbStatus;
+    StorPortNotification(RequestComplete, DeviceExtension, Srb);
+}
+
+static BOOLEAN
+B2LUfsPnpAddressIsLun0(_In_ const SCSI_PNP_REQUEST_BLOCK *Pnp)
+{
+    return Pnp->PathId == 0 && Pnp->TargetId == 0 && Pnp->Lun == 0;
+}
+
+static VOID
+B2LUfsFillDeviceCapabilities(
+    _Out_ PSTOR_DEVICE_CAPABILITIES_EX Capabilities)
+{
+    /* Version and Size are supplied by StorPort; preserve the caller's ABI. */
+    Capabilities->DeviceD1 = FALSE;
+    Capabilities->DeviceD2 = FALSE;
+    Capabilities->LockSupported = FALSE;
+    Capabilities->EjectSupported = FALSE;
+    Capabilities->Removable = FALSE;
+    Capabilities->DockDevice = FALSE;
+    Capabilities->UniqueID = FALSE;
+    Capabilities->SilentInstall = TRUE;
+    Capabilities->RawDeviceOK = FALSE;
+    Capabilities->SurpriseRemovalOK = FALSE;
+    Capabilities->NoDisplayInUI = FALSE;
+    Capabilities->DefaultWriteCacheEnabled = FALSE;
+    Capabilities->Address = 0;
+    Capabilities->UINumber = MAXULONG;
+}
+
+VOID
+B2LUfsHandlePnpSrb(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _Inout_ PSCSI_REQUEST_BLOCK Srb)
+{
+    PSCSI_PNP_REQUEST_BLOCK Pnp = (PSCSI_PNP_REQUEST_BLOCK)Srb;
+    UCHAR SrbStatus = SRB_STATUS_INVALID_REQUEST;
+    BOOLEAN AdapterRequest;
+
+    /* StorPort owns this structure because DriverEntry selected legacy SRBs. */
+    if (Pnp->Length < sizeof(*Pnp)) {
+        Pnp->SrbStatus = SrbStatus;
+        StorPortNotification(RequestComplete, DeviceExtension, Srb);
+        return;
+    }
+
+    AdapterRequest =
+        (Pnp->SrbPnPFlags & SRB_PNP_FLAGS_ADAPTER_REQUEST) != 0;
+    if (AdapterRequest) {
+        /*
+         * These requests change only StorPort/PnP state.  Do not stop the
+         * firmware-owned HCE/link or issue a UFS management command here.
+         */
+        switch (Pnp->PnPAction) {
+        case StorStartDevice:
+            SrbStatus = Adapter->TransportReady ? SRB_STATUS_SUCCESS :
+                                                  SRB_STATUS_NO_DEVICE;
+            break;
+        case StorStopDevice:
+        case StorRemoveDevice:
+        case StorSupriseRemoval:
+            SrbStatus = SRB_STATUS_SUCCESS;
+            break;
+        default:
+            break;
+        }
+    } else if (B2LUfsPnpAddressIsLun0(Pnp)) {
+        switch (Pnp->PnPAction) {
+        case StorQueryCapabilities:
+            if (Pnp->DataBuffer != NULL &&
+                Pnp->DataTransferLength >= sizeof(STOR_DEVICE_CAPABILITIES_EX)) {
+                B2LUfsFillDeviceCapabilities(
+                    (PSTOR_DEVICE_CAPABILITIES_EX)Pnp->DataBuffer);
+                SrbStatus = SRB_STATUS_SUCCESS;
+            }
+            break;
+        case StorStartDevice:
+            SrbStatus = Adapter->TransportReady ? SRB_STATUS_SUCCESS :
+                                                  SRB_STATUS_NO_DEVICE;
+            break;
+        case StorStopDevice:
+        case StorRemoveDevice:
+        case StorSupriseRemoval:
+            SrbStatus = SRB_STATUS_SUCCESS;
+            break;
+        default:
+            break;
+        }
+    }
+
+    Pnp->SrbStatus = SrbStatus;
+    B2LUfsLogPnpTrace(DeviceExtension, Adapter, Pnp);
     StorPortNotification(RequestComplete, DeviceExtension, Srb);
 }
 
@@ -715,6 +878,7 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
 
     Adapter->TransportReady = TRUE;
     Adapter->TraceBudget = B2LUFS_TRACE_BUDGET;
+    Adapter->PnpTraceBudget = B2LUFS_PNP_TRACE_BUDGET;
     return TRUE;
 }
 
@@ -1086,6 +1250,12 @@ B2LUfsExecuteScsi(
 {
     B2LUFS_TRANSFER_RESULT Result;
 
+    /* BuildIo normally completes PnP; retain this guard for unusual paths. */
+    if (Srb->Function == SRB_FUNCTION_PNP) {
+        B2LUfsHandlePnpSrb(DeviceExtension, Adapter, Srb);
+        return;
+    }
+
     if (!Adapter->TransportReady) {
         B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, B2LUfsTransferFatal,
                             SRB_STATUS_NO_DEVICE);
@@ -1113,7 +1283,7 @@ B2LUfsExecuteScsi(
     }
 
     /* User data is LUN 0 / target 0 only; boot and RPMB LUNs are never exposed. */
-    if (Srb->TargetId != 0 || Srb->Lun != 0) {
+    if (Srb->PathId != 0 || Srb->TargetId != 0 || Srb->Lun != 0) {
         Srb->DataTransferLength = 0;
         B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, B2LUfsTransferBadDma,
                             SRB_STATUS_NO_DEVICE);

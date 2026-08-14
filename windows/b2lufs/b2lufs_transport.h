@@ -69,6 +69,9 @@ typedef struct B2LUFS_ADAPTER {
     /* Read-only CMD telemetry; copied to the StorPort Operational channel. */
     ULONG TraceSequence;
     ULONG TraceBudget;
+    /* PnP/BTL8 lifecycle telemetry; it never contains UFS media data. */
+    ULONG PnpTraceSequence;
+    ULONG PnpTraceBudget;
     ULONG LastUtrdOcs;
     ULONG LastInterruptStatus;
     BOOLEAN TransportReady;
@@ -98,6 +101,13 @@ VOID
 B2LUfsProbeLuns(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter);
+
+/* Complete a legacy PnP SRB without submitting a UFS media command. */
+VOID
+B2LUfsHandlePnpSrb(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _Inout_ PSCSI_REQUEST_BLOCK Srb);
 
 /* Route a single, serialized SRB to UFS logical unit 0. */
 VOID

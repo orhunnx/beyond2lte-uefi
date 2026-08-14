@@ -108,11 +108,14 @@ Windows'un kendi standart SCSI keşfi fiziksel UFS kullanıcı-LUN'ını tarar.
 ## WinPE'de ham okuma izi
 
 `HwStartIo` çağrısı içinde konsola veya dosya sistemine doğrudan yazmak güvenli
-değildir. Bunun yerine miniport, ilk on iki SRB için StorPort Operational ETW
-kanalına bir `BLS1` ikili tanı kaydı bırakır. `startnet.cmd`, ikinci DiskPart
-taramasından hemen sonra bu kayıtları CMD'de gösterir. Kaydın son 64 baytı,
-başarılı bir `INQUIRY`, kapasite veya `READ` isteğinden dönen ham örnektir.
-Bu yalnız WinPE olay günlüğüne/RAM'e yazılır; UFS LUN'larına yazı yapılmaz.
+değildir. Bunun yerine miniport, ilk on iki SCSI SRB için StorPort Operational
+ETW kanalına bir `BLS1` ikili tanı kaydı bırakır. `startnet.cmd`, ikinci
+DiskPart taramasından hemen sonra bu kayıtları CMD'de gösterir. Kaydın son 64
+baytı, başarılı bir `INQUIRY`, kapasite veya `READ` isteğinden dönen ham
+örnektir. Ayrı `BLP1` kayıtları, legacy `SCSI_PNP_REQUEST_BLOCK` üzerinden
+gelen BTL8 PnP/LUN yaşam döngüsü isteğini gösterir; CDB veya UFS medya verisi
+içermez. Bu kayıtların tümü yalnız WinPE olay günlüğüne/RAM'e yazılır; UFS
+LUN'larına yazı yapılmaz.
 
 Bir UFS komutu 50 ms içinde kapı zilini bırakmazsa miniport UFS reseti veya
 iptal yazısı göndermez. İlk SRB `TIMEOUT` ile tamamlanır, yeni komutlar hızlı
@@ -132,16 +135,22 @@ envanterdir; B2LUFS yine sadece kullanıcı **LUN 0** için I/O kabul eder.
 `SrbTypeFlags`/`SrbType` eski SRB biçimini, `AddressTypeFlags`/`AddressType`
 ise `Path=0, Target=0, Lun=0` BTL8 yolunu seçer. Bu ikisi, `HwStartIo`nun
 okuduğu alanlarla aynıdır ve StorPort'un LUN 0 için disk PDO'su
-numaralandırabilmesinin önkoşuludur; yalnız `BusChangeDetected` bildirimi bu
-sözleşmenin yerine geçmez.
+numaralandırabilmesinin önkoşuludur. Microsoft'un fiziksel StorPort
+örneklerindeki PnP yüzeyi de buna eklenmiştir: `HwBuildIo`, legacy
+`SRB_FUNCTION_PNP` isteklerini CDB'den önce tamamlar; `HwUnitControl`, yalnız
+statik `Path=0, Target=0, Lun=0` için unit-start/remove/surprise-removal
+yaşam döngüsünü ilan eder; `StorQueryCapabilities` için tam ve salt-okunur
+`STOR_DEVICE_CAPABILITIES_EX` cevabı verilir. Böylece StorPort disk PDO'sunu
+normal PnP sözleşmesi ile kurar; PnP isteği UFS'e komut göndermez.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
 `InIoSpace` parametresi için terslenir. Kısmi/uyuşmayan kaynak dizisi hemen
 geri bırakılır. `HwInitialize`, canlı HCE ve boş UTRL scheduler'ını
-doğrulayıp tek DMA slotunu bağladıktan sonra, `HwInitialize` başarıyla
-döndükten sonraki PASSIVE başlatmada `BusChangeDetected` bildirir. Böylece
-zaten ilan edilmiş BTL8 yolunda StorPort, LUN 0 için standart INQUIRY/LUN
-taramasını tam başlatılmış bir miniport üzerinde yapar.
+doğrulayıp tek DMA slotunu bağlar. PASSIVE başlatmada yapılan
+`BusChangeDetected` bildirimi yalnız tam başlatılmış adaptör için yeniden
+tarama tetikleyicisidir; PDO oluşturma yerine geçmez. StorPort, ilan edilmiş
+BTL8 yolunda `HwBuildIo`/`HwUnitControl` sözleşmesi üzerinden LUN 0 için
+standart PnP ve ardından SCSI keşfini yürütür.
 Kesme sahipliği alınmaz; tamamlanma kapı zili poll edilir. Miniport fiziksel
 bir ACPI HBA olduğu için `Internal` arayüz türünü
 kullanmaz: `InterfaceTypeUndefined` ile
