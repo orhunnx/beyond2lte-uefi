@@ -55,10 +55,10 @@ $IncludeRoot = Resolve-ExistingDirectory (Join-Path $KitsRoot 'Include') 'WDK In
 if ([string]::IsNullOrWhiteSpace($WdkVersion)) {
     $Candidate = Get-ChildItem -LiteralPath $IncludeRoot -Directory |
         Where-Object {
-            Test-Path -LiteralPath (Join-Path $_.FullName 'km\ntddk.h') -PathType Leaf -and
-            Test-Path -LiteralPath (Join-Path $_.FullName 'km\storport.h') -PathType Leaf -and
-            Test-Path -LiteralPath (Join-Path $KitsRoot ("Lib\{0}\km\arm64\storport.lib" -f $_.Name)) -PathType Leaf -and
-            Test-Path -LiteralPath (Join-Path $KitsRoot ("Lib\{0}\km\arm64\ntoskrnl.lib" -f $_.Name)) -PathType Leaf
+            (Test-Path -LiteralPath (Join-Path $_.FullName 'km\ntddk.h') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName 'km\storport.h') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $KitsRoot ("Lib\{0}\km\arm64\storport.lib" -f $_.Name)) -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $KitsRoot ("Lib\{0}\km\arm64\ntoskrnl.lib" -f $_.Name)) -PathType Leaf)
         } |
         Where-Object { $_.Name -match '^\d+(\.\d+){1,3}$' } |
         Sort-Object { [Version]$_.Name } -Descending |
@@ -98,8 +98,8 @@ $VsRoot = Split-Path -Parent $VsVcDirectory
 $MsvcToolsetRoot = Resolve-ExistingDirectory (Join-Path $VsRoot 'VC\Tools\MSVC') 'MSVC toolset dizini'
 $MsvcToolset = Get-ChildItem -LiteralPath $MsvcToolsetRoot -Directory |
     Where-Object {
-        Test-Path -LiteralPath (Join-Path $_.FullName 'bin\Hostx64\arm64\cl.exe') -PathType Leaf -and
-        Test-Path -LiteralPath (Join-Path $_.FullName 'bin\Hostx64\arm64\link.exe') -PathType Leaf
+        (Test-Path -LiteralPath (Join-Path $_.FullName 'bin\Hostx64\arm64\cl.exe') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $_.FullName 'bin\Hostx64\arm64\link.exe') -PathType Leaf)
     } |
     Where-Object { $_.Name -match '^\d+(\.\d+){1,3}$' } |
     Sort-Object { [Version]$_.Name } -Descending |
