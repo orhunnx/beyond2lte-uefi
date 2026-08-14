@@ -82,7 +82,15 @@ PnP'nin kaynak sözleşmesini "Started" olarak göstermesi içindir. Sürücü
 HCI/PHY/UniPro register'ı okumaz ya da yazmaz, DMA ayırmaz, kesme kabul
 etmez ve `HwStartIo` ile her isteği `INVALID_REQUEST` olarak tamamlar.
 Dolayısıyla DiskPart'ın hâlâ dahili disk göstermemesi bu testin beklenen
-sonucudur.
+sonucudur. Miniport fiziksel bir ACPI HBA olduğu için `Internal` arayüz türünü
+kullanmaz: `InterfaceTypeUndefined` ile
+`STOR_FEATURE_SET_ADAPTER_INTERFACE_TYPE` StorPort'a PnP'nin gerçek platform
+arayüzünü seçtirtir. Bu ayrım önemlidir; Microsoft `Internal`ı sanal
+miniportun işareti olarak tanımlar. Kaynak sayısı, MMIO eşlemesi veya kaynak
+sözleşmesi reddedilirse sürücü `Microsoft-Windows-Storage-Storport/Operational`
+kanalına `B2LUFS HwFindAdapter resource contract failure` ETW kaydı bırakır.
+`startnet.cmd` yalnız bu kayıtları otomatik ekrana basar; bu teşhis HCI'ye ya
+da UFS'ye yazmaz.
 
 ## Faz 0 WinPE kabul ölçütü
 

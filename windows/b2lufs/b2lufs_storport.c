@@ -5,6 +5,10 @@
  * ACPI kaynaklarını işletim sistemi bağımsız B2LUfsBindResources katmanına
  * aktarmaktır. İlk bağlı turda HwInitialize basariyla döner; bu yalnız PnP
  * kaynak sözleşmesini ölçer, hiçbir UFS register'ına dokunmaz ve LUN kurmaz.
+ *
+ * Bu fiziksel bir ACPI HBA'sıdır. AdapterInterfaceType=Internal, StorPort'un
+ * sanal miniport yolu için kullandığı işarettir; bu nedenle arayüz türünü
+ * StorPort'un PnP aygıtından seçmesini özellikle istiyoruz.
  */
 #include <ntddk.h>
 #include <storport.h>
@@ -14,6 +18,31 @@
 typedef struct B2LUFS_ADAPTER {
     B2LUFS_RESOURCES Resources;
 } B2LUFS_ADAPTER;
+
+/*
+ * PnP, HwFindAdapter'dan yalnız bir SP_RETURN_* değeri alır. Bu değer
+ * Aygıt Yöneticisi'nde genelde tek başına CM_PROB_FAILED_ADD/NO_SUCH_DEVICE
+ * olarak görünür ve hangi ACPI kaynağında durduğunu söylemez. Her red yolu
+ * bu küçük ikili kaydı StorPort Operational ETW kanalına bırakır. Kayıt
+ * yalnız WIM'deki startnet.cmd ile okunur; UFS'ye veya HCI'ye yazı yapmaz.
+ */
+#define B2LUFS_ETW_FIND_ADAPTER_FAILURE  0x42324C01UL
+
+typedef enum B2LUFS_FIND_FAILURE {
+    B2LUfsFindFailureRangeCount = 1,
+    B2LUfsFindFailureMap = 2,
+    B2LUfsFindFailureResourceContract = 3
+} B2LUFS_FIND_FAILURE;
+
+typedef struct B2LUFS_FIND_FAILURE_DATA {
+    ULONG Failure;
+    ULONG RangeIndex;
+    ULONG RangeCount;
+    ULONG InterfaceType;
+    ULONG BusNumber;
+    ULONG RangeLength;
+    ULONGLONG RangeBase;
+} B2LUFS_FIND_FAILURE_DATA;
 
 /*
  * Faz 0 derlemesi CRT'ye baglanmaz. RtlZeroMemory'nin libc'ye donusme
@@ -27,6 +56,41 @@ B2LUfsZeroMemory(_Out_ PVOID Buffer, _In_ SIZE_T ByteCount)
     while (ByteCount-- != 0) {
         *Cursor++ = 0;
     }
+}
+
+static VOID
+B2LUfsLogFindFailure(
+    _In_ PVOID DeviceExtension,
+    _In_ B2LUFS_FIND_FAILURE Failure,
+    _In_ ULONG RangeIndex,
+    _In_opt_ PPORT_CONFIGURATION_INFORMATION ConfigInfo,
+    _In_ ULONGLONG RangeBase,
+    _In_ ULONG RangeLength)
+{
+    B2LUFS_FIND_FAILURE_DATA Data;
+
+    B2LUfsZeroMemory(&Data, sizeof(Data));
+    Data.Failure = (ULONG)Failure;
+    Data.RangeIndex = RangeIndex;
+    Data.RangeBase = RangeBase;
+    Data.RangeLength = RangeLength;
+    if (ConfigInfo != NULL) {
+        Data.RangeCount = ConfigInfo->NumberOfAccessRanges;
+        Data.InterfaceType = (ULONG)ConfigInfo->AdapterInterfaceType;
+        Data.BusNumber = ConfigInfo->SystemIoBusNumber;
+    }
+
+    /*
+     * ETW'nin devre disi oldugu WinPE'lerde StorPort bu istegi zararsizca
+     * reddedebilir. Tani kanali hicbir zaman PnP sonucunu degistirmez.
+     */
+    (void)StorPortEtwLogError(
+        DeviceExtension,
+        NULL,
+        B2LUFS_ETW_FIND_ADAPTER_FAILURE,
+        L"B2LUFS HwFindAdapter resource contract failure",
+        sizeof(Data),
+        &Data);
 }
 
 /*
@@ -72,6 +136,13 @@ B2LUfsFindAdapter(
     UNREFERENCED_PARAMETER(Reserved3);
     if (ConfigInfo->NumberOfAccessRanges != B2LUFS_RESOURCE_COUNT ||
         ConfigInfo->AccessRanges == NULL) {
+        B2LUfsLogFindFailure(
+            DeviceExtension,
+            B2LUfsFindFailureRangeCount,
+            MAXULONG,
+            ConfigInfo,
+            0,
+            0);
         return SP_RETURN_BAD_CONFIG;
     }
 
@@ -102,6 +173,13 @@ B2LUfsFindAdapter(
             /* StorPort API'si "InIoSpace" bekler; ACCESS_RANGE tersidir. */
             Range->RangeInMemory ? FALSE : TRUE);
         if (Given[Index].MappedBase == NULL) {
+            B2LUfsLogFindFailure(
+                DeviceExtension,
+                B2LUfsFindFailureMap,
+                Index,
+                ConfigInfo,
+                Given[Index].Base,
+                Given[Index].Length);
             B2LUfsReleaseGivenResources(DeviceExtension, Given);
             return SP_RETURN_BAD_CONFIG;
         }
@@ -111,6 +189,13 @@ B2LUfsFindAdapter(
     B2LUfsZeroMemory(Adapter, sizeof(*Adapter));
     if (B2LUfsBindResources(Given, B2LUFS_RESOURCE_COUNT,
                             &Adapter->Resources) != 0) {
+        B2LUfsLogFindFailure(
+            DeviceExtension,
+            B2LUfsFindFailureResourceContract,
+            MAXULONG,
+            ConfigInfo,
+            0,
+            0);
         B2LUfsReleaseGivenResources(DeviceExtension, Given);
         return SP_RETURN_BAD_CONFIG;
     }
@@ -249,7 +334,14 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
 
     B2LUfsZeroMemory(&InitData, sizeof(InitData));
     InitData.HwInitializationDataSize = sizeof(InitData);
-    InitData.AdapterInterfaceType = Internal;
+    /*
+     * Internal StorPort'un sanal-adapter yolu icindir. Bu aygit ise ACPI
+     * tarafindan numaralandirilan fiziksel UFS HBA'sidir. InterfaceTypeUndefined
+     * + STOR_FEATURE_SET_ADAPTER_INTERFACE_TYPE ile interface/bus numarasini
+     * StorPort'un PnP kaynak sahipliginden aliriz; HwFindAdapter bunu degistirmez
+     * ve StorPortGetDeviceBase'e aynen geri verir.
+     */
+    InitData.AdapterInterfaceType = InterfaceTypeUndefined;
     /*
      * WDK 28000 HW_INITIALIZATION_DATA, gercek callback imzasini tasimak
      * yerine HwFindAdapter'i kasitli olarak PVOID bildirir. B2LUfsFindAdapter
@@ -272,7 +364,8 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
     InitData.TaggedQueuing = TRUE;
     InitData.AutoRequestSense = TRUE;
     InitData.MultipleRequestPerLu = TRUE;
-    InitData.FeatureSupport = STOR_FEATURE_ADAPTER_NOT_REQUIRE_IO_PORT;
+    InitData.FeatureSupport = STOR_FEATURE_ADAPTER_NOT_REQUIRE_IO_PORT |
+                              STOR_FEATURE_SET_ADAPTER_INTERFACE_TYPE;
 
     return StorPortInitialize(Argument1, Argument2, &InitData, NULL);
 }

@@ -131,10 +131,30 @@ if not exist "%SystemRoot%\System32\pnputil.exe" (
   exit /b 1
 )
 echo INF ekleniyor ve yalniz ACPI\BYND9820 eslemesi kuruluyor:
+rem HwFindAdapter hatalari kaybolmasin diye Operational kanali, surucu
+rem yuklenmeden once etkinlestirilir. Kanal WinPE'de yoksa sessizce atlanir.
+if exist "%SystemRoot%\System32\wevtutil.exe" (
+  wevtutil sl "Microsoft-Windows-Storage-Storport/Operational" /e:true >nul 2>&1
+)
 pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install
 echo PnP yeniden taraniyor:
 pnputil /scan-devices
 echo Beklenen: b2lufs Started, DiskPart'ta hala dahili disk YOK.
+echo --- B2LUFS: StorPort kaynak-esleme tanisi ---
+call :B2LUfsStorPortLog
+exit /b 0
+
+:B2LUfsStorPortLog
+if not exist "%SystemRoot%\System32\wevtutil.exe" (
+  echo wevtutil yok; StorPort ETW kanali okunamiyor.
+  exit /b 0
+)
+echo Operational kayitlari (yalniz B2LUFS kaynak redleri gorunur):
+rem StorPort'un ETW semasi WDK surumleri arasinda degisebilir. Bu nedenle
+rem EventData alanlarina gore kirilgan XPath kurmak yerine, PnP kurulumundan
+rem hemen sonra olusan son olaylari ham metin olarak gostermek daha guvenilir.
+wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:true /f:text /c:12 2>nul
+echo Not: "B2LUFS HwFindAdapter resource contract failure" gorunurse altindaki ikili kayit sirasiyla Failure, RangeIndex, RangeCount, InterfaceType, BusNumber, RangeLength, RangeBase'dir.
 exit /b 0
 
 :UfsReport
