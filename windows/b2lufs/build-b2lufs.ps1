@@ -119,7 +119,10 @@ try {
 
     $Cl = Join-Path $MsvcArm64Bin 'cl.exe'
     $Link = Join-Path $MsvcArm64Bin 'link.exe'
-    $CompileFlags = "/nologo /c /TC /kernel /Zl /GS- /W4 /WX /O1 /D_KERNEL_MODE /D_WIN32_WINNT=0x0A00 /D_ARM64_=1 /I`"$WdkInclude\km`" /I`"$WdkInclude\shared`" /I`"$WdkInclude\ucrt`" /I`"$WdkInclude\um`""
+    # /kernel WDK'nin cekirdek derleme tanimlarini kendisi kurar. _KERNEL_MODE
+    # rezerve bir MSVC makrosudur; elle /D ile vermek C4117'yi /WX altinda
+    # derleme hatasina cevirir.
+    $CompileFlags = "/nologo /c /TC /kernel /Zl /GS- /W4 /WX /O1 /D_WIN32_WINNT=0x0A00 /D_ARM64_=1 /I`"$WdkInclude\km`" /I`"$WdkInclude\shared`" /I`"$WdkInclude\ucrt`" /I`"$WdkInclude\um`""
     $BuildLines = @(
         '@echo off',
         'setlocal EnableExtensions DisableDelayedExpansion',
@@ -182,6 +185,14 @@ try {
 }
 finally {
     if (Test-Path -LiteralPath $StageRoot) {
-        Remove-Item -LiteralPath $StageRoot -Recurse -Force
+        # Virüs tarayıcısı veya kapanan cl.exe kısa süreyle dosya tutabilir.
+        # Temizleme başarısızlığı hiçbir zaman asıl derleme/link hatasını
+        # gölgelememeli; sonraki çalıştırma farklı GUID'li dizin kullanır.
+        try {
+            Remove-Item -LiteralPath $StageRoot -Recurse -Force -ErrorAction Stop
+        }
+        catch {
+            Write-Warning "Gecici derleme dizini temizlenemedi: $StageRoot"
+        }
     }
 }
