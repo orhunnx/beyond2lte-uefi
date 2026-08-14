@@ -159,6 +159,42 @@ WIN_KITS="$(wslpath -w "$KITS")"
 
 if [ "${B2L_SKIP_MSVC_BUILD:-0}" = "1" ]; then
   [ -s "$OUT/b2lufs.sys" ] || die "B2L_SKIP_MSVC_BUILD=1 ama $OUT/b2lufs.sys yok"
+
+  #
+  # BAYAT IKILI KAPISI.
+  #
+  # B2L_SKIP_MSVC_BUILD=1 "derlemeyi atla" demek, "kaynaklar degismedi"
+  # demek DEGIL. Bir tur bu ikisi karisti: MSVC derlemesi LNK2019 ile
+  # patliyordu, kaynaklar duzeltildi, ama paketleme SKIP ile calistirilinca
+  # derlemenin patladigi turdan ONCEKI eski .sys paketlendi. O paket
+  # flaslansaydi iki ayri duzeltme de cihazda olmayacakti ve sonuc
+  # "duzeltme ise yaramadi" diye okunacakti.
+  #
+  # Bu yuzden ikili, kaynaklardan yeni olmak ZORUNDA. Bilerek eski ikiliyle
+  # paketlemek isteniyorsa B2L_ALLOW_STALE_SYS=1 ile acikca soylenir.
+  #
+  YENI_KAYNAK="$(find "$SRC" -maxdepth 1 -newer "$OUT/b2lufs.sys" \
+                   \( -name '*.c' -o -name '*.h' -o -name '*.in' -o -name '*.ps1' \) \
+                   -printf '%f\n' 2>/dev/null || true)"
+  if [ -n "$YENI_KAYNAK" ] && [ "${B2L_ALLOW_STALE_SYS:-0}" != "1" ]; then
+    echo
+    echo "  ###############################################################"
+    echo "  # DUR: out/b2lufs/b2lufs.sys kaynaklardan ESKI."
+    echo "  #"
+    echo "  # Ondan yeni olan dosyalar:"
+    printf '  #   %s\n' $YENI_KAYNAK
+    echo "  #"
+    echo "  # Bu haliyle paketlemek, yaptigin degisiklikleri ICERMEYEN bir"
+    echo "  # surucuyu flaslamak olur ve sonucu yanlis okursun."
+    echo "  #"
+    echo "  # Derlemek icin:  bash tools_b2lufs.sh        (SKIP vermeden)"
+    echo "  # Bilerek eskiyi paketlemek icin:"
+    echo "  #   B2L_ALLOW_STALE_SYS=1 B2L_SKIP_MSVC_BUILD=1 bash tools_b2lufs.sh"
+    echo "  ###############################################################"
+    echo
+    exit 1
+  fi
+
   say "Var olan B2LUFS SYS kullaniliyor (B2L_SKIP_MSVC_BUILD=1)"
 else
   say "B2LUFS Faz 1 derleniyor (yerel Windows MSVC ARM64 + WDK)"
