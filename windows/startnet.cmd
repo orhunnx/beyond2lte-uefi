@@ -112,11 +112,20 @@ cmd.exe /k
 goto :eof
 
 :B2LUfsInstall
-rem Paket yoksa bu WIM onceki, yalniz storufs tani turudur.
+rem Paket/manifest yoksa bu WIM onceki veya yari paketlenmis bir surumdur.
+rem Manifest, tools_b2lufs.sh'nin imzalanmis INF+SYS+CAT paketinden sonra
+rem uretilir. Bu nedenle ekranda gorulmesi calisan WIM'in gercekten son
+rem b2lufs paketini tasidiginin dogrudan kanitidir.
 if not exist "%B2LUFSDIR%\b2lufs.inf" (
   echo B2LUFS paketi yok; inbox storufs tanisi ile devam ediliyor.
   exit /b 0
 )
+if not exist "%B2LUFSDIR%\manifest.txt" (
+  echo B2LUFS manifest yok; yari/eski WIM reddedildi. Inbox storufs yuklenmeyecek.
+  exit /b 1
+)
+echo B2LUFS WIM paket kimligi:
+type "%B2LUFSDIR%\manifest.txt"
 if not exist "%SystemRoot%\System32\pnputil.exe" (
   echo PnPUtil yok; B2LUFS paketi WinPE'ye eklenemedi.
   exit /b 1

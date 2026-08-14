@@ -151,6 +151,14 @@ imzasına güvenmek doğru değildir. `CopyFiles` bölümü için INF'de açık 
 `SourceDisksFiles` eşlemesi vardır; bu, Inf2Cat'in SYS dosyasını imzalanacak
 paketin parçası olarak doğrulamasını sağlar.
 
+Paketlenmiş WIM'de ayrıca `\Windows\B2LUFS\manifest.txt` bulunur. Bu dosya
+INF/SYS/CAT SHA-256 değerlerini taşır. `cache_esp.sh --win --system`,
+`out/b2lufs/b2lufs.sys` bulunduğunda bu manifestteki SYS hash'ini WIM'i geri
+okuyarak doğrular; uyuşmazsa sparse `system.img` üretmez. WinPE'de
+`startnet.cmd` manifestin içeriğini PnP kurulumundan hemen önce gösterir.
+Dolayısıyla tekrar `B2LUFS paketi yok` görülürse çalışan ESP, bu doğrulama
+kapısından geçmiş son artefakt değildir; UFS donanım sonucu olarak yorumlanmaz.
+
 Ölçülen ilk HCI durumu: `CAP=1303FF1F`, `VER=00000300`, `HCE=1`,
 `1US_TO_CNT=000000A6`. CAP alanında NUTRS `[4:0]` ve NUTMRS `[18:16]`
 sırasıyla `31` ve `3` olduğundan ilk gerçek DMA turu 32 UTR + 4 UTMR yuvası

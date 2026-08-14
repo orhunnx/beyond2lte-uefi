@@ -241,6 +241,19 @@ verify_test_signed_package "b2lufs.sys katalog eslesmesi" /v /pa /c \
   "$(wslpath -w "$OUT/b2lufs.cat")" "$(wslpath -w "$OUT/b2lufs.sys")"
 rm -f "$PFX"
 
+# Bir sonraki katman (ESP sparse imaji) WIM'i artik yalniz var/yok ile
+# degil, bu tam paket kimligi ile kontrol eder. Bu dosya imzali katalogun
+# yerine gecmez; katalog INF+SYS imzasini tasir. Ama bir onceki WIM'in veya
+# yanlis Odin arsivinin secilmesini, cihazdaki startnet'ten gorunur ve
+# paketleme asamasinda kesin bir hata haline getirir.
+MANIFEST="$OUT/b2lufs-manifest.txt"
+{
+  echo "B2LUFS_PACKAGE=phase0-resource-contract"
+  echo "B2LUFS_INF_SHA256=$(sha256sum "$OUT/b2lufs.inf" | awk '{print $1}')"
+  echo "B2LUFS_SYS_SHA256=$(sha256sum "$OUT/b2lufs.sys" | awk '{print $1}')"
+  echo "B2LUFS_CAT_SHA256=$(sha256sum "$OUT/b2lufs.cat" | awk '{print $1}')"
+} > "$MANIFEST"
+
 say "B2LUFS paketi boot.wim'e ekleniyor"
 for Item in b2lufs.inf b2lufs.sys b2lufs.cat; do
   wimlib-imagex update "$WIM" 1 \
@@ -249,6 +262,11 @@ for Item in b2lufs.inf b2lufs.sys b2lufs.cat; do
     --command="add '$OUT/$Item' /Windows/B2LUFS/$Item" >/dev/null
   echo "  /Windows/B2LUFS/$Item"
 done
+wimlib-imagex update "$WIM" 1 \
+  --command="delete --force /Windows/B2LUFS/manifest.txt" >/dev/null 2>&1 || true
+wimlib-imagex update "$WIM" 1 \
+  --command="add '$MANIFEST' /Windows/B2LUFS/manifest.txt" >/dev/null
+echo "  /Windows/B2LUFS/manifest.txt"
 
 # tools_b2lfb.sh'nin sarmaladigi diagnostik komutu kaybolmasin: bu script
 # startnet'i de kaynakla birebir yeniler. Bu sayede calisma sirasi hatasi
@@ -269,6 +287,12 @@ for Item in b2lufs.inf b2lufs.sys b2lufs.cat; do
   [ "$WANT" = "$GOT" ] || die "$Item WIM geri okuma hash'i farkli; flaslama"
   echo "  dogrulandi: $Item SHA256=${WANT:0:16}"
 done
+wimlib-imagex extract "$WIM" 1 /Windows/B2LUFS/manifest.txt \
+  --dest-dir="$CHECK" --no-acls >/dev/null
+[ "$(sha256sum "$MANIFEST" | awk '{print $1}')" = \
+  "$(sha256sum "$CHECK/manifest.txt" | awk '{print $1}')" ] || \
+  die "B2LUFS manifest WIM geri okuma hash'i farkli; flaslama"
+echo "  dogrulandi: B2LUFS manifest $(grep '^B2LUFS_SYS_SHA256=' "$MANIFEST" | cut -c1-34)"
 wimlib-imagex extract "$WIM" 1 /Windows/System32/startnet.cmd \
   --dest-dir="$CHECK" --no-acls >/dev/null
 [ "$(sha256sum "$SNTMP" | awk '{print $1}')" = "$(sha256sum "$CHECK/startnet.cmd" | awk '{print $1}')" ] || \

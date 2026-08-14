@@ -276,6 +276,57 @@ if [ "$BOSALT" = 1 ]; then
   exit 0
 fi
 
+# `out/b2lufs/b2lufs.sys` varsa bu WinPE turu o surucuyu olcmek icindir.
+# Eski hata zinciri burada kapanir: WIM'e basariyla enjekte edilmis bir
+# b2lufs paketi, daha sonra eski bir ESP arsiviyle degistirilebiliyordu ve
+# cihazdaki startnet yalnizca "paket yok" diyordu. Sparse SYSTEM imajini
+# uretmeden once WIM'in ayni SYS hash'ini tasiyan manifestini geri okuyoruz.
+# Bu bir imza dogrulamasinin yerine gecmez (onu tools_b2lufs.sh yapar);
+# yalniz dogru WIM'in dogru ESP imajina girdigini zorunlu kilar.
+verify_winpe_b2lufs_package() {
+  local VerifyDir ExpectedSys ManifestSys
+
+  [ -s "$PROJ/out/b2lufs/b2lufs.sys" ] || return 0
+  [ -s "$PROJ/esp/sources/boot.wim" ] || {
+    echo "HATA: B2LUFS SYS var ama esp/sources/boot.wim yok. Once tools_b2lufs.sh calistir."
+    return 1
+  }
+  command -v wimlib-imagex >/dev/null || {
+    echo "HATA: B2LUFS WIM kapisi icin wimlib-imagex gerekli."
+    return 1
+  }
+
+  VerifyDir="$(mktemp -d)" || {
+    echo "HATA: B2LUFS WIM dogrulama dizini olusturulamadi."
+    return 1
+  }
+  if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
+      /Windows/B2LUFS/manifest.txt --dest-dir="$VerifyDir" --no-acls >/dev/null; then
+    rm -rf "$VerifyDir"
+    echo "HATA: boot.wim'de B2LUFS manifest yok; eski WIM'i sparse ESP'ye koymak reddedildi."
+    echo "Once: B2L_SKIP_MSVC_BUILD=1 bash tools_b2lufs.sh"
+    return 1
+  fi
+
+  ExpectedSys="$(sha256sum "$PROJ/out/b2lufs/b2lufs.sys" | awk '{print $1}')"
+  ManifestSys="$(sed -n 's/^B2LUFS_SYS_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+  rm -rf "$VerifyDir"
+  if [ "$ManifestSys" != "$ExpectedSys" ]; then
+    echo "HATA: boot.wim B2LUFS SYS hash'i derlenen SYS ile ayni degil; eski WIM reddedildi."
+    echo "  WIM: ${ManifestSys:-YOK}"
+    echo "  SYS: $ExpectedSys"
+    echo "Once: B2L_SKIP_MSVC_BUILD=1 bash tools_b2lufs.sh"
+    return 1
+  fi
+
+  say "WinPE B2LUFS paketi dogrulandi"
+  echo "  SYS SHA256: ${ExpectedSys:0:16}"
+}
+
+if [ "$WINONLY" = 1 ]; then
+  verify_winpe_b2lufs_package
+fi
+
 IMG="$OUT/$PART.img"
 
 say "$FATDESC imaji olusturuluyor"
