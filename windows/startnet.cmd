@@ -45,6 +45,11 @@ echo [B2LUFS Faz 0: ozel miniportu PnP'ye ekle]
 call :B2LUfsInstall
 
 echo.
+echo [DiskPart: B2LUFS Faz 0 sonrasi - salt okunur]
+diskpart /s "%DPSCRIPT%"
+echo Beklenen: dahili disk ve birim hala YOK; Faz 0 UFS LUN taramasi yapmaz.
+
+echo.
 echo [PnP: klavye/fare/USB/ag]
 if exist "%SystemRoot%\System32\pnputil.exe" (
   pnputil /enum-devices /connected /class Keyboard /drivers

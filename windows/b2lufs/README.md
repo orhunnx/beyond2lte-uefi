@@ -84,6 +84,29 @@ etmez ve `HwStartIo` ile her isteği `INVALID_REQUEST` olarak tamamlar.
 Dolayısıyla DiskPart'ın hâlâ dahili disk göstermemesi bu testin beklenen
 sonucudur.
 
+## Faz 0 WinPE kabul ölçütü
+
+`startnet.cmd` önce sürücü kurulmadan önceki DiskPart sonucunu, ardından
+`pnputil /add-driver`, yeniden tarama ve **kurulum sonrası** ikinci DiskPart
+sonucunu gösterir. Fotoğrafta şu üç kanıt birlikte aranır:
+
+1. `B2LUFS Faz 0: ozel miniportu PnP'ye ekle` altında INF'nin eklendiği ve
+   yeniden taramanın tamamlandığı görülür.
+2. `UFS0: CID, eslesen surucu ve stack` ile `SCSIAdapter` çıktılarında
+   `ACPI\SMSN9820\0` için `Beyond2LTE Exynos 9820 UFS Host Controller`,
+   `b2lufs.inf` ve `Started` yer alır. INF'nin eşleşmesi `ACPI\BYND9820`
+   compatible ID'si üzerinden olur; instance ID'nin `SMSN9820` kalması
+   normaldir.
+3. İkinci DiskPart bloğu hâlâ `There are no fixed disks to show` ve
+   `There are no volumes` göstermelidir. `X:` yalnız WinPE RAM diskidir.
+
+Başarı ile bir iç disk görünmesi Faz 0 için **beklenmeyen** sonuçtur: bu
+sürücü LUN keşfi veya SCSI I/O uygulamaz. Böyle bir durumda yazma yapmadan
+ekranın fotoğrafını alıp testi durdururuz. Öte yandan `Code 10`/`FAILED_START`
+altı ACPI kaynağının StorPort'a beklenen biçimde ulaşmadığını; imza veya
+`pnputil` hatası ise sürücünün hiç çalıştırılmadığını gösterir. Her ikisi de
+sonraki aşamada UFS register'larına dokunmadan teşhis edilir.
+
 Bu testte DSDT `UFS0` aygıtı yalnız `ACPI\\BYND9820` compatible ID'sini
 yayınlar ve altı MMIO penceresini yalnız b2lufs'a verir. Böylece inbox
 `storufs` ile aynı HBA'ya iki sürücünün bağlanması mümkün değildir. WinPE
