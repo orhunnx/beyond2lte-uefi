@@ -25,13 +25,21 @@ typedef struct B2LUFS_ADAPTER {
 
     /*
      * A 32-byte, DMA-coherent scratch area used once before BusChange for
-     * READ CAPACITY(16).  The validated reply remains cached so Windows'
+     * READ CAPACITY.  The broadly compatible 10-byte form is tried first;
+     * the 16-byte form is used only for a device larger than its address
+     * range.  The normalized reply remains cached so Windows' later
      * READ CAPACITY(10/16) probes do not depend on a transient PnP buffer
      * mapping.  It never contains user data and is never written to UFS.
      */
     PVOID CapacityProbeVirtual;
     STOR_PHYSICAL_ADDRESS CapacityProbePhysical;
     ULONG CapacityProbeLength;
+    ULONG CapacityProbeResult;
+    UCHAR CapacityProbeScsiStatus;
+    UCHAR CapacityProbeOpcode;
+    ULONG CapacityProbeBytes;
+    ULONGLONG CapacityLastLba;
+    ULONG CapacityBlockLength;
     BOOLEAN CapacityValid;
 
     /*
@@ -71,7 +79,7 @@ B2LUfsStartTransport(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter);
 
-/* Read and validate the live LUN-0 READ CAPACITY(16) reply before scanning. */
+/* Read and validate the live LUN-0 capacity reply before scanning. */
 VOID
 B2LUfsProbeLun0Capacity(
     _In_ PVOID DeviceExtension,

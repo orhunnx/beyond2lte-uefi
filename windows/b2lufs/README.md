@@ -30,10 +30,12 @@ Faz 1 bu PnP sözleşmesini korur ve yalnız aşağıdaki dar taşıma akışın
    reset göndermez.
 3. Denetleyicinin boş transfer-list scheduler'ını kendi DMA halkasına
    yöneltir ve yalnız UFS **LUN 0 / target 0** SCSI sorgularını iletir.
-4. PnP taramasından hemen önce, bitişik DMA tamponunda tek bir
-   `READ CAPACITY(16)` cevabını doğrular. Windows'un sonraki `READ CAPACITY`
-   sorgularına bu **cihazdan okunmuş** cevap geri verilir; kapasite
-   sabitlenmez veya tahmin edilmez. Başarısızsa normal SRB yolu korunur.
+4. PnP taramasından hemen önce, bitişik DMA tamponunda önce standart
+   `READ CAPACITY(10)` cevabını doğrular; yalnız `0xFFFFFFFF` LBA yanıtı
+   verirse `READ CAPACITY(16)`ye geçer. Windows'un sonraki `READ CAPACITY`
+   sorgularına bu **cihazdan okunmuş** ve normalleştirilmiş cevap geri verilir;
+   kapasite sabitlenmez veya tahmin edilmez. Başarısızsa normal SRB yolu
+   korunur ve onun ilk geçerli cevabı önbelleğe alınır.
 5. Aynı LUN 0 üzerinden bir kez standart `REPORT LUNS` envanterini alır.
    Bu, diğer LUN'ların bloklarını okumaz, hiçbir LUN'u Windows'a eklemez ve
    boot/RPMB LUN'larını StorPort/PnP taramasından uzak tutar. Yanıt, yalnız
@@ -217,7 +219,9 @@ kapısından geçmiş son artefakt değildir; UFS donanım sonucu olarak yorumla
 `1US_TO_CNT=000000A6`. CAP alanında NUTRS `[4:0]` ve NUTMRS `[18:16]`
 sırasıyla `31` ve `3` olduğundan denetleyici 32 UTR + 4 UTMR kapasitelidir;
 bit 24 de 64-bit adreslemeyi bildirir. Faz 1 bu kapasitenin yalnız bir UTR
-yuvasını kullanır; veri aktarımı 4 KiB ve tek fiziksel parça ile sınırlıdır.
+yuvasını kullanır; veri aktarımı hâlâ en fazla 4 KiB'dir. StorPort'un verdiği
+bu tek mantıksal blok tamponu fiziksel sayfa sınırını geçerse, sürücü bunu
+en çok 32 adet 4 KiB PRDT girişine böler; bitişik fiziksel RAM varsaymaz.
 
 Yerel doğrulama:
 
@@ -230,8 +234,8 @@ clang -std=c11 -Wall -Wextra -Werror \
 ## Sonraki üç değişiklik
 
 1. İlk salt-okunur GPT/LUN 0 keşfini DiskPart fotoğrafıyla doğrula.
-2. Sadece gerçekten gerekirse PRDT'yi çoklu fiziksel parça/transfer için
-   genişlet; yazma yolu ekleme.
+2. DiskPart ile GPT/LUN 0 okuması doğrulandıktan sonra, yalnız gerçekten
+   gerekirse doğrulanan 4 KiB üst sınırını büyüt; yazma yolu ekleme.
 3. UEFI'den Exynos başlatması ancak HCE/link devralması kesin olarak
    başarısız olursa ele alınır: VCC/PHY isolation, IO coherency,
    `1US_TO_CNT=166`, saat/refclk/clock-gating, CAL pre-link, standart

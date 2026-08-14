@@ -215,10 +215,21 @@ call :PhotoPause
 exit /b 0
 
 :LunInventory
+echo --- B2LUFS: READ CAPACITY onceligi ve ham cevap ---
+echo Surucu once 10-baytli READ CAPACITY kullanir; 16-baytli form yalniz 2 TiB ustu LUN icindir.
+echo Result=0 ve ScsiStatus=0 ile ReadCapacityValid=1 beklenir; BlockBytes bu cihazda 4096 olmalidir.
+set "B2L_LUN_KEY=HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0\Device Parameters\B2LUFS"
+reg query "%B2L_LUN_KEY%" /v ReadCapacityResult 2>nul
+reg query "%B2L_LUN_KEY%" /v ReadCapacityScsiStatus 2>nul
+reg query "%B2L_LUN_KEY%" /v ReadCapacityOpcode 2>nul
+reg query "%B2L_LUN_KEY%" /v ReadCapacityReturnedBytes 2>nul
+reg query "%B2L_LUN_KEY%" /v ReadCapacityValid 2>nul
+reg query "%B2L_LUN_KEY%" /v ReadCapacityBlockBytes 2>nul
+echo Ham READ CAPACITY cevabi (buyuk-endian last-LBA + blok boyutu):
+reg query "%B2L_LUN_KEY%" /v ReadCapacityRaw 2>nul
 echo --- B2LUFS: REPORT LUNS envanteri (salt-okunur, LUN 0 uzerinden) ---
 echo Bu bilgi diger LUN'lara blok okuma/yazma yapmadan alinir.
 echo Header: ilk 4 bayt big-endian liste bayti; sonraki her 8 bayt bir LUN kimligidir.
-set "B2L_LUN_KEY=HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0\Device Parameters\B2LUFS"
 reg query "%B2L_LUN_KEY%" /v SchemaVersion 2>nul
 reg query "%B2L_LUN_KEY%" /v ReportLunsResult 2>nul
 reg query "%B2L_LUN_KEY%" /v ReportLunsScsiStatus 2>nul

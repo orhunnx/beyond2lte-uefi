@@ -31,6 +31,13 @@
  */
 static UCHAR B2LUFS_REG_SUBKEY[] = "B2LUFS";
 static UCHAR B2LUFS_REG_SCHEMA_VERSION[] = "SchemaVersion";
+static UCHAR B2LUFS_REG_CAPACITY_RESULT[] = "ReadCapacityResult";
+static UCHAR B2LUFS_REG_CAPACITY_SCSI_STATUS[] = "ReadCapacityScsiStatus";
+static UCHAR B2LUFS_REG_CAPACITY_OPCODE[] = "ReadCapacityOpcode";
+static UCHAR B2LUFS_REG_CAPACITY_RETURNED_BYTES[] = "ReadCapacityReturnedBytes";
+static UCHAR B2LUFS_REG_CAPACITY_VALID[] = "ReadCapacityValid";
+static UCHAR B2LUFS_REG_CAPACITY_BLOCK_BYTES[] = "ReadCapacityBlockBytes";
+static UCHAR B2LUFS_REG_CAPACITY_RAW[] = "ReadCapacityRaw";
 static UCHAR B2LUFS_REG_LUNS_RESULT[] = "ReportLunsResult";
 static UCHAR B2LUFS_REG_LUNS_SCSI_STATUS[] = "ReportLunsScsiStatus";
 static UCHAR B2LUFS_REG_LUNS_LIST_BYTES[] = "ReportLunsListBytes";
@@ -216,9 +223,9 @@ B2LUfsFindAdapter(
      * bekler. Bu çağrı HCI'ye ya da herhangi bir UFS LUN'una dokunmaz.
      */
     /*
-     * Tek PRDT ile yalnız 4 KiB aktarım kabul edilir. Bu cihazın doğrulanan
-     * mantıksal blok boyutudur; ilk GPT/partition keşfi için yeterlidir ve
-     * fiziksel olarak parçalı Windows tamponlarını kabul etmeyiz.
+     * İstek üst sınırı bir doğrulanmış 4 KiB mantıksal bloktur. Bu blok
+     * Windows'ta fiziksel sayfa sınırını geçerse transport onu çok girişli
+     * PRDT'ye böler; daha büyük bir transfer veya medya yazması kabul edilmez.
      */
     if (!B2LUfsAllocateTransport(DeviceExtension, Adapter, ConfigInfo)) {
         B2LUfsLogFindFailure(
@@ -242,7 +249,10 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 1;
+    ULONG SchemaVersion = 2;
+    ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
+    ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
+    ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
     ULONG ScsiStatus = Adapter->LunReportScsiStatus;
     ULONG Index;
     UCHAR ValueName[] = "Lun00Id";
@@ -250,6 +260,33 @@ B2LUfsPublishLunSnapshot(
     (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_SCHEMA_VERSION,
         REG_DWORD, &SchemaVersion, sizeof(SchemaVersion));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_CAPACITY_RESULT,
+        REG_DWORD, &Adapter->CapacityProbeResult,
+        sizeof(Adapter->CapacityProbeResult));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_CAPACITY_SCSI_STATUS,
+        REG_DWORD, &CapacityScsiStatus, sizeof(CapacityScsiStatus));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_CAPACITY_OPCODE,
+        REG_DWORD, &CapacityOpcode, sizeof(CapacityOpcode));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_CAPACITY_RETURNED_BYTES,
+        REG_DWORD, &Adapter->CapacityProbeBytes,
+        sizeof(Adapter->CapacityProbeBytes));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_CAPACITY_VALID,
+        REG_DWORD, &CapacityValid, sizeof(CapacityValid));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_CAPACITY_BLOCK_BYTES,
+        REG_DWORD, &Adapter->CapacityBlockLength,
+        sizeof(Adapter->CapacityBlockLength));
+    if (Adapter->CapacityProbeBytes != 0) {
+        (void)StorPortRegistryWriteAdapterKey(
+            DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_CAPACITY_RAW,
+            REG_BINARY, Adapter->CapacityProbeVirtual,
+            Adapter->CapacityProbeBytes);
+    }
     (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_LUNS_RESULT,
         REG_DWORD, &Adapter->LunReportResult, sizeof(Adapter->LunReportResult));

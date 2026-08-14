@@ -19,7 +19,22 @@
 #define B2LUFS_ALIGNED_UPIU_SIZE           1024UL
 #define B2LUFS_UTRD_SLOT_BYTES               32UL
 #define B2LUFS_PRDT_ENTRY_BYTES              16UL
-#define B2LUFS_MAX_TRANSFER                4096UL
+#define B2LUFS_MAX_PRDT_ENTRIES               32UL
+/*
+ * Exynos' VS-HCI PRDT entry-size registers are programmed with 12 below,
+ * i.e. 2^12 = 4 KiB.  Split a physically contiguous StorPort segment at
+ * that boundary instead of depending on the Windows buffer being contiguous
+ * or on an undocumented larger vendor entry size.
+ */
+#define B2LUFS_PRDT_MAX_BYTES              4096UL
+/* Keep the public request limit at one known-good UFS logical block. */
+#define B2LUFS_MAX_TRANSFER                B2LUFS_PRDT_MAX_BYTES
+#define B2LUFS_RESPONSE_UPIU_OFFSET_BYTES  B2LUFS_ALIGNED_UPIU_SIZE
+#define B2LUFS_PRDT_OFFSET_BYTES \
+    (B2LUFS_ALIGNED_UPIU_SIZE * 2UL)
+#define B2LUFS_UCD_BYTES \
+    (B2LUFS_PRDT_OFFSET_BYTES + \
+     (B2LUFS_MAX_PRDT_ENTRIES * B2LUFS_PRDT_ENTRY_BYTES))
 #define B2LUFS_COMMON_BUFFER_BYTES         6144UL
 #define B2LUFS_CAPACITY_10_BYTES              8UL
 #define B2LUFS_CAPACITY_16_BYTES             32UL
@@ -134,6 +149,7 @@ typedef struct B2LUFS_PRDT {
 C_ASSERT(sizeof(B2LUFS_UTRD) == B2LUFS_UTRD_SLOT_BYTES);
 C_ASSERT(sizeof(B2LUFS_UPIU) == 32);
 C_ASSERT(sizeof(B2LUFS_PRDT) == B2LUFS_PRDT_ENTRY_BYTES);
+C_ASSERT(B2LUFS_MAX_PRDT_ENTRIES <= MAXUSHORT);
 
 typedef enum B2LUFS_TRANSFER_RESULT {
     B2LUfsTransferOk = 0,
@@ -214,6 +230,25 @@ B2LUfsReadBe32(_In_reads_bytes_(4) const UCHAR *Buffer)
         Value = (Value << 8) | Buffer[Index];
     }
     return Value;
+}
+
+static VOID
+B2LUfsWriteBe32(_Out_writes_bytes_(4) UCHAR *Buffer, _In_ ULONG Value)
+{
+    Buffer[0] = (UCHAR)(Value >> 24);
+    Buffer[1] = (UCHAR)(Value >> 16);
+    Buffer[2] = (UCHAR)(Value >> 8);
+    Buffer[3] = (UCHAR)Value;
+}
+
+static VOID
+B2LUfsWriteBe64(_Out_writes_bytes_(8) UCHAR *Buffer, _In_ ULONGLONG Value)
+{
+    ULONG Index;
+
+    for (Index = 0; Index < 8UL; ++Index) {
+        Buffer[Index] = (UCHAR)(Value >> ((7UL - Index) * 8UL));
+    }
 }
 
 static VOID
@@ -307,6 +342,12 @@ B2LUfsAlignOffset(_In_ ULONGLONG PhysicalAddress, _In_ ULONG Alignment)
     return (ULONG)((Alignment - (PhysicalAddress & Mask)) & Mask);
 }
 
+static ULONG
+B2LUfsMinUlong(_In_ ULONG Left, _In_ ULONG Right)
+{
+    return (Left < Right) ? Left : Right;
+}
+
 static BOOLEAN
 B2LUfsCdbIsExplicitlyReadOnly(_In_ UCHAR Operation)
 {
@@ -349,12 +390,13 @@ B2LUfsAllocateTransport(
     ULONG Offset;
 
     /*
-     * The platform reports coherent 64-bit DMA (CAP[24]).  Keep one 4 KiB
-     * data PRDT entry only: it matches the phone's 4 KiB logical block size
-     * and makes the first GPT reads maximally conservative.
+     * The platform reports coherent 64-bit DMA (CAP[24]).  Each PRDT entry
+     * remains limited to one verified 4 KiB UFS logical block, but Windows
+     * buffers need not be physically contiguous: B2LUfsSubmitReadOnlyScsi
+     * expands them into at most 32 such entries.
      */
     ConfigInfo->MaximumTransferLength = B2LUFS_MAX_TRANSFER;
-    ConfigInfo->NumberOfPhysicalBreaks = 1;
+    ConfigInfo->NumberOfPhysicalBreaks = B2LUFS_MAX_PRDT_ENTRIES;
     ConfigInfo->NumberOfBuses = 1;
     /*
      * StorPort otherwise maps DataBuffer only for IOCTL/WMI requests.  The
@@ -392,14 +434,15 @@ B2LUfsAllocateTransport(
 
     /*
      * UTRL base must be 1 KiB aligned.  The following UCD starts another
-     * 1 KiB later, so its two 1 KiB UPIUs and first PRDT have known offsets.
-     * The common buffer is contiguous; physical and virtual offsets match.
+     * 1 KiB later, so its two 1 KiB UPIUs and the full PRDT table have known
+     * offsets.  The common buffer is contiguous; physical and virtual
+     * offsets match.
      */
     Offset = B2LUfsAlignOffset(
         (ULONGLONG)Adapter->CommonPhysical.QuadPart,
         B2LUFS_UTRD_ALIGNMENT);
     if (Offset + B2LUFS_UTRD_ALIGNMENT +
-        (B2LUFS_ALIGNED_UPIU_SIZE * 2UL) + B2LUFS_PRDT_ENTRY_BYTES +
+        B2LUFS_UCD_BYTES +
         B2LUFS_CAPACITY_16_BYTES + B2LUFS_REPORT_LUNS_BYTES >
         B2LUFS_COMMON_BUFFER_BYTES) {
         return FALSE;
@@ -411,9 +454,9 @@ B2LUfsAllocateTransport(
     Adapter->UcdPhysical.QuadPart =
         Adapter->UtrdPhysical.QuadPart + B2LUFS_UTRD_ALIGNMENT;
     Adapter->CapacityProbeVirtual = (PUCHAR)Adapter->UcdVirtual +
-        (B2LUFS_ALIGNED_UPIU_SIZE * 2UL) + B2LUFS_PRDT_ENTRY_BYTES;
+        B2LUFS_UCD_BYTES;
     Adapter->CapacityProbePhysical.QuadPart = Adapter->UcdPhysical.QuadPart +
-        (B2LUFS_ALIGNED_UPIU_SIZE * 2UL) + B2LUFS_PRDT_ENTRY_BYTES;
+        B2LUFS_UCD_BYTES;
     Adapter->CapacityProbeLength = B2LUFS_CAPACITY_16_BYTES;
     Adapter->LunReportVirtual = (PUCHAR)Adapter->CapacityProbeVirtual +
         B2LUFS_CAPACITY_16_BYTES;
@@ -424,10 +467,104 @@ B2LUfsAllocateTransport(
     B2LUfsZeroMemory(Adapter->UtrdVirtual, B2LUFS_UTRD_ALIGNMENT);
     B2LUfsZeroMemory(
         Adapter->UcdVirtual,
-        (B2LUFS_ALIGNED_UPIU_SIZE * 2UL) + B2LUFS_PRDT_ENTRY_BYTES);
+        B2LUFS_UCD_BYTES);
     B2LUfsZeroMemory(
         Adapter->CapacityProbeVirtual,
         B2LUFS_CAPACITY_16_BYTES + B2LUFS_REPORT_LUNS_BYTES);
+    return TRUE;
+}
+
+/*
+ * StorPortGetPhysicalAddress returns the contiguous run that starts at the
+ * supplied virtual address, not an entire SRB's scatter/gather map.  Build
+ * the UFS PRDT one run at a time so a normal Windows 4 KiB GPT read does not
+ * become an accidental "must fit in one physical page" requirement.
+ *
+ * The two pre-PnP probes live in StorPort's common buffer and do not have an
+ * SRB.  They are already physically contiguous; all other paths require the
+ * SRB mapping supplied by StorPort.
+ */
+static BOOLEAN
+B2LUfsBuildPrdt(
+    _In_ PVOID DeviceExtension,
+    _In_opt_ PSCSI_REQUEST_BLOCK Srb,
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _In_ PVOID DataBuffer,
+    _In_ ULONG RequestedLength,
+    _Out_writes_(B2LUFS_MAX_PRDT_ENTRIES) B2LUFS_PRDT *Prdt,
+    _Out_ PULONG PrdtEntryCount)
+{
+    STOR_PHYSICAL_ADDRESS Physical;
+    ULONG PhysicalLength;
+    ULONG Remaining;
+    ULONG BufferOffset;
+    ULONG EntryLength;
+    ULONG EntryCount;
+    BOOLEAN CommonBuffer;
+
+    if (DataBuffer == NULL || RequestedLength == 0) {
+        return FALSE;
+    }
+
+    CommonBuffer = FALSE;
+    Physical.QuadPart = 0;
+    PhysicalLength = 0;
+    if (DataBuffer == Adapter->CapacityProbeVirtual) {
+        if (RequestedLength > Adapter->CapacityProbeLength) {
+            return FALSE;
+        }
+        Physical = Adapter->CapacityProbePhysical;
+        PhysicalLength = Adapter->CapacityProbeLength;
+        CommonBuffer = TRUE;
+    } else if (DataBuffer == Adapter->LunReportVirtual) {
+        if (RequestedLength > Adapter->LunReportLength) {
+            return FALSE;
+        }
+        Physical = Adapter->LunReportPhysical;
+        PhysicalLength = Adapter->LunReportLength;
+        CommonBuffer = TRUE;
+    } else if (Srb == NULL) {
+        return FALSE;
+    }
+
+    Remaining = RequestedLength;
+    BufferOffset = 0;
+    EntryCount = 0;
+    while (Remaining != 0) {
+        if (PhysicalLength == 0) {
+            PhysicalLength = Remaining;
+            Physical = StorPortGetPhysicalAddress(
+                DeviceExtension,
+                Srb,
+                (PUCHAR)DataBuffer + BufferOffset,
+                &PhysicalLength);
+            if (Physical.QuadPart == 0 || PhysicalLength == 0) {
+                return FALSE;
+            }
+        }
+
+        EntryLength = B2LUfsMinUlong(Remaining, PhysicalLength);
+        EntryLength = B2LUfsMinUlong(EntryLength, B2LUFS_PRDT_MAX_BYTES);
+        if (EntryLength == 0 || EntryCount == B2LUFS_MAX_PRDT_ENTRIES) {
+            return FALSE;
+        }
+
+        Prdt[EntryCount].BaseAddressLow = Physical.LowPart;
+        Prdt[EntryCount].BaseAddressHigh = Physical.HighPart;
+        Prdt[EntryCount].DataByteCount = EntryLength - 1UL;
+        ++EntryCount;
+        Remaining -= EntryLength;
+        BufferOffset += EntryLength;
+        Physical.QuadPart += EntryLength;
+        PhysicalLength -= EntryLength;
+
+        if (CommonBuffer && Remaining != 0 && PhysicalLength == 0) {
+            /* The requested probe did not fit in its own DMA allocation. */
+            return FALSE;
+        }
+    }
+
+    *PrdtEntryCount = EntryCount;
     return TRUE;
 }
 
@@ -517,11 +654,10 @@ B2LUfsSubmitReadOnlyScsi(
     B2LUFS_UPIU *CommandUpiu;
     B2LUFS_UPIU *ResponseUpiu;
     B2LUFS_PRDT *Prdt;
-    STOR_PHYSICAL_ADDRESS DataPhysical;
-    ULONG DataPhysicalLength;
     ULONG InterruptStatus;
     ULONG Attempts;
     ULONG Direction;
+    ULONG PrdtEntryCount;
 
     Adapter->LastUtrdOcs = B2LUFS_OCS_INVALID_COMMAND_STATUS;
     Adapter->LastInterruptStatus = 0;
@@ -533,50 +669,40 @@ B2LUfsSubmitReadOnlyScsi(
     B2LUfsZeroMemory(Adapter->UtrdVirtual, B2LUFS_UTRD_SLOT_BYTES);
     B2LUfsZeroMemory(
         Adapter->UcdVirtual,
-        (B2LUFS_ALIGNED_UPIU_SIZE * 2UL) + B2LUFS_PRDT_ENTRY_BYTES);
+        B2LUFS_UCD_BYTES);
 
     Utrd = (B2LUFS_UTRD *)Adapter->UtrdVirtual;
     CommandUpiu = (B2LUFS_UPIU *)Adapter->UcdVirtual;
     ResponseUpiu = (B2LUFS_UPIU *)((PUCHAR)Adapter->UcdVirtual +
                                     B2LUFS_ALIGNED_UPIU_SIZE);
-    Prdt = (B2LUFS_PRDT *)((PUCHAR)Adapter->UcdVirtual +
-                           (B2LUFS_ALIGNED_UPIU_SIZE * 2UL));
+    Prdt = (B2LUFS_PRDT *)((PUCHAR)Adapter->UcdVirtual + B2LUFS_PRDT_OFFSET_BYTES);
 
     Utrd->CommandDescriptorBaseLow = Adapter->UcdPhysical.LowPart;
     Utrd->CommandDescriptorBaseHigh = Adapter->UcdPhysical.HighPart;
-    Utrd->ResponseUpiuOffset = (USHORT)B2LUFS_ALIGNED_UPIU_SIZE;
+    /*
+     * Exynos UFS implements PRDTO/PRDTL byte granularity (the same quirk
+     * used by Linux's ufs-exynos driver), not the default UFSHCI DWORD
+     * granularity.  Do not divide these values by four on this controller.
+     */
+    Utrd->ResponseUpiuOffset = (USHORT)B2LUFS_RESPONSE_UPIU_OFFSET_BYTES;
     Utrd->ResponseUpiuLength = (USHORT)B2LUFS_ALIGNED_UPIU_SIZE;
+    Utrd->PrdtOffset = (USHORT)B2LUFS_PRDT_OFFSET_BYTES;
     Utrd->Dw2 = B2LUFS_OCS_INVALID_COMMAND_STATUS;
 
     Direction = B2LUFS_UTP_NO_DATA_TRANSFER;
     if (RequestedLength != 0) {
-        if (DataBuffer == NULL) {
-            return B2LUfsTransferBadDma;
-        }
-
-        if (DataBuffer == Adapter->CapacityProbeVirtual) {
-            DataPhysical = Adapter->CapacityProbePhysical;
-            DataPhysicalLength = Adapter->CapacityProbeLength;
-        } else if (DataBuffer == Adapter->LunReportVirtual) {
-            DataPhysical = Adapter->LunReportPhysical;
-            DataPhysicalLength = Adapter->LunReportLength;
-        } else {
-            DataPhysicalLength = RequestedLength;
-            DataPhysical = StorPortGetPhysicalAddress(
+        if (!B2LUfsBuildPrdt(
                 DeviceExtension,
                 Srb,
+                Adapter,
                 DataBuffer,
-                &DataPhysicalLength);
-        }
-        if (DataPhysical.QuadPart == 0 || DataPhysicalLength < RequestedLength) {
+                RequestedLength,
+                Prdt,
+                &PrdtEntryCount)) {
             return B2LUfsTransferBadDma;
         }
-
-        Prdt->BaseAddressLow = DataPhysical.LowPart;
-        Prdt->BaseAddressHigh = DataPhysical.HighPart;
-        Prdt->DataByteCount = RequestedLength - 1UL;
-        Utrd->PrdtOffset = (USHORT)(B2LUFS_ALIGNED_UPIU_SIZE * 2UL);
-        Utrd->PrdtLength = (USHORT)B2LUFS_PRDT_ENTRY_BYTES;
+        /* Exynos' byte-granular PRDTL includes every 16-byte entry. */
+        Utrd->PrdtLength = (USHORT)(PrdtEntryCount * B2LUFS_PRDT_ENTRY_BYTES);
         Direction = B2LUFS_UTP_DEVICE_TO_HOST;
     }
 
@@ -640,11 +766,30 @@ B2LUfsSubmitReadOnlyScsi(
     return B2LUfsTransferTimeout;
 }
 
+static BOOLEAN
+B2LUfsCacheCapacity(
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _In_ ULONGLONG LastLba,
+    _In_ ULONG BlockLength)
+{
+    /* Zero capacity cannot describe this phone's known user LUN. */
+    if (LastLba == 0 || BlockLength == 0 || BlockLength > B2LUFS_MAX_TRANSFER ||
+        (BlockLength & (BlockLength - 1UL)) != 0) {
+        return FALSE;
+    }
+
+    Adapter->CapacityLastLba = LastLba;
+    Adapter->CapacityBlockLength = BlockLength;
+    Adapter->CapacityValid = TRUE;
+    return TRUE;
+}
+
 /*
  * Probe the device's own capacity exactly once with a physically contiguous
- * StorPort common buffer.  The result is only a SCSI READ CAPACITY response;
- * it reads neither a user LBA nor any partition metadata.  If validation
- * fails, ordinary Windows capacity SRBs are still forwarded as before.
+ * StorPort common buffer.  READ CAPACITY(10) is the path Windows is already
+ * known to issue on this phone and covers its user-LUN size.  Only an all-FF
+ * LBA result needs the 16-byte service action.  Neither command reads a user
+ * LBA or partition metadata.
  */
 VOID
 B2LUfsProbeLun0Capacity(
@@ -658,11 +803,46 @@ B2LUfsProbeLun0Capacity(
     ULONG BlockLength;
 
     Adapter->CapacityValid = FALSE;
+    Adapter->CapacityProbeResult = (ULONG)B2LUfsTransferBadDma;
+    Adapter->CapacityProbeScsiStatus = 0xFFU;
+    Adapter->CapacityProbeOpcode = 0;
+    Adapter->CapacityProbeBytes = 0;
+    Adapter->CapacityLastLba = 0;
+    Adapter->CapacityBlockLength = 0;
     if (!Adapter->TransportReady || Adapter->CapacityProbeVirtual == NULL ||
         Adapter->CapacityProbeLength < B2LUFS_CAPACITY_16_BYTES) {
         return;
     }
 
+    B2LUfsZeroMemory(Cdb, sizeof(Cdb));
+    B2LUfsZeroMemory(Adapter->CapacityProbeVirtual, B2LUFS_CAPACITY_16_BYTES);
+    Cdb[0] = B2LUFS_SCSI_READ_CAPACITY_10;
+    Result = B2LUfsSubmitReadOnlyScsi(
+        DeviceExtension,
+        Adapter,
+        NULL,
+        Cdb,
+        Adapter->CapacityProbeVirtual,
+        B2LUFS_CAPACITY_10_BYTES,
+        &ScsiStatus);
+    Adapter->CapacityProbeResult = (ULONG)Result;
+    Adapter->CapacityProbeScsiStatus = ScsiStatus;
+    Adapter->CapacityProbeOpcode = B2LUFS_SCSI_READ_CAPACITY_10;
+    if (Result != B2LUfsTransferOk || ScsiStatus != B2LUFS_SCSI_STATUS_GOOD) {
+        return;
+    }
+
+    Adapter->CapacityProbeBytes = B2LUFS_CAPACITY_10_BYTES;
+    LastLba = (ULONGLONG)B2LUfsReadBe32(
+        (const UCHAR *)Adapter->CapacityProbeVirtual);
+    BlockLength = B2LUfsReadBe32(
+        (const UCHAR *)Adapter->CapacityProbeVirtual + 4UL);
+    if (LastLba != MAXULONG) {
+        (void)B2LUfsCacheCapacity(Adapter, LastLba, BlockLength);
+        return;
+    }
+
+    /* Only a >2 TiB logical unit reaches this READ CAPACITY(16) fallback. */
     B2LUfsZeroMemory(Cdb, sizeof(Cdb));
     B2LUfsZeroMemory(Adapter->CapacityProbeVirtual, B2LUFS_CAPACITY_16_BYTES);
     Cdb[0] = B2LUFS_SCSI_SERVICE_ACTION_IN_16;
@@ -677,20 +857,18 @@ B2LUfsProbeLun0Capacity(
         Adapter->CapacityProbeVirtual,
         B2LUFS_CAPACITY_16_BYTES,
         &ScsiStatus);
+    Adapter->CapacityProbeResult = (ULONG)Result;
+    Adapter->CapacityProbeScsiStatus = ScsiStatus;
+    Adapter->CapacityProbeOpcode = B2LUFS_SCSI_SERVICE_ACTION_IN_16;
     if (Result != B2LUfsTransferOk || ScsiStatus != B2LUFS_SCSI_STATUS_GOOD) {
         return;
     }
 
+    Adapter->CapacityProbeBytes = B2LUFS_CAPACITY_16_BYTES;
     LastLba = B2LUfsReadBe64((const UCHAR *)Adapter->CapacityProbeVirtual);
     BlockLength = B2LUfsReadBe32(
         (const UCHAR *)Adapter->CapacityProbeVirtual + 8UL);
-    /* Zero values cannot describe the known user LUN; do not fabricate them. */
-    if (LastLba == 0 || BlockLength == 0 || BlockLength > B2LUFS_MAX_TRANSFER ||
-        (BlockLength & (BlockLength - 1UL)) != 0) {
-        return;
-    }
-
-    Adapter->CapacityValid = TRUE;
+    (void)B2LUfsCacheCapacity(Adapter, LastLba, BlockLength);
 }
 
 /*
@@ -756,14 +934,13 @@ B2LUfsProbeLuns(
     Adapter->LunReportValid = TRUE;
 }
 
-/* Complete Windows' two standard capacity commands from the live cached reply. */
+/* Complete Windows' two standard capacity commands from the normalized cache. */
 static BOOLEAN
 B2LUfsCompleteCachedCapacity(
     _In_ B2LUFS_ADAPTER *Adapter,
     _Inout_ PSCSI_REQUEST_BLOCK Srb)
 {
     UCHAR *Output;
-    ULONGLONG LastLba;
     ULONG CopyLength;
 
     if (!Adapter->CapacityValid || Srb->DataBuffer == NULL) {
@@ -775,33 +952,25 @@ B2LUfsCompleteCachedCapacity(
         if (Srb->DataTransferLength < B2LUFS_CAPACITY_10_BYTES) {
             return FALSE;
         }
-        LastLba = B2LUfsReadBe64(
-            (const UCHAR *)Adapter->CapacityProbeVirtual);
-        if (LastLba > MAXULONG) {
-            Output[0] = 0xFFU;
-            Output[1] = 0xFFU;
-            Output[2] = 0xFFU;
-            Output[3] = 0xFFU;
+        if (Adapter->CapacityLastLba > MAXULONG) {
+            B2LUfsWriteBe32(Output, MAXULONG);
         } else {
-            Output[0] = (UCHAR)(LastLba >> 24);
-            Output[1] = (UCHAR)(LastLba >> 16);
-            Output[2] = (UCHAR)(LastLba >> 8);
-            Output[3] = (UCHAR)LastLba;
+            B2LUfsWriteBe32(Output, (ULONG)Adapter->CapacityLastLba);
         }
-        B2LUfsCopyMemory(Output + 4UL,
-                         (const UCHAR *)Adapter->CapacityProbeVirtual + 8UL,
-                         4UL);
+        B2LUfsWriteBe32(Output + 4UL, Adapter->CapacityBlockLength);
         Srb->DataTransferLength = B2LUFS_CAPACITY_10_BYTES;
     } else if (Srb->Cdb[0] == B2LUFS_SCSI_SERVICE_ACTION_IN_16 &&
                (Srb->Cdb[1] & 0x1FU) == B2LUFS_SCSI_SAI_READ_CAPACITY_16) {
-        if (Srb->DataTransferLength == 0) {
+        if (Srb->DataTransferLength < 12UL) {
             return FALSE;
         }
         CopyLength = Srb->DataTransferLength;
         if (CopyLength > B2LUFS_CAPACITY_16_BYTES) {
             CopyLength = B2LUFS_CAPACITY_16_BYTES;
         }
-        B2LUfsCopyMemory(Output, Adapter->CapacityProbeVirtual, CopyLength);
+        B2LUfsZeroMemory(Output, CopyLength);
+        B2LUfsWriteBe64(Output, Adapter->CapacityLastLba);
+        B2LUfsWriteBe32(Output + 8UL, Adapter->CapacityBlockLength);
         Srb->DataTransferLength = CopyLength;
     } else {
         return FALSE;
@@ -809,6 +978,49 @@ B2LUfsCompleteCachedCapacity(
 
     Srb->ScsiStatus = B2LUFS_SCSI_STATUS_GOOD;
     return TRUE;
+}
+
+/*
+ * If the pre-PnP probe saw a transient SCSI condition, retain the first
+ * valid capacity answer that Windows obtains through its normal discovery
+ * path.  The SRB has already been completed successfully by the device; this
+ * only normalizes later READ CAPACITY requests and cannot manufacture a size.
+ */
+static VOID
+B2LUfsCacheCapacityFromSrb(
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _In_ PSCSI_REQUEST_BLOCK Srb)
+{
+    const UCHAR *Input;
+    ULONGLONG LastLba;
+    ULONG BlockLength;
+
+    if (Adapter->CapacityValid || Srb->DataBuffer == NULL) {
+        return;
+    }
+
+    Input = (const UCHAR *)Srb->DataBuffer;
+    if (Srb->Cdb[0] == B2LUFS_SCSI_READ_CAPACITY_10) {
+        if (Srb->DataTransferLength < B2LUFS_CAPACITY_10_BYTES) {
+            return;
+        }
+        LastLba = (ULONGLONG)B2LUfsReadBe32(Input);
+        if (LastLba == MAXULONG) {
+            return;
+        }
+        BlockLength = B2LUfsReadBe32(Input + 4UL);
+    } else if (Srb->Cdb[0] == B2LUFS_SCSI_SERVICE_ACTION_IN_16 &&
+               (Srb->Cdb[1] & 0x1FU) == B2LUFS_SCSI_SAI_READ_CAPACITY_16) {
+        if (Srb->DataTransferLength < 12UL) {
+            return;
+        }
+        LastLba = B2LUfsReadBe64(Input);
+        BlockLength = B2LUfsReadBe32(Input + 8UL);
+    } else {
+        return;
+    }
+
+    (void)B2LUfsCacheCapacity(Adapter, LastLba, BlockLength);
 }
 
 VOID
@@ -886,6 +1098,7 @@ B2LUfsExecuteScsi(
     switch (Result) {
     case B2LUfsTransferOk:
         if (Srb->ScsiStatus == B2LUFS_SCSI_STATUS_GOOD) {
+            B2LUfsCacheCapacityFromSrb(Adapter, Srb);
             B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, Result,
                                 SRB_STATUS_SUCCESS);
             B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
