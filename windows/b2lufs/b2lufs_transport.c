@@ -12,25 +12,6 @@
 #include <ntddk.h>
 #include <storport.h>
 
-/*
- * ARM64'te Interlocked* aileleri KUTUPHANE ISLEVI DEGIL, derleyici icsel
- * islevidir. x86'da bunlarin bir karsiligi baglanabilir; ARM64'te
- * baglanamaz. Icsel olarak bildirilmezse cl.exe disaridan cagri uretir ve
- * link su iki sembolde patlar:
- *
- *   error LNK2019: cozumlenmemis dis sembol _InterlockedCompareExchange
- *   error LNK2019: cozumlenmemis dis sembol _InterlockedIncrement
- *
- * <intrin.h> bildirimleri getiriyor, #pragma intrinsic de derleyiciyi
- * cagri uretmek yerine komutu yerine gommeye zorluyor. Ikisi birlikte
- * gerekiyor: yalniz basligi eklemek, optimizasyon kapaliyken hala cagri
- * uretilmesine izin verebiliyor.
- */
-#ifdef _MSC_VER
-#include <intrin.h>
-#pragma intrinsic(_InterlockedCompareExchange)
-#pragma intrinsic(_InterlockedIncrement)
-#endif
 
 #include "b2lufs_transport.h"
 
@@ -360,24 +341,39 @@ B2LUfsLogPnpTrace(
 {
     B2LUFS_PNP_TRACE_DATA Data;
     volatile LONG *Budget = (volatile LONG *)&Adapter->PnpTraceBudget;
-    LONG Previous;
 
-    /* HwBuildIo can run concurrently; reserve one diagnostic slot atomically. */
-    for (;;) {
-        Previous = *Budget;
-        if (Previous <= 0) {
-            return;
-        }
-        if (InterlockedCompareExchange(Budget, Previous - 1, Previous) ==
-            Previous) {
-            break;
-        }
+    /*
+     * ATOMIK ISLEM KULLANILMIYOR - BILEREK.
+     *
+     * Onceki surum InterlockedCompareExchange/InterlockedIncrement
+     * kullaniyordu ve ARM64'te link su iki sembolde patliyordu:
+     *
+     *   error LNK2019: cozumlenmemis dis sembol _InterlockedCompareExchange
+     *   error LNK2019: cozumlenmemis dis sembol _InterlockedIncrement
+     *
+     * ARM64'te bunlar kutuphane islevi degil derleyici icsel islevidir ve
+     * /kernel altinda icsel olarak sunulmayabiliyor; derleyici o zaman
+     * disaridan cagri uretiyor. #pragma intrinsic ile zorlamak da cozum
+     * degil: desteklenmeyen bir ad verilirse C4163 uretiliyor ve /WX
+     * altinda bu dogrudan hataya donusuyor.
+     *
+     * Bu iki sayac YALNIZCA TANI kaydi icin. Atomikligin karsiligi, en kotu
+     * ihtimalle bir izleme kaydinin fazla ya da eksik yazilmasi. Sayaclar
+     * ne UFS'e komut gonderiyor ne de bir kaynagi koruyor. Ustelik
+     * ConfigInfo'da MaxNumberOfIO=1 ve StorSynchronizeHalfDuplex ilan
+     * edildigi icin StorPort bu miniportu zaten sirali surer.
+     *
+     * Toolchain'le guresmek yerine ihtiyaci ortadan kaldirmak dogrusu.
+     */
+    if (*Budget <= 0) {
+        return;
     }
+    *Budget = *Budget - 1;
 
     B2LUfsZeroMemory(&Data, sizeof(Data));
     Data.Magic = 0x31504C42UL; /* "BLP1" little-endian */
-    Data.Sequence = (ULONG)InterlockedIncrement(
-        (volatile LONG *)&Adapter->PnpTraceSequence);
+    Adapter->PnpTraceSequence = Adapter->PnpTraceSequence + 1;
+    Data.Sequence = (ULONG)Adapter->PnpTraceSequence;
     Data.PnpAction = (ULONG)Pnp->PnPAction;
     Data.SrbPnpFlags = Pnp->SrbPnPFlags;
     Data.DataTransferLength = Pnp->DataTransferLength;
