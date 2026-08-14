@@ -194,6 +194,37 @@ cleanup() {
   [ -z "${CHECK:-}" ] || rm -rf "$CHECK"
 }
 trap cleanup EXIT
+
+# Hedef BCD'sinde testsigning acik ve bu paket b2lfb ile ayni test
+# sertifikasini kullanir. Derleme bilgisayarinin Trusted Root deposuna bu
+# sertifika bilerek eklenmediginde SignTool, imza/katalog yapisi dogru olsa
+# bile yalniz zincir-guven uyarisi ile 1 doner. /pa ve /c denetimlerini yine
+# calistiririz; sadece bu kesin test-koku durumunu paketleme hatasi saymayiz.
+# Diger her SignTool hatasi (bozuk imza, katalogda SYS yok, vb.) oldugu gibi
+# derlemeyi durdurur.
+verify_test_signed_package() {
+  local Label="$1"
+  shift
+  local VerifyLog
+  VerifyLog="$(mktemp "${TMPDIR:-/tmp}/b2lufs-signtool.XXXXXX")" || \
+    die "SignTool dogrulama gunlugu olusturulamadi"
+
+  if "$SIGNTOOL" verify "$@" >"$VerifyLog" 2>&1; then
+    printf '  dogrulandi: %s\n' "$Label"
+  elif grep -Fqi 'certificate chain processed, but terminated in a root' "$VerifyLog" && \
+       grep -Fqi 'certificate which is not trusted by the trust provider' "$VerifyLog"; then
+    cat "$VerifyLog"
+    printf '  test imza: %s; build bilgisayari test kokune guvenmiyor (beklenen)\n' \
+      "$Label"
+  else
+    cat "$VerifyLog" >&2
+    rm -f "$VerifyLog"
+    die "SignTool dogrulamasi basarisiz: $Label"
+  fi
+
+  rm -f "$VerifyLog"
+}
+
 rm -f "$OUT/b2lufs.cat" "$OUT/b2lufs-signed.cat" "$PFX"
 "$INF2CAT" /driver:"$(wslpath -w "$OUT")" /os:10_GE_ARM64
 [ -s "$OUT/b2lufs.cat" ] || die "Inf2Cat b2lufs.cat uretmedi"
@@ -205,9 +236,9 @@ openssl pkcs12 -export -out "$PFX" \
   -inkey "$KEY" -in "$CERT" -passout "pass:$PFX_PASS" >/dev/null 2>&1
 "$SIGNTOOL" sign /v /fd sha256 /f "$(wslpath -w "$PFX")" \
   /p "$PFX_PASS" "$(wslpath -w "$OUT/b2lufs.cat")"
-"$SIGNTOOL" verify /v /pa "$(wslpath -w "$OUT/b2lufs.cat")"
-"$SIGNTOOL" verify /v /pa /c "$(wslpath -w "$OUT/b2lufs.cat")" \
-  "$(wslpath -w "$OUT/b2lufs.sys")"
+verify_test_signed_package "b2lufs.cat" /v /pa "$(wslpath -w "$OUT/b2lufs.cat")"
+verify_test_signed_package "b2lufs.sys katalog eslesmesi" /v /pa /c \
+  "$(wslpath -w "$OUT/b2lufs.cat")" "$(wslpath -w "$OUT/b2lufs.sys")"
 rm -f "$PFX"
 
 say "B2LUFS paketi boot.wim'e ekleniyor"
