@@ -22,6 +22,9 @@
 #define B2LUFS_MAX_TRANSFER                4096UL
 #define B2LUFS_COMMON_BUFFER_BYTES         6144UL
 #define B2LUFS_COMMAND_TIMEOUT_US       2000000UL
+#define B2LUFS_TRACE_BUDGET                  12UL
+#define B2LUFS_TRACE_SAMPLE_BYTES            64UL
+#define B2LUFS_ETW_SCSI_TRACE        0x42324C02UL
 
 #define B2LUFS_HCE_ENABLE                    0x00000001UL
 #define B2LUFS_UTRL_RUN_STOP                 0x00000001UL
@@ -129,6 +132,32 @@ typedef enum B2LUFS_TRANSFER_RESULT {
     B2LUfsTransferBadDma
 } B2LUFS_TRANSFER_RESULT;
 
+/*
+ * The miniport cannot safely print to the WinPE console from HwStartIo.
+ * Store the first bytes returned by a bounded number of read-only SRBs in
+ * StorPort's Operational channel instead. startnet.cmd renders that channel
+ * after DiskPart has caused the discovery reads. No UFS LUN is written.
+ */
+typedef struct B2LUFS_SCSI_TRACE_DATA {
+    ULONG Magic;
+    ULONG Sequence;
+    ULONG TransferResult;
+    ULONG RequestedLength;
+    ULONG UtrdOcs;
+    ULONG InterruptStatus;
+    UCHAR SrbFunction;
+    UCHAR TargetId;
+    UCHAR Lun;
+    UCHAR CdbOperation;
+    UCHAR SrbStatus;
+    UCHAR ScsiStatus;
+    UCHAR SampleLength;
+    UCHAR Reserved;
+    UCHAR Sample[B2LUFS_TRACE_SAMPLE_BYTES];
+} B2LUFS_SCSI_TRACE_DATA;
+
+C_ASSERT(sizeof(B2LUFS_SCSI_TRACE_DATA) == 96);
+
 static VOID
 B2LUfsZeroMemory(_Out_ PVOID Buffer, _In_ SIZE_T ByteCount)
 {
@@ -149,6 +178,57 @@ B2LUfsCopyMemory(_Out_ PVOID Destination, _In_reads_bytes_(ByteCount) const VOID
     while (ByteCount-- != 0) {
         *To++ = *From++;
     }
+}
+
+static VOID
+B2LUfsLogScsiTrace(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _In_ PSCSI_REQUEST_BLOCK Srb,
+    _In_ B2LUFS_TRANSFER_RESULT Result,
+    _In_ UCHAR SrbStatus)
+{
+    B2LUFS_SCSI_TRACE_DATA Data;
+    ULONG SampleLength;
+
+    if (Adapter->TraceBudget == 0) {
+        return;
+    }
+    Adapter->TraceBudget--;
+
+    B2LUfsZeroMemory(&Data, sizeof(Data));
+    Data.Magic = 0x31534C42UL; /* "BLS1" little-endian */
+    Data.Sequence = ++Adapter->TraceSequence;
+    Data.TransferResult = (ULONG)Result;
+    Data.RequestedLength = Srb->DataTransferLength;
+    Data.UtrdOcs = Adapter->LastUtrdOcs;
+    Data.InterruptStatus = Adapter->LastInterruptStatus;
+    Data.SrbFunction = Srb->Function;
+    Data.TargetId = Srb->TargetId;
+    Data.Lun = Srb->Lun;
+    Data.CdbOperation = Srb->Cdb[0];
+    Data.SrbStatus = SrbStatus;
+    Data.ScsiStatus = Srb->ScsiStatus;
+
+    if (Result == B2LUfsTransferOk &&
+        Srb->ScsiStatus == B2LUFS_SCSI_STATUS_GOOD &&
+        Srb->DataBuffer != NULL &&
+        Srb->DataTransferLength != 0) {
+        SampleLength = Srb->DataTransferLength;
+        if (SampleLength > B2LUFS_TRACE_SAMPLE_BYTES) {
+            SampleLength = B2LUFS_TRACE_SAMPLE_BYTES;
+        }
+        B2LUfsCopyMemory(Data.Sample, Srb->DataBuffer, SampleLength);
+        Data.SampleLength = (UCHAR)SampleLength;
+    }
+
+    (void)StorPortEtwLogError(
+        DeviceExtension,
+        NULL,
+        B2LUFS_ETW_SCSI_TRACE,
+        L"B2LUFS read-only SCSI/UFS trace; binary data is BLS1 header then sample bytes",
+        sizeof(Data),
+        &Data);
 }
 
 static ULONG
@@ -369,6 +449,7 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
     }
 
     Adapter->TransportReady = TRUE;
+    Adapter->TraceBudget = B2LUFS_TRACE_BUDGET;
     return TRUE;
 }
 
@@ -390,6 +471,8 @@ B2LUfsSubmitReadOnlyScsi(
     ULONG Direction;
 
     RequestedLength = Srb->DataTransferLength;
+    Adapter->LastUtrdOcs = B2LUFS_OCS_INVALID_COMMAND_STATUS;
+    Adapter->LastInterruptStatus = 0;
     if (RequestedLength > B2LUFS_MAX_TRANSFER) {
         return B2LUfsTransferBadDma;
     }
@@ -466,6 +549,7 @@ B2LUfsSubmitReadOnlyScsi(
 
     for (Attempts = 0; Attempts < B2LUFS_COMMAND_TIMEOUT_US; ++Attempts) {
         InterruptStatus = B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_IS);
+        Adapter->LastInterruptStatus = InterruptStatus;
         if ((InterruptStatus & B2LUFS_FATAL_INTERRUPT_MASK) != 0) {
             B2LUfsWriteHci(DeviceExtension, Adapter, B2LUFS_REG_IS, InterruptStatus);
             return B2LUfsTransferFatal;
@@ -479,8 +563,10 @@ B2LUfsSubmitReadOnlyScsi(
                                 InterruptStatus);
             }
             if ((Utrd->Dw2 & 0x0FUL) != B2LUFS_OCS_SUCCESS) {
+                Adapter->LastUtrdOcs = Utrd->Dw2 & 0x0FUL;
                 return B2LUfsTransferOcs;
             }
+            Adapter->LastUtrdOcs = Utrd->Dw2 & 0x0FUL;
             if (ResponseUpiu->TransactionCode != B2LUFS_UPIU_TRANSACTION_RESPONSE) {
                 return B2LUfsTransferOcs;
             }
@@ -502,6 +588,8 @@ B2LUfsExecuteScsi(
     B2LUFS_TRANSFER_RESULT Result;
 
     if (!Adapter->TransportReady) {
+        B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, B2LUfsTransferFatal,
+                            SRB_STATUS_NO_DEVICE);
         B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_NO_DEVICE);
         return;
     }
@@ -511,12 +599,16 @@ B2LUfsExecuteScsi(
         /* The read-only transport has no dirty cache and does not issue UFS flush. */
         Srb->DataTransferLength = 0;
         Srb->ScsiStatus = B2LUFS_SCSI_STATUS_GOOD;
+        B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, B2LUfsTransferOk,
+                            SRB_STATUS_SUCCESS);
         B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
         return;
     }
 
     if (Srb->Function != SRB_FUNCTION_EXECUTE_SCSI) {
         Srb->DataTransferLength = 0;
+        B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, B2LUfsTransferBadDma,
+                            SRB_STATUS_INVALID_REQUEST);
         B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_INVALID_REQUEST);
         return;
     }
@@ -524,6 +616,8 @@ B2LUfsExecuteScsi(
     /* User data is LUN 0 / target 0 only; boot and RPMB LUNs are never exposed. */
     if (Srb->TargetId != 0 || Srb->Lun != 0) {
         Srb->DataTransferLength = 0;
+        B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, B2LUfsTransferBadDma,
+                            SRB_STATUS_NO_DEVICE);
         B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_NO_DEVICE);
         return;
     }
@@ -535,7 +629,9 @@ B2LUfsExecuteScsi(
          * Storport has no SRB_STATUS_WRITE_PROTECTED status. Reject the
          * request before it reaches the HCI with a valid SRB status; the
          * adapter therefore remains strictly read-only.
-         */
+        */
+        B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, B2LUfsTransferBadDma,
+                            SRB_STATUS_INVALID_REQUEST);
         B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_INVALID_REQUEST);
         return;
     }
@@ -544,18 +640,28 @@ B2LUfsExecuteScsi(
     switch (Result) {
     case B2LUfsTransferOk:
         if (Srb->ScsiStatus == B2LUFS_SCSI_STATUS_GOOD) {
+            B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, Result,
+                                SRB_STATUS_SUCCESS);
             B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
         } else {
+            B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, Result,
+                                SRB_STATUS_ERROR);
             B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_ERROR);
         }
         break;
     case B2LUfsTransferBusy:
+        B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, Result,
+                            SRB_STATUS_BUSY);
         B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_BUSY);
         break;
     case B2LUfsTransferTimeout:
+        B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, Result,
+                            SRB_STATUS_TIMEOUT);
         B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_TIMEOUT);
         break;
     default:
+        B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, Result,
+                            SRB_STATUS_ERROR);
         B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_ERROR);
         break;
     }

@@ -59,6 +59,9 @@ echo.
 echo [DiskPart: B2LUFS Faz 1 sonrasi - salt okunur disk/GPT taramasi]
 diskpart /s "%DPPOSTSCRIPT%"
 echo Beklenen: Disk 0 ve GPT bolumleri gorunur; B2LUFS yazma CDB'lerini reddeder.
+echo.
+echo [B2LUFS: UFS'ten donen ilk salt-okunur baytlar]
+call :B2LUfsTransportLog
 
 echo.
 echo [PnP: klavye/fare/USB/ag]
@@ -166,6 +169,17 @@ rem EventData alanlarina gore kirilgan XPath kurmak yerine, PnP kurulumundan
 rem hemen sonra olusan son olaylari ham metin olarak gostermek daha guvenilir.
 wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:true /f:text /c:12 2>nul
 echo Not: "B2LUFS HwFindAdapter resource contract failure" gorunurse altindaki ikili kayit sirasiyla Failure, RangeIndex, RangeCount, InterfaceType, BusNumber, RangeLength, RangeBase'dir.
+exit /b 0
+
+:B2LUfsTransportLog
+if not exist "%SystemRoot%\System32\wevtutil.exe" (
+  echo wevtutil yok; B2LUFS UFS okuma kaydi gosterilemiyor.
+  exit /b 0
+)
+echo Son 12 B2LUFS SRB kaydi StorPort Operational gunlugunden okunuyor:
+echo Her "BLS1" ikili kaydinin son 64 bayti UFS'in dondugu ham veridir.
+echo CDB=12 INQUIRY, 25 READ_CAPACITY, 28/88 READ; Result=0 ve SCSI=0 basaridir.
+wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:true /f:text /c:24 2>nul
 exit /b 0
 
 :UfsReport

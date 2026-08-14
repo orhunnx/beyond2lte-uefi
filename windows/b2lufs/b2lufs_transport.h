@@ -24,6 +24,11 @@ typedef struct B2LUFS_ADAPTER {
     STOR_PHYSICAL_ADDRESS UcdPhysical;
 
     ULONG ControllerCapabilities;
+    /* Read-only CMD telemetry; copied to the StorPort Operational channel. */
+    ULONG TraceSequence;
+    ULONG TraceBudget;
+    ULONG LastUtrdOcs;
+    ULONG LastInterruptStatus;
     BOOLEAN TransportReady;
 } B2LUFS_ADAPTER;
 

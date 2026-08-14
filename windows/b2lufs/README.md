@@ -92,6 +92,15 @@ güvenli değildir. Buna rağmen doğrulanacak noktalar doğru sıralamayı veri
 Faz 1, NOP yerine gerçek ancak salt-okunur SCSI taşımasını kullanır; dolayısıyla
 Windows'un kendi standart SCSI keşfi fiziksel UFS kullanıcı-LUN'ını tarar.
 
+## WinPE'de ham okuma izi
+
+`HwStartIo` çağrısı içinde konsola veya dosya sistemine doğrudan yazmak güvenli
+değildir. Bunun yerine miniport, ilk on iki SRB için StorPort Operational ETW
+kanalına bir `BLS1` ikili tanı kaydı bırakır. `startnet.cmd`, ikinci DiskPart
+taramasından hemen sonra bu kayıtları CMD'de gösterir. Kaydın son 64 baytı,
+başarılı bir `INQUIRY`, kapasite veya `READ` isteğinden dönen ham örnektir.
+Bu yalnız WinPE olay günlüğüne/RAM'e yazılır; UFS LUN'larına yazı yapılmaz.
+
 `b2lufs_storport.c`, gerçek WDK `HwFindAdapter` çağrısını bu katmana bağlar.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
