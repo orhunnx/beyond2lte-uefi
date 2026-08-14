@@ -107,10 +107,15 @@ mkdir -p "$OUT"
 
 # -ffixed-x18 Windows ARM64 cekirdegindeki platform yazmacini korur.
 # -ffreestanding ve iki kapatma, CRT/stack-probe bagimliligi uretmez.
+# Linux dagitimlarindaki clang, Windows hedefi secilse bile MSVC'nin WDK
+# basliklari icin de tanimladigi _ARM64_ makrosunu yayinlamaz; yalniz
+# _M_ARM64 tanimlar. ntdef.h/wdm.h ise cache hizasi, sayfa sabitleri ve
+# SLIST tipleri icin _ARM64_'u arar. Bu tanim kodun ABI'sini degistirmez,
+# WDK'nin ARM64 dalini secmesini saglar.
 CFLAGS=(
   -target aarch64-windows-msvc
   -ffreestanding -fno-stack-protector -mno-stack-arg-probe -ffixed-x18
-  -fms-extensions -D_KERNEL_MODE -D_WIN32_WINNT=0x0A00
+  -fms-extensions -D_KERNEL_MODE -D_WIN32_WINNT=0x0A00 -D_ARM64_=1
   -isystem "$WDK_INC/km" -isystem "$WDK_INC/shared"
   -isystem "$WDK_NTDEF_INC"
   -isystem "$WDK_INC/ucrt" -isystem "$WDK_INC/um"
