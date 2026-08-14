@@ -189,12 +189,22 @@ try {
 finally {
     if (Test-Path -LiteralPath $StageRoot) {
         # Virüs tarayıcısı veya kapanan cl.exe kısa süreyle dosya tutabilir.
-        # Temizleme başarısızlığı hiçbir zaman asıl derleme/link hatasını
-        # gölgelememeli; sonraki çalıştırma farklı GUID'li dizin kullanır.
-        try {
-            Remove-Item -LiteralPath $StageRoot -Recurse -Force -ErrorAction Stop
+        # Birkaç kısa deneme normalde kilidi bırakır. Temizleme başarısızlığı
+        # hiçbir zaman asıl derleme/link hatasını gölgelememelidir.
+        $Removed = $false
+        for ($Attempt = 1; $Attempt -le 5; ++$Attempt) {
+            try {
+                Remove-Item -LiteralPath $StageRoot -Recurse -Force -ErrorAction Stop
+                $Removed = $true
+                break
+            }
+            catch {
+                if ($Attempt -lt 5) {
+                    Start-Sleep -Milliseconds 250
+                }
+            }
         }
-        catch {
+        if (-not $Removed) {
             Write-Warning "Gecici derleme dizini temizlenemedi: $StageRoot"
         }
     }
