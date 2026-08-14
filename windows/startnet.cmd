@@ -181,7 +181,8 @@ if not exist "%SystemRoot%\System32\wevtutil.exe" (
 )
 echo Son B2LUFS SRB ve PnP/LUN yasam-dongusu kayitlari StorPort Operational gunlugunden okunuyor:
 echo Her "BLS1" ikili kaydinin son 64 bayti UFS'in dondugu ham veridir.
-echo CDB=12 INQUIRY, 25 READ_CAPACITY, 28/88 READ; Result=0 ve SCSI=0 basaridir.
+echo CDB=12 INQUIRY, 1B START_STOP(no-op), 25 READ_CAPACITY, 28/88 READ.
+echo Result=0 ve SCSI=0 basaridir; CHECK CONDITION kaydinin ornegi UFS sense baytlaridir.
 echo "BLP1" kaydi legacy BTL8 PnP istegidir; UFS medya verisi veya CDB icermez.
 wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:true /f:text /c:24 2>nul
 exit /b 0
@@ -233,6 +234,18 @@ reg query "%B2L_LUN_KEY%" /v TaskSlotCount 2>nul
 echo StorPort SRB/adresleme sozlesmesi (legacy SRB + BTL8 zorunludur):
 reg query "%B2L_LUN_KEY%" /v SrbType 2>nul
 reg query "%B2L_LUN_KEY%" /v AddressType 2>nul
+echo StorPort fiziksel-miniport kuyruk sozlesmesi (Targets=2, Initiator=1, digerleri=1 beklenir):
+reg query "%B2L_LUN_KEY%" /v NumberOfBuses 2>nul
+reg query "%B2L_LUN_KEY%" /v MaximumTargets 2>nul
+reg query "%B2L_LUN_KEY%" /v InitiatorBusId 2>nul
+reg query "%B2L_LUN_KEY%" /v ScatterGather 2>nul
+reg query "%B2L_LUN_KEY%" /v Master 2>nul
+reg query "%B2L_LUN_KEY%" /v TaggedQueuing 2>nul
+reg query "%B2L_LUN_KEY%" /v AutoRequestSense 2>nul
+reg query "%B2L_LUN_KEY%" /v MultipleRequestPerLu 2>nul
+reg query "%B2L_LUN_KEY%" /v MaxNumberOfIO 2>nul
+reg query "%B2L_LUN_KEY%" /v MaxIOsPerLun 2>nul
+reg query "%B2L_LUN_KEY%" /v InitialLunQueueDepth 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityResult 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityScsiStatus 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityOpcode 2>nul

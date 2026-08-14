@@ -1495,7 +1495,8 @@ Bu bölüm, belgenin üstündeki `storufs` + `PCI\CC_010901` anlatısını
 **Belirti:** aygıt PnP'de `Started`, kaynaklar haritalanıyor,
 `HwInitialize` başarıyla dönüyor — ama DiskPart disk göstermiyor.
 
-**Bulunan sebep:** `b2lufs_transport.c` içindeki `ConfigInfo` sözleşmesi.
+**İlk bulunan eksik:** `b2lufs_transport.c` içindeki hedef/başlatıcı
+`ConfigInfo` sözleşmesiydi.
 
 ```c
 ConfigInfo->MaximumNumberOfTargets = 1;   // taranabilir tek hedef: 0
@@ -1512,16 +1513,68 @@ Bu, `b2lufs` üzerinde yapılan son dört değişikliğin (BTL8 sözleşmesi,
 değiştirmediğini de açıklıyor: hepsi **hiç başlamayan** bir taramanın alt
 aşamaları.
 
-**Yapılan düzeltme:** iki hedef ilan edilip başlatıcı 1'e alındı; böylece
+**Yapılan ilk düzeltme:** iki hedef ilan edilip başlatıcı 1'e alındı; böylece
 dışlama kuralı uygulansa da uygulanmasa da hedef 0 taranabilir kalıyor.
 Hedef 1'e giden her SRB `B2LUfsExecuteScsi`'de zaten `NO_DEVICE` ile
 reddediliyor ve `HwUnitControl` LUN0 dışını kabul etmiyor, yani fazladan
-hedef UFS'e tek komut bile göndermiyor. Ayrıca `Master` ve `ScatterGather`
-de kurulmamıştı; `NeedPhysicalAddresses` açıkken ve PRDT fiziksel
-adreslerle kurulurken bunları `ConfigInfo`'da bildirmemek tutarsızdı.
+hedef UFS'e tek komut bile göndermiyor.
 
-Doğrulama ölçütü değişmedi: ikinci DiskPart bloğunda `Disk 0` ve ardından
-`list partition` ile Android GPT bölümleri.
+**Son flaş bu açıklamanın eksik olduğunu kanıtladı:** hedef/başlatıcı
+düzeltmesine rağmen `Disk 0` oluşmadı. Microsoft'un StorAHCI örneği ve
+StorPort DDI sözleşmesi alan alan karşılaştırıldığında daha üst seviyede üç
+doğrudan ihlal bulundu:
+
+```c
+InitData.TaggedQueuing = FALSE;          // StorPort: TRUE zorunlu
+InitData.AutoRequestSense = TRUE;        // ilan var, UFS sense kopyası yoktu
+InitData.MultipleRequestPerLu = FALSE;   // StorPort: TRUE zorunlu
+```
+
+Yeni sürüm üç bayrağı da StorPort'un istediği biçimde `TRUE` bırakıyor.
+Donanımda yalnız tek UTRD kullanma sınırı bayrakları kapatarak değil,
+`MaxNumberOfIO=1`, `MaxIOsPerLun=1`, `InitialLunQueueDepth=1` ve
+half-duplex yürütmeyle sağlanıyor. StorPort'un `QueueTag` değeri UFS COMMAND
+UPIU'ya taşınıyor ve RESPONSE UPIU'da doğrulanıyor.
+
+Git geçmişi ile cihaz fotoğrafları ayrıca bir enumerasyon regresyonunu
+gösterdi. `0.0.2.0`, `HwInitialize` sonunda `BusChangeDetected` gönderdiğinde
+`Disk 0` PDO'su oluşmuştu (kapasite henüz 0 B idi). Bildirimin tek kopyasını
+PASSIVE callback'e taşıyan `0.0.2.1/0.0.2.2` flaşlarında PDO tamamen
+kayboldu. Ölçülmüş çalışan sıralama geri getirildi: ilk bildirim
+`HwInitialize` sonunda, ikinci bildirim PASSIVE tanı yayımından sonra güvenli
+bir rescan olarak gönderiliyor.
+
+`AutoRequestSense=TRUE` artık yalnız bir iddia değil: UFS RESPONSE UPIU'nun
+DW8 alanındaki büyük-endian sense uzunluğu ve onu izleyen en çok 18 sense
+baytı legacy SRB'nin `SenseInfoBuffer` alanına kopyalanıyor;
+`SRB_STATUS_AUTOSENSE_VALID` yalnız gerçekten veri kopyalandığında ekleniyor.
+Bu özellikle desteklenmeyen isteğe bağlı INQUIRY VPD sayfasının taşıma
+arızası gibi yorumlanıp disk PDO'sunu düşürmesini önlüyor.
+
+StorAHCI karşılaştırması iki PnP farkını daha ortaya çıkardı. Adapter-level
+`StorQueryCapabilities` isteği artık caller'ın tamponu korunarak başarılı
+tamamlanıyor; daha önce `INVALID_REQUEST` dönüyordu. Inbox `storufs` komut
+yüzeyinde bulunan `START STOP UNIT`, bu salt-okunur aşamada donanıma
+gönderilmeden yerel başarılı no-op olarak tamamlanıyor. Diğer yazma/mutasyon
+CDB'leri hâlâ HCI'ye ulaşmadan reddediliyor.
+
+Önceki `Master`/`ScatterGather` yorumu da geri alındı. Güncel StorPort
+belgesi bu alanları fiziksel miniport için zaten `TRUE` başlatıyor ve
+miniportun değiştirmemesini açıkça söylüyor; yeni kod bunlara yazmıyor.
+
+UEFI şu anda birincil şüpheli değildir: aynı flaşta HCS `0x10f`, gerçek UFS
+`READ CAPACITY(10)` sonucu 4096 bayt blokla başarılı ve `REPORT LUNS` beş
+kimlik döndürüyor. postmarketOS Exynos9820 notu da S-Boot'un UFS'yi
+başlattığını ve Linux'un aynı `13d60000.ufs` denetleyicisini kullandığını
+doğruluyor. Bu ölçümler link/PHY/handoff'un çalıştığını, eksik Disk PDO'nun
+StorPort/SCSI enumerasyon katmanında olduğunu gösteriyor.
+
+Yeni tanı şeması `NumberOfBuses=1`, `MaximumTargets=2`, `InitiatorBusId=1`,
+`ScatterGather=1`, `Master=1`, `TaggedQueuing=1`, `AutoRequestSense=1`,
+`MultipleRequestPerLu=1`, `MaxNumberOfIO=1`,
+`MaxIOsPerLun=1` ve `InitialLunQueueDepth=1` değerlerini CMD'de yan yana
+gösterir. Nihai doğrulama ölçütü ikinci DiskPart bloğunda `Disk 0` ve
+ardından `list partition` ile Android GPT bölümleridir.
 
 ---
 
@@ -1638,6 +1691,23 @@ bash tools_b2lfb.sh         # derle, imzala, boot.wim'e enjekte et,
 Derleme bayrakları: `-ffreestanding -fno-stack-protector
 -mno-stack-arg-probe -ffixed-x18`. Sonuncusu şart: `x18` Windows ARM64'te
 platform yazmacı, çekirdek modunda `KPCR`'yi gösteriyor.
+
+`b2lufs.sys` derlemesi yalnız Windows PowerShell'den yapılır:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\orhun\beyond2lte-uefi\windows\b2lufs\build-b2lufs.ps1"
+```
+
+Derleme başarılı olduktan sonra imza/WIM/ESP/Odin paketi yalnız WSL'den:
+
+```bash
+cd ~/beyond2lte-uefi
+B2L_SKIP_MSVC_BUILD=1 bash tools_b2lufs.sh
+bash yap.sh
+bash cache_esp.sh --win --system
+bash cache_esp.sh --win --bos
+bash tools_odin_winpe_bundle.sh
+```
 
 ### Servis / sürücü yönetimi
 

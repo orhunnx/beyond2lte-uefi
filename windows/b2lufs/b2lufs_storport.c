@@ -38,6 +38,17 @@ static UCHAR B2LUFS_REG_TRANSFER_SLOTS[] = "TransferSlotCount";
 static UCHAR B2LUFS_REG_TASK_SLOTS[] = "TaskSlotCount";
 static UCHAR B2LUFS_REG_SRB_TYPE[] = "SrbType";
 static UCHAR B2LUFS_REG_ADDRESS_TYPE[] = "AddressType";
+static UCHAR B2LUFS_REG_BUS_COUNT[] = "NumberOfBuses";
+static UCHAR B2LUFS_REG_MAX_TARGETS[] = "MaximumTargets";
+static UCHAR B2LUFS_REG_INITIATOR_ID[] = "InitiatorBusId";
+static UCHAR B2LUFS_REG_SCATTER_GATHER[] = "ScatterGather";
+static UCHAR B2LUFS_REG_MASTER[] = "Master";
+static UCHAR B2LUFS_REG_TAGGED_QUEUEING[] = "TaggedQueuing";
+static UCHAR B2LUFS_REG_AUTO_SENSE[] = "AutoRequestSense";
+static UCHAR B2LUFS_REG_MULTIPLE_REQUESTS[] = "MultipleRequestPerLu";
+static UCHAR B2LUFS_REG_MAX_IO[] = "MaxNumberOfIO";
+static UCHAR B2LUFS_REG_MAX_IO_PER_LUN[] = "MaxIOsPerLun";
+static UCHAR B2LUFS_REG_INITIAL_QUEUE_DEPTH[] = "InitialLunQueueDepth";
 static UCHAR B2LUFS_REG_CAPACITY_RESULT[] = "ReadCapacityResult";
 static UCHAR B2LUFS_REG_CAPACITY_SCSI_STATUS[] = "ReadCapacityScsiStatus";
 static UCHAR B2LUFS_REG_CAPACITY_OPCODE[] = "ReadCapacityOpcode";
@@ -256,7 +267,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 6;
+    ULONG SchemaVersion = 7;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -295,6 +306,50 @@ B2LUfsPublishLunSnapshot(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_ADDRESS_TYPE,
         REG_DWORD, &Adapter->ConfiguredAddressType,
         sizeof(Adapter->ConfiguredAddressType));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_BUS_COUNT,
+        REG_DWORD, &Adapter->ConfiguredNumberOfBuses,
+        sizeof(Adapter->ConfiguredNumberOfBuses));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MAX_TARGETS,
+        REG_DWORD, &Adapter->ConfiguredMaximumTargets,
+        sizeof(Adapter->ConfiguredMaximumTargets));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_INITIATOR_ID,
+        REG_DWORD, &Adapter->ConfiguredInitiatorBusId,
+        sizeof(Adapter->ConfiguredInitiatorBusId));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_SCATTER_GATHER,
+        REG_DWORD, &Adapter->ConfiguredScatterGather,
+        sizeof(Adapter->ConfiguredScatterGather));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MASTER,
+        REG_DWORD, &Adapter->ConfiguredMaster,
+        sizeof(Adapter->ConfiguredMaster));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_TAGGED_QUEUEING,
+        REG_DWORD, &Adapter->ConfiguredTaggedQueuing,
+        sizeof(Adapter->ConfiguredTaggedQueuing));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_AUTO_SENSE,
+        REG_DWORD, &Adapter->ConfiguredAutoRequestSense,
+        sizeof(Adapter->ConfiguredAutoRequestSense));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MULTIPLE_REQUESTS,
+        REG_DWORD, &Adapter->ConfiguredMultipleRequestPerLu,
+        sizeof(Adapter->ConfiguredMultipleRequestPerLu));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MAX_IO,
+        REG_DWORD, &Adapter->ConfiguredMaxNumberOfIo,
+        sizeof(Adapter->ConfiguredMaxNumberOfIo));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MAX_IO_PER_LUN,
+        REG_DWORD, &Adapter->ConfiguredMaxIoPerLun,
+        sizeof(Adapter->ConfiguredMaxIoPerLun));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_INITIAL_QUEUE_DEPTH,
+        REG_DWORD, &Adapter->ConfiguredInitialLunQueueDepth,
+        sizeof(Adapter->ConfiguredInitialLunQueueDepth));
     (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_CAPACITY_RESULT,
         REG_DWORD, &Adapter->CapacityProbeResult,
@@ -367,9 +422,10 @@ B2LUfsPassiveInitialize(_In_ PVOID DeviceExtension)
     B2LUfsPublishLunSnapshot(DeviceExtension, Adapter);
 
     /*
-     * LUN 0 is the static BTL8 path declared in HwFindAdapter.  The
-     * notification is only a post-initialization rescan trigger; PDO and
-     * unit lifecycle still use the BuildIo/UnitControl PnP contracts below.
+     * Retry the bus-0 scan after passive diagnostics are published.  The
+     * first notification is issued at the end of HwInitialize because that
+     * exact ordering produced the measured 0.0.2.0 disk PDO; moving the only
+     * notification here regressed later flashes to no PDO at all.
      */
     StorPortNotification(BusChangeDetected, DeviceExtension, (UCHAR)0);
     return TRUE;
@@ -396,6 +452,14 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
     /* The diagnostic registry key is written only from PASSIVE_LEVEL. */
     (void)StorPortEnablePassiveInitialization(
         DeviceExtension, B2LUfsPassiveInitialize);
+
+    /*
+     * LUN 0 is already transport-ready and its static BTL8 address contract
+     * was finalized in HwFindAdapter.  Notify StorPort before returning so
+     * the initial bus scan cannot be lost behind passive initialization.
+     * The passive callback repeats this notification only as a safe rescan.
+     */
+    StorPortNotification(BusChangeDetected, DeviceExtension, (UCHAR)0);
 
     return TRUE;
 }
@@ -608,10 +672,14 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
     /* Match HwFindAdapter: discovery READ buffers need a valid DataBuffer. */
     InitData.MapBuffers = STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE;
     InitData.NeedPhysicalAddresses = TRUE;
-    /* Tek UTRD slotu: StorPort'un StartIo çağrılarını sıralı tut. */
-    InitData.TaggedQueuing = FALSE;
+    /*
+     * StorPort fiziksel miniport sözleşmesi bu iki yeteneği zorunlu tutar.
+     * B2LUFS'in tek UTRD sınırı bunları kapatarak değil, HwFindAdapter'daki
+     * MaxNumberOfIO/MaxIOsPerLun=1 ve half-duplex modeliyle uygulanır.
+     */
+    InitData.TaggedQueuing = TRUE;
     InitData.AutoRequestSense = TRUE;
-    InitData.MultipleRequestPerLu = FALSE;
+    InitData.MultipleRequestPerLu = TRUE;
     InitData.FeatureSupport = STOR_FEATURE_ADAPTER_NOT_REQUIRE_IO_PORT |
                               STOR_FEATURE_SET_ADAPTER_INTERFACE_TYPE |
                               STOR_FEATURE_FULL_PNP_DEVICE_CAPABILITIES;

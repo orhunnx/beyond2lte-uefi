@@ -66,6 +66,17 @@ typedef struct B2LUFS_ADAPTER {
     /* The StorPort protocol negotiated by DriverEntry/HwFindAdapter. */
     ULONG ConfiguredSrbType;
     ULONG ConfiguredAddressType;
+    ULONG ConfiguredNumberOfBuses;
+    ULONG ConfiguredMaximumTargets;
+    ULONG ConfiguredInitiatorBusId;
+    ULONG ConfiguredScatterGather;
+    ULONG ConfiguredMaster;
+    ULONG ConfiguredTaggedQueuing;
+    ULONG ConfiguredAutoRequestSense;
+    ULONG ConfiguredMultipleRequestPerLu;
+    ULONG ConfiguredMaxNumberOfIo;
+    ULONG ConfiguredMaxIoPerLun;
+    ULONG ConfiguredInitialLunQueueDepth;
     /* Read-only CMD telemetry; copied to the StorPort Operational channel. */
     ULONG TraceSequence;
     ULONG TraceBudget;

@@ -5,8 +5,9 @@
  * WinPE.  We intentionally preserve that state: no HCE reset, no UIC/DME,
  * no PHY/CAL sequence, and no UFS query/write command is issued here.
  *
- * The driver owns one transfer-request slot.  StorPort serializes StartIo
- * for this physical, non-tagged miniport, so one slot is enough to make the
+ * The driver owns one transfer-request slot.  StorPort's mandatory tagged
+ * queue contract remains enabled, while MaxNumberOfIO=1 and half-duplex
+ * dispatch serialize StartIo.  One slot is therefore enough to make the
  * first LUN-0 GPT and partition reads visible to DiskPart.
  */
 #include <ntddk.h>
@@ -90,6 +91,14 @@
 #define B2LUFS_UPIU_FLAG_WRITE                0x20U
 #define B2LUFS_UPIU_FLAG_READ                 0x40U
 #define B2LUFS_SCSI_STATUS_GOOD               0x00U
+#define B2LUFS_SCSI_STATUS_CHECK_CONDITION    0x02U
+#define B2LUFS_SCSI_STATUS_BUSY               0x08U
+#define B2LUFS_SCSI_STATUS_TASK_SET_FULL      0x28U
+
+/* Linux ufs.h: RESPONSE UPIU DW8 has a BE16 length then 18 sense bytes. */
+#define B2LUFS_RESPONSE_SENSE_LENGTH_OFFSET     32UL
+#define B2LUFS_RESPONSE_SENSE_DATA_OFFSET       34UL
+#define B2LUFS_RESPONSE_SENSE_BYTES             18UL
 
 /* Exact read-only SCSI allow-list needed by the Windows disk/GPT stack. */
 #define B2LUFS_SCSI_TEST_UNIT_READY           0x00U
@@ -97,6 +106,7 @@
 #define B2LUFS_SCSI_READ_6                     0x08U
 #define B2LUFS_SCSI_INQUIRY                    0x12U
 #define B2LUFS_SCSI_MODE_SENSE_6               0x1AU
+#define B2LUFS_SCSI_START_STOP_UNIT             0x1BU
 #define B2LUFS_SCSI_READ_FORMAT_CAPACITIES     0x23U
 #define B2LUFS_SCSI_READ_CAPACITY_10           0x25U
 #define B2LUFS_SCSI_READ_10                    0x28U
@@ -282,6 +292,12 @@ B2LUfsReadBe32(_In_reads_bytes_(4) const UCHAR *Buffer)
     return Value;
 }
 
+static USHORT
+B2LUfsReadBe16(_In_reads_bytes_(2) const UCHAR *Buffer)
+{
+    return (USHORT)(((USHORT)Buffer[0] << 8) | Buffer[1]);
+}
+
 static VOID
 B2LUfsLogScsiTrace(
     _In_ PVOID DeviceExtension,
@@ -314,13 +330,21 @@ B2LUfsLogScsiTrace(
 
     if (Result == B2LUfsTransferOk &&
         Srb->ScsiStatus == B2LUFS_SCSI_STATUS_GOOD &&
-        Srb->DataBuffer != NULL &&
-        Srb->DataTransferLength != 0) {
+        Srb->DataBuffer != NULL && Srb->DataTransferLength != 0) {
         SampleLength = Srb->DataTransferLength;
         if (SampleLength > B2LUFS_TRACE_SAMPLE_BYTES) {
             SampleLength = B2LUFS_TRACE_SAMPLE_BYTES;
         }
         B2LUfsCopyMemory(Data.Sample, Srb->DataBuffer, SampleLength);
+        Data.SampleLength = (UCHAR)SampleLength;
+    } else if ((SrbStatus & SRB_STATUS_AUTOSENSE_VALID) != 0 &&
+               Srb->SenseInfoBuffer != NULL &&
+               Srb->SenseInfoBufferLength != 0) {
+        SampleLength = Srb->SenseInfoBufferLength;
+        if (SampleLength > B2LUFS_RESPONSE_SENSE_BYTES) {
+            SampleLength = B2LUFS_RESPONSE_SENSE_BYTES;
+        }
+        B2LUfsCopyMemory(Data.Sample, Srb->SenseInfoBuffer, SampleLength);
         Data.SampleLength = (UCHAR)SampleLength;
     }
 
@@ -491,9 +515,15 @@ B2LUfsPnpAddressIsLun0(_In_ const SCSI_PNP_REQUEST_BLOCK *Pnp)
 
 static VOID
 B2LUfsFillDeviceCapabilities(
-    _Out_ PSTOR_DEVICE_CAPABILITIES_EX Capabilities)
+    _Inout_ PSTOR_DEVICE_CAPABILITIES_EX Capabilities)
 {
+    USHORT Version = Capabilities->Version;
+    USHORT Size = Capabilities->Size;
+
     /* Version and Size are supplied by StorPort; preserve the caller's ABI. */
+    B2LUfsZeroMemory(Capabilities, sizeof(*Capabilities));
+    Capabilities->Version = Version;
+    Capabilities->Size = Size;
     Capabilities->DeviceD1 = FALSE;
     Capabilities->DeviceD2 = FALSE;
     Capabilities->LockSupported = FALSE;
@@ -535,6 +565,19 @@ B2LUfsHandlePnpSrb(
          * firmware-owned HCE/link or issue a UFS management command here.
          */
         switch (Pnp->PnPAction) {
+        case StorQueryCapabilities:
+            /*
+             * StorPort supplies the adapter capabilities.  Like StorAHCI,
+             * consume the query and preserve its caller-owned buffer; an
+             * INVALID_REQUEST here can abort the parent PnP start before
+             * StorPort ever scans bus 0 for the disk PDO.
+             */
+            if (Pnp->DataBuffer != NULL &&
+                Pnp->DataTransferLength >=
+                    sizeof(STOR_DEVICE_CAPABILITIES_EX)) {
+                SrbStatus = SRB_STATUS_SUCCESS;
+            }
+            break;
         case StorStartDevice:
             SrbStatus = Adapter->TransportReady ? SRB_STATUS_SUCCESS :
                                                   SRB_STATUS_NO_DEVICE;
@@ -635,8 +678,7 @@ B2LUfsAllocateTransport(
      * uzerinden de bildirmek gerekiyor. ScatterGather, 32 girisli PRDT'ye
      * bolunmus istekler icin sart.
      */
-    ConfigInfo->Master = TRUE;
-    ConfigInfo->ScatterGather = TRUE;
+    /* StorPort initializes Master/ScatterGather/queue capability to TRUE. */
     ConfigInfo->CachesData = FALSE;
     /* UFSHCI PRDT byte counts are DWORD granular. */
     ConfigInfo->AlignmentMask = FILE_LONG_ALIGNMENT;
@@ -657,7 +699,22 @@ B2LUfsAllocateTransport(
     ConfigInfo->MaxNumberOfIO = 1;
     ConfigInfo->MaxIOsPerLun = 1;
     ConfigInfo->InitialLunQueueDepth = 1;
+    ConfigInfo->BusResetHoldTime = 0;
     ConfigInfo->SrbExtensionSize = 0;
+
+    Adapter->ConfiguredNumberOfBuses = ConfigInfo->NumberOfBuses;
+    Adapter->ConfiguredMaximumTargets = ConfigInfo->MaximumNumberOfTargets;
+    Adapter->ConfiguredInitiatorBusId = (ULONG)(UCHAR)ConfigInfo->InitiatorBusId[0];
+    Adapter->ConfiguredScatterGather = ConfigInfo->ScatterGather ? 1UL : 0UL;
+    Adapter->ConfiguredMaster = ConfigInfo->Master ? 1UL : 0UL;
+    Adapter->ConfiguredTaggedQueuing = ConfigInfo->TaggedQueuing ? 1UL : 0UL;
+    Adapter->ConfiguredAutoRequestSense =
+        ConfigInfo->AutoRequestSense ? 1UL : 0UL;
+    Adapter->ConfiguredMultipleRequestPerLu =
+        ConfigInfo->MultipleRequestPerLu ? 1UL : 0UL;
+    Adapter->ConfiguredMaxNumberOfIo = ConfigInfo->MaxNumberOfIO;
+    Adapter->ConfiguredMaxIoPerLun = ConfigInfo->MaxIOsPerLun;
+    Adapter->ConfiguredInitialLunQueueDepth = ConfigInfo->InitialLunQueueDepth;
 
     Adapter->CommonBuffer = StorPortGetUncachedExtension(
         DeviceExtension,
@@ -948,6 +1005,7 @@ B2LUfsSubmitReadOnlyScsi(
     ULONG Direction;
     ULONG PrdtEntryCount;
     ULONG ResidualLength;
+    UCHAR TaskTag;
 
     Adapter->LastUtrdOcs = B2LUFS_OCS_INVALID_COMMAND_STATUS;
     Adapter->LastInterruptStatus = 0;
@@ -1006,7 +1064,13 @@ B2LUfsSubmitReadOnlyScsi(
     CommandUpiu->Flags = (RequestedLength == 0) ? B2LUFS_UPIU_FLAG_NONE :
                                                 B2LUFS_UPIU_FLAG_READ;
     CommandUpiu->Lun = 0;
-    CommandUpiu->TaskTag = 0;
+    /*
+     * TaggedQueuing is mandatory for StorPort.  Preserve StorPort's tag in
+     * the UFS COMMAND/RESPONSE UPIU even though MaxNumberOfIO=1 keeps only
+     * one UTRD active.  The two pre-PnP probes have no SRB and use tag 0.
+     */
+    TaskTag = (Srb != NULL) ? Srb->QueueTag : 0;
+    CommandUpiu->TaskTag = TaskTag;
     /*
      * Command data moves through the PRDT, not the command UPIU data
      * segment.  Its zeroed DataSegmentLength is therefore intentional; the
@@ -1052,6 +1116,9 @@ B2LUfsSubmitReadOnlyScsi(
             if (ResponseUpiu->TransactionCode != B2LUFS_UPIU_TRANSACTION_RESPONSE) {
                 return B2LUfsTransferOcs;
             }
+            if (ResponseUpiu->TaskTag != TaskTag) {
+                return B2LUfsTransferOcs;
+            }
             *ScsiStatus = ResponseUpiu->Status;
             ResidualLength = B2LUfsReadBe32(
                 &ResponseUpiu->TaskSpecificFields[0]);
@@ -1067,6 +1134,60 @@ B2LUfsSubmitReadOnlyScsi(
     }
 
     return B2LUfsTransferTimeout;
+}
+
+/*
+ * AutoRequestSense=TRUE is a StorPort requirement, not just a capability
+ * label.  UFS places fixed-format sense bytes directly in a RESPONSE UPIU:
+ * the data-segment length is in header bytes 10..11, DW8 starts with the
+ * big-endian sense length, and the payload follows at byte 34.  Mirror the
+ * Linux UFS core's ufshcd_copy_sense_data path and mark the legacy SRB so
+ * StorPort can distinguish a normal CHECK CONDITION (for example, an
+ * unsupported optional INQUIRY VPD page) from a transport failure.
+ */
+static ULONG
+B2LUfsCopyAutoSense(
+    _In_ const B2LUFS_ADAPTER *Adapter,
+    _Inout_ PSCSI_REQUEST_BLOCK Srb)
+{
+    const UCHAR *Response;
+    ULONG DataSegmentLength;
+    ULONG SenseLength;
+    ULONG CopyLength;
+
+    if ((Srb->SrbFlags & SRB_FLAGS_DISABLE_AUTOSENSE) != 0 ||
+        Srb->SenseInfoBuffer == NULL || Srb->SenseInfoBufferLength == 0) {
+        return 0;
+    }
+
+    Response = (const UCHAR *)Adapter->UcdVirtual +
+        B2LUFS_RESPONSE_UPIU_OFFSET_BYTES;
+    DataSegmentLength = B2LUfsReadBe16(Response + 10UL);
+    SenseLength = B2LUfsReadBe16(
+        Response + B2LUFS_RESPONSE_SENSE_LENGTH_OFFSET);
+    if (DataSegmentLength == 0 || SenseLength == 0) {
+        return 0;
+    }
+
+    CopyLength = SenseLength;
+    if (CopyLength > DataSegmentLength) {
+        CopyLength = DataSegmentLength;
+    }
+    if (CopyLength > B2LUFS_RESPONSE_SENSE_BYTES) {
+        CopyLength = B2LUFS_RESPONSE_SENSE_BYTES;
+    }
+    if (CopyLength > Srb->SenseInfoBufferLength) {
+        CopyLength = Srb->SenseInfoBufferLength;
+    }
+    if (CopyLength == 0) {
+        return 0;
+    }
+
+    B2LUfsCopyMemory(
+        Srb->SenseInfoBuffer,
+        Response + B2LUFS_RESPONSE_SENSE_DATA_OFFSET,
+        CopyLength);
+    return CopyLength;
 }
 
 static BOOLEAN
@@ -1337,6 +1458,25 @@ B2LUfsExecuteScsi(
         return;
     }
 
+    /*
+     * Inbox storufs supports START STOP UNIT and disk class can use it while
+     * bringing a fixed unit online.  Phase 1 must not change UFS power/media
+     * state, so acknowledge this no-data lifecycle command locally instead
+     * of forwarding it to the device.  Queue serialization and later reads
+     * still pass through the real UFS transport.
+     */
+    if (Srb->Cdb[0] == B2LUFS_SCSI_START_STOP_UNIT &&
+        Srb->DataTransferLength == 0 &&
+        (Srb->SrbFlags & SRB_FLAGS_DATA_OUT) == 0) {
+        Adapter->LastUtrdOcs = B2LUFS_OCS_SUCCESS;
+        Adapter->LastInterruptStatus = 0;
+        Srb->ScsiStatus = B2LUFS_SCSI_STATUS_GOOD;
+        B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, B2LUfsTransferOk,
+                            SRB_STATUS_SUCCESS);
+        B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
+        return;
+    }
+
     if (!B2LUfsCdbIsExplicitlyReadOnly(Srb->Cdb) ||
         (Srb->SrbFlags & SRB_FLAGS_DATA_OUT) != 0) {
         Srb->DataTransferLength = 0;
@@ -1368,9 +1508,17 @@ B2LUfsExecuteScsi(
                                 SRB_STATUS_SUCCESS);
             B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
         } else {
+            UCHAR SrbStatus;
+
+            SrbStatus = (Srb->ScsiStatus == B2LUFS_SCSI_STATUS_BUSY ||
+                         Srb->ScsiStatus == B2LUFS_SCSI_STATUS_TASK_SET_FULL) ?
+                        SRB_STATUS_BUSY : SRB_STATUS_ERROR;
+            if (B2LUfsCopyAutoSense(Adapter, Srb) != 0) {
+                SrbStatus |= SRB_STATUS_AUTOSENSE_VALID;
+            }
             B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, Result,
-                                SRB_STATUS_ERROR);
-            B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_ERROR);
+                                SrbStatus);
+            B2LUfsComplete(DeviceExtension, Srb, SrbStatus);
         }
         break;
     case B2LUfsTransferBusy:

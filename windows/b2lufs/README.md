@@ -44,10 +44,12 @@ Faz 1 bu PnP sözleşmesini korur ve yalnız aşağıdaki dar taşıma akışın
    boot/RPMB LUN'larını StorPort/PnP taramasından uzak tutar. Yanıt, yalnız
    WinPE'nin RAM-backed kayıt defterinde `B2LUFS` tanı alt anahtarına yazılır.
 6. `INQUIRY`, `READ CAPACITY`, `MODE SENSE` ve `READ` sonucunda Windows
-   GPT'yi ve Android bölümlerini okuyabilir. Her `DATA_OUT`, WRITE, FORMAT,
-   UNMAP, MODE SELECT, START/STOP, SECURITY OUT ve benzeri mutasyon CDB'si
-   doğrudan `SRB_STATUS_INVALID_REQUEST` ile reddedilir ve HCI'ye ulaşmaz.
-   Boot LUN, RPMB ve
+   GPT'yi ve Android bölümlerini okuyabilir. Inbox `storufs` ile aynı disk
+   yaşam-döngüsü yüzeyi için `START STOP UNIT`, donanım güç/medya durumunu
+   değiştirmeyen yerel bir no-op olarak başarıyla tamamlanır ve HCI'ye
+   gönderilmez. Her `DATA_OUT`, WRITE, FORMAT, UNMAP, MODE SELECT,
+   SECURITY OUT ve benzeri mutasyon CDB'si doğrudan
+   `SRB_STATUS_INVALID_REQUEST` ile reddedilir ve HCI'ye ulaşmaz. Boot LUN, RPMB ve
    diğer bütün LUN'lar `NO_DEVICE` olarak gizlenir.
 
 Bu nedenle DiskPart'ta görünür olan disk, var olan Android kullanıcı-LUN'ıdır
@@ -112,7 +114,11 @@ değildir. Bunun yerine miniport, ilk on iki SCSI SRB için StorPort Operational
 ETW kanalına bir `BLS1` ikili tanı kaydı bırakır. `startnet.cmd`, ikinci
 DiskPart taramasından hemen sonra bu kayıtları CMD'de gösterir. Kaydın son 64
 baytı, başarılı bir `INQUIRY`, kapasite veya `READ` isteğinden dönen ham
-örnektir. Ayrı `BLP1` kayıtları, legacy `SCSI_PNP_REQUEST_BLOCK` üzerinden
+örnektir. UFS bir `CHECK CONDITION` döndürürse aynı alan medya yerine UFS
+RESPONSE UPIU'dan kopyalanan sense baytlarını taşır ve SRB
+`SRB_STATUS_AUTOSENSE_VALID` ile tamamlanır. Bu, `AutoRequestSense=TRUE`
+ilanını gerçek davranışla eşler; desteklenmeyen isteğe bağlı bir INQUIRY VPD
+sayfası artık taşıma arızası gibi görünmez. Ayrı `BLP1` kayıtları, legacy `SCSI_PNP_REQUEST_BLOCK` üzerinden
 gelen BTL8 PnP/LUN yaşam döngüsü isteğini gösterir; CDB veya UFS medya verisi
 içermez. Bu kayıtların tümü yalnız WinPE olay günlüğüne/RAM'e yazılır; UFS
 LUN'larına yazı yapılmaz.
@@ -135,7 +141,11 @@ envanterdir; B2LUFS yine sadece kullanıcı **LUN 0** için I/O kabul eder.
 `SrbTypeFlags`/`SrbType` eski SRB biçimini, `AddressTypeFlags`/`AddressType`
 ise `Path=0, Target=0, Lun=0` BTL8 yolunu seçer. Bu ikisi, `HwStartIo`nun
 okuduğu alanlarla aynıdır ve StorPort'un LUN 0 için disk PDO'su
-numaralandırabilmesinin önkoşuludur. Microsoft'un fiziksel StorPort
+numaralandırabilmesinin önkoşuludur. Fiziksel StorPort miniportlarının
+zorunlu `TaggedQueuing` ve `MultipleRequestPerLu` yetenekleri açık tutulur;
+tek UTRD kısıtı `MaxNumberOfIO=1`, `MaxIOsPerLun=1`, kuyruk derinliği 1 ve
+half-duplex eşzamanlama ile uygulanır. StorPort'un legacy `QueueTag` değeri
+UFS COMMAND UPIU'ya taşınır ve RESPONSE UPIU'da doğrulanır. Microsoft'un fiziksel StorPort
 örneklerindeki PnP yüzeyi de buna eklenmiştir: `HwBuildIo`, legacy
 `SRB_FUNCTION_PNP` isteklerini CDB'den önce tamamlar; `HwUnitControl`, yalnız
 statik `Path=0, Target=0, Lun=0` için unit-start/remove/surprise-removal
@@ -146,9 +156,10 @@ Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
 `InIoSpace` parametresi için terslenir. Kısmi/uyuşmayan kaynak dizisi hemen
 geri bırakılır. `HwInitialize`, canlı HCE ve boş UTRL scheduler'ını
-doğrulayıp tek DMA slotunu bağlar. PASSIVE başlatmada yapılan
-`BusChangeDetected` bildirimi yalnız tam başlatılmış adaptör için yeniden
-tarama tetikleyicisidir; PDO oluşturma yerine geçmez. StorPort, ilan edilmiş
+doğrulayıp tek DMA slotunu bağlar. Cihazda disk PDO'su ürettiği ölçülmüş
+sıralamayı korumak için ilk `BusChangeDetected`, `HwInitialize` sonunda;
+ikinci, zararsız rescan ise PASSIVE tanı yayımından sonra yapılır. Bildirimler
+PDO oluşturma sözleşmesinin yerine geçmez. StorPort, ilan edilmiş
 BTL8 yolunda `HwBuildIo`/`HwUnitControl` sözleşmesi üzerinden LUN 0 için
 standart PnP ve ardından SCSI keşfini yürütür.
 Kesme sahipliği alınmaz; tamamlanma kapı zili poll edilir. Miniport fiziksel
@@ -200,19 +211,13 @@ kaynak dosyasını önce Windows'un yerel `%TEMP%` dizinine kopyalar: böylece
 derleyiciye aktarılır. Bu, `CMD.EXE was started with the above path...` UNC
 hatasını kalıcı olarak önler.
 
-Normal yol WSL'de tek komuttur:
-
-```bash
-bash tools_b2lufs.sh
-```
-
-Yalnız derlemeyi doğrudan Windows PowerShell'den çalıştırmak gerekirse:
+`b2lufs.sys` derlemesi yalnız Windows PowerShell/MSVC ortamında çalıştırılır:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\orhun\beyond2lte-uefi\windows\b2lufs\build-b2lufs.ps1"
 ```
 
-Bu ikinci yol yalnız `out\b2lufs\b2lufs.sys` üretir. Ardından WSL'de imza,
+Bu komut yalnız `out\b2lufs\b2lufs.sys` üretir. Ardından WSL'de imza,
 katalog ve WIM paketlemesi için:
 
 ```bash
