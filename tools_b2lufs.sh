@@ -12,8 +12,8 @@
 #
 # Gerekenler: osslsigncode, openssl, wimlib-imagex;
 # Windows tarafinda WDK (Inf2Cat dahil) ve MSVC C++ Build Tools (ARM64 hedefi).
-# WDK ile uyumlu derleme, WSL clang'i degil MSVC'nin kendi cl.exe/link.exe
-# araclariyla cmd.exe uzerinden yapilir.
+# WDK ile uyumlu derleme, WSL clang'i degil Windows PowerShell'in baslattigi
+# yerel MSVC cl.exe/link.exe araclariyla yapilir.
 
 set -euo pipefail
 
@@ -27,7 +27,7 @@ KITS="${B2L_WDK_ROOT:-$WINROOT/Program Files (x86)/Windows Kits/10}"
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die() { printf '\nHATA: %s\n' "$*" >&2; exit 1; }
 
-for tool in cmd.exe osslsigncode openssl wimlib-imagex sha256sum wslpath; do
+for tool in powershell.exe osslsigncode openssl wimlib-imagex sha256sum wslpath; do
   command -v "$tool" >/dev/null || die "$tool yok"
 done
 
@@ -145,39 +145,26 @@ echo "  ntdef: $WDK_NTDEF_INC/ntdef.h"
 
 mkdir -p "$OUT"
 
-# cl.exe Windows ARM64 ABI'sini ve x18 platform yazmacini kendisi korur.
-# /Zl, /GS- ve /NODEFAULTLIB freestanding Faz 0 koduna CRT veya
-# stack-cookie kutuphanesi bagimliligi eklenmesini engeller. _ARM64_ WDK
-# basliklarinin mimari dalini acikca secmek icin korunur.
-WIN_VCVARS="$(wslpath -w "$VCVARS")"
-WIN_SRC="$(wslpath -w "$SRC")"
+# PowerShell betigi kaynaklari Windows TEMP altindaki yerel bir dizine
+# kopyalar. Boylece WSL'nin \\wsl.localhost UNC yolu ne cmd.exe'nin calisma
+# dizini olur ne de cl/link'e aktarilir.
+PS_BUILD="$SRC/build-b2lufs.ps1"
+[ -s "$PS_BUILD" ] || die "Windows PowerShell derleme betigi yok: $PS_BUILD"
+WIN_PS_BUILD="$(wslpath -w "$PS_BUILD")"
+WIN_PROJECT_ROOT="$(wslpath -w "$HERE")"
 WIN_OUT="$(wslpath -w "$OUT")"
-WIN_WDK_INC="$(wslpath -w "$WDK_INC")"
-WIN_WDK_LIB="$(wslpath -w "$WDK_LIB")"
-WIN_MSVC_ARM64_BIN="$(wslpath -w "$MSVC_ARM64_BIN")"
-MSVC_FLAGS="/nologo /c /TC /kernel /Zl /GS- /W4 /WX /O1 /D_KERNEL_MODE /D_WIN32_WINNT=0x0A00 /D_ARM64_=1 /I\"$WIN_WDK_INC\\km\" /I\"$WIN_WDK_INC\\shared\" /I\"$WIN_WDK_INC\\ucrt\" /I\"$WIN_WDK_INC\\um\""
-BUILD_CMD="$OUT/build-b2lufs-arm64.cmd"
-WIN_BUILD_CMD="$(wslpath -w "$BUILD_CMD")"
+WIN_KITS="$(wslpath -w "$KITS")"
 
-# cmd.exe'ye uzun, ic ice tirnakli komut dizeleri vermek yerine ayni dosyayi
-# VS'nin kurdugu ARM64 ortaminda calistiriyoruz. Bu, hem bosluk iceren
-# Program Files yollarini hem de cl/link'in hata kodunu kayipsiz tasir.
-cat > "$BUILD_CMD" <<EOF
-@echo off
-call "$WIN_VCVARS" >nul
-if errorlevel 1 exit /b 1
-"$WIN_MSVC_ARM64_BIN\\cl.exe" $MSVC_FLAGS /Fo"$WIN_OUT\\b2lufs_resources.obj" "$WIN_SRC\\b2lufs_resources.c"
-if errorlevel 1 exit /b 1
-"$WIN_MSVC_ARM64_BIN\\cl.exe" $MSVC_FLAGS /Fo"$WIN_OUT\\b2lufs_storport.obj" "$WIN_SRC\\b2lufs_storport.c"
-if errorlevel 1 exit /b 1
-"$WIN_MSVC_ARM64_BIN\\link.exe" /nologo /kernel /driver /subsystem:native /entry:DriverEntry /machine:arm64 /nodefaultlib /libpath:"$WIN_WDK_LIB" /out:"$WIN_OUT\\b2lufs.sys" "$WIN_OUT\\b2lufs_resources.obj" "$WIN_OUT\\b2lufs_storport.obj" storport.lib ntoskrnl.lib
-exit /b %errorlevel%
-EOF
-sed -i 's/$/\r/' "$BUILD_CMD"
-
-say "B2LUFS Faz 0 derleniyor (MSVC ARM64 + WDK)"
-echo "  calistiriliyor: $WIN_BUILD_CMD"
-cmd.exe /d /s /c "call \"$WIN_BUILD_CMD\""
+if [ "${B2L_SKIP_MSVC_BUILD:-0}" = "1" ]; then
+  [ -s "$OUT/b2lufs.sys" ] || die "B2L_SKIP_MSVC_BUILD=1 ama $OUT/b2lufs.sys yok"
+  say "Var olan B2LUFS SYS kullaniliyor (B2L_SKIP_MSVC_BUILD=1)"
+else
+  say "B2LUFS Faz 0 derleniyor (yerel Windows MSVC ARM64 + WDK)"
+  echo "  PowerShell, kaynaklari yerel Windows TEMP dizininde derleyecek"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WIN_PS_BUILD" \
+    -ProjectRoot "$WIN_PROJECT_ROOT" -OutDir "$WIN_OUT" \
+    -KitsRoot "$WIN_KITS" -WdkVersion "$WDK_VERSION"
+fi
 say "Baglandi (MSVC link.exe; StorPort + ntoskrnl, ARM64)"
 file "$OUT/b2lufs.sys" | sed 's/^/  /'
 

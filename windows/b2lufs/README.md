@@ -92,15 +92,39 @@ otomatik yapar; fotoğrafta hedef PnP durumu `b2lufs.inf` + `Started`dır.
 
 `tools_b2lufs.sh`, WSL'den Windows WDK'nin ARM64 `storport.lib` ve
 `ntoskrnl.lib` kitaplıklarını kullanır. Kaynaklar WSL clang'iyle değil,
-Visual Studio'nun `vcvarsamd64_arm64.bat` ile kurulan **MSVC ARM64** ortamında
-`cl.exe`/`link.exe` ile derlenir; böylece MSVC'nin ARM64 intrinsics
-bildirimleri ve WDK başlıkları aynı araç zinciriyle eşleşir. WDK ile **aynı
-build numaralı Windows SDK Headers** da kurulmuş olmalıdır: `ntdef.h` SDK'nın
-`shared` başlığıdır; ADK bunu sağlamaz. Örneğin `10.0.28000.0` WDK seçilmişse
-beklenen dosya `Include/10.0.28000.0/shared/ntdef.h` olur. Ayrıca `Inf2Cat.exe` ile INF+SYS
-hash'lerini içeren `b2lufs.cat` üretir, onu ve SYS'yi b2lfb'nin var olan
-test sertifikasıyla imzalar. PnP yüklemesi için yalnız gömülü SYS imzasına
-güvenmek doğru değildir.
+`build-b2lufs.ps1` üzerinden Visual Studio'nun `vcvarsamd64_arm64.bat` ile
+kurulan **MSVC ARM64** ortamında `cl.exe`/`link.exe` ile derlenir. Betik üç
+kaynak dosyasını önce Windows'un yerel `%TEMP%` dizinine kopyalar: böylece
+`\\wsl.localhost\\...` yolu ne `cmd.exe`nin çalışma dizini olur ne de
+derleyiciye aktarılır. Bu, `CMD.EXE was started with the above path...` UNC
+hatasını kalıcı olarak önler.
+
+Normal yol WSL'de tek komuttur:
+
+```bash
+bash tools_b2lufs.sh
+```
+
+Yalnız derlemeyi doğrudan Windows PowerShell'den çalıştırmak gerekirse:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\orhun\beyond2lte-uefi\windows\b2lufs\build-b2lufs.ps1"
+```
+
+Bu ikinci yol yalnız `out\b2lufs\b2lufs.sys` üretir. Ardından WSL'de imza,
+katalog ve WIM paketlemesi için:
+
+```bash
+B2L_SKIP_MSVC_BUILD=1 bash tools_b2lufs.sh
+```
+
+WDK ile **aynı build numaralı Windows SDK Headers** da kurulmuş olmalıdır:
+`ntdef.h` SDK'nın `shared` başlığıdır; ADK bunu sağlamaz. Örneğin
+`10.0.28000.0` WDK seçilmişse beklenen dosya
+`Include/10.0.28000.0/shared/ntdef.h` olur. Araç, ayrıca `Inf2Cat.exe` ile
+INF+SYS hash'lerini içeren `b2lufs.cat` üretir, onu ve SYS'yi b2lfb'nin var
+olan test sertifikasıyla imzalar. PnP yüklemesi için yalnız gömülü SYS
+imzasına güvenmek doğru değildir.
 
 Ölçülen ilk HCI durumu: `CAP=1303FF1F`, `VER=00000300`, `HCE=1`,
 `1US_TO_CNT=000000A6`. CAP alanında NUTRS `[4:0]` ve NUTMRS `[18:16]`
