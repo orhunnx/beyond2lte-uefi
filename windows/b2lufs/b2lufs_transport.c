@@ -21,7 +21,13 @@
 #define B2LUFS_PRDT_ENTRY_BYTES              16UL
 #define B2LUFS_MAX_TRANSFER                4096UL
 #define B2LUFS_COMMON_BUFFER_BYTES         6144UL
-#define B2LUFS_COMMAND_TIMEOUT_US       2000000UL
+/*
+ * HwStartIo runs on StorPort's dispatch path. A live UFS command completes
+ * in microseconds to a few milliseconds; do not make PnP wait seconds per
+ * probe if firmware does not release our borrowed UTRL slot. On timeout we
+ * stop submitting further work without resetting HCE/link/PHY.
+ */
+#define B2LUFS_COMMAND_TIMEOUT_US         50000UL
 #define B2LUFS_TRACE_BUDGET                  12UL
 #define B2LUFS_TRACE_SAMPLE_BYTES            64UL
 #define B2LUFS_ETW_SCSI_TRACE        0x42324C02UL
@@ -416,7 +422,7 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
              B2LUFS_UTRL_RUN_STOP) == 0) {
             break;
         }
-        StorPortStallExecution(1);
+        StorPortStallExecution(10);
     }
     if (Attempts == 1000UL) {
         return FALSE;
@@ -655,6 +661,8 @@ B2LUfsExecuteScsi(
         B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_BUSY);
         break;
     case B2LUfsTransferTimeout:
+        /* Leave the in-flight firmware-owned slot untouched; fail fast later. */
+        Adapter->TransportReady = FALSE;
         B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, Result,
                             SRB_STATUS_TIMEOUT);
         B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_TIMEOUT);

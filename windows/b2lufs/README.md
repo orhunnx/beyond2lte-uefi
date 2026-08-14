@@ -101,6 +101,11 @@ taramasından hemen sonra bu kayıtları CMD'de gösterir. Kaydın son 64 baytı
 başarılı bir `INQUIRY`, kapasite veya `READ` isteğinden dönen ham örnektir.
 Bu yalnız WinPE olay günlüğüne/RAM'e yazılır; UFS LUN'larına yazı yapılmaz.
 
+Bir UFS komutu 50 ms içinde kapı zilini bırakmazsa miniport UFS reseti veya
+iptal yazısı göndermez. İlk SRB `TIMEOUT` ile tamamlanır, yeni komutlar hızlı
+biçimde `NO_DEVICE` döner ve WinPE/PnP akışı ekranda takılı kalmaz. Bu koruma,
+ham okunabilirlik tanısı için önemlidir; UFS medya yazma yolu eklemez.
+
 `b2lufs_storport.c`, gerçek WDK `HwFindAdapter` çağrısını bu katmana bağlar.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
