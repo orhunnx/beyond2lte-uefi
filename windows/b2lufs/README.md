@@ -147,7 +147,9 @@ WDK ile **aynı build numaralı Windows SDK Headers** da kurulmuş olmalıdır:
 `Include/10.0.28000.0/shared/ntdef.h` olur. Araç, ayrıca `Inf2Cat.exe` ile
 INF+SYS hash'lerini içeren `b2lufs.cat` üretir, onu ve SYS'yi b2lfb'nin var
 olan test sertifikasıyla imzalar. PnP yüklemesi için yalnız gömülü SYS
-imzasına güvenmek doğru değildir.
+imzasına güvenmek doğru değildir. `CopyFiles` bölümü için INF'de açık bir
+`SourceDisksFiles` eşlemesi vardır; bu, Inf2Cat'in SYS dosyasını imzalanacak
+paketin parçası olarak doğrulamasını sağlar.
 
 Ölçülen ilk HCI durumu: `CAP=1303FF1F`, `VER=00000300`, `HCE=1`,
 `1US_TO_CNT=000000A6`. CAP alanında NUTRS `[4:0]` ve NUTMRS `[18:16]`
