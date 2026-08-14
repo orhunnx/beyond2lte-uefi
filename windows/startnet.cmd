@@ -192,6 +192,7 @@ if not exist "%SystemRoot%\System32\pnputil.exe" goto :UfsWithoutPnP
 echo --- UFS0: CID, eslesen surucu ve stack ---
 pnputil /enum-devices /instanceid "ACPI\SMSN9820\0" /deviceids /drivers /services
 call :PhotoPause
+call :LunInventory
 echo --- UFS0: yalniz PnP kok degerleri; Properties agaci atlandi ---
 rem /s, Properties altindaki ikili verileri yuzlerce satir yaziyordu.
 rem Kimlik/servis zaten yukaridaki PnPUtil satirinda gorunuyor.
@@ -208,7 +209,26 @@ exit /b 0
 
 :UfsWithoutPnP
 rem Eski WinPE'de de Properties alt agacini dokme.
+call :LunInventory
 reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820"
+call :PhotoPause
+exit /b 0
+
+:LunInventory
+echo --- B2LUFS: REPORT LUNS envanteri (salt-okunur, LUN 0 uzerinden) ---
+echo Bu bilgi diger LUN'lara blok okuma/yazma yapmadan alinir.
+echo Header: ilk 4 bayt big-endian liste bayti; sonraki her 8 bayt bir LUN kimligidir.
+set "B2L_LUN_KEY=HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0\Device Parameters\B2LUFS"
+reg query "%B2L_LUN_KEY%" /v SchemaVersion 2>nul
+reg query "%B2L_LUN_KEY%" /v ReportLunsResult 2>nul
+reg query "%B2L_LUN_KEY%" /v ReportLunsScsiStatus 2>nul
+reg query "%B2L_LUN_KEY%" /v ReportLunsListBytes 2>nul
+reg query "%B2L_LUN_KEY%" /v ReportLunsReturnedBytes 2>nul
+reg query "%B2L_LUN_KEY%" /v ReportLunsEntryCount 2>nul
+echo Ham REPORT LUNS: 8 bayt baslik + LUN basina 8 bayt (REG_BINARY)
+reg query "%B2L_LUN_KEY%" /v ReportLunsRaw 2>nul
+echo Tek tek LUN kimlikleri (Lun00Id, Lun01Id, ...):
+reg query "%B2L_LUN_KEY%" 2>nul
 call :PhotoPause
 exit /b 0
 

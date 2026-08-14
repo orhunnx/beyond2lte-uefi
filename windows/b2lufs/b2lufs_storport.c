@@ -24,6 +24,20 @@
  */
 #define B2LUFS_ETW_FIND_ADAPTER_FAILURE  0x42324C01UL
 
+/*
+ * WinPE reads this diagnostic-only subkey after PnP settles.  All contents
+ * are obtained with standard read-only SCSI discovery commands and reside
+ * in WinPE's volatile registry hive, never on the UFS media.
+ */
+static UCHAR B2LUFS_REG_SUBKEY[] = "B2LUFS";
+static UCHAR B2LUFS_REG_SCHEMA_VERSION[] = "SchemaVersion";
+static UCHAR B2LUFS_REG_LUNS_RESULT[] = "ReportLunsResult";
+static UCHAR B2LUFS_REG_LUNS_SCSI_STATUS[] = "ReportLunsScsiStatus";
+static UCHAR B2LUFS_REG_LUNS_LIST_BYTES[] = "ReportLunsListBytes";
+static UCHAR B2LUFS_REG_LUNS_RETURNED_BYTES[] = "ReportLunsReturnedBytes";
+static UCHAR B2LUFS_REG_LUNS_ENTRY_COUNT[] = "ReportLunsEntryCount";
+static UCHAR B2LUFS_REG_LUNS_RAW[] = "ReportLunsRaw";
+
 typedef enum B2LUFS_FIND_FAILURE {
     B2LUfsFindFailureRangeCount = 1,
     B2LUfsFindFailureMap = 2,
@@ -220,6 +234,67 @@ B2LUfsFindAdapter(
 }
 
 static HW_INITIALIZE B2LUfsInitialize;
+static HW_PASSIVE_INITIALIZE_ROUTINE B2LUfsPassiveInitialize;
+
+/* HwInitialize runs at DIRQL; registry publication is deferred to PASSIVE. */
+static VOID
+B2LUfsPublishLunSnapshot(
+    _In_ PVOID DeviceExtension,
+    _In_ B2LUFS_ADAPTER *Adapter)
+{
+    ULONG SchemaVersion = 1;
+    ULONG ScsiStatus = Adapter->LunReportScsiStatus;
+    ULONG Index;
+    UCHAR ValueName[] = "Lun00Id";
+
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_SCHEMA_VERSION,
+        REG_DWORD, &SchemaVersion, sizeof(SchemaVersion));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_LUNS_RESULT,
+        REG_DWORD, &Adapter->LunReportResult, sizeof(Adapter->LunReportResult));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_LUNS_SCSI_STATUS,
+        REG_DWORD, &ScsiStatus, sizeof(ScsiStatus));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_LUNS_LIST_BYTES,
+        REG_DWORD, &Adapter->LunReportListLength,
+        sizeof(Adapter->LunReportListLength));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_LUNS_RETURNED_BYTES,
+        REG_DWORD, &Adapter->LunReportBytes, sizeof(Adapter->LunReportBytes));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_LUNS_ENTRY_COUNT,
+        REG_DWORD, &Adapter->LunReportEntryCount,
+        sizeof(Adapter->LunReportEntryCount));
+
+    if (Adapter->LunReportValid && Adapter->LunReportBytes != 0) {
+        (void)StorPortRegistryWriteAdapterKey(
+            DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_LUNS_RAW,
+            REG_BINARY, Adapter->LunReportVirtual, Adapter->LunReportBytes);
+
+        /* Make every returned 8-byte address visible as a labelled CMD row. */
+        for (Index = 0; Index < Adapter->LunReportEntryCount; ++Index) {
+            ValueName[3] = (UCHAR)('0' + ((Index / 10UL) % 10UL));
+            ValueName[4] = (UCHAR)('0' + (Index % 10UL));
+            (void)StorPortRegistryWriteAdapterKey(
+                DeviceExtension, B2LUFS_REG_SUBKEY, ValueName,
+                REG_BINARY,
+                (PUCHAR)Adapter->LunReportVirtual + 8UL + (Index * 8UL),
+                8UL);
+        }
+    }
+}
+
+_Use_decl_annotations_
+static BOOLEAN
+B2LUfsPassiveInitialize(_In_ PVOID DeviceExtension)
+{
+    B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
+
+    B2LUfsPublishLunSnapshot(DeviceExtension, Adapter);
+    return TRUE;
+}
 
 _Use_decl_annotations_
 static BOOLEAN
@@ -230,6 +305,18 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
     if (!B2LUfsStartTransport(DeviceExtension, Adapter)) {
         return FALSE;
     }
+
+    /*
+     * Obtain LUN 0's exact capacity in the driver's contiguous DMA scratch
+     * space before Windows starts PnP discovery.  A failed probe is
+     * non-destructive and does not block the existing normal SRB path.
+     */
+    B2LUfsProbeLun0Capacity(DeviceExtension, Adapter);
+    B2LUfsProbeLuns(DeviceExtension, Adapter);
+
+    /* The diagnostic registry key is written only from PASSIVE_LEVEL. */
+    (void)StorPortEnablePassiveInitialization(
+        DeviceExtension, B2LUfsPassiveInitialize);
 
     /* UFS LUN 0 artık sorgulanabilir; StorPort'a tek hedefi tarat. */
     StorPortNotification(BusChangeDetected, DeviceExtension, (UCHAR)0);

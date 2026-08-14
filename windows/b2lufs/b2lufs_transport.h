@@ -23,6 +23,32 @@ typedef struct B2LUFS_ADAPTER {
     PVOID UcdVirtual;
     STOR_PHYSICAL_ADDRESS UcdPhysical;
 
+    /*
+     * A 32-byte, DMA-coherent scratch area used once before BusChange for
+     * READ CAPACITY(16).  The validated reply remains cached so Windows'
+     * READ CAPACITY(10/16) probes do not depend on a transient PnP buffer
+     * mapping.  It never contains user data and is never written to UFS.
+     */
+    PVOID CapacityProbeVirtual;
+    STOR_PHYSICAL_ADDRESS CapacityProbePhysical;
+    ULONG CapacityProbeLength;
+    BOOLEAN CapacityValid;
+
+    /*
+     * REPORT LUNS is a standard, device-to-host SCSI discovery command sent
+     * only to LUN 0.  This DMA-coherent snapshot is exposed to WinPE solely
+     * as registry telemetry; no additional LUN is enumerated or accessed.
+     */
+    PVOID LunReportVirtual;
+    STOR_PHYSICAL_ADDRESS LunReportPhysical;
+    ULONG LunReportLength;
+    ULONG LunReportListLength;
+    ULONG LunReportBytes;
+    ULONG LunReportEntryCount;
+    ULONG LunReportResult;
+    UCHAR LunReportScsiStatus;
+    BOOLEAN LunReportValid;
+
     ULONG ControllerCapabilities;
     /* Read-only CMD telemetry; copied to the StorPort Operational channel. */
     ULONG TraceSequence;
@@ -42,6 +68,18 @@ B2LUfsAllocateTransport(
 /* Adopt the live UFS link without reset, UIC/DME commands, or LUN writes. */
 BOOLEAN
 B2LUfsStartTransport(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter);
+
+/* Read and validate the live LUN-0 READ CAPACITY(16) reply before scanning. */
+VOID
+B2LUfsProbeLun0Capacity(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter);
+
+/* Take one standard, read-only REPORT LUNS snapshot for WinPE diagnostics. */
+VOID
+B2LUfsProbeLuns(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter);
 

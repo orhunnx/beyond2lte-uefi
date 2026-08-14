@@ -30,7 +30,15 @@ Faz 1 bu PnP sözleşmesini korur ve yalnız aşağıdaki dar taşıma akışın
    reset göndermez.
 3. Denetleyicinin boş transfer-list scheduler'ını kendi DMA halkasına
    yöneltir ve yalnız UFS **LUN 0 / target 0** SCSI sorgularını iletir.
-4. `INQUIRY`, `READ CAPACITY`, `MODE SENSE` ve `READ` sonucunda Windows
+4. PnP taramasından hemen önce, bitişik DMA tamponunda tek bir
+   `READ CAPACITY(16)` cevabını doğrular. Windows'un sonraki `READ CAPACITY`
+   sorgularına bu **cihazdan okunmuş** cevap geri verilir; kapasite
+   sabitlenmez veya tahmin edilmez. Başarısızsa normal SRB yolu korunur.
+5. Aynı LUN 0 üzerinden bir kez standart `REPORT LUNS` envanterini alır.
+   Bu, diğer LUN'ların bloklarını okumaz, hiçbir LUN'u Windows'a eklemez ve
+   boot/RPMB LUN'larını StorPort/PnP taramasından uzak tutar. Yanıt, yalnız
+   WinPE'nin RAM-backed kayıt defterinde `B2LUFS` tanı alt anahtarına yazılır.
+6. `INQUIRY`, `READ CAPACITY`, `MODE SENSE` ve `READ` sonucunda Windows
    GPT'yi ve Android bölümlerini okuyabilir. Her `DATA_OUT`, WRITE, FORMAT,
    UNMAP, MODE SELECT, START/STOP, SECURITY OUT ve benzeri mutasyon CDB'si
    doğrudan `SRB_STATUS_INVALID_REQUEST` ile reddedilir ve HCI'ye ulaşmaz.
@@ -105,6 +113,13 @@ Bir UFS komutu 50 ms içinde kapı zilini bırakmazsa miniport UFS reseti veya
 iptal yazısı göndermez. İlk SRB `TIMEOUT` ile tamamlanır, yeni komutlar hızlı
 biçimde `NO_DEVICE` döner ve WinPE/PnP akışı ekranda takılı kalmaz. Bu koruma,
 ham okunabilirlik tanısı için önemlidir; UFS medya yazma yolu eklemez.
+
+`startnet.cmd` ayrıca `REPORT LUNS` anlık görüntüsünü `Device Parameters\B2LUFS`
+altından basar. `ReportLunsRaw` değeri standart yanıtın tamamıdır: ilk dört
+bayt big-endian liste uzunluğudur, sekizinci bayttan sonra her sekiz bayt bir
+LUN adresidir. Aynı kayıt altında görünen `Lun00Id`, `Lun01Id`, ... değerleri
+bu adreslerin etiketlenmiş kopyalarıdır. Bu liste yalnız donanımın bildirdiği
+envanterdir; B2LUFS yine sadece kullanıcı **LUN 0** için I/O kabul eder.
 
 `b2lufs_storport.c`, gerçek WDK `HwFindAdapter` çağrısını bu katmana bağlar.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
