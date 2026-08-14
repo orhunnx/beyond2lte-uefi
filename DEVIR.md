@@ -327,6 +327,12 @@ dayanıyor.
 
 ## 7. Şu anki tıkanma noktası
 
+> **Güncellik notu (14 Ağustos 2026):** bu bölüm ve altındaki deney
+> zincirleri tarihsel kayıttır. WinPE kabuğu artık açılıyor ve DiskPart
+> çalışıyor; güncel tıkanma UFS disk numaralandırmasında. Bkz. bölüm
+> sonundaki "b2lufs: adaptör başlıyor ama disk numaralandırılmıyor".
+
+
 **Windows, seçili hizmet kümesi ve açılış zamanlamasıyla birlikte kullanıcı
 modu öncesinde ya da sonrasında sessizce sıfırlanıyor. Ne olduğu bilinmiyor.**
 Normal kısa yol yaklaşık 10 saniye. `Npfs` tek açıkken bir kez 63.902 saniyeye
@@ -1416,6 +1422,52 @@ Yani `storufs` ve `rdbss` bulguları **başlangıç bağımlılıkları ve iş
 miktarı** üzerinden açıklanıyor, donanıma dokunmaları üzerinden değil. Bu
 düzeltme geç yapıldı; belgeyi okuyan biri eski kayıtlarda "suçlu bulundu"
 ifadesi görürse bu paragrafı esas almalı.
+
+---
+
+### b2lufs: adaptör başlıyor ama disk numaralandırılmıyor (14 Ağustos 2026)
+
+Bu bölüm, belgenin üstündeki `storufs` + `PCI\CC_010901` anlatısını
+**geçersiz kılar**. Kod artık başka bir yerde:
+
+- `DSDT`'de `UFS0` yalnız `_CID="BYND9820"` yayınlıyor; inbox `storufs`
+  aynı HBA'ya bilerek bağlanamıyor.
+- `windows/b2lufs/` altında kendi StorPort miniportumuz var: HCE'ye
+  dokunmuyor, firmware'in bıraktığı link durumunu devralıyor, tek UTRD
+  yuvası kullanıyor, yalnız salt-okunur SCSI kabul ediyor.
+- WinPE kabuğu açılıyor ve DiskPart çalışıyor. Belgenin 7. bölümündeki
+  "tıkanma noktası" tanımı bu nedenle güncel değildir.
+
+**Belirti:** aygıt PnP'de `Started`, kaynaklar haritalanıyor,
+`HwInitialize` başarıyla dönüyor — ama DiskPart disk göstermiyor.
+
+**Bulunan sebep:** `b2lufs_transport.c` içindeki `ConfigInfo` sözleşmesi.
+
+```c
+ConfigInfo->MaximumNumberOfTargets = 1;   // taranabilir tek hedef: 0
+// InitiatorBusId[0] hic kurulmamis       // ConfigInfo sifirli -> 0
+```
+
+SCSI port mantığında **başlatıcının kendi kimliği bus taramasından
+dışlanır**. Taranabilir tek hedef 0 ve başlatıcı da 0 olunca StorPort
+taranacak hiçbir hedef bulamıyor, disk PDO'su üretmiyor, DiskPart boş
+çıkıyor.
+
+Bu, `b2lufs` üzerinde yapılan son dört değişikliğin (BTL8 sözleşmesi,
+`HwUnitControl`, PnP yaşam döngüsü, `BusChangeDetected`) neden sonucu
+değiştirmediğini de açıklıyor: hepsi **hiç başlamayan** bir taramanın alt
+aşamaları.
+
+**Yapılan düzeltme:** iki hedef ilan edilip başlatıcı 1'e alındı; böylece
+dışlama kuralı uygulansa da uygulanmasa da hedef 0 taranabilir kalıyor.
+Hedef 1'e giden her SRB `B2LUfsExecuteScsi`'de zaten `NO_DEVICE` ile
+reddediliyor ve `HwUnitControl` LUN0 dışını kabul etmiyor, yani fazladan
+hedef UFS'e tek komut bile göndermiyor. Ayrıca `Master` ve `ScatterGather`
+de kurulmamıştı; `NeedPhysicalAddresses` açıkken ve PRDT fiziksel
+adreslerle kurulurken bunları `ConfigInfo`'da bildirmemek tutarsızdı.
+
+Doğrulama ölçütü değişmedi: ikinci DiskPart bloğunda `Disk 0` ve ardından
+`list partition` ile Android GPT bölümleri.
 
 ---
 

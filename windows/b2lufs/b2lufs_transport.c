@@ -589,8 +589,39 @@ B2LUfsAllocateTransport(
     ConfigInfo->MaximumTransferLength = B2LUFS_MAX_TRANSFER;
     ConfigInfo->NumberOfPhysicalBreaks = B2LUFS_MAX_PRDT_ENTRIES;
     ConfigInfo->NumberOfBuses = 1;
-    ConfigInfo->MaximumNumberOfTargets = 1;
+    /*
+     * BASLATICI KIMLIGI TARAMADAN DISLANIR.
+     *
+     * ConfigInfo sifirlanmis geliyor, yani InitiatorBusId[0] = 0. Onceki
+     * surumde MaximumNumberOfTargets de 1'di: taranabilecek tek hedef
+     * kimligi 0, o da baslaticinin kendisi. SCSI port mantiginda baslatici
+     * kimligi bus taramasindan DISLANIR, dolayisiyla StorPort hicbir hedefi
+     * taramiyor, disk PDO'su uretmiyor ve DiskPart bos cikiyordu.
+     *
+     * Belirti tam olarak buydu: aygit PnP'de "Started" gorunuyor, kaynaklar
+     * haritalaniyor, HwInitialize basariyla donuyor, ama ortada disk yok.
+     * BTL8 sozlesmesi, HwUnitControl ve BusChangeDetected eklemeleri de
+     * bunu cozemezdi - hepsi hic baslamayan bir taramanin alt asamalari.
+     *
+     * Iki hedef ilan edip baslaticiyi 1'e almak, dislama kurali uygulansa
+     * da uygulanmasa da hedef 0'i taranabilir birakiyor. Hedef 1'e giden
+     * her SRB zaten B2LUfsExecuteScsi'de NO_DEVICE ile reddediliyor ve
+     * HwUnitControl LUN0 disini kabul etmiyor; yani fazladan hedef UFS'e
+     * tek bir komut bile gondermiyor.
+     */
+    ConfigInfo->MaximumNumberOfTargets = 2;
+    ConfigInfo->InitiatorBusId[0] = 1;
     ConfigInfo->MaximumNumberOfLogicalUnits = 1;
+
+    /*
+     * Bus-master DMA sozlesmesi. NeedPhysicalAddresses DriverEntry'de acik
+     * ve PRDT fiziksel adreslerle kuruluyor; StorPort'a bunu ConfigInfo
+     * uzerinden de bildirmek gerekiyor. ScatterGather, 32 girisli PRDT'ye
+     * bolunmus istekler icin sart.
+     */
+    ConfigInfo->Master = TRUE;
+    ConfigInfo->ScatterGather = TRUE;
+    ConfigInfo->CachesData = FALSE;
     /* UFSHCI PRDT byte counts are DWORD granular. */
     ConfigInfo->AlignmentMask = FILE_LONG_ALIGNMENT;
     /*
