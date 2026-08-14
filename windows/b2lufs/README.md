@@ -131,7 +131,10 @@ Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
 `InIoSpace` parametresi için terslenir. Kısmi/uyuşmayan kaynak dizisi hemen
 geri bırakılır. `HwInitialize`, canlı HCE ve boş UTRL scheduler'ını
-doğrulayıp tek DMA slotunu bağladıktan sonra `BusChangeDetected` bildirir.
+doğrulayıp tek DMA slotunu bağladıktan sonra, `HwInitialize` başarıyla
+döndükten sonraki PASSIVE başlatmada `BusChangeDetected` bildirir. Böylece
+StorPort, LUN 0 için standart INQUIRY/LUN taramasını tam başlatılmış bir
+miniport üzerinde yapar.
 Kesme sahipliği alınmaz; tamamlanma kapı zili poll edilir. Miniport fiziksel
 bir ACPI HBA olduğu için `Internal` arayüz türünü
 kullanmaz: `InterfaceTypeUndefined` ile

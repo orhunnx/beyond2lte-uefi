@@ -254,7 +254,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 3;
+    ULONG SchemaVersion = 4;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -355,6 +355,15 @@ B2LUfsPassiveInitialize(_In_ PVOID DeviceExtension)
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
 
     B2LUfsPublishLunSnapshot(DeviceExtension, Adapter);
+
+    /*
+     * StorPort must see this only after HwInitialize has returned success.
+     * Calling BusChangeDetected while the adapter is still in HwInitialize
+     * can leave this dynamically reported LUN without a SCSI child PDO.
+     * At PASSIVE_LEVEL the miniport is fully live, the diagnostic snapshot
+     * is published, and StorPort can issue its normal INQUIRY/LUN scan.
+     */
+    StorPortNotification(BusChangeDetected, DeviceExtension, (UCHAR)0);
     return TRUE;
 }
 
@@ -380,8 +389,6 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
     (void)StorPortEnablePassiveInitialization(
         DeviceExtension, B2LUfsPassiveInitialize);
 
-    /* UFS LUN 0 artık sorgulanabilir; StorPort'a tek hedefi tarat. */
-    StorPortNotification(BusChangeDetected, DeviceExtension, (UCHAR)0);
     return TRUE;
 }
 

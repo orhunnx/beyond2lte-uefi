@@ -153,7 +153,10 @@ if exist "%SystemRoot%\System32\wevtutil.exe" (
 pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install
 echo PnP yeniden taraniyor:
 pnputil /scan-devices
-echo Beklenen: b2lufs Started; BusChange ile LUN 0 salt-okunur taranir.
+rem BusChange, miniportun PASSIVE baslatmasindan sonra bildirilir; StorPort'un
+rem INQUIRY/LUN taramasina kisa ve girdisiz bir zaman penceresi ver.
+timeout /t 2 /nobreak >nul 2>&1
+echo Beklenen: b2lufs Started; PASSIVE BusChange ile LUN 0 salt-okunur taranir.
 echo --- B2LUFS: StorPort kaynak-esleme tanisi ---
 call :B2LUfsStorPortLog
 exit /b 0
