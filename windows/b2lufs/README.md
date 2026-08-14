@@ -33,7 +33,8 @@ Faz 1 bu PnP sözleşmesini korur ve yalnız aşağıdaki dar taşıma akışın
 4. `INQUIRY`, `READ CAPACITY`, `MODE SENSE` ve `READ` sonucunda Windows
    GPT'yi ve Android bölümlerini okuyabilir. Her `DATA_OUT`, WRITE, FORMAT,
    UNMAP, MODE SELECT, START/STOP, SECURITY OUT ve benzeri mutasyon CDB'si
-   doğrudan `SRB_STATUS_WRITE_PROTECTED` ile reddedilir. Boot LUN, RPMB ve
+   doğrudan `SRB_STATUS_INVALID_REQUEST` ile reddedilir ve HCI'ye ulaşmaz.
+   Boot LUN, RPMB ve
    diğer bütün LUN'lar `NO_DEVICE` olarak gizlenir.
 
 Bu nedenle DiskPart'ta görünür olan disk, var olan Android kullanıcı-LUN'ıdır

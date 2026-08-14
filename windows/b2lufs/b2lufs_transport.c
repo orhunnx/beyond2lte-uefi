@@ -523,7 +523,12 @@ B2LUfsExecuteScsi(
     if (!B2LUfsCdbIsExplicitlyReadOnly(Srb->Cdb[0]) ||
         (Srb->SrbFlags & SRB_FLAGS_DATA_OUT) != 0) {
         Srb->DataTransferLength = 0;
-        B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_WRITE_PROTECTED);
+        /*
+         * Storport has no SRB_STATUS_WRITE_PROTECTED status. Reject the
+         * request before it reaches the HCI with a valid SRB status; the
+         * adapter therefore remains strictly read-only.
+         */
+        B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_INVALID_REQUEST);
         return;
     }
 
