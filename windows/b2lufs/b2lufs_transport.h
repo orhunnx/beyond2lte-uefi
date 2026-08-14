@@ -63,6 +63,9 @@ typedef struct B2LUFS_ADAPTER {
     ULONG AutoHibern8Before;
     ULONG TransferSlotCount;
     ULONG TaskSlotCount;
+    /* The StorPort protocol negotiated by DriverEntry/HwFindAdapter. */
+    ULONG ConfiguredSrbType;
+    ULONG ConfiguredAddressType;
     /* Read-only CMD telemetry; copied to the StorPort Operational channel. */
     ULONG TraceSequence;
     ULONG TraceBudget;

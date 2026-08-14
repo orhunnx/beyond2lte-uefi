@@ -127,14 +127,21 @@ bu adreslerin etiketlenmiş kopyalarıdır. Bu liste yalnız donanımın bildird
 envanterdir; B2LUFS yine sadece kullanıcı **LUN 0** için I/O kabul eder.
 
 `b2lufs_storport.c`, gerçek WDK `HwFindAdapter` çağrısını bu katmana bağlar.
+`DriverEntry` ve `HwFindAdapter` birlikte klasik
+`SCSI_REQUEST_BLOCK` + `BTL8` adresleme sözleşmesini açıkça ilan eder:
+`SrbTypeFlags`/`SrbType` eski SRB biçimini, `AddressTypeFlags`/`AddressType`
+ise `Path=0, Target=0, Lun=0` BTL8 yolunu seçer. Bu ikisi, `HwStartIo`nun
+okuduğu alanlarla aynıdır ve StorPort'un LUN 0 için disk PDO'su
+numaralandırabilmesinin önkoşuludur; yalnız `BusChangeDetected` bildirimi bu
+sözleşmenin yerine geçmez.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
 `InIoSpace` parametresi için terslenir. Kısmi/uyuşmayan kaynak dizisi hemen
 geri bırakılır. `HwInitialize`, canlı HCE ve boş UTRL scheduler'ını
 doğrulayıp tek DMA slotunu bağladıktan sonra, `HwInitialize` başarıyla
 döndükten sonraki PASSIVE başlatmada `BusChangeDetected` bildirir. Böylece
-StorPort, LUN 0 için standart INQUIRY/LUN taramasını tam başlatılmış bir
-miniport üzerinde yapar.
+zaten ilan edilmiş BTL8 yolunda StorPort, LUN 0 için standart INQUIRY/LUN
+taramasını tam başlatılmış bir miniport üzerinde yapar.
 Kesme sahipliği alınmaz; tamamlanma kapı zili poll edilir. Miniport fiziksel
 bir ACPI HBA olduğu için `Internal` arayüz türünü
 kullanmaz: `InterfaceTypeUndefined` ile

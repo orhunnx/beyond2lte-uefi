@@ -153,10 +153,10 @@ if exist "%SystemRoot%\System32\wevtutil.exe" (
 pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install
 echo PnP yeniden taraniyor:
 pnputil /scan-devices
-rem BusChange, miniportun PASSIVE baslatmasindan sonra bildirilir; StorPort'un
-rem INQUIRY/LUN taramasina kisa ve girdisiz bir zaman penceresi ver.
+rem Miniport legacy SRB + BTL8 sozlesmesini kurduktan sonra PASSIVE BusChange
+rem bildirir; StorPort'un INQUIRY/LUN taramasina kisa bir zaman penceresi ver.
 timeout /t 2 /nobreak >nul 2>&1
-echo Beklenen: b2lufs Started; PASSIVE BusChange ile LUN 0 salt-okunur taranir.
+echo Beklenen: b2lufs Started; legacy SRB/BTL8 ile LUN 0 disk PDO'su taranir.
 echo --- B2LUFS: StorPort kaynak-esleme tanisi ---
 call :B2LUfsStorPortLog
 exit /b 0
@@ -229,6 +229,9 @@ reg query "%B2L_LUN_KEY%" /v HciStatus 2>nul
 reg query "%B2L_LUN_KEY%" /v AutoHibern8Before 2>nul
 reg query "%B2L_LUN_KEY%" /v TransferSlotCount 2>nul
 reg query "%B2L_LUN_KEY%" /v TaskSlotCount 2>nul
+echo StorPort SRB/adresleme sozlesmesi (legacy SRB + BTL8 zorunludur):
+reg query "%B2L_LUN_KEY%" /v SrbType 2>nul
+reg query "%B2L_LUN_KEY%" /v AddressType 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityResult 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityScsiStatus 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityOpcode 2>nul

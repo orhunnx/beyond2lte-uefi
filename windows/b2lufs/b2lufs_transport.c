@@ -413,6 +413,17 @@ B2LUfsAllocateTransport(
      * buffers need not be physically contiguous: B2LUfsSubmitReadOnlyScsi
      * expands a request into at most 32 such entries (128 KiB total).
      */
+    /*
+     * Keep this in lockstep with DriverEntry. B2LUfsStartIo receives a
+     * SCSI_REQUEST_BLOCK and routes only Path=0, Target=0, Lun=0, so
+     * StorPort must enumerate this adapter through the legacy BTL8 address
+     * contract rather than an SRBEX/storage-address variant.
+     */
+    ConfigInfo->SrbType = SRB_TYPE_SCSI_REQUEST_BLOCK;
+    ConfigInfo->AddressType = STORAGE_ADDRESS_TYPE_BTL8;
+    Adapter->ConfiguredSrbType = (ULONG)ConfigInfo->SrbType;
+    Adapter->ConfiguredAddressType = (ULONG)ConfigInfo->AddressType;
+
     ConfigInfo->MaximumTransferLength = B2LUFS_MAX_TRANSFER;
     ConfigInfo->NumberOfPhysicalBreaks = B2LUFS_MAX_PRDT_ENTRIES;
     ConfigInfo->NumberOfBuses = 1;
@@ -631,9 +642,12 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
         return FALSE;
     }
 
-    if ((B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR) &
-         B2LUFS_UTRL_SLOT_0) != 0) {
-        /* A prior owner still has a command in flight; do not steal its ring. */
+    if (B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR) != 0) {
+        /*
+         * Firmware may have used any UTR slot, not only the one B2LUFS will
+         * later borrow. Stopping the list while any doorbell is set could
+         * truncate a final UEFI Block I/O request across ExitBootServices.
+         */
         return FALSE;
     }
 

@@ -36,6 +36,8 @@ static UCHAR B2LUFS_REG_HCI_STATUS[] = "HciStatus";
 static UCHAR B2LUFS_REG_AHIT_BEFORE[] = "AutoHibern8Before";
 static UCHAR B2LUFS_REG_TRANSFER_SLOTS[] = "TransferSlotCount";
 static UCHAR B2LUFS_REG_TASK_SLOTS[] = "TaskSlotCount";
+static UCHAR B2LUFS_REG_SRB_TYPE[] = "SrbType";
+static UCHAR B2LUFS_REG_ADDRESS_TYPE[] = "AddressType";
 static UCHAR B2LUFS_REG_CAPACITY_RESULT[] = "ReadCapacityResult";
 static UCHAR B2LUFS_REG_CAPACITY_SCSI_STATUS[] = "ReadCapacityScsiStatus";
 static UCHAR B2LUFS_REG_CAPACITY_OPCODE[] = "ReadCapacityOpcode";
@@ -254,7 +256,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 4;
+    ULONG SchemaVersion = 5;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -285,6 +287,14 @@ B2LUfsPublishLunSnapshot(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_TASK_SLOTS,
         REG_DWORD, &Adapter->TaskSlotCount,
         sizeof(Adapter->TaskSlotCount));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_SRB_TYPE,
+        REG_DWORD, &Adapter->ConfiguredSrbType,
+        sizeof(Adapter->ConfiguredSrbType));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_ADDRESS_TYPE,
+        REG_DWORD, &Adapter->ConfiguredAddressType,
+        sizeof(Adapter->ConfiguredAddressType));
     (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_CAPACITY_RESULT,
         REG_DWORD, &Adapter->CapacityProbeResult,
@@ -358,10 +368,10 @@ B2LUfsPassiveInitialize(_In_ PVOID DeviceExtension)
 
     /*
      * StorPort must see this only after HwInitialize has returned success.
-     * Calling BusChangeDetected while the adapter is still in HwInitialize
-     * can leave this dynamically reported LUN without a SCSI child PDO.
-     * At PASSIVE_LEVEL the miniport is fully live, the diagnostic snapshot
-     * is published, and StorPort can issue its normal INQUIRY/LUN scan.
+     * This notification asks it to scan BTL8 bus 0; it does not replace the
+     * explicit legacy-SRB/BTL8 contract negotiated in DriverEntry and
+     * HwFindAdapter. At PASSIVE_LEVEL the miniport is fully live and its
+     * diagnostic snapshot is already published.
      */
     StorPortNotification(BusChangeDetected, DeviceExtension, (UCHAR)0);
     return TRUE;
@@ -489,6 +499,15 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
      * ve StorPortGetDeviceBase'e aynen geri verir.
      */
     InitData.AdapterInterfaceType = InterfaceTypeUndefined;
+    /*
+     * HwStartIo consumes the legacy SCSI_REQUEST_BLOCK and its PathId,
+     * TargetId and Lun fields.  Tell StorPort that both the SRB and address
+     * protocol are therefore the legacy BTL8 form.  Without this pair an
+     * adapter can start but StorPort has no declared LUN address contract to
+     * use when it creates its disk PDOs.
+     */
+    InitData.SrbTypeFlags = SRB_TYPE_FLAG_SCSI_REQUEST_BLOCK;
+    InitData.AddressTypeFlags = ADDRESS_TYPE_FLAG_BTL8;
     /*
      * WDK 28000 HW_INITIALIZATION_DATA, gercek callback imzasini tasimak
      * yerine HwFindAdapter'i kasitli olarak PVOID bildirir. B2LUfsFindAdapter
