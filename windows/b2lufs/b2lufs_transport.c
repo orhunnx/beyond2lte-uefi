@@ -11,7 +11,6 @@
  */
 #include <ntddk.h>
 #include <storport.h>
-#include <srb.h>
 
 #include "b2lufs_transport.h"
 
@@ -526,7 +525,7 @@ B2LUfsHandlePnpSrb(
             break;
         case StorStopDevice:
         case StorRemoveDevice:
-        case StorSupriseRemoval:
+        case StorSurpriseRemoval:
             SrbStatus = SRB_STATUS_SUCCESS;
             break;
         default:
@@ -548,7 +547,7 @@ B2LUfsHandlePnpSrb(
             break;
         case StorStopDevice:
         case StorRemoveDevice:
-        case StorSupriseRemoval:
+        case StorSurpriseRemoval:
             SrbStatus = SRB_STATUS_SUCCESS;
             break;
         default:
