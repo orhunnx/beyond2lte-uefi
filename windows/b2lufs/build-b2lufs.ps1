@@ -122,7 +122,10 @@ try {
     # /kernel WDK'nin cekirdek derleme tanimlarini kendisi kurar. _KERNEL_MODE
     # rezerve bir MSVC makrosudur; elle /D ile vermek C4117'yi /WX altinda
     # derleme hatasina cevirir.
-    $CompileFlags = "/nologo /c /TC /kernel /Zl /GS- /W4 /WX /O1 /D_WIN32_WINNT=0x0A00 /D_ARM64_=1 /I`"$WdkInclude\km`" /I`"$WdkInclude\shared`" /I`"$WdkInclude\ucrt`" /I`"$WdkInclude\um`""
+    # WDK 28000'in storport.h basligi, ARM64'e zorunlu hizalama eklenmis
+    # yapilarinda C4324 uretir. Bu bir baslik/ABI bildirimi, bizim surucu
+    # kaynak kodumuzun uyarisi degil; /WX korunurken yalniz onu sustururuz.
+    $CompileFlags = "/nologo /c /TC /kernel /Zl /GS- /W4 /WX /wd4324 /O1 /D_WIN32_WINNT=0x0A00 /D_ARM64_=1 /I`"$WdkInclude\km`" /I`"$WdkInclude\shared`" /I`"$WdkInclude\ucrt`" /I`"$WdkInclude\um`""
     $BuildLines = @(
         '@echo off',
         'setlocal EnableExtensions DisableDelayedExpansion',

@@ -250,7 +250,16 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
     B2LUfsZeroMemory(&InitData, sizeof(InitData));
     InitData.HwInitializationDataSize = sizeof(InitData);
     InitData.AdapterInterfaceType = Internal;
+    /*
+     * WDK 28000 HW_INITIALIZATION_DATA, gercek callback imzasini tasimak
+     * yerine HwFindAdapter'i kasitli olarak PVOID bildirir. B2LUfsFindAdapter
+     * yine HW_FIND_ADAPTER ile tiplenmistir; bu atamadaki C4152 sadece WDK
+     * ABI'sinin function/data pointer kovusumunden gelir.
+     */
+#pragma warning(push)
+#pragma warning(disable : 4152)
     InitData.HwFindAdapter = B2LUfsFindAdapter;
+#pragma warning(pop)
     InitData.HwInitialize = B2LUfsInitialize;
     InitData.HwStartIo = B2LUfsStartIo;
     InitData.HwInterrupt = B2LUfsInterrupt;
