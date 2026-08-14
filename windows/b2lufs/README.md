@@ -24,18 +24,21 @@ yinelenen, memory olmayan veya kısa bir pencere güvenli biçimde reddedilir.
 Faz 1 bu PnP sözleşmesini korur ve yalnız aşağıdaki dar taşıma akışını ekler:
 
 1. StorPort'tan bir adet **uncached/bitişik** DMA alanı alır; 1 KiB hizalı
-   tek UTRD ve onun 1 KiB hizalı UCD'sini burada kurar.
-2. Firmware'in WinPE'yi yüklemek için açık bıraktığı HCE/link durumunu
-   doğrular. HCE sıfırsa sürücü onu açmaz; UIC/DME, PHY/CAL veya software
-   reset göndermez.
+   tek UTRD ve onun 1 KiB hizalı UCD'sini burada kurar. Her istekte UTRD,
+   Linux'un yaptığı gibi `UFS_STORAGE` komut türünü taşır.
+2. Firmware'in WinPE'yi yüklemek için açık bıraktığı HCE/link durumunu ve
+   `HCS` hazır bitlerini doğrular. HCE sıfırsa sürücü onu açmaz; UIC/DME,
+   PHY/CAL veya software reset göndermez.
 3. Denetleyicinin boş transfer-list scheduler'ını kendi DMA halkasına
-   yöneltir ve yalnız UFS **LUN 0 / target 0** SCSI sorgularını iletir.
+   yöneltir. Exynos Linux sürücüsünün transfer-özel ayarlarını (4 KiB PRDT,
+   `DATA_REORDER=0xa`, UTR/UTMR nexus maskeleri, AXI burst) uygular ve
+   firmware'den kalan donanım AHIT zamanlayıcısını kapatır. Link/power-mode
+   yeniden kurulmaz.
 4. PnP taramasından hemen önce, bitişik DMA tamponunda önce standart
    `READ CAPACITY(10)` cevabını doğrular; yalnız `0xFFFFFFFF` LBA yanıtı
-   verirse `READ CAPACITY(16)`ye geçer. Windows'un sonraki `READ CAPACITY`
-   sorgularına bu **cihazdan okunmuş** ve normalleştirilmiş cevap geri verilir;
-   kapasite sabitlenmez veya tahmin edilmez. Başarısızsa normal SRB yolu
-   korunur ve onun ilk geçerli cevabı önbelleğe alınır.
+   verirse `READ CAPACITY(16)`ye geçer. Bu yalnız tanı ön-kontrolüdür:
+   Windows'un her sonraki `READ CAPACITY` SRB'si de doğrudan UFS'e gider;
+   kalan-bayt sayısı Response UPIU'dan alınarak StorPort'a doğru bildirilir.
 5. Aynı LUN 0 üzerinden bir kez standart `REPORT LUNS` envanterini alır.
    Bu, diğer LUN'ların bloklarını okumaz, hiçbir LUN'u Windows'a eklemez ve
    boot/RPMB LUN'larını StorPort/PnP taramasından uzak tutar. Yanıt, yalnız
@@ -219,9 +222,9 @@ kapısından geçmiş son artefakt değildir; UFS donanım sonucu olarak yorumla
 `1US_TO_CNT=000000A6`. CAP alanında NUTRS `[4:0]` ve NUTMRS `[18:16]`
 sırasıyla `31` ve `3` olduğundan denetleyici 32 UTR + 4 UTMR kapasitelidir;
 bit 24 de 64-bit adreslemeyi bildirir. Faz 1 bu kapasitenin yalnız bir UTR
-yuvasını kullanır; veri aktarımı hâlâ en fazla 4 KiB'dir. StorPort'un verdiği
-bu tek mantıksal blok tamponu fiziksel sayfa sınırını geçerse, sürücü bunu
-en çok 32 adet 4 KiB PRDT girişine böler; bitişik fiziksel RAM varsaymaz.
+yuvasını kullanır; StorPort bu yüzden tek SRB'ye sınırlandırılır. Sürücü,
+fiziksel sayfa sınırını geçebilen bir isteği en çok 32 adet 4 KiB PRDT girişine
+böler; bitişik fiziksel RAM varsaymaz ve tek okuma için üst sınır 128 KiB'dir.
 
 Yerel doğrulama:
 
@@ -231,12 +234,10 @@ clang -std=c11 -Wall -Wextra -Werror \
   -o /tmp/b2lufs-resources-test && /tmp/b2lufs-resources-test
 ```
 
-## Sonraki üç değişiklik
+## Sonraki iki değişiklik
 
 1. İlk salt-okunur GPT/LUN 0 keşfini DiskPart fotoğrafıyla doğrula.
-2. DiskPart ile GPT/LUN 0 okuması doğrulandıktan sonra, yalnız gerçekten
-   gerekirse doğrulanan 4 KiB üst sınırını büyüt; yazma yolu ekleme.
-3. UEFI'den Exynos başlatması ancak HCE/link devralması kesin olarak
+2. UEFI'den Exynos başlatması ancak HCE/link devralması kesin olarak
    başarısız olursa ele alınır: VCC/PHY isolation, IO coherency,
    `1US_TO_CNT=166`, saat/refclk/clock-gating, CAL pre-link, standart
    `DME_LINKSTARTUP`, CAL post-link. UTRD/UPIU/SCSI bundan sonra gelir.

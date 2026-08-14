@@ -27,8 +27,14 @@
  * or on an undocumented larger vendor entry size.
  */
 #define B2LUFS_PRDT_MAX_BYTES              4096UL
-/* Keep the public request limit at one known-good UFS logical block. */
-#define B2LUFS_MAX_TRANSFER                B2LUFS_PRDT_MAX_BYTES
+/*
+ * Linux programs Exynos' PRDT-entry-size registers to 4 KiB and then uses
+ * one entry per scatter/gather segment.  The descriptor below has 32 entries,
+ * so Windows may submit a normal 128 KiB GPT/partition-table read without
+ * inventing a larger vendor PRDT entry size.
+ */
+#define B2LUFS_MAX_TRANSFER \
+    (B2LUFS_MAX_PRDT_ENTRIES * B2LUFS_PRDT_MAX_BYTES)
 #define B2LUFS_RESPONSE_UPIU_OFFSET_BYTES  B2LUFS_ALIGNED_UPIU_SIZE
 #define B2LUFS_PRDT_OFFSET_BYTES \
     (B2LUFS_ALIGNED_UPIU_SIZE * 2UL)
@@ -58,10 +64,11 @@
 #define B2LUFS_UTP_TRANSFER_REQ_COMPL        0x00000001UL
 #define B2LUFS_UIC_LINK_LOST                 0x00000080UL
 #define B2LUFS_DEVICE_FATAL_ERROR             0x00000800UL
+#define B2LUFS_UTP_ERROR                      0x00001000UL
 #define B2LUFS_CONTROLLER_FATAL_ERROR         0x00010000UL
 #define B2LUFS_SYSTEM_BUS_FATAL_ERROR         0x00020000UL
 #define B2LUFS_FATAL_INTERRUPT_MASK \
-    (B2LUFS_UIC_LINK_LOST | B2LUFS_DEVICE_FATAL_ERROR | \
+    (B2LUFS_UIC_LINK_LOST | B2LUFS_DEVICE_FATAL_ERROR | B2LUFS_UTP_ERROR | \
      B2LUFS_CONTROLLER_FATAL_ERROR | B2LUFS_SYSTEM_BUS_FATAL_ERROR)
 
 #define B2LUFS_UTP_NO_DATA_TRANSFER          0x00000000UL
@@ -69,6 +76,8 @@
 #define B2LUFS_UTP_DEVICE_TO_HOST             0x04000000UL
 #define B2LUFS_UTP_SCSI_COMMAND               0x00000000UL
 #define B2LUFS_UTP_REQ_DESC_INT_CMD           0x01000000UL
+/* UTRD DW0[31:28]: UFS storage command type, per UFSHCI. */
+#define B2LUFS_UTP_CMD_TYPE_UFS_STORAGE       0x10000000UL
 #define B2LUFS_OCS_SUCCESS                    0x00000000UL
 #define B2LUFS_OCS_INVALID_COMMAND_STATUS     0x0000000FUL
 
@@ -104,10 +113,26 @@
 #define B2LUFS_REG_UTRLBAU                     0x0054UL
 #define B2LUFS_REG_UTRLDBR                     0x0058UL
 #define B2LUFS_REG_UTRLRSR                     0x0060UL
+#define B2LUFS_REG_AHIT                        0x0018UL
 #define B2LUFS_VS_TXPRDT_ENTRY_SIZE            0x0000UL
 #define B2LUFS_VS_RXPRDT_ENTRY_SIZE            0x0004UL
 #define B2LUFS_VS_UTRL_NEXUS_TYPE              0x0040UL
+#define B2LUFS_VS_UTMRL_NEXUS_TYPE             0x0044UL
 #define B2LUFS_VS_DATA_REORDER                 0x0060UL
+#define B2LUFS_VS_AXIDMA_RWDATA_BURST_LEN      0x006CUL
+
+/* UFSHCI CAP/HCS fields used by Linux before it starts a UTP list. */
+#define B2LUFS_CAP_NUTRS_MASK                  0x0000001FUL
+#define B2LUFS_CAP_NUTMRS_MASK                 0x00070000UL
+#define B2LUFS_CAP_NUTMRS_SHIFT                16UL
+#define B2LUFS_CAP_64_ADDRESSING               0x01000000UL
+#define B2LUFS_HCS_DEVICE_PRESENT              0x00000001UL
+#define B2LUFS_HCS_UTRL_READY                  0x00000002UL
+#define B2LUFS_HCS_UTMRL_READY                 0x00000004UL
+#define B2LUFS_HCS_UIC_READY                   0x00000008UL
+#define B2LUFS_HCS_READY_MASK \
+    (B2LUFS_HCS_DEVICE_PRESENT | B2LUFS_HCS_UTRL_READY | \
+     B2LUFS_HCS_UTMRL_READY | B2LUFS_HCS_UIC_READY)
 
 #pragma pack(push, 1)
 typedef struct B2LUFS_UTRD {
@@ -233,25 +258,6 @@ B2LUfsReadBe32(_In_reads_bytes_(4) const UCHAR *Buffer)
 }
 
 static VOID
-B2LUfsWriteBe32(_Out_writes_bytes_(4) UCHAR *Buffer, _In_ ULONG Value)
-{
-    Buffer[0] = (UCHAR)(Value >> 24);
-    Buffer[1] = (UCHAR)(Value >> 16);
-    Buffer[2] = (UCHAR)(Value >> 8);
-    Buffer[3] = (UCHAR)Value;
-}
-
-static VOID
-B2LUfsWriteBe64(_Out_writes_bytes_(8) UCHAR *Buffer, _In_ ULONGLONG Value)
-{
-    ULONG Index;
-
-    for (Index = 0; Index < 8UL; ++Index) {
-        Buffer[Index] = (UCHAR)(Value >> ((7UL - Index) * 8UL));
-    }
-}
-
-static VOID
 B2LUfsLogScsiTrace(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter,
@@ -348,10 +354,19 @@ B2LUfsMinUlong(_In_ ULONG Left, _In_ ULONG Right)
     return (Left < Right) ? Left : Right;
 }
 
-static BOOLEAN
-B2LUfsCdbIsExplicitlyReadOnly(_In_ UCHAR Operation)
+static ULONG
+B2LUfsSlotMask(_In_ ULONG Count)
 {
-    switch (Operation) {
+    if (Count >= 32UL) {
+        return MAXULONG;
+    }
+    return (1UL << Count) - 1UL;
+}
+
+static BOOLEAN
+B2LUfsCdbIsExplicitlyReadOnly(_In_reads_bytes_(16) const UCHAR *Cdb)
+{
+    switch (Cdb[0]) {
     case B2LUFS_SCSI_TEST_UNIT_READY:
     case B2LUFS_SCSI_REQUEST_SENSE:
     case B2LUFS_SCSI_READ_6:
@@ -364,6 +379,8 @@ B2LUfsCdbIsExplicitlyReadOnly(_In_ UCHAR Operation)
     case B2LUFS_SCSI_MODE_SENSE_10:
     case B2LUFS_SCSI_READ_16:
     case B2LUFS_SCSI_SERVICE_ACTION_IN_16:
+        /* 0x9e has several service actions; only READ CAPACITY(16) is used. */
+        return (Cdb[1] & 0x1FU) == B2LUFS_SCSI_SAI_READ_CAPACITY_16;
     case B2LUFS_SCSI_REPORT_LUNS:
     case B2LUFS_SCSI_READ_12:
     case B2LUFS_SCSI_SECURITY_PROTOCOL_IN:
@@ -390,14 +407,18 @@ B2LUfsAllocateTransport(
     ULONG Offset;
 
     /*
-     * The platform reports coherent 64-bit DMA (CAP[24]).  Each PRDT entry
+     * The platform reports coherent 64-bit DMA (CAP[24]). Each PRDT entry
      * remains limited to one verified 4 KiB UFS logical block, but Windows
      * buffers need not be physically contiguous: B2LUfsSubmitReadOnlyScsi
-     * expands them into at most 32 such entries.
+     * expands a request into at most 32 such entries (128 KiB total).
      */
     ConfigInfo->MaximumTransferLength = B2LUFS_MAX_TRANSFER;
     ConfigInfo->NumberOfPhysicalBreaks = B2LUFS_MAX_PRDT_ENTRIES;
     ConfigInfo->NumberOfBuses = 1;
+    ConfigInfo->MaximumNumberOfTargets = 1;
+    ConfigInfo->MaximumNumberOfLogicalUnits = 1;
+    /* UFSHCI PRDT byte counts are DWORD granular. */
+    ConfigInfo->AlignmentMask = FILE_LONG_ALIGNMENT;
     /*
      * StorPort otherwise maps DataBuffer only for IOCTL/WMI requests.  The
      * first LUN discovery is ordinary SCSI INQUIRY / READ CAPACITY / READ,
@@ -407,11 +428,14 @@ B2LUfsAllocateTransport(
      * addressable by the miniport.
      */
     ConfigInfo->MapBuffers = STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE;
-    ConfigInfo->Master = TRUE;
-    ConfigInfo->ScatterGather = TRUE;
-    ConfigInfo->Dma32BitAddresses = TRUE;
-    ConfigInfo->Dma64BitAddresses = TRUE;
-    ConfigInfo->AutoRequestSense = TRUE;
+    /* CAP[24] reports full 64-bit UFSHCI DMA addressing. */
+    ConfigInfo->Dma64BitAddresses =
+        SCSI_DMA64_MINIPORT_FULL64BIT_NO_BOUNDARY_REQ_SUPPORTED;
+    /* One borrowed UTRD means StorPort must not queue more than one SRB. */
+    ConfigInfo->SynchronizationModel = StorSynchronizeHalfDuplex;
+    ConfigInfo->MaxNumberOfIO = 1;
+    ConfigInfo->MaxIOsPerLun = 1;
+    ConfigInfo->InitialLunQueueDepth = 1;
     ConfigInfo->SrbExtensionSize = 0;
 
     Adapter->CommonBuffer = StorPortGetUncachedExtension(
@@ -580,6 +604,26 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
 
     Adapter->ControllerCapabilities = B2LUfsReadHci(
         DeviceExtension, Adapter, B2LUFS_REG_CAP);
+    Adapter->ControllerStatus = B2LUfsReadHci(
+        DeviceExtension, Adapter, B2LUFS_REG_HCS);
+    Adapter->TransferSlotCount =
+        (Adapter->ControllerCapabilities & B2LUFS_CAP_NUTRS_MASK) + 1UL;
+    Adapter->TaskSlotCount =
+        ((Adapter->ControllerCapabilities & B2LUFS_CAP_NUTMRS_MASK) >>
+         B2LUFS_CAP_NUTMRS_SHIFT) + 1UL;
+
+    /* Match Linux's UFSHCI readiness gate before touching a request list. */
+    if ((Adapter->ControllerStatus & B2LUFS_HCS_READY_MASK) !=
+        B2LUFS_HCS_READY_MASK ||
+        Adapter->TransferSlotCount == 0 || Adapter->TransferSlotCount > 32UL ||
+        Adapter->TaskSlotCount == 0 || Adapter->TaskSlotCount > 32UL) {
+        return FALSE;
+    }
+    if ((Adapter->ControllerCapabilities & B2LUFS_CAP_64_ADDRESSING) == 0 &&
+        (Adapter->UtrdPhysical.HighPart != 0 ||
+         Adapter->UcdPhysical.HighPart != 0)) {
+        return FALSE;
+    }
     if ((B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_HCE) &
          B2LUFS_HCE_ENABLE) == 0) {
         /* Never enable/reset the controller from Windows if firmware did not. */
@@ -616,11 +660,30 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
         DeviceExtension, Adapter, B2LUFS_REG_UTRLBAU,
         Adapter->UtrdPhysical.HighPart);
 
-    /* Exynos UFS v3 uses 4 KiB PRDT chunks; these are controller settings only. */
+    /*
+     * Match the transfer-only Exynos setup in ufs-exynos: 4 KiB PRDT
+     * entries, data reorder 0xa, one SCSI nexus bit per hardware UTR slot,
+     * and the platform's AXI read/write burst setting. No PHY, UIC, power
+     * mode, clock or media setting is changed here.
+     */
     B2LUfsWriteVs(DeviceExtension, Adapter, B2LUFS_VS_TXPRDT_ENTRY_SIZE, 12);
     B2LUfsWriteVs(DeviceExtension, Adapter, B2LUFS_VS_RXPRDT_ENTRY_SIZE, 12);
     B2LUfsWriteVs(DeviceExtension, Adapter, B2LUFS_VS_DATA_REORDER, 0xAU);
-    B2LUfsWriteVs(DeviceExtension, Adapter, B2LUFS_VS_UTRL_NEXUS_TYPE, MAXULONG);
+    B2LUfsWriteVs(DeviceExtension, Adapter, B2LUFS_VS_UTRL_NEXUS_TYPE,
+                   B2LUfsSlotMask(Adapter->TransferSlotCount));
+    B2LUfsWriteVs(DeviceExtension, Adapter, B2LUFS_VS_UTMRL_NEXUS_TYPE,
+                   B2LUfsSlotMask(Adapter->TaskSlotCount));
+    B2LUfsWriteVs(DeviceExtension, Adapter,
+                   B2LUFS_VS_AXIDMA_RWDATA_BURST_LEN, 0xFUL);
+
+    /*
+     * Exynos uses software Hibern8 management. We do not send UIC Hibern8
+     * commands in this read-only miniport, so disable a firmware-inherited
+     * hardware idle timer while the UTP list is borrowed.
+     */
+    Adapter->AutoHibern8Before = B2LUfsReadHci(
+        DeviceExtension, Adapter, B2LUFS_REG_AHIT);
+    B2LUfsWriteHci(DeviceExtension, Adapter, B2LUFS_REG_AHIT, 0);
 
     /* Poll completion; do not claim the shared interrupt until a later phase. */
     B2LUfsWriteHci(DeviceExtension, Adapter, B2LUFS_REG_IE, 0);
@@ -648,7 +711,8 @@ B2LUfsSubmitReadOnlyScsi(
     _In_reads_bytes_(16) const UCHAR *Cdb,
     _Inout_opt_ PVOID DataBuffer,
     _In_ ULONG RequestedLength,
-    _Out_ PUCHAR ScsiStatus)
+    _Out_ PUCHAR ScsiStatus,
+    _Out_opt_ PULONG ReturnedLength)
 {
     B2LUFS_UTRD *Utrd;
     B2LUFS_UPIU *CommandUpiu;
@@ -658,10 +722,14 @@ B2LUfsSubmitReadOnlyScsi(
     ULONG Attempts;
     ULONG Direction;
     ULONG PrdtEntryCount;
+    ULONG ResidualLength;
 
     Adapter->LastUtrdOcs = B2LUFS_OCS_INVALID_COMMAND_STATUS;
     Adapter->LastInterruptStatus = 0;
     *ScsiStatus = B2LUFS_SCSI_STATUS_GOOD;
+    if (ReturnedLength != NULL) {
+        *ReturnedLength = 0;
+    }
     if (RequestedLength > B2LUFS_MAX_TRANSFER) {
         return B2LUfsTransferBadDma;
     }
@@ -706,7 +774,8 @@ B2LUfsSubmitReadOnlyScsi(
         Direction = B2LUFS_UTP_DEVICE_TO_HOST;
     }
 
-    Utrd->Dw0 = Direction | B2LUFS_UTP_SCSI_COMMAND |
+    Utrd->Dw0 = B2LUFS_UTP_CMD_TYPE_UFS_STORAGE | Direction |
+                B2LUFS_UTP_SCSI_COMMAND |
                 B2LUFS_UTP_REQ_DESC_INT_CMD;
     CommandUpiu->TransactionCode = B2LUFS_UPIU_TRANSACTION_COMMAND;
     CommandUpiu->Flags = (RequestedLength == 0) ? B2LUFS_UPIU_FLAG_NONE :
@@ -730,7 +799,8 @@ B2LUfsSubmitReadOnlyScsi(
         return B2LUfsTransferBusy;
     }
 
-    B2LUfsWriteVs(DeviceExtension, Adapter, B2LUFS_VS_UTRL_NEXUS_TYPE, MAXULONG);
+    B2LUfsWriteVs(DeviceExtension, Adapter, B2LUFS_VS_UTRL_NEXUS_TYPE,
+                   B2LUfsSlotMask(Adapter->TransferSlotCount));
     B2LUfsWriteHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR,
                     B2LUFS_UTRL_SLOT_0);
 
@@ -758,6 +828,14 @@ B2LUfsSubmitReadOnlyScsi(
                 return B2LUfsTransferOcs;
             }
             *ScsiStatus = ResponseUpiu->Status;
+            ResidualLength = B2LUfsReadBe32(
+                &ResponseUpiu->TaskSpecificFields[0]);
+            if (ResidualLength > RequestedLength) {
+                return B2LUfsTransferOcs;
+            }
+            if (ReturnedLength != NULL) {
+                *ReturnedLength = RequestedLength - ResidualLength;
+            }
             return B2LUfsTransferOk;
         }
         StorPortStallExecution(1);
@@ -801,6 +879,7 @@ B2LUfsProbeLun0Capacity(
     B2LUFS_TRANSFER_RESULT Result;
     ULONGLONG LastLba;
     ULONG BlockLength;
+    ULONG ReturnedLength;
 
     Adapter->CapacityValid = FALSE;
     Adapter->CapacityProbeResult = (ULONG)B2LUfsTransferBadDma;
@@ -824,15 +903,17 @@ B2LUfsProbeLun0Capacity(
         Cdb,
         Adapter->CapacityProbeVirtual,
         B2LUFS_CAPACITY_10_BYTES,
-        &ScsiStatus);
+        &ScsiStatus,
+        &ReturnedLength);
     Adapter->CapacityProbeResult = (ULONG)Result;
     Adapter->CapacityProbeScsiStatus = ScsiStatus;
     Adapter->CapacityProbeOpcode = B2LUFS_SCSI_READ_CAPACITY_10;
-    if (Result != B2LUfsTransferOk || ScsiStatus != B2LUFS_SCSI_STATUS_GOOD) {
+    Adapter->CapacityProbeBytes = ReturnedLength;
+    if (Result != B2LUfsTransferOk || ScsiStatus != B2LUFS_SCSI_STATUS_GOOD ||
+        ReturnedLength != B2LUFS_CAPACITY_10_BYTES) {
         return;
     }
 
-    Adapter->CapacityProbeBytes = B2LUFS_CAPACITY_10_BYTES;
     LastLba = (ULONGLONG)B2LUfsReadBe32(
         (const UCHAR *)Adapter->CapacityProbeVirtual);
     BlockLength = B2LUfsReadBe32(
@@ -856,15 +937,17 @@ B2LUfsProbeLun0Capacity(
         Cdb,
         Adapter->CapacityProbeVirtual,
         B2LUFS_CAPACITY_16_BYTES,
-        &ScsiStatus);
+        &ScsiStatus,
+        &ReturnedLength);
     Adapter->CapacityProbeResult = (ULONG)Result;
     Adapter->CapacityProbeScsiStatus = ScsiStatus;
     Adapter->CapacityProbeOpcode = B2LUFS_SCSI_SERVICE_ACTION_IN_16;
-    if (Result != B2LUfsTransferOk || ScsiStatus != B2LUFS_SCSI_STATUS_GOOD) {
+    Adapter->CapacityProbeBytes = ReturnedLength;
+    if (Result != B2LUfsTransferOk || ScsiStatus != B2LUFS_SCSI_STATUS_GOOD ||
+        ReturnedLength != B2LUFS_CAPACITY_16_BYTES) {
         return;
     }
 
-    Adapter->CapacityProbeBytes = B2LUFS_CAPACITY_16_BYTES;
     LastLba = B2LUfsReadBe64((const UCHAR *)Adapter->CapacityProbeVirtual);
     BlockLength = B2LUfsReadBe32(
         (const UCHAR *)Adapter->CapacityProbeVirtual + 8UL);
@@ -888,6 +971,7 @@ B2LUfsProbeLuns(
     B2LUFS_TRANSFER_RESULT Result;
     ULONG ListLength;
     ULONG AvailableBytes;
+    ULONG ReturnedLength;
 
     Adapter->LunReportValid = FALSE;
     Adapter->LunReportResult = (ULONG)B2LUfsTransferBadDma;
@@ -914,16 +998,18 @@ B2LUfsProbeLuns(
         Cdb,
         Adapter->LunReportVirtual,
         Adapter->LunReportLength,
-        &ScsiStatus);
+        &ScsiStatus,
+        &ReturnedLength);
     Adapter->LunReportResult = (ULONG)Result;
     Adapter->LunReportScsiStatus = ScsiStatus;
-    if (Result != B2LUfsTransferOk || ScsiStatus != B2LUFS_SCSI_STATUS_GOOD) {
+    if (Result != B2LUfsTransferOk || ScsiStatus != B2LUFS_SCSI_STATUS_GOOD ||
+        ReturnedLength < B2LUFS_REPORT_LUNS_HEADER_BYTES) {
         return;
     }
 
     ListLength = B2LUfsReadBe32((const UCHAR *)Adapter->LunReportVirtual);
     Adapter->LunReportListLength = ListLength;
-    AvailableBytes = Adapter->LunReportLength - B2LUFS_REPORT_LUNS_HEADER_BYTES;
+    AvailableBytes = ReturnedLength - B2LUFS_REPORT_LUNS_HEADER_BYTES;
     if (ListLength > AvailableBytes) {
         /* Preserve the returned prefix but do not claim the list is complete. */
         ListLength = AvailableBytes;
@@ -934,57 +1020,11 @@ B2LUfsProbeLuns(
     Adapter->LunReportValid = TRUE;
 }
 
-/* Complete Windows' two standard capacity commands from the normalized cache. */
-static BOOLEAN
-B2LUfsCompleteCachedCapacity(
-    _In_ B2LUFS_ADAPTER *Adapter,
-    _Inout_ PSCSI_REQUEST_BLOCK Srb)
-{
-    UCHAR *Output;
-    ULONG CopyLength;
-
-    if (!Adapter->CapacityValid || Srb->DataBuffer == NULL) {
-        return FALSE;
-    }
-
-    Output = (UCHAR *)Srb->DataBuffer;
-    if (Srb->Cdb[0] == B2LUFS_SCSI_READ_CAPACITY_10) {
-        if (Srb->DataTransferLength < B2LUFS_CAPACITY_10_BYTES) {
-            return FALSE;
-        }
-        if (Adapter->CapacityLastLba > MAXULONG) {
-            B2LUfsWriteBe32(Output, MAXULONG);
-        } else {
-            B2LUfsWriteBe32(Output, (ULONG)Adapter->CapacityLastLba);
-        }
-        B2LUfsWriteBe32(Output + 4UL, Adapter->CapacityBlockLength);
-        Srb->DataTransferLength = B2LUFS_CAPACITY_10_BYTES;
-    } else if (Srb->Cdb[0] == B2LUFS_SCSI_SERVICE_ACTION_IN_16 &&
-               (Srb->Cdb[1] & 0x1FU) == B2LUFS_SCSI_SAI_READ_CAPACITY_16) {
-        if (Srb->DataTransferLength < 12UL) {
-            return FALSE;
-        }
-        CopyLength = Srb->DataTransferLength;
-        if (CopyLength > B2LUFS_CAPACITY_16_BYTES) {
-            CopyLength = B2LUFS_CAPACITY_16_BYTES;
-        }
-        B2LUfsZeroMemory(Output, CopyLength);
-        B2LUfsWriteBe64(Output, Adapter->CapacityLastLba);
-        B2LUfsWriteBe32(Output + 8UL, Adapter->CapacityBlockLength);
-        Srb->DataTransferLength = CopyLength;
-    } else {
-        return FALSE;
-    }
-
-    Srb->ScsiStatus = B2LUFS_SCSI_STATUS_GOOD;
-    return TRUE;
-}
-
 /*
  * If the pre-PnP probe saw a transient SCSI condition, retain the first
  * valid capacity answer that Windows obtains through its normal discovery
- * path.  The SRB has already been completed successfully by the device; this
- * only normalizes later READ CAPACITY requests and cannot manufacture a size.
+ * path for diagnostics. Every Windows capacity SRB still travels to UFS;
+ * unlike the previous cache shortcut this matches the Linux command path.
  */
 static VOID
 B2LUfsCacheCapacityFromSrb(
@@ -1066,7 +1106,7 @@ B2LUfsExecuteScsi(
         return;
     }
 
-    if (!B2LUfsCdbIsExplicitlyReadOnly(Srb->Cdb[0]) ||
+    if (!B2LUfsCdbIsExplicitlyReadOnly(Srb->Cdb) ||
         (Srb->SrbFlags & SRB_FLAGS_DATA_OUT) != 0) {
         Srb->DataTransferLength = 0;
         /*
@@ -1080,13 +1120,6 @@ B2LUfsExecuteScsi(
         return;
     }
 
-    if (B2LUfsCompleteCachedCapacity(Adapter, Srb)) {
-        B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, B2LUfsTransferOk,
-                            SRB_STATUS_SUCCESS);
-        B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
-        return;
-    }
-
     Result = B2LUfsSubmitReadOnlyScsi(
         DeviceExtension,
         Adapter,
@@ -1094,7 +1127,8 @@ B2LUfsExecuteScsi(
         Srb->Cdb,
         Srb->DataBuffer,
         Srb->DataTransferLength,
-        &Srb->ScsiStatus);
+        &Srb->ScsiStatus,
+        &Srb->DataTransferLength);
     switch (Result) {
     case B2LUfsTransferOk:
         if (Srb->ScsiStatus == B2LUFS_SCSI_STATUS_GOOD) {

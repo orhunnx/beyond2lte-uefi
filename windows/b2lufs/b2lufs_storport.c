@@ -31,6 +31,11 @@
  */
 static UCHAR B2LUFS_REG_SUBKEY[] = "B2LUFS";
 static UCHAR B2LUFS_REG_SCHEMA_VERSION[] = "SchemaVersion";
+static UCHAR B2LUFS_REG_HCI_CAP[] = "HciCapabilities";
+static UCHAR B2LUFS_REG_HCI_STATUS[] = "HciStatus";
+static UCHAR B2LUFS_REG_AHIT_BEFORE[] = "AutoHibern8Before";
+static UCHAR B2LUFS_REG_TRANSFER_SLOTS[] = "TransferSlotCount";
+static UCHAR B2LUFS_REG_TASK_SLOTS[] = "TaskSlotCount";
 static UCHAR B2LUFS_REG_CAPACITY_RESULT[] = "ReadCapacityResult";
 static UCHAR B2LUFS_REG_CAPACITY_SCSI_STATUS[] = "ReadCapacityScsiStatus";
 static UCHAR B2LUFS_REG_CAPACITY_OPCODE[] = "ReadCapacityOpcode";
@@ -223,9 +228,9 @@ B2LUfsFindAdapter(
      * bekler. Bu çağrı HCI'ye ya da herhangi bir UFS LUN'una dokunmaz.
      */
     /*
-     * İstek üst sınırı bir doğrulanmış 4 KiB mantıksal bloktur. Bu blok
-     * Windows'ta fiziksel sayfa sınırını geçerse transport onu çok girişli
-     * PRDT'ye böler; daha büyük bir transfer veya medya yazması kabul edilmez.
+     * İstek üst sınırı 32 adet doğrulanmış 4 KiB PRDT parçasıdır (128 KiB).
+     * Transport, Windows fiziksel sayfa sınırlarını bu çok girişli PRDT'ye
+     * böler; daha büyük bir transfer veya medya yazması kabul edilmez.
      */
     if (!B2LUfsAllocateTransport(DeviceExtension, Adapter, ConfigInfo)) {
         B2LUfsLogFindFailure(
@@ -249,7 +254,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 2;
+    ULONG SchemaVersion = 3;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -260,6 +265,26 @@ B2LUfsPublishLunSnapshot(
     (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_SCHEMA_VERSION,
         REG_DWORD, &SchemaVersion, sizeof(SchemaVersion));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_HCI_CAP,
+        REG_DWORD, &Adapter->ControllerCapabilities,
+        sizeof(Adapter->ControllerCapabilities));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_HCI_STATUS,
+        REG_DWORD, &Adapter->ControllerStatus,
+        sizeof(Adapter->ControllerStatus));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_AHIT_BEFORE,
+        REG_DWORD, &Adapter->AutoHibern8Before,
+        sizeof(Adapter->AutoHibern8Before));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_TRANSFER_SLOTS,
+        REG_DWORD, &Adapter->TransferSlotCount,
+        sizeof(Adapter->TransferSlotCount));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_TASK_SLOTS,
+        REG_DWORD, &Adapter->TaskSlotCount,
+        sizeof(Adapter->TaskSlotCount));
     (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_CAPACITY_RESULT,
         REG_DWORD, &Adapter->CapacityProbeResult,

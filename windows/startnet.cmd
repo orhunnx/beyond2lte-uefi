@@ -217,8 +217,15 @@ exit /b 0
 :LunInventory
 echo --- B2LUFS: READ CAPACITY onceligi ve ham cevap ---
 echo Surucu once 10-baytli READ CAPACITY kullanir; 16-baytli form yalniz 2 TiB ustu LUN icindir.
+echo Windows'un kendi capacity SRB'leri de dogrudan UFS'e gider; cache yaniti yoktur.
 echo Result=0 ve ScsiStatus=0 ile ReadCapacityValid=1 beklenir; BlockBytes bu cihazda 4096 olmalidir.
 set "B2L_LUN_KEY=HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0\Device Parameters\B2LUFS"
+echo Exynos/UFSHCI devralma durumu (CAP=1303FF1F, HCS ready, 32 UTR + 4 UTMR beklenir):
+reg query "%B2L_LUN_KEY%" /v HciCapabilities 2>nul
+reg query "%B2L_LUN_KEY%" /v HciStatus 2>nul
+reg query "%B2L_LUN_KEY%" /v AutoHibern8Before 2>nul
+reg query "%B2L_LUN_KEY%" /v TransferSlotCount 2>nul
+reg query "%B2L_LUN_KEY%" /v TaskSlotCount 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityResult 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityScsiStatus 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityOpcode 2>nul

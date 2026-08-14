@@ -27,9 +27,9 @@ typedef struct B2LUFS_ADAPTER {
      * A 32-byte, DMA-coherent scratch area used once before BusChange for
      * READ CAPACITY.  The broadly compatible 10-byte form is tried first;
      * the 16-byte form is used only for a device larger than its address
-     * range.  The normalized reply remains cached so Windows' later
-     * READ CAPACITY(10/16) probes do not depend on a transient PnP buffer
-     * mapping.  It never contains user data and is never written to UFS.
+     * range. The result is diagnostic telemetry only: Windows' own later
+     * READ CAPACITY(10/16) SRBs always follow the normal UFS command path.
+     * It never contains user data and is never written to UFS.
      */
     PVOID CapacityProbeVirtual;
     STOR_PHYSICAL_ADDRESS CapacityProbePhysical;
@@ -58,6 +58,11 @@ typedef struct B2LUFS_ADAPTER {
     BOOLEAN LunReportValid;
 
     ULONG ControllerCapabilities;
+    /* Live HCI state captured before B2LUFS borrows the firmware link. */
+    ULONG ControllerStatus;
+    ULONG AutoHibern8Before;
+    ULONG TransferSlotCount;
+    ULONG TaskSlotCount;
     /* Read-only CMD telemetry; copied to the StorPort Operational channel. */
     ULONG TraceSequence;
     ULONG TraceBudget;
