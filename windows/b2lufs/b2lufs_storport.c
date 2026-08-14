@@ -350,7 +350,8 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
     InitData.HwAdapterControl = B2LUfsAdapterControl;
     InitData.DeviceExtensionSize = sizeof(B2LUFS_ADAPTER);
     InitData.NumberOfAccessRanges = B2LUFS_RESOURCE_COUNT;
-    InitData.MapBuffers = STOR_MAP_NO_BUFFERS;
+    /* Match HwFindAdapter: discovery READ buffers need a valid DataBuffer. */
+    InitData.MapBuffers = STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE;
     InitData.NeedPhysicalAddresses = TRUE;
     /* Tek UTRD slotu: StorPort'un StartIo çağrılarını sıralı tut. */
     InitData.TaggedQueuing = FALSE;

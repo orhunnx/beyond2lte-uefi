@@ -240,7 +240,15 @@ B2LUfsAllocateTransport(
     ConfigInfo->MaximumTransferLength = B2LUFS_MAX_TRANSFER;
     ConfigInfo->NumberOfPhysicalBreaks = 1;
     ConfigInfo->NumberOfBuses = 1;
-    ConfigInfo->MapBuffers = STOR_MAP_NO_BUFFERS;
+    /*
+     * StorPort otherwise maps DataBuffer only for IOCTL/WMI requests.  The
+     * first LUN discovery is ordinary SCSI INQUIRY / READ CAPACITY / READ,
+     * and B2LUFS must obtain a physical address for each read buffer before
+     * it can place it in the UFS PRDT.  Keep the request policy read-only in
+     * B2LUfsExecuteScsi; this setting merely makes those read buffers
+     * addressable by the miniport.
+     */
+    ConfigInfo->MapBuffers = STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE;
     ConfigInfo->Master = TRUE;
     ConfigInfo->ScatterGather = TRUE;
     ConfigInfo->Dma32BitAddresses = TRUE;
