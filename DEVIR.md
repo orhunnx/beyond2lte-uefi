@@ -1425,6 +1425,60 @@ ifadesi görürse bu paragrafı esas almalı.
 
 ---
 
+### Sessiz sıfırlamanın çözülmesi ve iki eski sonucun geri alınması
+
+WinPE'nin açılmasını sağlayan değişiklik bellek haritasındaydı. İki şey
+**birlikte** yapıldı:
+
+1. **UEFI FD / yığın çakışması giderildi.** `BootShim`, `beyond2lte.toml`
+   içindeki `FD_SIZE` kadar veriyi `0xC9000000`'a kopyalıyor. `FD_SIZE`
+   4 MiB iken harita orada yalnız **2 MiB** tanımlıyordu ve `UEFI Stack`
+   `0xC9200000`'daydı — yani yığın, firmware imajının ikinci yarısının
+   içindeydi ve o yarı Windows'a kullanılabilir bellek olarak veriliyordu.
+   Üstelik bölge `BsData` ilan edilmişti; `EfiBootServicesData`'nın tanımı
+   gereği işletim sistemi `ExitBootServices`'ten sonra o sayfaları geri
+   alıp kullanabilir. FD 4 MiB'a çıkarıldı, yığın `0xC9400000`'a taşındı.
+
+2. **Windows'a tek banka bırakıldı.** `0x900000000..0x980000000` (2 GiB)
+   dışındaki her şey `Reserved` yapıldı; alt banka, ilk üst banka ve son
+   üst banka koruma altına alındı.
+
+Bu, aylardır açıklayamadığımız tablonun tamamına oturuyor: işe orantılı
+ölüm (ayırıcı ilerledikçe firmware ezilir), bugcheck olmaması (çöken
+Windows değil), `EbsTest`'in yaşaması (hiçbir şey ayırmaz), sürücü
+bisect'inin tutarsızlığı (her sürücü ayırma miktarını değiştirir).
+
+**Geri alınan sonuç 1 — "bellek aklandı" yanlıştı.** Yaptığımız tam bellek
+taraması yalnız `EfiConventionalMemory` bölgelerini geziyordu ve her sayfaya
+bir 64 bitlik kelime yazıp geri okuyordu. `BsData` ilan edilmiş firmware
+bölgesine hiç dokunmadı. Ayrıca tarama tamamen CPU tarafındaydı: aygıt
+DMA'sını, TZASC'ın master'a göre korumasını ve ayırıcının o belleği
+*kullanma biçimini* sınamadı. "Belleğin tamamı tarandı, temiz" ifadesi bu
+nedenle fazla iddialıydı ve bir dalı erken kapattı.
+
+**Geri alınan sonuç 2 — "Windows CPU süresi sabit ~10 saniye" bir yasa
+değildi.** Üç ölçüm 9.78 / 10.04 / 10.20 vermişti, ama `Npfs` deneyinde bir
+açılış 63.9 saniye sessiz gitti ve sonraki 8.8 saniyede sıfırlandı. Sayı
+gerçekten de ayırma miktarına bağlıydı, sabit bir bütçeye değil.
+
+### Ayrılmamış tek değişken
+
+İki değişiklik birlikte yapıldığı için hangisinin gerekli olduğu **henüz
+bilinmiyor**. Bu, ileride önemli olacak: gerçek bir Windows kurulumu
+2 GiB ile rahat etmez.
+
+Tek değişkenli ayrım şudur: FD/yığın düzeltmesi **korunarak**, üst iki
+bankanın `Reserved` kaydı kaldırılır ve Windows'a yeniden çok bankalı RAM
+verilir.
+
+- WinPE yine açılırsa → asıl sebep FD/yığın çakışmasıydı, 2 GiB sınırı
+  gereksiz bir tedbirdi ve kaldırılabilir.
+- Sessiz sıfırlama dönerse → banka sınırlaması gerçekten gerekli; o zaman
+  hangi bankanın sorunlu olduğu tek tek eklenerek daraltılır.
+
+Bu ayrım yapılmadan "2 GiB gerekiyor" demek, FD hatasının etkisini banka
+sınırlamasına yazmak olur.
+
 ### b2lufs: adaptör başlıyor ama disk numaralandırılmıyor (14 Ağustos 2026)
 
 Bu bölüm, belgenin üstündeki `storufs` + `PCI\CC_010901` anlatısını

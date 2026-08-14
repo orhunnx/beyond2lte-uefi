@@ -12,6 +12,26 @@
 #include <ntddk.h>
 #include <storport.h>
 
+/*
+ * ARM64'te Interlocked* aileleri KUTUPHANE ISLEVI DEGIL, derleyici icsel
+ * islevidir. x86'da bunlarin bir karsiligi baglanabilir; ARM64'te
+ * baglanamaz. Icsel olarak bildirilmezse cl.exe disaridan cagri uretir ve
+ * link su iki sembolde patlar:
+ *
+ *   error LNK2019: cozumlenmemis dis sembol _InterlockedCompareExchange
+ *   error LNK2019: cozumlenmemis dis sembol _InterlockedIncrement
+ *
+ * <intrin.h> bildirimleri getiriyor, #pragma intrinsic de derleyiciyi
+ * cagri uretmek yerine komutu yerine gommeye zorluyor. Ikisi birlikte
+ * gerekiyor: yalniz basligi eklemek, optimizasyon kapaliyken hala cagri
+ * uretilmesine izin verebiliyor.
+ */
+#ifdef _MSC_VER
+#include <intrin.h>
+#pragma intrinsic(_InterlockedCompareExchange)
+#pragma intrinsic(_InterlockedIncrement)
+#endif
+
 #include "b2lufs_transport.h"
 
 #define B2LUFS_UTRD_ALIGNMENT             1024UL
