@@ -22,7 +22,7 @@ typedef struct B2LUFS_ADAPTER {
 static VOID
 B2LUfsZeroMemory(_Out_ PVOID Buffer, _In_ SIZE_T ByteCount)
 {
-    PUCHAR Cursor = (PUCHAR)Buffer;
+    volatile UCHAR *Cursor = (volatile UCHAR *)Buffer;
 
     while (ByteCount-- != 0) {
         *Cursor++ = 0;
@@ -45,19 +45,6 @@ B2LUfsReleaseGivenResources(
         if (Given[Index].MappedBase != NULL) {
             StorPortFreeDeviceBase(DeviceExtension, Given[Index].MappedBase);
             Given[Index].MappedBase = NULL;
-        }
-    }
-}
-
-static VOID
-B2LUfsReleaseAdapterResources(_In_ B2LUFS_ADAPTER *Adapter)
-{
-    ULONG Index;
-
-    for (Index = 0; Index < B2LUFS_RESOURCE_COUNT; ++Index) {
-        if (Adapter->Resources.Base[Index] != NULL) {
-            StorPortFreeDeviceBase(Adapter, Adapter->Resources.Base[Index]);
-            Adapter->Resources.Base[Index] = NULL;
         }
     }
 }
@@ -90,7 +77,13 @@ B2LUfsFindAdapter(
 
     B2LUfsZeroMemory(Given, sizeof(Given));
     for (Index = 0; Index < B2LUFS_RESOURCE_COUNT; ++Index) {
-        PACCESS_RANGE Range = &ConfigInfo->AccessRanges[Index];
+        /*
+         * WDK bunu PACCESS_RANGE (*)[] olarak bildirir, duz PACCESS_RANGE
+         * olarak degil. Once belirsiz-boyutlu diziyi dereference etmek hem
+         * WDK 28000 ile derlenir hem de StorPort'un verdigi dizinin gercek
+         * elemanini alir; ConfigInfo->AccessRanges[Index] yanlistir.
+         */
+        PACCESS_RANGE Range = &(*ConfigInfo->AccessRanges)[Index];
 
         Given[Index].Base = Range->RangeStart.QuadPart;
         Given[Index].Length = Range->RangeLength;
@@ -127,9 +120,16 @@ B2LUfsFindAdapter(
      * yazılmaz. UTRD/PRDT sinirlari gerçek HCI kapasitesi kanitlandiktan
      * sonra ayri bir değişiklikte hesaplanacak.
      */
+    /*
+     * Faz 0 her SRB'yi InvalidRequest ile bitirse de fiziksel StorPort
+     * miniportu olarak DMA/etiketli-kuyruk/sense temel sozlesmesini korur.
+     * 4 KiB, UTRD/PRDT henuz uygulanmadigi icin bir sonraki faza kadar
+     * bildirilen en muhafazakar aktarim siniridir; donanima I/O yoktur.
+     */
     ConfigInfo->MaximumTransferLength = PAGE_SIZE;
     ConfigInfo->NumberOfPhysicalBreaks = 1;
     ConfigInfo->NumberOfBuses = 1;
+    ConfigInfo->MapBuffers = STOR_MAP_NO_BUFFERS;
     return SP_RETURN_FOUND;
 }
 
@@ -139,9 +139,7 @@ _Use_decl_annotations_
 static BOOLEAN
 B2LUfsInitialize(_In_ PVOID DeviceExtension)
 {
-    B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
-
-    UNREFERENCED_PARAMETER(Adapter);
+    UNREFERENCED_PARAMETER(DeviceExtension);
 
     /*
      * Bu "kaynak sözleşmesi" turu için başarı, donanımın başladığı anlamına
@@ -157,10 +155,19 @@ _Use_decl_annotations_
 static BOOLEAN
 B2LUfsStartIo(_In_ PVOID DeviceExtension, _In_ PSCSI_REQUEST_BLOCK Srb)
 {
-    UNREFERENCED_PARAMETER(DeviceExtension);
-
-    /* Faz 0 asla disk isteği kabul etmez. */
-    Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
+    /*
+     * Faz 0 asla disk istegi kabul etmez. StorPort PnP durdurmadan once
+     * SRB_FUNCTION_FLUSH gonderebilir; ortada baslatilmis HCI veya onbellek
+     * olmadigi icin onu zararsiz bir no-op olarak basariyla tamamlamak
+     * stop/restart sozlesmesi icin gereklidir.
+     */
+    Srb->DataTransferLength = 0;
+    if (Srb->Function == SRB_FUNCTION_FLUSH ||
+        Srb->Function == SRB_FUNCTION_SHUTDOWN) {
+        Srb->SrbStatus = SRB_STATUS_SUCCESS;
+    } else {
+        Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
+    }
     StorPortNotification(RequestComplete, DeviceExtension, Srb);
     return TRUE;
 }
@@ -200,20 +207,33 @@ B2LUfsAdapterControl(
 
         Supported = (PSCSI_SUPPORTED_CONTROL_TYPE_LIST)Parameters;
         if (Supported == NULL ||
-            Supported->MaxControlType <= ScsiStopAdapter) {
+            Supported->MaxControlType <= ScsiRestartAdapter) {
             return ScsiAdapterControlUnsuccessful;
         }
 
         /* Faz 0 aygıtı başlatmaz; yine de PnP stop/restart sözleşmesini tutar. */
         Supported->SupportedTypeList[ScsiQuerySupportedControlTypes] = TRUE;
         Supported->SupportedTypeList[ScsiStopAdapter] = TRUE;
+        Supported->SupportedTypeList[ScsiRestartAdapter] = TRUE;
         return ScsiAdapterControlSuccess;
     }
 
     if (ControlType == ScsiStopAdapter) {
-        B2LUfsReleaseAdapterResources((B2LUFS_ADAPTER *)DeviceExtension);
+        /*
+         * StorPortFreeDeviceBase yalniz HwFindAdapter icinden cagrilabilir.
+         * Faz 0 HCI'yi baslatmadigi icin burada kapatilacak DMA/IRQ yoktur;
+         * PnP kaynaklarinin omrunu StorPort yonetir.
+         */
+        UNREFERENCED_PARAMETER(DeviceExtension);
         UNREFERENCED_PARAMETER(Parameters);
         /* Donanım başlatılmadığı için durdurulacak I/O veya resetlenecek HCI yok. */
+        return ScsiAdapterControlSuccess;
+    }
+
+    if (ControlType == ScsiRestartAdapter) {
+        /* Stop sonrasi da HCI/DMA kurmuyoruz; PnP yeniden baslatmasi guvenli. */
+        UNREFERENCED_PARAMETER(DeviceExtension);
+        UNREFERENCED_PARAMETER(Parameters);
         return ScsiAdapterControlSuccess;
     }
 
@@ -222,7 +242,7 @@ B2LUfsAdapterControl(
     return ScsiAdapterControlUnsuccessful;
 }
 
-NTSTATUS
+ULONG
 DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
 {
     HW_INITIALIZATION_DATA InitData;
@@ -238,7 +258,7 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
     InitData.HwAdapterControl = B2LUfsAdapterControl;
     InitData.DeviceExtensionSize = sizeof(B2LUFS_ADAPTER);
     InitData.NumberOfAccessRanges = B2LUFS_RESOURCE_COUNT;
-    InitData.MapBuffers = TRUE;
+    InitData.MapBuffers = STOR_MAP_NO_BUFFERS;
     InitData.NeedPhysicalAddresses = TRUE;
     InitData.TaggedQueuing = TRUE;
     InitData.AutoRequestSense = TRUE;

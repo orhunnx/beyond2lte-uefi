@@ -10,8 +10,10 @@
 # WSL'de, Windows'taki WDK + Visual Studio Build Tools gorunurken calistir:
 #   bash tools_b2lufs.sh
 #
-# Gerekenler: clang, lld-link, osslsigncode, openssl, wimlib-imagex;
+# Gerekenler: osslsigncode, openssl, wimlib-imagex;
 # Windows tarafinda WDK (Inf2Cat dahil) ve MSVC C++ Build Tools (ARM64 hedefi).
+# WDK ile uyumlu derleme, WSL clang'i degil MSVC'nin kendi cl.exe/link.exe
+# araclariyla cmd.exe uzerinden yapilir.
 
 set -euo pipefail
 
@@ -25,7 +27,7 @@ KITS="${B2L_WDK_ROOT:-$WINROOT/Program Files (x86)/Windows Kits/10}"
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die() { printf '\nHATA: %s\n' "$*" >&2; exit 1; }
 
-for tool in clang lld-link osslsigncode openssl wimlib-imagex sha256sum wslpath; do
+for tool in cmd.exe osslsigncode openssl wimlib-imagex sha256sum wslpath; do
   command -v "$tool" >/dev/null || die "$tool yok"
 done
 
@@ -84,6 +86,42 @@ fi
 
 [ -f "$MSVC_INC/vadefs.h" ] || die "vadefs.h yok; Visual Studio Build Tools C++ bilesenini kur veya B2L_MSVC_INCLUDE ver"
 
+# WSL clang ile MSVC 14.51 intrin.h'nin __prefetch bildirimleri farkli
+# builtin imzasina dusebilir. Bu Faz 0 surucusunu dogrudan WDK'nin hedef
+# aldigi MSVC cl.exe/link.exe ile derliyoruz. Ortami her cmd cagrisinda
+# amd64-host/ARM64-target vcvars dosyasiyla kurmak, kullanicinin acik olan
+# terminal ortamindan bagimsiz ve tekrar edilebilir bir derleme saglar.
+VCVARS="${B2L_VCVARS_ARM64:-}"
+if [ -z "$VCVARS" ]; then
+  for Root in "$WINROOT/Program Files" "$WINROOT/Program Files (x86)"; do
+    [ -d "$Root/Microsoft Visual Studio" ] || continue
+    while IFS= read -r Batch; do
+      VCVARS="$Batch"
+      break 2
+    done < <(find "$Root/Microsoft Visual Studio" \
+      -path '*/VC/Auxiliary/Build/vcvarsamd64_arm64.bat' -type f -print 2>/dev/null | sort -V -r)
+  done
+fi
+[ -f "$VCVARS" ] || die "vcvarsamd64_arm64.bat yok; Visual Studio C++ ARM64 build tools kur veya B2L_VCVARS_ARM64 ver"
+
+# MSVC_INC bazen WDK'nin ucrt/ dizini olabilir; bu nedenle cl.exe yolunu
+# include yolundan turetmiyoruz. Secilen vcvars dosyasinin ait oldugu VS
+# kurulumunun ARM64 hedef aracini ariyoruz.
+VS_ROOT="$(cd "$(dirname "$VCVARS")/../../.." && pwd)"
+MSVC_ARM64_BIN="${B2L_MSVC_ARM64_BIN:-}"
+if [ -z "$MSVC_ARM64_BIN" ]; then
+  while IFS= read -r Compiler; do
+    CandidateBin="$(dirname "$Compiler")"
+    if [ -f "$CandidateBin/link.exe" ]; then
+      MSVC_ARM64_BIN="$CandidateBin"
+      break
+    fi
+  done < <(find "$VS_ROOT/VC/Tools/MSVC" \
+    -path '*/bin/Hostx64/arm64/cl.exe' -type f -print 2>/dev/null | sort -V -r)
+fi
+[ -f "$MSVC_ARM64_BIN/cl.exe" ] || die "MSVC ARM64 cl.exe yok: $MSVC_ARM64_BIN/cl.exe; Visual Studio Installer'da 'MSVC v143/v14x C++ ARM64/ARM64EC build tools' bilesenini ekle"
+[ -f "$MSVC_ARM64_BIN/link.exe" ] || die "MSVC ARM64 link.exe yok: $MSVC_ARM64_BIN/link.exe; Visual Studio C++ ARM64 build tools bilesenini ekle"
+
 # WDK 28000 ile birlikte ntdef.h her kurulumda km/ altinda olmuyor. Ornegin
 # bazi SDK yerlesimlerinde km/crt/ altina tasiniyor. wdm.h bunu acik bir
 # acili parantez include'u ile istedigi icin clang, km/ dizini verilse bile
@@ -101,38 +139,46 @@ done < <(find "$WDK_INC" -type f -iname ntdef.h -print 2>/dev/null | sort | head
 say "WDK ve MSVC bulundu"
 echo "  WDK : $WDK_VERSION"
 echo "  MSVC: $MSVC_INC"
+echo "  vcvars: $VCVARS"
+echo "  ARM64: $MSVC_ARM64_BIN"
 echo "  ntdef: $WDK_NTDEF_INC/ntdef.h"
 
 mkdir -p "$OUT"
 
-# -ffixed-x18 Windows ARM64 cekirdegindeki platform yazmacini korur.
-# -ffreestanding ve iki kapatma, CRT/stack-probe bagimliligi uretmez.
-# Linux dagitimlarindaki clang, Windows hedefi secilse bile MSVC'nin WDK
-# basliklari icin de tanimladigi _ARM64_ makrosunu yayinlamaz; yalniz
-# _M_ARM64 tanimlar. ntdef.h/wdm.h ise cache hizasi, sayfa sabitleri ve
-# SLIST tipleri icin _ARM64_'u arar. Bu tanim kodun ABI'sini degistirmez,
-# WDK'nin ARM64 dalini secmesini saglar.
-CFLAGS=(
-  -target aarch64-windows-msvc
-  -ffreestanding -fno-stack-protector -mno-stack-arg-probe -ffixed-x18
-  -fms-extensions -D_KERNEL_MODE -D_WIN32_WINNT=0x0A00 -D_ARM64_=1
-  -isystem "$WDK_INC/km" -isystem "$WDK_INC/shared"
-  -isystem "$WDK_NTDEF_INC"
-  -isystem "$WDK_INC/ucrt" -isystem "$WDK_INC/um"
-  -isystem "$MSVC_INC"
-  -O1 -Wall -Wextra -Werror
-)
+# cl.exe Windows ARM64 ABI'sini ve x18 platform yazmacini kendisi korur.
+# /Zl, /GS- ve /NODEFAULTLIB freestanding Faz 0 koduna CRT veya
+# stack-cookie kutuphanesi bagimliligi eklenmesini engeller. _ARM64_ WDK
+# basliklarinin mimari dalini acikca secmek icin korunur.
+WIN_VCVARS="$(wslpath -w "$VCVARS")"
+WIN_SRC="$(wslpath -w "$SRC")"
+WIN_OUT="$(wslpath -w "$OUT")"
+WIN_WDK_INC="$(wslpath -w "$WDK_INC")"
+WIN_WDK_LIB="$(wslpath -w "$WDK_LIB")"
+WIN_MSVC_ARM64_BIN="$(wslpath -w "$MSVC_ARM64_BIN")"
+MSVC_FLAGS="/nologo /c /TC /kernel /Zl /GS- /W4 /WX /O1 /D_KERNEL_MODE /D_WIN32_WINNT=0x0A00 /D_ARM64_=1 /I\"$WIN_WDK_INC\\km\" /I\"$WIN_WDK_INC\\shared\" /I\"$WIN_WDK_INC\\ucrt\" /I\"$WIN_WDK_INC\\um\""
+BUILD_CMD="$OUT/build-b2lufs-arm64.cmd"
+WIN_BUILD_CMD="$(wslpath -w "$BUILD_CMD")"
 
-say "B2LUFS Faz 0 derleniyor (aarch64-windows-msvc)"
-clang "${CFLAGS[@]}" -c "$SRC/b2lufs_resources.c" -o "$OUT/b2lufs_resources.obj"
-clang "${CFLAGS[@]}" -c "$SRC/b2lufs_storport.c" -o "$OUT/b2lufs_storport.obj"
+# cmd.exe'ye uzun, ic ice tirnakli komut dizeleri vermek yerine ayni dosyayi
+# VS'nin kurdugu ARM64 ortaminda calistiriyoruz. Bu, hem bosluk iceren
+# Program Files yollarini hem de cl/link'in hata kodunu kayipsiz tasir.
+cat > "$BUILD_CMD" <<EOF
+@echo off
+call "$WIN_VCVARS" >nul
+if errorlevel 1 exit /b 1
+"$WIN_MSVC_ARM64_BIN\\cl.exe" $MSVC_FLAGS /Fo"$WIN_OUT\\b2lufs_resources.obj" "$WIN_SRC\\b2lufs_resources.c"
+if errorlevel 1 exit /b 1
+"$WIN_MSVC_ARM64_BIN\\cl.exe" $MSVC_FLAGS /Fo"$WIN_OUT\\b2lufs_storport.obj" "$WIN_SRC\\b2lufs_storport.c"
+if errorlevel 1 exit /b 1
+"$WIN_MSVC_ARM64_BIN\\link.exe" /nologo /kernel /driver /subsystem:native /entry:DriverEntry /machine:arm64 /nodefaultlib /libpath:"$WIN_WDK_LIB" /out:"$WIN_OUT\\b2lufs.sys" "$WIN_OUT\\b2lufs_resources.obj" "$WIN_OUT\\b2lufs_storport.obj" storport.lib ntoskrnl.lib
+exit /b %errorlevel%
+EOF
+sed -i 's/$/\r/' "$BUILD_CMD"
 
-say "Baglaniyor (StorPort + ntoskrnl, ARM64)"
-lld-link /driver /subsystem:native /entry:DriverEntry /machine:arm64 \
-  /nodefaultlib /libpath:"$WDK_LIB" \
-  /out:"$OUT/b2lufs.sys" \
-  "$OUT/b2lufs_resources.obj" "$OUT/b2lufs_storport.obj" \
-  storport.lib ntoskrnl.lib
+say "B2LUFS Faz 0 derleniyor (MSVC ARM64 + WDK)"
+echo "  calistiriliyor: $WIN_BUILD_CMD"
+cmd.exe /d /s /c "call \"$WIN_BUILD_CMD\""
+say "Baglandi (MSVC link.exe; StorPort + ntoskrnl, ARM64)"
 file "$OUT/b2lufs.sys" | sed 's/^/  /'
 
 # b2lfb ile AYNI sertifika: cihazda zaten guvenilen zinciri degistirmeyiz.
