@@ -1,10 +1,10 @@
 /*
- * B2LUFS — Exynos 9820 physical UFS StorPort miniport, Faz 0.
+ * B2LUFS — Exynos 9820 physical UFS StorPort miniport, Faz 1.
  *
- * Bu dosya HCI'yi BAŞLATMAZ ve I/O ALMAZ. Tek görevi StorPort'un verdiği
- * ACPI kaynaklarını işletim sistemi bağımsız B2LUfsBindResources katmanına
- * aktarmaktır. İlk bağlı turda HwInitialize basariyla döner; bu yalnız PnP
- * kaynak sözleşmesini ölçer, hiçbir UFS register'ına dokunmaz ve LUN kurmaz.
+ * Faz 0 kaynak sözleşmesini korur. Faz 1, firmware'in zaten başlattığı HCI
+ * linkini resetlemeden kendi tek UTRD/UCD slotuna bağlar ve yalnız LUN 0 için
+ * salt-okunur SCSI SRB'lerini UFS'ye iletir. Bu, Windows'un GPT'yi okuyup
+ * DiskPart'ta Android bölümlerini görmesine yeter; hiçbir yazma yolu yoktur.
  *
  * Bu fiziksel bir ACPI HBA'sıdır. AdapterInterfaceType=Internal, StorPort'un
  * sanal miniport yolu için kullandığı işarettir; bu nedenle arayüz türünü
@@ -13,11 +13,7 @@
 #include <ntddk.h>
 #include <storport.h>
 
-#include "b2lufs_hw.h"
-
-typedef struct B2LUFS_ADAPTER {
-    B2LUFS_RESOURCES Resources;
-} B2LUFS_ADAPTER;
+#include "b2lufs_transport.h"
 
 /*
  * PnP, HwFindAdapter'dan yalnız bir SP_RETURN_* değeri alır. Bu değer
@@ -201,20 +197,25 @@ B2LUfsFindAdapter(
     }
 
     /*
-     * Bu turda kaynaklar yalnız elde tutulur; bir register okunmaz ya da
-     * yazılmaz. UTRD/PRDT sinirlari gerçek HCI kapasitesi kanitlandiktan
-     * sonra ayri bir değişiklikte hesaplanacak.
+     * DMA yapılandırması FindAdapter içinde yapılmalıdır: StorPort'un
+     * uncached ortak-bellek API'si ConfigInfo'nun DMA sözleşmesini burada
+     * bekler. Bu çağrı HCI'ye ya da herhangi bir UFS LUN'una dokunmaz.
      */
     /*
-     * Faz 0 her SRB'yi InvalidRequest ile bitirse de fiziksel StorPort
-     * miniportu olarak DMA/etiketli-kuyruk/sense temel sozlesmesini korur.
-     * 4 KiB, UTRD/PRDT henuz uygulanmadigi icin bir sonraki faza kadar
-     * bildirilen en muhafazakar aktarim siniridir; donanima I/O yoktur.
+     * Tek PRDT ile yalnız 4 KiB aktarım kabul edilir. Bu cihazın doğrulanan
+     * mantıksal blok boyutudur; ilk GPT/partition keşfi için yeterlidir ve
+     * fiziksel olarak parçalı Windows tamponlarını kabul etmeyiz.
      */
-    ConfigInfo->MaximumTransferLength = PAGE_SIZE;
-    ConfigInfo->NumberOfPhysicalBreaks = 1;
-    ConfigInfo->NumberOfBuses = 1;
-    ConfigInfo->MapBuffers = STOR_MAP_NO_BUFFERS;
+    if (!B2LUfsAllocateTransport(DeviceExtension, Adapter, ConfigInfo)) {
+        B2LUfsLogFindFailure(
+            DeviceExtension,
+            B2LUfsFindFailureResourceContract,
+            MAXULONG,
+            ConfigInfo,
+            0,
+            0);
+        return SP_RETURN_BAD_CONFIG;
+    }
     return SP_RETURN_FOUND;
 }
 
@@ -224,13 +225,14 @@ _Use_decl_annotations_
 static BOOLEAN
 B2LUfsInitialize(_In_ PVOID DeviceExtension)
 {
-    UNREFERENCED_PARAMETER(DeviceExtension);
+    B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
 
-    /*
-     * Bu "kaynak sözleşmesi" turu için başarı, donanımın başladığı anlamına
-     * gelmez. Bunun tek etkisi PnP'nin b2lufs.inf'i Started göstermesidir.
-     * HCE, UIC/DME, PHY/CAL, DMA ve LUN taraması sonraki faza kadar YOKTUR.
-     */
+    if (!B2LUfsStartTransport(DeviceExtension, Adapter)) {
+        return FALSE;
+    }
+
+    /* UFS LUN 0 artık sorgulanabilir; StorPort'a tek hedefi tarat. */
+    StorPortNotification(BusChangeDetected, DeviceExtension, (UCHAR)0);
     return TRUE;
 }
 
@@ -240,20 +242,9 @@ _Use_decl_annotations_
 static BOOLEAN
 B2LUfsStartIo(_In_ PVOID DeviceExtension, _In_ PSCSI_REQUEST_BLOCK Srb)
 {
-    /*
-     * Faz 0 asla disk istegi kabul etmez. StorPort PnP durdurmadan once
-     * SRB_FUNCTION_FLUSH gonderebilir; ortada baslatilmis HCI veya onbellek
-     * olmadigi icin onu zararsiz bir no-op olarak basariyla tamamlamak
-     * stop/restart sozlesmesi icin gereklidir.
-     */
-    Srb->DataTransferLength = 0;
-    if (Srb->Function == SRB_FUNCTION_FLUSH ||
-        Srb->Function == SRB_FUNCTION_SHUTDOWN) {
-        Srb->SrbStatus = SRB_STATUS_SUCCESS;
-    } else {
-        Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
-    }
-    StorPortNotification(RequestComplete, DeviceExtension, Srb);
+    B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
+
+    B2LUfsExecuteScsi(DeviceExtension, Adapter, Srb);
     return TRUE;
 }
 
@@ -296,7 +287,7 @@ B2LUfsAdapterControl(
             return ScsiAdapterControlUnsuccessful;
         }
 
-        /* Faz 0 aygıtı başlatmaz; yine de PnP stop/restart sözleşmesini tutar. */
+        /* Salt-okunur LUN 0 taşıması PnP stop/restart sözleşmesini tutar. */
         Supported->SupportedTypeList[ScsiQuerySupportedControlTypes] = TRUE;
         Supported->SupportedTypeList[ScsiStopAdapter] = TRUE;
         Supported->SupportedTypeList[ScsiRestartAdapter] = TRUE;
@@ -306,17 +297,17 @@ B2LUfsAdapterControl(
     if (ControlType == ScsiStopAdapter) {
         /*
          * StorPortFreeDeviceBase yalniz HwFindAdapter icinden cagrilabilir.
-         * Faz 0 HCI'yi baslatmadigi icin burada kapatilacak DMA/IRQ yoktur;
-         * PnP kaynaklarinin omrunu StorPort yonetir.
+         * Ortak DMA belleğinin ve MMIO eşlemelerinin ömrünü StorPort yönetir.
+         * HCE/link/PHY resetlenmez; Android verisine hiçbir stop yazısı yoktur.
          */
         UNREFERENCED_PARAMETER(DeviceExtension);
         UNREFERENCED_PARAMETER(Parameters);
-        /* Donanım başlatılmadığı için durdurulacak I/O veya resetlenecek HCI yok. */
+        /* Bu ilk aşama kesme ya da eşzamanlı I/O kullanmaz. */
         return ScsiAdapterControlSuccess;
     }
 
     if (ControlType == ScsiRestartAdapter) {
-        /* Stop sonrasi da HCI/DMA kurmuyoruz; PnP yeniden baslatmasi guvenli. */
+        /* PnP yeniden başlatırsa HwInitialize canlı firmware linkini yeniden bağlar. */
         UNREFERENCED_PARAMETER(DeviceExtension);
         UNREFERENCED_PARAMETER(Parameters);
         return ScsiAdapterControlSuccess;
@@ -361,9 +352,10 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
     InitData.NumberOfAccessRanges = B2LUFS_RESOURCE_COUNT;
     InitData.MapBuffers = STOR_MAP_NO_BUFFERS;
     InitData.NeedPhysicalAddresses = TRUE;
-    InitData.TaggedQueuing = TRUE;
+    /* Tek UTRD slotu: StorPort'un StartIo çağrılarını sıralı tut. */
+    InitData.TaggedQueuing = FALSE;
     InitData.AutoRequestSense = TRUE;
-    InitData.MultipleRequestPerLu = TRUE;
+    InitData.MultipleRequestPerLu = FALSE;
     InitData.FeatureSupport = STOR_FEATURE_ADAPTER_NOT_REQUIRE_IO_PORT |
                               STOR_FEATURE_SET_ADAPTER_INTERFACE_TYPE;
 

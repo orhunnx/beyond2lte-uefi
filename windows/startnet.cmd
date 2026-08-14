@@ -8,6 +8,7 @@ rem Bu portta henuz klavye, fare veya dokunmatik girisi yoktur. Dolayisiyla
 rem bu betik her seyi kendiliginden calistirir; `pause` veya kullanici
 rem girdisi bekleyen bir komut kullanmaz.
 set "DPSCRIPT=%SystemDrive%\B2LDISK.TXT"
+set "DPPOSTSCRIPT=%SystemDrive%\B2LDISK-POST.TXT"
 set "UFSBOOTREPORT=%SystemRoot%\B2LUFS.TXT"
 set "B2LUFSDIR=%SystemRoot%\B2LUFS"
 
@@ -22,6 +23,16 @@ if exist "%SystemRoot%\System32\b2lcmd.exe" "%SystemRoot%\System32\b2lcmd.exe" >
 
 > "%DPSCRIPT%" (
   echo list disk
+  echo list volume
+)
+
+rem Bu ikinci DiskPart betigi de salt-okunurdur. Disk 0 bu WinPE'de B2LUFS'in
+rem tek kullanici-LUN hedefidir; select/detail/list komutlari media yazmaz.
+> "%DPPOSTSCRIPT%" (
+  echo list disk
+  echo select disk 0
+  echo detail disk
+  echo list partition
   echo list volume
 )
 
@@ -41,13 +52,13 @@ echo Not: X: WinPE'nin boot.wim RAM diski; dahili UFS diski degil.
 call :PhotoPause
 
 echo.
-echo [B2LUFS Faz 0: ozel miniportu PnP'ye ekle]
+echo [B2LUFS Faz 1: salt-okunur LUN 0 miniportunu PnP'ye ekle]
 call :B2LUfsInstall
 
 echo.
-echo [DiskPart: B2LUFS Faz 0 sonrasi - salt okunur]
-diskpart /s "%DPSCRIPT%"
-echo Beklenen: dahili disk ve birim hala YOK; Faz 0 UFS LUN taramasi yapmaz.
+echo [DiskPart: B2LUFS Faz 1 sonrasi - salt okunur disk/GPT taramasi]
+diskpart /s "%DPPOSTSCRIPT%"
+echo Beklenen: Disk 0 ve GPT bolumleri gorunur; B2LUFS yazma CDB'lerini reddeder.
 
 echo.
 echo [PnP: klavye/fare/USB/ag]
@@ -139,7 +150,7 @@ if exist "%SystemRoot%\System32\wevtutil.exe" (
 pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install
 echo PnP yeniden taraniyor:
 pnputil /scan-devices
-echo Beklenen: b2lufs Started, DiskPart'ta hala dahili disk YOK.
+echo Beklenen: b2lufs Started; BusChange ile LUN 0 salt-okunur taranir.
 echo --- B2LUFS: StorPort kaynak-esleme tanisi ---
 call :B2LUfsStorPortLog
 exit /b 0

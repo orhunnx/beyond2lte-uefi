@@ -3,7 +3,7 @@
 Bu klasör `storufs.sys` filtresi değildir. Hedef, `ACPI\\SMSN9820\\0`
 aygıtına bağlanan bir **fiziksel StorPort miniportu**dur.
 
-## Faz 0: PnP kaynak sözleşmesi
+## Faz 1: salt-okunur LUN 0 / GPT keşfi
 
 `b2lufs_resources.c`, UEFI `PlatformUfsLib` ile stok Exynos sürücüsünün
 kullandığı altı MMIO penceresini bir StorPort miniportunun kabul edeceği
@@ -20,8 +20,26 @@ kullandığı altı MMIO penceresini bir StorPort miniportunun kabul edeceği
 
 Kaynaklar dizi sırasına güvenilmeden tabana göre eşleştirilir. Eksik,
 yinelenen, memory olmayan veya kısa bir pencere güvenli biçimde reddedilir.
-Bu katman fiziksel adres keşfetmez, MMIO haritalamaz ve **hiçbir register'a
-yazmaz**.
+
+Faz 1 bu PnP sözleşmesini korur ve yalnız aşağıdaki dar taşıma akışını ekler:
+
+1. StorPort'tan bir adet **uncached/bitişik** DMA alanı alır; 1 KiB hizalı
+   tek UTRD ve onun 1 KiB hizalı UCD'sini burada kurar.
+2. Firmware'in WinPE'yi yüklemek için açık bıraktığı HCE/link durumunu
+   doğrular. HCE sıfırsa sürücü onu açmaz; UIC/DME, PHY/CAL veya software
+   reset göndermez.
+3. Denetleyicinin boş transfer-list scheduler'ını kendi DMA halkasına
+   yöneltir ve yalnız UFS **LUN 0 / target 0** SCSI sorgularını iletir.
+4. `INQUIRY`, `READ CAPACITY`, `MODE SENSE` ve `READ` sonucunda Windows
+   GPT'yi ve Android bölümlerini okuyabilir. Her `DATA_OUT`, WRITE, FORMAT,
+   UNMAP, MODE SELECT, START/STOP, SECURITY OUT ve benzeri mutasyon CDB'si
+   doğrudan `SRB_STATUS_WRITE_PROTECTED` ile reddedilir. Boot LUN, RPMB ve
+   diğer bütün LUN'lar `NO_DEVICE` olarak gizlenir.
+
+Bu nedenle DiskPart'ta görünür olan disk, var olan Android kullanıcı-LUN'ıdır
+ve get-up aşamasında salt-okunurdur. Sürücünün yazdığı tek yer HCI/VS-HCI
+çalışma yazmaçları ile StorPort'un verdiği RAM DMA halkasıdır; UFS medyasına
+yazma yolu yoktur.
 
 ## Mevcut WinPE turu: sahiplenmeden önce HCI anlık görüntüsü
 
@@ -70,50 +88,48 @@ güvenli değildir. Buna rağmen doğrulanacak noktalar doğru sıralamayı veri
    yalnız tamamlanma kodunun okunması. UIC/DME/power-mode veya LUN I/O'su
    bu adımdan önce gelmez.
 
-Mevcut Faz 0 yalnız ilk iki maddenin salt-okunur tarafını ölçer. NOP/DMA yolu
-ayrı, imzalı test sürücüsü ve tamamlanma kaydı olmadan etkinleştirilmez.
+Faz 1, NOP yerine gerçek ancak salt-okunur SCSI taşımasını kullanır; dolayısıyla
+Windows'un kendi standart SCSI keşfi fiziksel UFS kullanıcı-LUN'ını tarar.
 
 `b2lufs_storport.c`, gerçek WDK `HwFindAdapter` çağrısını bu katmana bağlar.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
 `InIoSpace` parametresi için terslenir. Kısmi/uyuşmayan kaynak dizisi hemen
-geri bırakılır. İlk bağlı testte `HwInitialize` **TRUE** döner; bu, yalnız
-PnP'nin kaynak sözleşmesini "Started" olarak göstermesi içindir. Sürücü
-HCI/PHY/UniPro register'ı okumaz ya da yazmaz, DMA ayırmaz, kesme kabul
-etmez ve `HwStartIo` ile her isteği `INVALID_REQUEST` olarak tamamlar.
-Dolayısıyla DiskPart'ın hâlâ dahili disk göstermemesi bu testin beklenen
-sonucudur. Miniport fiziksel bir ACPI HBA olduğu için `Internal` arayüz türünü
+geri bırakılır. `HwInitialize`, canlı HCE ve boş UTRL scheduler'ını
+doğrulayıp tek DMA slotunu bağladıktan sonra `BusChangeDetected` bildirir.
+Kesme sahipliği alınmaz; tamamlanma kapı zili poll edilir. Miniport fiziksel
+bir ACPI HBA olduğu için `Internal` arayüz türünü
 kullanmaz: `InterfaceTypeUndefined` ile
 `STOR_FEATURE_SET_ADAPTER_INTERFACE_TYPE` StorPort'a PnP'nin gerçek platform
 arayüzünü seçtirtir. Bu ayrım önemlidir; Microsoft `Internal`ı sanal
 miniportun işareti olarak tanımlar. Kaynak sayısı, MMIO eşlemesi veya kaynak
 sözleşmesi reddedilirse sürücü `Microsoft-Windows-Storage-Storport/Operational`
 kanalına `B2LUFS HwFindAdapter resource contract failure` ETW kaydı bırakır.
-`startnet.cmd` yalnız bu kayıtları otomatik ekrana basar; bu teşhis HCI'ye ya
-da UFS'ye yazmaz.
+`startnet.cmd` yalnız bu kayıtları otomatik ekrana basar. Faz 1'de PnP
+kurulumundan sonraki ikinci DiskPart betiği `list disk`, `detail disk` ve
+`list partition` çalıştırır; bunların tümü salt-okunurdur.
 
-## Faz 0 WinPE kabul ölçütü
+## Faz 1 WinPE kabul ölçütü
 
 `startnet.cmd` önce sürücü kurulmadan önceki DiskPart sonucunu, ardından
 `pnputil /add-driver`, yeniden tarama ve **kurulum sonrası** ikinci DiskPart
 sonucunu gösterir. Fotoğrafta şu üç kanıt birlikte aranır:
 
-1. `B2LUFS Faz 0: ozel miniportu PnP'ye ekle` altında INF'nin eklendiği ve
+1. `B2LUFS Faz 1: salt-okunur LUN 0 miniportunu PnP'ye ekle` altında INF'nin eklendiği ve
    yeniden taramanın tamamlandığı görülür.
 2. `UFS0: CID, eslesen surucu ve stack` ile `SCSIAdapter` çıktılarında
    `ACPI\SMSN9820\0` için `Beyond2LTE Exynos 9820 UFS Host Controller`,
    `b2lufs.inf` ve `Started` yer alır. INF'nin eşleşmesi `ACPI\BYND9820`
    compatible ID'si üzerinden olur; instance ID'nin `SMSN9820` kalması
    normaldir.
-3. İkinci DiskPart bloğu hâlâ `There are no fixed disks to show` ve
-   `There are no volumes` göstermelidir. `X:` yalnız WinPE RAM diskidir.
+3. İkinci DiskPart bloğu `Disk 0`ı göstermeli, ardından `detail disk` ile
+   `list partition` Android kullanıcı-LUN'ındaki GPT bölümlerini listelemelidir.
+   `X:` yalnız WinPE RAM diskidir.
 
-Başarı ile bir iç disk görünmesi Faz 0 için **beklenmeyen** sonuçtur: bu
-sürücü LUN keşfi veya SCSI I/O uygulamaz. Böyle bir durumda yazma yapmadan
-ekranın fotoğrafını alıp testi durdururuz. Öte yandan `Code 10`/`FAILED_START`
-altı ACPI kaynağının StorPort'a beklenen biçimde ulaşmadığını; imza veya
-`pnputil` hatası ise sürücünün hiç çalıştırılmadığını gösterir. Her ikisi de
-sonraki aşamada UFS register'larına dokunmadan teşhis edilir.
+`Code 10`/`FAILED_START`, HCE/link durumunun firmware'den canlı devralınamadığını
+veya transfer-list scheduler'ın boş olmadığını gösterir. İmza veya `pnputil`
+hatası ise sürücünün hiç çalıştırılmadığını gösterir. Her iki durumda da
+sürücü UFS LUN'una komut göndermeden başarısız olur.
 
 Bu testte DSDT `UFS0` aygıtı yalnız `ACPI\\BYND9820` compatible ID'sini
 yayınlar ve altı MMIO penceresini yalnız b2lufs'a verir. Böylece inbox
@@ -124,7 +140,7 @@ otomatik yapar; fotoğrafta hedef PnP durumu `b2lufs.inf` + `Started`dır.
 `tools_b2lufs.sh`, WSL'den Windows WDK'nin ARM64 `storport.lib` ve
 `ntoskrnl.lib` kitaplıklarını kullanır. Kaynaklar WSL clang'iyle değil,
 `build-b2lufs.ps1` üzerinden Visual Studio'nun `vcvarsamd64_arm64.bat` ile
-kurulan **MSVC ARM64** ortamında `cl.exe`/`link.exe` ile derlenir. Betik üç
+kurulan **MSVC ARM64** ortamında `cl.exe`/`link.exe` ile derlenir. Betik beş
 kaynak dosyasını önce Windows'un yerel `%TEMP%` dizinine kopyalar: böylece
 `\\wsl.localhost\\...` yolu ne `cmd.exe`nin çalışma dizini olur ne de
 derleyiciye aktarılır. Bu, `CMD.EXE was started with the above path...` UNC
@@ -169,9 +185,9 @@ kapısından geçmiş son artefakt değildir; UFS donanım sonucu olarak yorumla
 
 Ölçülen ilk HCI durumu: `CAP=1303FF1F`, `VER=00000300`, `HCE=1`,
 `1US_TO_CNT=000000A6`. CAP alanında NUTRS `[4:0]` ve NUTMRS `[18:16]`
-sırasıyla `31` ve `3` olduğundan ilk gerçek DMA turu 32 UTR + 4 UTMR yuvası
-kullanacak; bit 24 de 64-bit adreslemeyi bildirir. Bu DMA turu henüz pakete
-dahil değildir.
+sırasıyla `31` ve `3` olduğundan denetleyici 32 UTR + 4 UTMR kapasitelidir;
+bit 24 de 64-bit adreslemeyi bildirir. Faz 1 bu kapasitenin yalnız bir UTR
+yuvasını kullanır; veri aktarımı 4 KiB ve tek fiziksel parça ile sınırlıdır.
 
 Yerel doğrulama:
 
@@ -183,15 +199,14 @@ clang -std=c11 -Wall -Wextra -Werror \
 
 ## Sonraki üç değişiklik
 
-1. Ayrı ACPI `_CID`/INF'yi WDK ile **yalnız test WIM'ine** paketle ve altı
-   `_CRS` kaynağının tam geldiğini fotoğraf logu ile doğrula. Bu değişiklik
-   `PCI\\CC_010901`i kaldırarak genel `storufs` bağlamasını bitirdi.
-2. CAP kanıtına göre UTR (32), UTMR (4) ve 64-bit DMA ringlerini ayır;
-   önce yalnız fiziksel-adres/zeroing kaydını doğrula.
-3. UEFI'den Exynos başlatması: VCC/PHY isolation, IO coherency,
+1. İlk salt-okunur GPT/LUN 0 keşfini DiskPart fotoğrafıyla doğrula.
+2. Sadece gerçekten gerekirse PRDT'yi çoklu fiziksel parça/transfer için
+   genişlet; yazma yolu ekleme.
+3. UEFI'den Exynos başlatması ancak HCE/link devralması kesin olarak
+   başarısız olursa ele alınır: VCC/PHY isolation, IO coherency,
    `1US_TO_CNT=166`, saat/refclk/clock-gating, CAL pre-link, standart
    `DME_LINKSTARTUP`, CAL post-link. UTRD/UPIU/SCSI bundan sonra gelir.
 
-Bu sıra veri güvenliği içindir: eksik miniport hiçbir I/O isteği kabul etmez.
+Bu sıra veri güvenliği içindir: eksik miniport hiçbir UFS yazma isteği kabul etmez.
 Test imza zinciri mevcut `windows/b2lfb/b2l-test.pem` üzerinden korunur;
 üretim imzası bu get-up aşamasının kapsamı dışındadır.

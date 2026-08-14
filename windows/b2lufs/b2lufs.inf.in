@@ -1,4 +1,4 @@
-; B2LUFS Faz 0 INF şablonu. Yalnız test WinPE WIM'ine konur.
+; B2LUFS Faz 1 salt-okunur LUN 0 INF şablonu. Yalnız test WinPE WIM'ine konur.
 ; DSDT UFS0 için yalnız ACPI\BYND9820 compatible kimliği yayınlar;
 ; PCI\CC_010901 kaldırılmıştır, böylece storufs ve b2lufs aynı HBA'ya yarışmaz.
 ; tools_b2lufs.sh, INF+SYS hash'lerini kapsayan bu katalogu WDK Inf2Cat ile
