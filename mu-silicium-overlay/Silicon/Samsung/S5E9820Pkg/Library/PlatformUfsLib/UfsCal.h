@@ -144,4 +144,7 @@ UfsCalError UfsCalPreLink (struct UfsCalParam *p);
 UfsCalError UfsCalPostLink (struct UfsCalParam *p);
 UfsCalError UfsCalPrePmc (struct UfsCalParam *p);
 UfsCalError UfsCalPostPmc (struct UfsCalParam *p);
+/* Keep Samsung's public CAL ABI for software-managed Hibern8 transitions. */
+UfsCalError ufs_cal_post_h8_enter (struct UfsCalParam *p);
+UfsCalError ufs_cal_pre_h8_exit (struct UfsCalParam *p);
 #endif /* __UFS_CAL_H__ */

@@ -73,6 +73,14 @@ static UCHAR B2LUFS_REG_LUNS_LIST_BYTES[] = "ReportLunsListBytes";
 static UCHAR B2LUFS_REG_LUNS_RETURNED_BYTES[] = "ReportLunsReturnedBytes";
 static UCHAR B2LUFS_REG_LUNS_ENTRY_COUNT[] = "ReportLunsEntryCount";
 static UCHAR B2LUFS_REG_LUNS_RAW[] = "ReportLunsRaw";
+static UCHAR B2LUFS_REG_MEDIA_RESULT[] = "MediaProbeResult";
+static UCHAR B2LUFS_REG_MEDIA_SCSI_STATUS[] = "MediaProbeScsiStatus";
+static UCHAR B2LUFS_REG_MEDIA_BYTES[] = "MediaProbeReturnedBytes";
+static UCHAR B2LUFS_REG_MEDIA_VALID[] = "MediaProbeValid";
+static UCHAR B2LUFS_REG_MEDIA_MBR[] = "MediaProbeMbrSignature";
+static UCHAR B2LUFS_REG_MEDIA_GPT[] = "MediaProbeGptSignature";
+static UCHAR B2LUFS_REG_MEDIA_LBA0[] = "MediaProbeLba0";
+static UCHAR B2LUFS_REG_MEDIA_LBA1[] = "MediaProbeLba1";
 
 typedef enum B2LUFS_FIND_FAILURE {
     B2LUfsFindFailureRangeCount = 1,
@@ -432,12 +440,16 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 13;
+    ULONG SchemaVersion = 14;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
     ULONG ScsiStatus = Adapter->LunReportScsiStatus;
     ULONG TimerHandleValid = Adapter->BusScanTimer != NULL ? 1UL : 0UL;
+    ULONG MediaScsiStatus = Adapter->MediaProbeScsiStatus;
+    ULONG MediaValid = Adapter->MediaProbeValid ? 1UL : 0UL;
+    ULONG MediaMbr = Adapter->MediaProbeMbrSignature ? 1UL : 0UL;
+    ULONG MediaGpt = Adapter->MediaProbeGptSignature ? 1UL : 0UL;
     ULONG Index;
     UCHAR ValueName[] = "Lun00Id";
 
@@ -609,6 +621,36 @@ B2LUfsPublishLunSnapshot(
                 8UL);
         }
     }
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_RESULT,
+        REG_DWORD, &Adapter->MediaProbeResult,
+        sizeof(Adapter->MediaProbeResult));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_SCSI_STATUS,
+        REG_DWORD, &MediaScsiStatus, sizeof(MediaScsiStatus));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_BYTES,
+        REG_DWORD, &Adapter->MediaProbeBytes,
+        sizeof(Adapter->MediaProbeBytes));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_VALID,
+        REG_DWORD, &MediaValid, sizeof(MediaValid));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_MBR,
+        REG_DWORD, &MediaMbr, sizeof(MediaMbr));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_GPT,
+        REG_DWORD, &MediaGpt, sizeof(MediaGpt));
+    if (Adapter->MediaProbeBytes != 0) {
+        (void)StorPortRegistryWriteAdapterKey(
+            DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_LBA0,
+            REG_BINARY, Adapter->MediaProbeLba0,
+            sizeof(Adapter->MediaProbeLba0));
+        (void)StorPortRegistryWriteAdapterKey(
+            DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_LBA1,
+            REG_BINARY, Adapter->MediaProbeLba1,
+            sizeof(Adapter->MediaProbeLba1));
+    }
 }
 
 _Use_decl_annotations_
@@ -620,6 +662,7 @@ B2LUfsPassiveInitialize(_In_ PVOID DeviceExtension)
     /* Time-consuming polled discovery belongs at PASSIVE_LEVEL, not DIRQL. */
     B2LUfsProbeLun0Capacity(DeviceExtension, Adapter);
     B2LUfsProbeLuns(DeviceExtension, Adapter);
+    B2LUfsProbeMediaHeaders(DeviceExtension, Adapter);
 
     /*
      * This callback runs after HwInitialize, but it is still part of the

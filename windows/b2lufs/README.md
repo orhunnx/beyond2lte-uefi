@@ -341,6 +341,16 @@ Windows'un rastgele sayfalarını bitişik varsaymaz: en çok 128 KiB'lik isteğ
 StorPort'un CPU/aygıt ortak uncached DMA tamponuna kopyalar ve bu doğrulanmış
 fiziksel alanı PRDT'ye verir.
 
+BusChange öncesinde aynı ortak-DMA yoluyla LBA 0 ve LBA 1 için birer gerçek
+`READ(10)` yapılır. `MediaProbeMbrSignature=1`, LBA 0 sonundaki `55 AA`yı;
+`MediaProbeGptSignature=1`, LBA 1 başındaki `EFI PART` imzasını doğrular. Bu
+okumalar GPT'yi taklit etmez veya önbellekten Windows'a sunmaz; disk sınıfının
+kullanacağı normal blok yolunu erkenden sınar. Normal READ/WRITE CDB blok
+sayısı, READ CAPACITY ile alınan mantıksal blok boyutuyla tam olarak
+`DataTransferLength` üretmiyorsa ya da aygıt kısa blok aktarımı döndürürse SRB
+artık sessiz başarıyla tamamlanmaz. Böylece partition yöneticisi sıfır/eksik
+bir GPT okumasını geçerli boş disk olarak yorumlayamaz.
+
 Yerel doğrulama:
 
 ```bash

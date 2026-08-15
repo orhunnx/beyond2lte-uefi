@@ -368,6 +368,16 @@ reg query "%B2L_LUN_KEY%" /v ReadCapacityValid 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityBlockBytes 2>nul
 echo Ham READ CAPACITY cevabi (buyuk-endian last-LBA + blok boyutu):
 reg query "%B2L_LUN_KEY%" /v ReadCapacityRaw 2>nul
+echo --- B2LUFS: normal READ(10) medya/GPT on testi ---
+echo MediaProbeValid=1, MBR=1 ve GPT=1 normal blok DMA yolunun dogrulandigini gosterir.
+reg query "%B2L_LUN_KEY%" /v MediaProbeResult 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeScsiStatus 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeReturnedBytes 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeValid 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeMbrSignature 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeGptSignature 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeLba0 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeLba1 2>nul
 echo --- B2LUFS: REPORT LUNS envanteri (salt-okunur, LUN 0 uzerinden) ---
 echo Bu bilgi diger LUN'lara blok okuma/yazma yapmadan alinir.
 echo Header: ilk 4 bayt big-endian liste bayti; sonraki her 8 bayt bir LUN kimligidir.

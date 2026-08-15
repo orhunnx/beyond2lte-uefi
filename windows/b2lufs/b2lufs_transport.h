@@ -79,6 +79,20 @@ typedef struct B2LUFS_ADAPTER {
     BOOLEAN LunReportValid;
 
     /*
+     * The same READ(10) + common-DMA path later used by disk class is
+     * exercised before BusChange.  Keep only signatures and small samples;
+     * this is evidence about the media path, not a synthetic GPT cache.
+     */
+    ULONG MediaProbeResult;
+    UCHAR MediaProbeScsiStatus;
+    ULONG MediaProbeBytes;
+    BOOLEAN MediaProbeValid;
+    BOOLEAN MediaProbeMbrSignature;
+    BOOLEAN MediaProbeGptSignature;
+    UCHAR MediaProbeLba0[64];
+    UCHAR MediaProbeLba1[64];
+
+    /*
      * Serialized normal I/O uses one StorPort common DMA bounce buffer.
      * The firmware-proven contiguous path is used for both reads and writes;
      * CPU copies connect it to the current SRB's system virtual address.
@@ -167,6 +181,12 @@ B2LUfsProbeLun0Capacity(
 /* Take one standard, read-only REPORT LUNS snapshot for WinPE diagnostics. */
 VOID
 B2LUfsProbeLuns(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter);
+
+/* Verify normal block DMA by reading LBA 0 and LBA 1 before enumeration. */
+VOID
+B2LUfsProbeMediaHeaders(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter);
 
