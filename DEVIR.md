@@ -1867,3 +1867,42 @@ giriyor. Bu bir bugcheck'e mal oldu (`SYSTEM_THREAD_EXCEPTION_NOT_HANDLED`).
 - `B2LEl2Dxe` ve `B2LResetHookDxe` kullanım dışı, kaynakları duruyor
 - `boot.wim`'in orijinal `Start` değerleri hiç kaydedilmedi; geri dönüş için
   ISO'daki dokunulmamış kopyadan okunmalı
+
+---
+
+## 14. B2LUFS 0.0.3.0 — kapasite SRB yönü ve yazma yolu
+
+Son cihaz turunda denetleyici `Started`, bus türü `UFS`, ön-prob cevabı
+`01DC9FFF00001000` ve `ReadCapacityValid=1` olmasına rağmen Disk 0 kapasitesi
+`0 B` kaldı. Sorun UEFI/UFS linkinde değil, legacy SRB yön yorumundaydı:
+Microsoft `SRB_FLAGS_UNSPECIFIED_DIRECTION` değerini `DATA_IN | DATA_OUT`
+olarak tanımlar. Önceki salt-okunur kapı yalnız `DATA_OUT` bitini sınadığı için
+disk sınıfının geçerli READ CAPACITY isteğini yazma sanıp UFS veya kapasite
+tamamlama yoluna ulaşmadan reddediyordu.
+
+0.0.3.0 sürümü yönü şu sözleşmeyle çözer:
+
+- açık `DATA_IN` ve `DATA_OUT` değerleri UTRD ile COMMAND UPIU'ya aynen çevrilir;
+- iki bit birlikteyse normal disk CDB'sinden gerçek yön belirlenir;
+- transfer uzunluğu sıfırsa no-data UPIU kurulur;
+- bilinmeyen ama açık yönlü CDB'ler engellenmez;
+- yazma payload'ı ETW'ye kopyalanmaz, yalnız okuma veya sense örneği tutulur.
+
+Salt-okunur CDB allow-list'i kaldırıldı. LUN 0 için WRITE, UNMAP, MODE SELECT,
+WRITE SAME ve diğer açık DATA_OUT istekleri gerçek UFS PRDT aktarımına gider.
+Boot/RPMB LUN'ları hâlâ Windows'a sunulmaz. Ön-probda doğrulanan gerçek kapasite
+disk sınıfı SRB'sine `StorPortGetSystemAddress` üzerinden yazılır; `BLC1`
+tanısında `Outcome=5`, `MapStatus=0`, `ReturnedLength=8` beklenir.
+
+Microsoft'un boot/dump kısıtları da tamamlandı: NULL `DriverEntry` argümanları,
+`ConfigInfo->DumpMode` ve `dump=1` tanınır; dump modunda timer, PASSIVE kayıt
+yolu, registry ve ETW kapalıdır; bus reset isteği başarıyla yok sayılır. Fiziksel
+miniport `STOR_FEATURE_DUMP_POINTERS` ilan etmediği için
+`MINIPORT_DUMP_POINTERS` desteği isteğe bağlı kalır ve sahte bir sözleşme
+eklenmez. Paylaşılan storage-class PnP sayfalarındaki `AddDevice` ve
+`DispatchPnP` görevleri disk.sys/classpnp'ye aittir; miniportta bunları tekrar
+uygulamak yerine mevcut StorPort SRB PnP, unit-control ve adapter-control yolu
+korunmuştur. `ScsiUnitUsage` paging/hibernation/dump bildirimlerini kabul eder;
+ilan edilmeyen `ScsiUnitPower` yerine gelen `SRB_FUNCTION_POWER` ise gerçek
+UTRL stop/restart işini takip eden adapter-control callback'lerine bırakarak
+başarıyla tamamlanır.

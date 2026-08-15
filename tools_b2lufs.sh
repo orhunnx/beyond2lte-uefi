@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# B2LUFS Faz 1 — WDK basliklariyla ARM64 salt-okunur UFS StorPort
+# B2LUFS — WDK basliklariyla ARM64 UFS StorPort
 # miniportunu derle,
 # mevcut b2lfb test sertifikasi ile imzala ve yalniz WinPE WIM'ine koy.
 #
-# Bu tur salt-okunur bir disk get-up surucusudur. ACPI'nin verdigi alti MMIO
+# Bu tur LUN 0 icin normal okuma/yazma disk surucusudur. ACPI'nin verdigi alti MMIO
 # kaynagini StorPort uzerinden sahiplenir; firmware'in canli UFS linkini
-# resetlemeden tek DMA slotu kurar ve yalniz LUN 0 okuma/sorgu CDB'lerini
-# iletir. Android medyasina yazan tum CDB'ler reddedilir.
+# resetlemeden tek DMA slotu kurar ve yalnız kullanıcı LUN 0 için normal
+# okuma/yazma SCSI CDB'lerini iletir. Boot ve RPMB LUN'ları gizli kalır.
 #
 # WSL'de, Windows'taki WDK + Visual Studio Build Tools gorunurken calistir:
 #   bash tools_b2lufs.sh
@@ -89,7 +89,7 @@ fi
 [ -f "$MSVC_INC/vadefs.h" ] || die "vadefs.h yok; Visual Studio Build Tools C++ bilesenini kur veya B2L_MSVC_INCLUDE ver"
 
 # WSL clang ile MSVC 14.51 intrin.h'nin __prefetch bildirimleri farkli
-# builtin imzasina dusebilir. Bu Faz 1 surucusunu dogrudan WDK'nin hedef
+# builtin imzasina dusebilir. Bu surucuyu dogrudan WDK'nin hedef
 # aldigi MSVC cl.exe/link.exe ile derliyoruz. Ortami her cmd cagrisinda
 # amd64-host/ARM64-target vcvars dosyasiyla kurmak, kullanicinin acik olan
 # terminal ortamindan bagimsiz ve tekrar edilebilir bir derleme saglar.
@@ -197,7 +197,7 @@ if [ "${B2L_SKIP_MSVC_BUILD:-0}" = "1" ]; then
 
   say "Var olan B2LUFS SYS kullaniliyor (B2L_SKIP_MSVC_BUILD=1)"
 else
-  say "B2LUFS Faz 1 derleniyor (yerel Windows MSVC ARM64 + WDK)"
+  say "B2LUFS derleniyor (yerel Windows MSVC ARM64 + WDK)"
   echo "  PowerShell, kaynaklari yerel Windows TEMP dizininde derleyecek"
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$WIN_PS_BUILD" \
     -ProjectRoot "$WIN_PROJECT_ROOT" -OutDir "$WIN_OUT" \
@@ -218,7 +218,7 @@ fi
 
 say "b2lufs.sys imzalaniyor"
 osslsigncode sign -certs "$CERT" -key "$KEY" \
-  -n "beyond2lte Exynos UFS StorPort phase 1 read-only" -h sha256 \
+  -n "beyond2lte Exynos UFS StorPort LUN 0" -h sha256 \
   -in "$OUT/b2lufs.sys" -out "$OUT/b2lufs-signed.sys" >/dev/null
 mv -f "$OUT/b2lufs-signed.sys" "$OUT/b2lufs.sys"
 
@@ -269,7 +269,7 @@ rm -f "$OUT/b2lufs.cat" "$OUT/b2lufs-signed.cat" "$PFX"
 
 # signtool Windows PFX bekler. PFX gecicidir; anahtar depoda tutulmaz ve
 # b2lfb'nin PEM zincirinden bu tur icin uretilir.
-PFX_PASS="b2lufs-phase1-readonly"
+PFX_PASS="b2lufs-lun0"
 openssl pkcs12 -export -out "$PFX" \
   -inkey "$KEY" -in "$CERT" -passout "pass:$PFX_PASS" >/dev/null 2>&1
 "$SIGNTOOL" sign /v /fd sha256 /f "$(wslpath -w "$PFX")" \
@@ -286,7 +286,7 @@ rm -f "$PFX"
 # paketleme asamasinda kesin bir hata haline getirir.
 MANIFEST="$OUT/b2lufs-manifest.txt"
 {
-  echo "B2LUFS_PACKAGE=phase1-readonly-ufs-bustype-capacity"
+  echo "B2LUFS_PACKAGE=lun0-rw-srb-direction-pnp-dump"
   echo "B2LUFS_INF_SHA256=$(sha256sum "$OUT/b2lufs.inf" | awk '{print $1}')"
   echo "B2LUFS_SYS_SHA256=$(sha256sum "$OUT/b2lufs.sys" | awk '{print $1}')"
   echo "B2LUFS_CAT_SHA256=$(sha256sum "$OUT/b2lufs.cat" | awk '{print $1}')"
@@ -337,6 +337,6 @@ wimlib-imagex extract "$WIM" 1 /Windows/System32/startnet.cmd \
   die "startnet.cmd WIM geri okuma hash'i farkli; flaslama"
 echo "  dogrulandi: startnet.cmd B2LUFS PnP kurulumunu iceriyor"
 
-say "Faz 1 hazir"
-echo "Bu imajda beklenen durum: ACPI\\SMSN9820\\0 -> b2lufs.inf, Started; DiskPart Disk 0/GPT bolumlerini salt-okunur gorur."
+say "B2LUFS hazir"
+echo "Bu imajda beklenen durum: ACPI\\SMSN9820\\0 -> b2lufs.inf, Started; DiskPart Disk 0 kapasitesini ve GPT bolumlerini gorur."
 echo "Sonraki paketleme: bash cache_esp.sh --win --system && bash cache_esp.sh --win --bos"

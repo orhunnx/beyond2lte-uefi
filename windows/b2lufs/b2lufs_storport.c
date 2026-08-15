@@ -1,10 +1,9 @@
 /*
- * B2LUFS — Exynos 9820 physical UFS StorPort miniport, Faz 1.
+ * B2LUFS — Exynos 9820 physical UFS StorPort miniport.
  *
- * Faz 0 kaynak sözleşmesini korur. Faz 1, firmware'in zaten başlattığı HCI
- * linkini resetlemeden kendi tek UTRD/UCD slotuna bağlar ve yalnız LUN 0 için
- * salt-okunur SCSI SRB'lerini UFS'ye iletir. Bu, Windows'un GPT'yi okuyup
- * DiskPart'ta Android bölümlerini görmesine yeter; hiçbir yazma yolu yoktur.
+ * Firmware'in zaten başlattığı HCI linkini resetlemeden kendi tek UTRD/UCD
+ * slotuna bağlar ve yalnız kullanıcı LUN 0 için normal SCSI okuma/yazma
+ * SRB'lerini UFS'ye iletir. Boot ve RPMB LUN'ları numaralandırılmaz.
  *
  * Bu fiziksel bir ACPI HBA'sıdır. AdapterInterfaceType=Internal, StorPort'un
  * sanal miniport yolu için kullandığı işarettir; bu nedenle arayüz türünü
@@ -117,9 +116,40 @@ B2LUfsZeroMemory(_Out_ PVOID Buffer, _In_ SIZE_T ByteCount)
     }
 }
 
+static BOOLEAN
+B2LUfsArgumentHasDumpFlag(_In_opt_ const CHAR *ArgumentString)
+{
+    static const CHAR DumpToken[] = "dump=1";
+    const CHAR *Cursor;
+    ULONG Index;
+
+    if (ArgumentString == NULL) {
+        return FALSE;
+    }
+
+    for (Cursor = ArgumentString; *Cursor != '\0'; ++Cursor) {
+        for (Index = 0; Index < sizeof(DumpToken) - 1UL; ++Index) {
+            CHAR Left = Cursor[Index];
+            CHAR Right = DumpToken[Index];
+
+            if (Left >= 'A' && Left <= 'Z') {
+                Left = (CHAR)(Left - 'A' + 'a');
+            }
+            if (Left == '\0' || Left != Right) {
+                break;
+            }
+        }
+        if (Index == sizeof(DumpToken) - 1UL) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 static VOID
 B2LUfsLogFindFailure(
     _In_ PVOID DeviceExtension,
+    _In_ BOOLEAN Suppress,
     _In_ B2LUFS_FIND_FAILURE Failure,
     _In_ ULONG RangeIndex,
     _In_opt_ PPORT_CONFIGURATION_INFORMATION ConfigInfo,
@@ -127,6 +157,10 @@ B2LUfsLogFindFailure(
     _In_ ULONG RangeLength)
 {
     B2LUFS_FIND_FAILURE_DATA Data;
+
+    if (Suppress) {
+        return;
+    }
 
     B2LUfsZeroMemory(&Data, sizeof(Data));
     Data.Failure = (ULONG)Failure;
@@ -226,12 +260,19 @@ B2LUfsFindAdapter(
     BOOLEAN FeatureList[StorportFeatureMax];
     ULONG BusTypeFeatureStatus;
     ULONG Index;
+    BOOLEAN DumpMode;
 
-    UNREFERENCED_PARAMETER(HwContext);
     UNREFERENCED_PARAMETER(BusInformation);
-    UNREFERENCED_PARAMETER(ArgumentString);
-
     UNREFERENCED_PARAMETER(Reserved3);
+
+    /*
+     * Microsoft documents three dump-stack signals: NULL DriverEntry
+     * arguments (carried through HwContext below), ConfigInfo->DumpMode and
+     * the legacy "dump=1" argument string. Honour all three before allocating
+     * timers or enabling PASSIVE-only diagnostics.
+     */
+    DumpMode = ConfigInfo->DumpMode || HwContext != NULL ||
+               B2LUfsArgumentHasDumpFlag(ArgumentString);
 
     /*
      * Microsoft requires this registration at the beginning of every
@@ -253,6 +294,7 @@ B2LUfsFindAdapter(
         ConfigInfo->AccessRanges == NULL) {
         B2LUfsLogFindFailure(
             DeviceExtension,
+            DumpMode,
             B2LUfsFindFailureRangeCount,
             MAXULONG,
             ConfigInfo,
@@ -290,6 +332,7 @@ B2LUfsFindAdapter(
         if (Given[Index].MappedBase == NULL) {
             B2LUfsLogFindFailure(
                 DeviceExtension,
+                DumpMode,
                 B2LUfsFindFailureMap,
                 Index,
                 ConfigInfo,
@@ -309,12 +352,14 @@ B2LUfsFindAdapter(
     if (Adapter->Signature != B2LUFS_ADAPTER_SIGNATURE) {
         B2LUfsZeroMemory(Adapter, sizeof(*Adapter));
     }
+    Adapter->DumpMode = DumpMode;
     Adapter->BusTypeFeatureStatus = BusTypeFeatureStatus;
     Adapter->ConfiguredUnitBusType = (ULONG)BusTypeUfs;
     if (B2LUfsBindResources(Given, B2LUFS_RESOURCE_COUNT,
                             &Adapter->Resources) != 0) {
         B2LUfsLogFindFailure(
             DeviceExtension,
+            DumpMode,
             B2LUfsFindFailureResourceContract,
             MAXULONG,
             ConfigInfo,
@@ -332,11 +377,12 @@ B2LUfsFindAdapter(
     /*
      * İstek üst sınırı 32 adet doğrulanmış 4 KiB PRDT parçasıdır (128 KiB).
      * Transport, Windows fiziksel sayfa sınırlarını bu çok girişli PRDT'ye
-     * böler; daha büyük bir transfer veya medya yazması kabul edilmez.
+     * böler; daha büyük bir transfer StorPort üst sınırıyla parçalanır.
      */
     if (!B2LUfsAllocateTransport(DeviceExtension, Adapter, ConfigInfo)) {
         B2LUfsLogFindFailure(
             DeviceExtension,
+            DumpMode,
             B2LUfsFindFailureResourceContract,
             MAXULONG,
             ConfigInfo,
@@ -353,7 +399,6 @@ B2LUfsFindAdapter(
      * explicit StorPort timer in HwFindAdapter so its resources are known to
      * be available before adapter initialization completes.
      */
-    Adapter->DumpMode = ConfigInfo->DumpMode ? TRUE : FALSE;
     if (!Adapter->DumpMode && Adapter->BusScanTimer == NULL) {
         Adapter->BusScanTimerInitializeStatus =
             StorPortInitializeTimer(DeviceExtension, &Adapter->BusScanTimer);
@@ -363,6 +408,7 @@ B2LUfsFindAdapter(
          Adapter->BusScanTimer == NULL)) {
         B2LUfsLogFindFailure(
             DeviceExtension,
+            DumpMode,
             B2LUfsFindFailureTimer,
             MAXULONG,
             ConfigInfo,
@@ -386,7 +432,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 10;
+    ULONG SchemaVersion = 11;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -688,6 +734,9 @@ B2LUfsUnitControl(
         if (Supported->MaxControlType > ScsiQuerySupportedUnitControlTypes) {
             Supported->SupportedTypeList[ScsiQuerySupportedUnitControlTypes] = TRUE;
         }
+        if (Supported->MaxControlType > ScsiUnitUsage) {
+            Supported->SupportedTypeList[ScsiUnitUsage] = TRUE;
+        }
         if (Supported->MaxControlType > ScsiUnitStart) {
             Supported->SupportedTypeList[ScsiUnitStart] = TRUE;
         }
@@ -716,16 +765,34 @@ B2LUfsUnitControl(
         Query->BusType = (ULONG)BusTypeUfs;
         Adapter->ConfiguredUnitBusType = (ULONG)BusTypeUfs;
         Adapter->BusTypeQueryCount++;
-        /* ScsiUnitQueryBusType is documented at PASSIVE_LEVEL. */
-        (void)StorPortRegistryWriteAdapterKey(
-            DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_UNIT_BUS_TYPE,
-            REG_DWORD, &Adapter->ConfiguredUnitBusType,
-            sizeof(Adapter->ConfiguredUnitBusType));
-        (void)StorPortRegistryWriteAdapterKey(
-            DeviceExtension, B2LUFS_REG_SUBKEY,
-            B2LUFS_REG_BUS_TYPE_QUERY_COUNT,
-            REG_DWORD, &Adapter->BusTypeQueryCount,
-            sizeof(Adapter->BusTypeQueryCount));
+        /* Dump callbacks can run at HIGH_LEVEL and must not touch registry. */
+        if (!Adapter->DumpMode) {
+            (void)StorPortRegistryWriteAdapterKey(
+                DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_UNIT_BUS_TYPE,
+                REG_DWORD, &Adapter->ConfiguredUnitBusType,
+                sizeof(Adapter->ConfiguredUnitBusType));
+            (void)StorPortRegistryWriteAdapterKey(
+                DeviceExtension, B2LUFS_REG_SUBKEY,
+                B2LUFS_REG_BUS_TYPE_QUERY_COUNT,
+                REG_DWORD, &Adapter->BusTypeQueryCount,
+                sizeof(Adapter->BusTypeQueryCount));
+        }
+        return ScsiUnitControlSuccess;
+    }
+
+    if (ControlType == ScsiUnitUsage) {
+        PSTOR_UC_DEVICE_USAGE Usage = (PSTOR_UC_DEVICE_USAGE)Parameters;
+
+        /*
+         * Paging, hibernation and dump usage is a notification, not a request
+         * to change UFS media or power. The serialized transport and its dump
+         * restrictions are valid for every usage type.
+         */
+        if (Usage == NULL ||
+            !B2LUfsUnitAddressIsLun0(
+                (const STOR_ADDR_BTL8 *)Usage->Address)) {
+            return ScsiUnitControlUnsuccessful;
+        }
         return ScsiUnitControlSuccess;
     }
 
@@ -776,6 +843,10 @@ B2LUfsResetBus(_In_ PVOID DeviceExtension, _In_ ULONG PathId)
 
     if (PathId != 0 || Adapter->AdapterRemoved) {
         return FALSE;
+    }
+    /* Boot/dump miniports must ignore bus reset requests in dump mode. */
+    if (Adapter->DumpMode) {
+        return TRUE;
     }
     return B2LUfsResetTransport(DeviceExtension, Adapter);
 }
@@ -843,6 +914,7 @@ ULONG
 DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
 {
     HW_INITIALIZATION_DATA InitData;
+    PVOID HwContext;
 
     B2LUfsZeroMemory(&InitData, sizeof(InitData));
     InitData.HwInitializationDataSize = sizeof(InitData);
@@ -882,7 +954,7 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
     InitData.HwUnitControl = B2LUfsUnitControl;
     InitData.DeviceExtensionSize = sizeof(B2LUFS_ADAPTER);
     InitData.NumberOfAccessRanges = B2LUFS_RESOURCE_COUNT;
-    /* Match HwFindAdapter: discovery READ buffers need a valid DataBuffer. */
+    /* Match HwFindAdapter: normal read/write SRBs need mapped data buffers. */
     InitData.MapBuffers = STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE;
     InitData.NeedPhysicalAddresses = TRUE;
     /*
@@ -897,5 +969,7 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
                               STOR_FEATURE_SET_ADAPTER_INTERFACE_TYPE |
                               STOR_FEATURE_FULL_PNP_DEVICE_CAPABILITIES;
 
-    return StorPortInitialize(Argument1, Argument2, &InitData, NULL);
+    HwContext = (Argument1 == NULL && Argument2 == NULL) ?
+                (PVOID)(ULONG_PTR)1 : NULL;
+    return StorPortInitialize(Argument1, Argument2, &InitData, HwContext);
 }

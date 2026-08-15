@@ -1,6 +1,6 @@
 <#
  .SYNOPSIS
-   B2LUFS Faz 1 ARM64 salt-okunur StorPort miniportunu Windows MSVC/WDK ile derler.
+   B2LUFS ARM64 StorPort miniportunu Windows MSVC/WDK ile derler.
 
  .DESCRIPTION
    Kaynak agaci WSL'de olsa bile cmd.exe'nin UNC calisma-dizini sinirina
@@ -145,7 +145,7 @@ try {
     [IO.File]::WriteAllText($BuildCmd, (($BuildLines -join "`r`n") + "`r`n"), [System.Text.Encoding]::ASCII)
 
     Write-Host ''
-    Write-Host '==> B2LUFS Faz 1 derleniyor (yerel Windows MSVC ARM64 + WDK)' -ForegroundColor Cyan
+    Write-Host '==> B2LUFS derleniyor (yerel Windows MSVC ARM64 + WDK)' -ForegroundColor Cyan
     Write-Host "  WDK    : $WdkVersion"
     Write-Host "  vcvars : $($Vcvars.FullName)"
     Write-Host "  kaynak : $SourceDir"

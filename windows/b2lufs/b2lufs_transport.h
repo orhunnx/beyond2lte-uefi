@@ -2,8 +2,8 @@
  * B2LUFS — UFSHCI/UTP transport surface used by the StorPort miniport.
  *
  * This header deliberately describes only one queue slot and logical unit 0.
- * The initial Windows bring-up is read-only: it exposes the existing Android
- * GPT for discovery but never submits a media-mutating SCSI command.
+ * Normal StorPort read/write SCSI requests are transferred to the existing
+ * UFS user LUN; boot and RPMB LUNs remain outside the Windows address space.
  */
 #ifndef B2LUFS_TRANSPORT_H
 #define B2LUFS_TRANSPORT_H
@@ -28,11 +28,10 @@ typedef struct B2LUFS_ADAPTER {
      * A 32-byte, DMA-coherent scratch area used once before BusChange for
      * READ CAPACITY.  The broadly compatible 10-byte form is tried first;
      * the 16-byte form is used only for a device larger than its address
-     * range. The result is diagnostic telemetry only: Windows' own later
-     * READ CAPACITY(10/16) SRBs always follow the normal UFS command path.
-     * It never contains user data and is never written to UFS. The validated
-     * snapshot is also the authoritative reply to disk class's later READ
-     * CAPACITY SRB, mapped with StorPortGetSystemAddress.
+     * range. It never contains user data and is never written to UFS. The
+     * validated result is both diagnostic telemetry and the authoritative
+     * reply to disk class's later READ CAPACITY SRB, mapped with
+     * StorPortGetSystemAddress.
      */
     PVOID CapacityProbeVirtual;
     STOR_PHYSICAL_ADDRESS CapacityProbePhysical;
@@ -92,7 +91,7 @@ typedef struct B2LUFS_ADAPTER {
     ULONG BusScanTimerRequestStatus;
     BOOLEAN DumpMode;
     BOOLEAN AdapterRemoved;
-    /* Read-only CMD telemetry; copied to the StorPort Operational channel. */
+    /* Bounded CMD telemetry; write payloads are never copied to ETW. */
     ULONG TraceSequence;
     ULONG TraceBudget;
     /* PnP/BTL8 lifecycle telemetry; it never contains UFS media data. */
@@ -110,7 +109,7 @@ B2LUfsAllocateTransport(
     _Inout_ B2LUFS_ADAPTER *Adapter,
     _Inout_ PPORT_CONFIGURATION_INFORMATION ConfigInfo);
 
-/* Adopt the live UFS link without reset, UIC/DME commands, or LUN writes. */
+/* Adopt the live UFS link without reset or UIC/DME reinitialization. */
 BOOLEAN
 B2LUfsStartTransport(
     _In_ PVOID DeviceExtension,

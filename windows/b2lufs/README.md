@@ -3,7 +3,7 @@
 Bu klasör `storufs.sys` filtresi değildir. Hedef, `ACPI\\SMSN9820\\0`
 aygıtına bağlanan bir **fiziksel StorPort miniportu**dur.
 
-## Faz 1: salt-okunur LUN 0 / GPT keşfi
+## LUN 0 okuma/yazma ve GPT erişimi
 
 `b2lufs_resources.c`, UEFI `PlatformUfsLib` ile stok Exynos sürücüsünün
 kullandığı altı MMIO penceresini bir StorPort miniportunun kabul edeceği
@@ -21,7 +21,7 @@ kullandığı altı MMIO penceresini bir StorPort miniportunun kabul edeceği
 Kaynaklar dizi sırasına güvenilmeden tabana göre eşleştirilir. Eksik,
 yinelenen, memory olmayan veya kısa bir pencere güvenli biçimde reddedilir.
 
-Faz 1 bu PnP sözleşmesini korur ve yalnız aşağıdaki dar taşıma akışını ekler:
+B2LUFS bu PnP sözleşmesini korur ve aşağıdaki taşıma akışını uygular:
 
 1. StorPort'tan bir adet **uncached/bitişik** DMA alanı alır; 1 KiB hizalı
    tek UTRD ve onun 1 KiB hizalı UCD'sini burada kurar. Her istekte UTRD,
@@ -36,26 +36,29 @@ Faz 1 bu PnP sözleşmesini korur ve yalnız aşağıdaki dar taşıma akışın
    yeniden kurulmaz.
 4. PnP taramasından hemen önce, bitişik DMA tamponunda önce standart
    `READ CAPACITY(10)` cevabını doğrular; yalnız `0xFFFFFFFF` LBA yanıtı
-   verirse `READ CAPACITY(16)`ye geçer. Bu yalnız tanı ön-kontrolüdür:
-   Windows'un her sonraki `READ CAPACITY` SRB'si de doğrudan UFS'e gider;
-   kalan-bayt sayısı Response UPIU'dan alınarak StorPort'a doğru bildirilir.
+   verirse `READ CAPACITY(16)`ye geçer. Bu gerçek UFS cevabı doğrulanıp
+   saklanır; disk sınıfının sonraki kapasite SRB'si
+   `StorPortGetSystemAddress` ile aynı cevaptan tamamlanır. Böylece
+   `Srb->DataBuffer == NULL` olabilen StorPort SRB'lerinde de kapasite kaybolmaz.
 5. Aynı LUN 0 üzerinden bir kez standart `REPORT LUNS` envanterini alır.
    Bu, diğer LUN'ların bloklarını okumaz, hiçbir LUN'u Windows'a eklemez ve
    boot/RPMB LUN'larını StorPort/PnP taramasından uzak tutar. Yanıt, yalnız
    WinPE'nin RAM-backed kayıt defterinde `B2LUFS` tanı alt anahtarına yazılır.
-6. `INQUIRY`, `READ CAPACITY`, `MODE SENSE` ve `READ` sonucunda Windows
-   GPT'yi ve Android bölümlerini okuyabilir. Inbox `storufs` ile aynı disk
+6. `INQUIRY`, `READ CAPACITY`, `MODE SENSE`, `READ` ve `WRITE` istekleri
+   normal UFS SCSI komutlarıdır. Inbox `storufs` ile aynı disk
    yaşam-döngüsü yüzeyi için `START STOP UNIT`, donanım güç/medya durumunu
    değiştirmeyen yerel bir no-op olarak başarıyla tamamlanır ve HCI'ye
-   gönderilmez. Her `DATA_OUT`, WRITE, FORMAT, UNMAP, MODE SELECT,
-   SECURITY OUT ve benzeri mutasyon CDB'si doğrudan
-   `SRB_STATUS_INVALID_REQUEST` ile reddedilir ve HCI'ye ulaşmaz. Boot LUN, RPMB ve
-   diğer bütün LUN'lar `NO_DEVICE` olarak gizlenir.
+   gönderilmez. Açık `DATA_IN`/`DATA_OUT` yönleri doğrudan UTRD/UPIU yönüne
+   çevrilir. Legacy `SRB_FLAGS_UNSPECIFIED_DIRECTION` iki yön bitini birlikte
+   taşıdığından, miniport yönü CDB'den çözer; bu bayrak artık READ CAPACITY
+   veya READ isteğini yanlışlıkla yazma saymaz. Boot LUN, RPMB ve diğer bütün
+   LUN'lar `NO_DEVICE` olarak gizlenir.
 
-Bu nedenle DiskPart'ta görünür olan disk, var olan Android kullanıcı-LUN'ıdır
-ve get-up aşamasında salt-okunurdur. Sürücünün yazdığı tek yer HCI/VS-HCI
-çalışma yazmaçları ile StorPort'un verdiği RAM DMA halkasıdır; UFS medyasına
-yazma yolu yoktur.
+Bu nedenle DiskPart'ta görünür olan disk, var olan Android kullanıcı-LUN'ıdır.
+Sürücü `WRITE(6/10/12/16)`, `UNMAP`, `MODE SELECT`, `WRITE SAME`, güvenlik
+OUT ve açık DATA_OUT komutlarını gerçek UFS aktarımına verir. Bu komutlar
+mevcut Android verisini değiştirebilir; yalnız test/kurulum komutları ayrıca
+salt-okunur tutulmuştur.
 
 ## Mevcut WinPE turu: sahiplenmeden önce HCI anlık görüntüsü
 
@@ -104,8 +107,8 @@ güvenli değildir. Buna rağmen doğrulanacak noktalar doğru sıralamayı veri
    yalnız tamamlanma kodunun okunması. UIC/DME/power-mode veya LUN I/O'su
    bu adımdan önce gelmez.
 
-Faz 1, NOP yerine gerçek ancak salt-okunur SCSI taşımasını kullanır; dolayısıyla
-Windows'un kendi standart SCSI keşfi fiziksel UFS kullanıcı-LUN'ını tarar.
+B2LUFS, NOP yerine gerçek SCSI taşımasını kullanır; Windows'un standart SCSI
+keşfi ve normal blok I/O'su fiziksel UFS kullanıcı-LUN'ına gider.
 
 ## WinPE'de ham okuma izi
 
@@ -120,13 +123,13 @@ RESPONSE UPIU'dan kopyalanan sense baytlarını taşır ve SRB
 ilanını gerçek davranışla eşler; desteklenmeyen isteğe bağlı bir INQUIRY VPD
 sayfası artık taşıma arızası gibi görünmez. Ayrı `BLP1` kayıtları, legacy `SCSI_PNP_REQUEST_BLOCK` üzerinden
 gelen BTL8 PnP/LUN yaşam döngüsü isteğini gösterir; CDB veya UFS medya verisi
-içermez. Bu kayıtların tümü yalnız WinPE olay günlüğüne/RAM'e yazılır; UFS
-LUN'larına yazı yapılmaz.
+içermez. Başarılı DATA_OUT payload'ları ETW örneğine hiçbir zaman kopyalanmaz;
+kayıtların tümü yalnız WinPE olay günlüğüne/RAM'e yazılır.
 
 Bir UFS komutu 50 ms içinde kapı zilini bırakmazsa miniport UFS reseti veya
 iptal yazısı göndermez. İlk SRB `TIMEOUT` ile tamamlanır, yeni komutlar hızlı
 biçimde `NO_DEVICE` döner ve WinPE/PnP akışı ekranda takılı kalmaz. Bu koruma,
-ham okunabilirlik tanısı için önemlidir; UFS medya yazma yolu eklemez.
+tek-slotlu, senkron taşımanın kilitlenmesini önler.
 
 `startnet.cmd` ayrıca `REPORT LUNS` anlık görüntüsünü `Device Parameters\B2LUFS`
 altından basar. `ReportLunsRaw` değeri standart yanıtın tamamıdır: ilk dört
@@ -155,19 +158,23 @@ StorPort örneklerindeki PnP yüzeyi de buna eklenmiştir: eşzamansız ve kilit
 `HwBuildIo` aygıt durumunu değiştirmez; legacy `SRB_FUNCTION_PNP` istekleri
 kilitli `HwStartIo` yolunda tamamlanır. `HwUnitControl`, yalnız
 statik `Path=0, Target=0, Lun=0` için unit-start/remove/surprise-removal
-yaşam döngüsünü ilan eder. Ayrıca Microsoft'un iki parçalı bus-türü
+yaşam döngüsünü ve paging/hibernation/dump kullanım bildirimini ilan eder.
+`ScsiUnitPower` ilan edilmediği için gelen legacy `SRB_FUNCTION_POWER`
+istekleri adres doğrulamasından sonra tamamlanır; gerçek UTRL durdurma ve
+yeniden başlatma StorPort'un ardışık `ScsiStopAdapter`/`ScsiRestartAdapter`
+çağrılarına bırakılır. Ayrıca Microsoft'un iki parçalı bus-türü
 sözleşmesini uygular: `HwFindAdapter` başında
 `StorPortSetFeatureList(StorportFeatureBusTypeUnitControl)` çağrılır,
 `ScsiUnitQueryBusType` destek listesine eklenir ve birim sorgusuna
 `BusTypeUfs` döndürülür. Bu bildirim olmadan StorPort aygıtı varsayılan
-`FIBRE` olarak etiketler. `StorQueryCapabilities` için tam ve salt-okunur
+`FIBRE` olarak etiketler. `StorQueryCapabilities` için tam
 `STOR_DEVICE_CAPABILITIES_EX` cevabı verilir. Böylece StorPort disk PDO'sunu
 normal PnP sözleşmesi ile kurar; PnP isteği UFS'e komut göndermez.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
 `InIoSpace` parametresi için terslenir. Kısmi/uyuşmayan kaynak dizisi hemen
 geri bırakılır. `HwInitialize`, canlı HCE ve boş UTRL scheduler'ını
-doğrulayıp tek DMA slotunu bağlar; uzun sürebilen salt-okunur kapasite/LUN
+doğrulayıp tek DMA slotunu bağlar; başlangıç kapasite/LUN
 probları `PASSIVE_LEVEL` callback'ine bırakılır. Microsoft'un
 [StorPort yaşam döngüsü](https://learn.microsoft.com/en-us/windows-hardware/drivers/storage/life-cycle-of-a-storport-driver)
 `HwFindAdapter -> HwInitialize -> HwAdapterControl(QuerySupported) -> I/O`
@@ -214,29 +221,30 @@ arayüzünü seçtirtir. Bu ayrım önemlidir; Microsoft `Internal`ı sanal
 miniportun işareti olarak tanımlar. Kaynak sayısı, MMIO eşlemesi veya kaynak
 sözleşmesi reddedilirse sürücü `Microsoft-Windows-Storage-Storport/Operational`
 kanalına `B2LUFS HwFindAdapter resource contract failure` ETW kaydı bırakır.
-`startnet.cmd` yalnız bu kayıtları otomatik ekrana basar. Faz 1'de PnP
+`startnet.cmd` yalnız bu kayıtları otomatik ekrana basar. PnP
 kurulumundan sonraki ikinci DiskPart betiği `list disk`, `detail disk` ve
 `list partition` çalıştırır; bunların tümü salt-okunurdur.
 
-## Faz 1 WinPE kabul ölçütü
+## WinPE kabul ölçütü
 
 `startnet.cmd` önce sürücü kurulmadan önceki DiskPart sonucunu, ardından
 `pnputil /add-driver`, yeniden tarama ve **kurulum sonrası** ikinci DiskPart
 sonucunu gösterir. Fotoğrafta şu üç kanıt birlikte aranır:
 
-1. `B2LUFS Faz 1: salt-okunur LUN 0 miniportunu PnP'ye ekle` altında INF'nin eklendiği ve
+1. `B2LUFS: LUN 0 okuma/yazma miniportunu PnP'ye ekle` altında INF'nin eklendiği ve
    yeniden taramanın tamamlandığı görülür.
 2. `UFS0: CID, eslesen surucu ve stack` ile `SCSIAdapter` çıktılarında
    `ACPI\SMSN9820\0` için `Beyond2LTE Exynos 9820 UFS Host Controller`,
    `b2lufs.inf` ve `Started` yer alır. INF'nin eşleşmesi `ACPI\BYND9820`
    compatible ID'si üzerinden olur; instance ID'nin `SMSN9820` kalması
    normaldir.
-3. İkinci DiskPart bloğu `Disk 0`ı göstermeli, ardından `detail disk` ile
+3. İkinci DiskPart bloğu `Disk 0`ı yaklaşık 119 GiB göstermeli, ardından `detail disk` ile
    `list partition` Android kullanıcı-LUN'ındaki GPT bölümlerini listelemelidir.
    `X:` yalnız WinPE RAM diskidir.
 
 StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
-ve `BLT1`, ardından normal `BLS1` INQUIRY/READ CAPACITY kayıtları beklenir.
+ve `BLT1`, ardından `BLC1 Outcome=5`, normal `BLS1` INQUIRY/READ CAPACITY
+kayıtları beklenir.
 `BLT1` var fakat `BLS1` yoksa timer/adapter yaşam döngüsü tamamlanmış olmasına
 rağmen StorPort tarama üretmemiştir; `BLT1` de yoksa sorun timer'ın
 planlanmasından önceki miniport başlatma aşamasındadır.
@@ -295,7 +303,7 @@ kapısından geçmiş son artefakt değildir; UFS donanım sonucu olarak yorumla
 Ölçülen ilk HCI durumu: `CAP=1303FF1F`, `VER=00000300`, `HCE=1`,
 `1US_TO_CNT=000000A6`. CAP alanında NUTRS `[4:0]` ve NUTMRS `[18:16]`
 sırasıyla `31` ve `3` olduğundan denetleyici 32 UTR + 4 UTMR kapasitelidir;
-bit 24 de 64-bit adreslemeyi bildirir. Faz 1 bu kapasitenin yalnız bir UTR
+bit 24 de 64-bit adreslemeyi bildirir. B2LUFS bu kapasitenin yalnız bir UTR
 yuvasını kullanır; StorPort bu yüzden tek SRB'ye sınırlandırılır. Sürücü,
 fiziksel sayfa sınırını geçebilen bir isteği en çok 32 adet 4 KiB PRDT girişine
 böler; bitişik fiziksel RAM varsaymaz ve tek okuma için üst sınır 128 KiB'dir.
@@ -308,14 +316,16 @@ clang -std=c11 -Wall -Wextra -Werror \
   -o /tmp/b2lufs-resources-test && /tmp/b2lufs-resources-test
 ```
 
-## Sonraki iki değişiklik
+## Sonraki doğrulamalar
 
-1. İlk salt-okunur GPT/LUN 0 keşfini DiskPart fotoğrafıyla doğrula.
+1. DiskPart'ta yaklaşık 119 GiB kapasiteyi ve GPT bölümlerini doğrula; ardından
+   yalnız geri alınabilir bir test alanında okuma/yazma/geri-okuma deneyi yap.
 2. UEFI'den Exynos başlatması ancak HCE/link devralması kesin olarak
    başarısız olursa ele alınır: VCC/PHY isolation, IO coherency,
    `1US_TO_CNT=166`, saat/refclk/clock-gating, CAL pre-link, standart
    `DME_LINKSTARTUP`, CAL post-link. UTRD/UPIU/SCSI bundan sonra gelir.
 
-Bu sıra veri güvenliği içindir: eksik miniport hiçbir UFS yazma isteği kabul etmez.
+Yazma yolu artık açıktır; testten önce stok firmware ve gerekli kullanıcı
+verisi yedekleri erişilebilir tutulmalıdır.
 Test imza zinciri mevcut `windows/b2lfb/b2l-test.pem` üzerinden korunur;
 üretim imzası bu get-up aşamasının kapsamı dışındadır.
