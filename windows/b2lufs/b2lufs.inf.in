@@ -10,7 +10,7 @@ Class=SCSIAdapter
 ClassGuid={4d36e97b-e325-11ce-bfc1-08002be10318}
 Provider=%B2L%
 CatalogFile=b2lufs.cat
-DriverVer=08/15/2026,0.0.3.3
+DriverVer=08/15/2026,0.0.3.4
 
 [DestinationDirs]
 DefaultDestDir = 12

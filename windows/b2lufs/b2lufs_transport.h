@@ -16,16 +16,18 @@
 
 /*
  * Microsoft'in StorAHCI ornegindeki gibi, StorPort'un HwBuildIo sirasinda
- * hazirladigi DMA scatter/gather listesini istege ozel SrbExtension'da tut.
- * HwBuildIo eszamansiz olabilir; bu nedenle bu bilgi adapter extension'a
- * yazilmaz. Liste SRB tamamlanana kadar StorPort'a aittir.
+ * hazirladigi istege ozel adresleri SrbExtension'da tut. Sistem adresi ortak
+ * DMA bounce kopyasi icin, scatter/gather listesi ise tani icin kullanilir.
+ * HwBuildIo eszamansiz olabilir; bu nedenle bunlar adapter extension'a
+ * yazilmaz ve yalniz SRB tamamlanana kadar gecerlidir.
  */
 typedef struct B2LUFS_SRB_EXTENSION {
     ULONG Signature;
     ULONG OriginalTransferLength;
     ULONG ScatterGatherElements;
-    ULONG Reserved;
+    ULONG SystemAddressStatus;
     PSTOR_SCATTER_GATHER_LIST ScatterGather;
+    PVOID SystemAddress;
 } B2LUFS_SRB_EXTENSION, *PB2LUFS_SRB_EXTENSION;
 
 typedef struct B2LUFS_ADAPTER {
@@ -75,6 +77,15 @@ typedef struct B2LUFS_ADAPTER {
     ULONG LunReportResult;
     UCHAR LunReportScsiStatus;
     BOOLEAN LunReportValid;
+
+    /*
+     * Serialized normal I/O uses one StorPort common DMA bounce buffer.
+     * The firmware-proven contiguous path is used for both reads and writes;
+     * CPU copies connect it to the current SRB's system virtual address.
+     */
+    PVOID IoBounceVirtual;
+    STOR_PHYSICAL_ADDRESS IoBouncePhysical;
+    ULONG IoBounceLength;
 
     ULONG ControllerCapabilities;
     /* Live HCI state captured before B2LUFS borrows the firmware link. */

@@ -12,6 +12,11 @@ set "DPPOSTSCRIPT=%SystemDrive%\B2LDISK-POST.TXT"
 set "UFSBOOTREPORT=%SystemRoot%\B2LUFS.TXT"
 set "B2LUFSDIR=%SystemRoot%\B2LUFS"
 set "B2LUFSETW=%SystemRoot%\B2LUFS-ETW.TXT"
+set "B2LCACHEPROBE=%SystemDrive%\B2LCACHE-PROBE.TXT"
+set "B2LCACHEEXPOSE=%SystemDrive%\B2LCACHE-EXPOSE.TXT"
+set "B2LCACHEVOLUMES=%SystemDrive%\B2LCACHE-VOLUMES.TXT"
+set "B2LCACHEMOUNT=%SystemDrive%\B2LCACHE-MOUNT.TXT"
+set "B2LCACHEVOLREPORT=%SystemDrive%\B2LCACHE-VOL.TXT"
 
 echo.
 echo === Beyond2LTE WinPE: otomatik tani ===
@@ -63,6 +68,10 @@ echo Beklenen: Disk 0 yaklasik 119 GiB ve GPT bolumleri gorunur; bu tani betigi 
 echo.
 echo [B2LUFS: UFS'ten donen ilk okuma/sense baytlari]
 call :B2LUfsTransportLog
+
+echo.
+echo [CACHE: Windows basic-data turu, W: baglama ve gercek yaz/geri-oku testi]
+call :B2LUfsMountCache
 
 echo.
 echo [PnP: klavye/fare/USB/ag]
@@ -185,14 +194,94 @@ echo Not: "B2LUFS HwFindAdapter resource contract failure" gorunurse altindaki i
 echo Not: "B2LUFS deferred bus scan timer fired" BLT1 kaydi, gecikmeli bus taramasinin gercekten basladigini kanitlar.
 exit /b 0
 
+:B2LUfsMountCache
+rem beyond2lte stok GPT haritasinda CACHE, disk 0 / partition 28 ve tam
+rem 600 MiB'dir. Yanlis diske yazmamak icin hem indeks hem boyut ekranda
+rem dogrulanmadan GPT turu veya dosya sistemi degistirilmez.
+> "%B2LCACHEPROBE%" (
+  echo select disk 0
+  echo list partition
+  echo select partition 28
+  echo detail partition
+)
+diskpart /s "%B2LCACHEPROBE%" > "%B2LCACHEPROBE%.OUT" 2>&1
+type "%B2LCACHEPROBE%.OUT"
+findstr /i /c:"Partition 28" "%B2LCACHEPROBE%.OUT" >nul 2>&1
+if errorlevel 1 (
+  echo CACHE guvenlik kapisi: Partition 28 yok; GPT'ye yazilmadi.
+  exit /b 1
+)
+findstr /i /c:"600 MB" "%B2LCACHEPROBE%.OUT" >nul 2>&1
+if errorlevel 1 (
+  echo CACHE guvenlik kapisi: 600 MB boyut kaniti yok; GPT'ye yazilmadi.
+  exit /b 1
+)
+
+rem Samsung'un ozel Android CACHE type GUID'i Windows'ta basic-data volume
+rem olarak acilmaz. Yalniz type GUID ve GPT attribute alanini degistir;
+rem bolum sinirlari ile Odin'in yazdigi FAT32 icerigine dokunma.
+> "%B2LCACHEEXPOSE%" (
+  echo select disk 0
+  echo select partition 28
+  echo set id=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 override
+  echo gpt attributes=0x0000000000000000
+  echo rescan
+  echo list volume
+)
+diskpart /s "%B2LCACHEEXPOSE%"
+
+> "%B2LCACHEVOLUMES%" echo list volume
+diskpart /s "%B2LCACHEVOLUMES%" > "%B2LCACHEVOLUMES%.OUT" 2>&1
+type "%B2LCACHEVOLUMES%.OUT"
+set "B2LCACHEVOL="
+for /f "tokens=2" %%V in ('findstr /i /c:"CACHE" "%B2LCACHEVOLUMES%.OUT"') do set "B2LCACHEVOL=%%V"
+if not defined B2LCACHEVOL (
+  echo CACHE FAT32 volume etiketi bulunamadi; surucu harfi atanmadi.
+  exit /b 1
+)
+
+> "%B2LCACHEMOUNT%" (
+  echo select volume %B2LCACHEVOL%
+  echo attributes volume clear readonly
+  echo attributes volume clear hidden
+  echo assign letter=W noerr
+  echo detail volume
+)
+diskpart /s "%B2LCACHEMOUNT%"
+if not exist W:\NUL (
+  echo CACHE volume bulundu fakat W: olarak baglanamadi.
+  exit /b 1
+)
+vol W: > "%B2LCACHEVOLREPORT%" 2>&1
+type "%B2LCACHEVOLREPORT%"
+findstr /i /c:"CACHE" "%B2LCACHEVOLREPORT%" >nul 2>&1
+if errorlevel 1 (
+  echo W: etiketi CACHE degil; yazma testi guvenlik nedeniyle atlandi.
+  exit /b 1
+)
+
+> W:\B2LUFS-WRITE-OK.TXT echo B2LUFS CACHE WRITE OK
+if errorlevel 1 (
+  echo CACHE yazma basarisiz.
+  exit /b 1
+)
+type W:\B2LUFS-WRITE-OK.TXT
+findstr /x /c:"B2LUFS CACHE WRITE OK" W:\B2LUFS-WRITE-OK.TXT >nul 2>&1
+if errorlevel 1 (
+  echo CACHE geri-okuma dogrulamasi basarisiz.
+  exit /b 1
+)
+echo CACHE basarili: W:\B2LUFS-WRITE-OK.TXT yazildi ve geri okundu.
+exit /b 0
+
 :B2LUfsTransportLog
 if not exist "%SystemRoot%\System32\wevtutil.exe" (
   echo wevtutil yok; B2LUFS UFS okuma kaydi gosterilemiyor.
   exit /b 0
 )
 echo B2LUFS SRB ve PnP/LUN yasam-dongusu kayitlarinin TAMAMI okunuyor:
-echo Her "BLS2" ikili kaydi original/returned length, SGL/PRDT sayisi ve ilk fiziksel parcayi; son 64 baytta yalniz okuma/sense verisini tasir. Yazma payload'i kaydedilmez.
-echo PrdtBuildStatus: 0=denenmedi, 1=basarili, 2=SGL yok, 3=PRDT dolu, 4=SGL kisa, 5=gecersiz adres/uzunluk.
+echo Her "BLS2" ikili kaydi original/returned length, tani SGL sayisi ve ortak-DMA PRDT bilgisini; son 64 baytta yalniz okuma/sense verisini tasir. Yazma payload'i kaydedilmez.
+echo PrdtBuildStatus: 0=denenmedi, 1=basarili, 2=DMA eslemesi yok, 3=PRDT dolu, 4=esleme kisa, 5=gecersiz adres/uzunluk.
 echo CDB=12 INQUIRY, 1B START_STOP(no-op), 25 READ_CAPACITY, 28/88 READ, 2A/8A WRITE.
 echo Result=0 ve SCSI=0 basaridir; CHECK CONDITION kaydinin ornegi UFS sense baytlaridir.
 echo "BLC3" kapasite kaydi: Outcome=5, MapStatus=0, MapSource=1, CompletionPhase=1 ^(HwBuildIo^) ve ReturnedLength=8 beklenir.

@@ -698,19 +698,30 @@ B2LUfsBuildIo(_In_ PVOID DeviceExtension, _In_ PSCSI_REQUEST_BLOCK Srb)
     PB2LUFS_SRB_EXTENSION SrbExtension;
 
     /*
-     * StorPort, DMA SGL'yi HwBuildIo'dan once hazirlar. Microsoft'un
-     * StorAHCI ornegi gibi bu istege ozel pointer'i SrbExtension'a al;
-     * HwStartIo daha sonra yalniz bu hazirlanmis listeyi tuketsin.
+     * StorPort, mapped sistem adresini ve DMA SGL'yi HwBuildIo'dan once
+     * hazirlar. Bunlari Microsoft'un StorAHCI ornegindeki gibi istege ozel
+     * SrbExtension'da sakla: StartIo sistem adresini ortak-DMA bounce kopyasi
+     * icin, SGL bilgisini ise yalniz tani kaydi icin tuketir.
      */
     SrbExtension = (PB2LUFS_SRB_EXTENSION)Srb->SrbExtension;
     if (SrbExtension != NULL) {
         SrbExtension->Signature = B2LUFS_SRB_EXTENSION_SIGNATURE;
         SrbExtension->OriginalTransferLength = Srb->DataTransferLength;
         SrbExtension->ScatterGatherElements = 0;
-        SrbExtension->Reserved = 0;
+        SrbExtension->SystemAddressStatus = STOR_STATUS_INVALID_PARAMETER;
         SrbExtension->ScatterGather = NULL;
+        SrbExtension->SystemAddress = NULL;
         if (Srb->Function == SRB_FUNCTION_EXECUTE_SCSI &&
             Srb->DataTransferLength != 0) {
+            if (Srb->DataBuffer != NULL) {
+                SrbExtension->SystemAddress = Srb->DataBuffer;
+                SrbExtension->SystemAddressStatus = STOR_STATUS_SUCCESS;
+            } else {
+                SrbExtension->SystemAddressStatus = StorPortGetSystemAddress(
+                    DeviceExtension,
+                    Srb,
+                    &SrbExtension->SystemAddress);
+            }
             SrbExtension->ScatterGather =
                 StorPortGetScatterGatherList(DeviceExtension, Srb);
             if (SrbExtension->ScatterGather != NULL) {
@@ -990,8 +1001,12 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
     InitData.DeviceExtensionSize = sizeof(B2LUFS_ADAPTER);
     InitData.SrbExtensionSize = sizeof(B2LUFS_SRB_EXTENSION);
     InitData.NumberOfAccessRanges = B2LUFS_RESOURCE_COUNT;
-    /* Match StorAHCI: software CDBs are mapped; read/write uses StorPort SGLs. */
-    InitData.MapBuffers = STOR_MAP_NON_READ_WRITE_BUFFERS;
+    /*
+     * The serialized Exynos path copies every data phase through one
+     * StorPort common DMA buffer, so normal READ/WRITE SRBs need a system
+     * virtual address as well as their diagnostic SGL.
+     */
+    InitData.MapBuffers = STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE;
     InitData.NeedPhysicalAddresses = TRUE;
     /*
      * StorPort fiziksel miniport sözleşmesi bu iki yeteneği zorunlu tutar.

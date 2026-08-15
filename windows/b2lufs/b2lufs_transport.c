@@ -42,7 +42,11 @@
 #define B2LUFS_UCD_BYTES \
     (B2LUFS_PRDT_OFFSET_BYTES + \
      (B2LUFS_MAX_PRDT_ENTRIES * B2LUFS_PRDT_ENTRY_BYTES))
-#define B2LUFS_COMMON_BUFFER_BYTES         6144UL
+#define B2LUFS_IO_BOUNCE_ALIGNMENT         4096UL
+#define B2LUFS_COMMON_BUFFER_BYTES \
+    ((2UL * B2LUFS_UTRD_ALIGNMENT) + B2LUFS_UCD_BYTES + \
+     B2LUFS_CAPACITY_16_BYTES + B2LUFS_REPORT_LUNS_BYTES + \
+     B2LUFS_IO_BOUNCE_ALIGNMENT + B2LUFS_MAX_TRANSFER)
 #define B2LUFS_CAPACITY_10_BYTES              8UL
 #define B2LUFS_CAPACITY_16_BYTES             32UL
 #define B2LUFS_REPORT_LUNS_BYTES             256UL
@@ -877,11 +881,11 @@ B2LUfsAllocateTransport(
     /* UFSHCI PRDT byte counts are DWORD granular. */
     ConfigInfo->AlignmentMask = FILE_LONG_ALIGNMENT;
     /*
-     * Match Microsoft's StorAHCI and LSI miniports: map non-read/write CDB
-     * buffers (including READ CAPACITY), while normal block I/O is described
-     * exclusively by StorPortGetScatterGatherList and the UFS PRDT.
+     * Normal I/O is serialized through one common DMA bounce buffer. Ask
+     * StorPort for a system virtual address for READ/WRITE as well; if low
+     * memory still leaves DataBuffer NULL, StorPortGetSystemAddress is used.
      */
-    ConfigInfo->MapBuffers = STOR_MAP_NON_READ_WRITE_BUFFERS;
+    ConfigInfo->MapBuffers = STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE;
     /* CAP[24] reports full 64-bit UFSHCI DMA addressing. */
     ConfigInfo->Dma64BitAddresses =
         SCSI_DMA64_MINIPORT_FULL64BIT_NO_BOUNDARY_REQ_SUPPORTED;
@@ -932,7 +936,8 @@ B2LUfsAllocateTransport(
         NULL,
         Adapter->CommonBuffer,
         &Length);
-    if (Adapter->CommonPhysical.QuadPart == 0) {
+    if (Adapter->CommonPhysical.QuadPart == 0 ||
+        Length < B2LUFS_COMMON_BUFFER_BYTES) {
         return FALSE;
     }
 
@@ -947,7 +952,8 @@ B2LUfsAllocateTransport(
         B2LUFS_UTRD_ALIGNMENT);
     if (Offset + B2LUFS_UTRD_ALIGNMENT +
         B2LUFS_UCD_BYTES +
-        B2LUFS_CAPACITY_16_BYTES + B2LUFS_REPORT_LUNS_BYTES >
+        B2LUFS_CAPACITY_16_BYTES + B2LUFS_REPORT_LUNS_BYTES +
+        B2LUFS_IO_BOUNCE_ALIGNMENT + B2LUFS_MAX_TRANSFER >
         B2LUFS_COMMON_BUFFER_BYTES) {
         return FALSE;
     }
@@ -967,6 +973,14 @@ B2LUfsAllocateTransport(
     Adapter->LunReportPhysical.QuadPart = Adapter->CapacityProbePhysical.QuadPart +
         B2LUFS_CAPACITY_16_BYTES;
     Adapter->LunReportLength = B2LUFS_REPORT_LUNS_BYTES;
+    Offset = B2LUfsAlignOffset(
+        Adapter->LunReportPhysical.QuadPart + Adapter->LunReportLength,
+        B2LUFS_IO_BOUNCE_ALIGNMENT);
+    Adapter->IoBounceVirtual = (PUCHAR)Adapter->LunReportVirtual +
+        Adapter->LunReportLength + Offset;
+    Adapter->IoBouncePhysical.QuadPart =
+        Adapter->LunReportPhysical.QuadPart + Adapter->LunReportLength + Offset;
+    Adapter->IoBounceLength = B2LUFS_MAX_TRANSFER;
 
     B2LUfsZeroMemory(Adapter->UtrdVirtual, B2LUFS_UTRD_ALIGNMENT);
     B2LUfsZeroMemory(
@@ -975,14 +989,15 @@ B2LUfsAllocateTransport(
     B2LUfsZeroMemory(
         Adapter->CapacityProbeVirtual,
         B2LUFS_CAPACITY_16_BYTES + B2LUFS_REPORT_LUNS_BYTES);
+    B2LUfsZeroMemory(Adapter->IoBounceVirtual, Adapter->IoBounceLength);
     return TRUE;
 }
 
 /*
- * Build normal read and write SRBs from StorPort's scatter/gather list. This is
- * independent of Srb->DataBuffer, which STOR_MAP_NON_READ_WRITE_BUFFERS does
- * not map for block I/O. The two pre-PnP probes have no SRB and use their
- * known contiguous common-buffer addresses.
+ * Build the PRDT for one of the three StorPort common-DMA areas. Normal SRBs
+ * use IoBounceVirtual; the two pre-PnP probes use their smaller dedicated
+ * ranges. The SGL fallback remains diagnostic-only and is never selected by
+ * the serialized normal-I/O path.
  */
 static BOOLEAN
 B2LUfsBuildPrdt(
@@ -1030,6 +1045,13 @@ B2LUfsBuildPrdt(
         }
         Physical = Adapter->LunReportPhysical;
         PhysicalLength = Adapter->LunReportLength;
+        CommonBuffer = TRUE;
+    } else if (DataBuffer == Adapter->IoBounceVirtual) {
+        if (RequestedLength > Adapter->IoBounceLength) {
+            return FALSE;
+        }
+        Physical = Adapter->IoBouncePhysical;
+        PhysicalLength = Adapter->IoBounceLength;
         CommonBuffer = TRUE;
     }
 
@@ -1781,8 +1803,8 @@ B2LUfsCacheCapacityFromSrb(
  * Microsoft's StorAHCI sample generates fixed-media capacity data in
  * HwBuildIo and completes the SRB there. Do the same: this is a software
  * response, not a DMA request that should be queued to HwStartIo. With
- * STOR_MAP_NON_READ_WRITE_BUFFERS, READ CAPACITY is one of the requests for
- * which StorPort supplies Srb->DataBuffer as a system virtual address.
+ * STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE makes Srb->DataBuffer a system
+ * virtual address; StorPortGetSystemAddress remains the low-memory fallback.
  */
 BOOLEAN
 B2LUfsTryCompleteCachedCapacity(
@@ -1920,6 +1942,12 @@ B2LUfsExecuteScsi(
 {
     B2LUFS_TRANSFER_RESULT Result;
     B2LUFS_DATA_DIRECTION DataDirection;
+    PB2LUFS_SRB_EXTENSION SrbExtension;
+    PVOID SystemAddress;
+    PVOID TransportBuffer;
+    ULONG RequestedLength;
+    ULONG ReturnedLength;
+    ULONG MapStatus;
     BOOLEAN ResetOk;
 
     /* Lifecycle requests are serialized here after unsynchronized BuildIo. */
@@ -2053,6 +2081,51 @@ B2LUfsExecuteScsi(
      * ScsiPortIoMapTransfer, neither of which applies to this StorPort HBA.
      */
 
+    RequestedLength = Srb->DataTransferLength;
+    ReturnedLength = 0;
+    SystemAddress = NULL;
+    TransportBuffer = NULL;
+    SrbExtension = (PB2LUFS_SRB_EXTENSION)Srb->SrbExtension;
+    MapStatus = STOR_STATUS_INVALID_PARAMETER;
+    if (RequestedLength != 0) {
+        if (SrbExtension != NULL &&
+            SrbExtension->Signature == B2LUFS_SRB_EXTENSION_SIGNATURE &&
+            SrbExtension->SystemAddressStatus == STOR_STATUS_SUCCESS) {
+            SystemAddress = SrbExtension->SystemAddress;
+            MapStatus = STOR_STATUS_SUCCESS;
+        } else if (Srb->DataBuffer != NULL) {
+            SystemAddress = Srb->DataBuffer;
+            MapStatus = STOR_STATUS_SUCCESS;
+        } else {
+            MapStatus = StorPortGetSystemAddress(
+                DeviceExtension, Srb, &SystemAddress);
+        }
+
+        if (MapStatus != STOR_STATUS_SUCCESS || SystemAddress == NULL ||
+            Adapter->IoBounceVirtual == NULL ||
+            RequestedLength > Adapter->IoBounceLength) {
+            Srb->DataTransferLength = 0;
+            B2LUfsLogScsiTrace(
+                DeviceExtension,
+                Adapter,
+                Srb,
+                B2LUfsTransferBadDma,
+                SRB_STATUS_ERROR);
+            B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_ERROR);
+            return;
+        }
+
+        TransportBuffer = Adapter->IoBounceVirtual;
+        if (DataDirection == B2LUfsDataOut) {
+            B2LUfsCopyMemory(
+                TransportBuffer, SystemAddress, RequestedLength);
+            KeMemoryBarrier();
+        } else {
+            /* Prevent stale bytes from masquerading as a short device read. */
+            B2LUfsZeroMemory(TransportBuffer, RequestedLength);
+        }
+    }
+
     Result = B2LUfsSubmitScsi(
         DeviceExtension,
         Adapter,
@@ -2060,10 +2133,18 @@ B2LUfsExecuteScsi(
         Srb->Cdb,
         Srb->CdbLength,
         DataDirection,
-        Srb->DataBuffer,
-        Srb->DataTransferLength,
+        TransportBuffer,
+        RequestedLength,
         &Srb->ScsiStatus,
-        &Srb->DataTransferLength);
+        &ReturnedLength);
+    Srb->DataTransferLength = ReturnedLength;
+    if (Result == B2LUfsTransferOk &&
+        Srb->ScsiStatus == B2LUFS_SCSI_STATUS_GOOD &&
+        DataDirection == B2LUfsDataIn && ReturnedLength != 0) {
+        KeMemoryBarrier();
+        B2LUfsCopyMemory(SystemAddress, TransportBuffer, ReturnedLength);
+        KeMemoryBarrier();
+    }
     switch (Result) {
     case B2LUfsTransferOk:
         if (Srb->ScsiStatus == B2LUFS_SCSI_STATUS_GOOD) {

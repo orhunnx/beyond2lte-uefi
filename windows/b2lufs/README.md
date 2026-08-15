@@ -42,8 +42,11 @@ B2LUFS bu PnP sözleşmesini korur ve aşağıdaki taşıma akışını uygular:
    aynı yaşam döngüsünde, `HwBuildIo` içindeki mapped `Srb->DataBuffer`
    adresine yazılıp tamamlanır; callback `FALSE` döndürdüğü için yazılımsal
    cevap sahte bir donanım DMA isteği olarak `HwStartIo`ya girmez. Normal
-   READ/WRITE tamponları ise yalnız StorPort scatter/gather listesiyle PRDT'ye
-   çevrilir (`STOR_MAP_NON_READ_WRITE_BUFFERS`).
+   READ/WRITE tamponları sistem adresine çevrilir; tek-slotlu/senkron miniport,
+   Windows tamponu ile 128 KiB'lik StorPort uncached ortak DMA tamponu arasında
+   CPU kopyası yapar ve UFS PRDT'sini bu doğrulanmış bitişik alana yöneltir
+   (`STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE`). Böylece kapasite probunda
+   çalışan ortak-DMA sözleşmesi GPT READ ve CACHE WRITE için de aynıdır.
 5. Aynı LUN 0 üzerinden bir kez standart `REPORT LUNS` envanterini alır.
    Bu, diğer LUN'ların bloklarını okumaz, hiçbir LUN'u Windows'a eklemez ve
    boot/RPMB LUN'larını StorPort/PnP taramasından uzak tutar. Yanıt, yalnız
@@ -120,7 +123,7 @@ keşfi ve normal blok I/O'su fiziksel UFS kullanıcı-LUN'ına gider.
 değildir. Bunun yerine miniport, bütün SCSI SRB'leri için StorPort Operational
 ETW kanalına bir `BLS2` ikili tanı kaydı bırakır. Kayıt özgün/dönen aktarım
 uzunluğunu, SGL/PRDT girdi sayılarını ve ilk fiziksel parçayı da taşır.
-`PrdtBuildStatus` alanı `0=denenmedi`, `1=başarılı`, `2=SGL yok`,
+`PrdtBuildStatus` alanı `0=denenmedi`, `1=başarılı`, `2=DMA eşlemesi yok`,
 `3=PRDT dolu`, `4=SGL kısa`, `5=geçersiz adres/uzunluk` olarak yorumlanır.
 `startnet.cmd`, ikinci
 DiskPart taramasından hemen sonra bu kayıtları CMD'de gösterir. Kaydın son 64
@@ -154,10 +157,11 @@ ise `Path=0, Target=0, Lun=0` BTL8 yolunu seçer. Bu ikisi, `HwStartIo`nun
 okuduğu alanlarla aynıdır ve StorPort'un LUN 0 için disk PDO'su
 numaralandırabilmesinin önkoşuludur. Fiziksel StorPort miniportlarının
 zorunlu `TaggedQueuing` ve `MultipleRequestPerLu` yetenekleri açık tutulur.
-`NumberOfPhysicalBreaks=32`, 32 girişli PRDT'nin tamamını StorPort'a bildirir.
-Microsoft StorAHCI örneğindeki gibi, `HwBuildIo` sırasında hazır olan DMA SGL
-pointer'ı isteğe özel `SrbExtension` içine alınır ve kilitli `HwStartIo`
-yolunda tüketilir. Exynos vendor yazmacındaki `PRDT_ENTRY_SIZE=12`, aktarım
+`NumberOfPhysicalBreaks=32`, donanımın PRDT sınırını StorPort'a bildirir.
+Microsoft StorAHCI örneğindeki gibi, `HwBuildIo` sırasında hazır olan sistem
+adresi ve tanı amaçlı DMA SGL pointer'ı isteğe özel `SrbExtension` içine
+alınır. Kilitli `HwStartIo` normal aktarımı ortak DMA bounce tamponuyla yapar.
+Exynos vendor yazmacındaki `PRDT_ENTRY_SIZE=12`, aktarım
 girdisini 4 KiB ile sınırlamaz; Linux UFS çekirdeği de bu yazmacı 12 yaparken
 her DMA SGL girdisini doğrudan UFSHCI PRDT girdisine eşler ve standart
 256 KiB DBC üst sınırını kullanır. B2LUFS'in istek üst sınırı bring-up için
@@ -217,18 +221,20 @@ hazırlanır; güncel DDI'nin “miniport must not modify” kuralına göre
 `ResetTargetSupported` alanı da Microsoft tarafından obsolete ilan edildiği
 için kullanılmaz; çok katmanlı reset desteği gerçek reset SRB'leri ve
 `HwResetBus` callback'iyle sağlanır.
-Normal SRB veri yolu `Srb->DataBuffer` sanal eşlemesine bağımlı değildir;
-PRDT doğrudan `StorPortGetScatterGatherList` tarafından verilen, SRB
-tamamlanana kadar geçerli fiziksel listeden kurulur. Böylece Microsoft'un
-belirttiği düşük bellek durumunda `DataBuffer == NULL` olsa da disk okuması
-fiziksel SG listesi üzerinden ilerleyebilir.
+Normal SRB veri yolu `HwBuildIo`da `Srb->DataBuffer` veya
+`StorPortGetSystemAddress` ile elde edilen sistem sanal adresini isteğe özel
+extension'da saklar. Kilitli `HwStartIo`, WRITE payload'ını önce uncached ortak
+DMA tamponuna; başarılı READ sonucunu da bu tampondan Windows adresine
+kopyalar. Doğrudan Windows sayfalarına DMA yapılmadığı için kapasite probunda
+çalıştığı kanıtlanmış fiziksel yol GPT ve dosya sistemi I/O'sunda da kullanılır.
 Ön taramadaki gerçek UFS `READ CAPACITY` cevabı doğrulandıktan sonra disk
 sınıfının aynı kapasite sorgusu bu değişmez anlık görüntüden tamamlanır.
-`STOR_MAP_NON_READ_WRITE_BUFFERS` hem başlangıç hem adapter yapılandırmasında
-ilan edilir. Bu nedenle READ CAPACITY'nin `Srb->DataBuffer` alanı sistem sanal
-adresidir; yazılımsal cevap Microsoft StorAHCI ile aynı biçimde `HwBuildIo`da
-yazılıp tamamlanır. Normal READ/WRITE için bu alanın NULL olması beklenir ve
-PRDT yalnız StorPort SGL'sinden kurulur. Bu yol kapasite uydurmaz: `last-LBA`
+`STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE` hem başlangıç hem adapter
+yapılandırmasında ilan edilir. READ CAPACITY'nin `Srb->DataBuffer` alanı sistem
+sanal adresidir; yazılımsal cevap Microsoft StorAHCI ile aynı biçimde
+`HwBuildIo`da yazılıp tamamlanır. Normal READ/WRITE için eşleme düşük bellek
+nedeniyle NULL gelirse `StorPortGetSystemAddress` denenir; bu da başarısızsa
+SRB medyaya dokunmadan hatayla tamamlanır. Bu yol kapasite uydurmaz: `last-LBA`
 ve 4096 bayt blok değeri aynı açılışta UFS'den gelen doğrulanmış cevaptır.
 Kesme sahipliği alınmaz; tamamlanma kapı zili poll edilir. Miniport fiziksel
 bir ACPI HBA olduğu için `Internal` arayüz türünü
@@ -317,6 +323,12 @@ okuyarak doğrular; uyuşmazsa sparse `system.img` üretmez. WinPE'de
 `cache_esp.sh --win --bos`, CACHE'i WinPE içinden formatlamaz; Odin'in
 flaşlayacağı tam 600 MiB `cache.img` dosyasını boş FAT32, 4096 bayt sektör ve
 4096 bayt küme ile üretir.
+GPT görünür olduktan sonra `startnet.cmd`, stok beyond2lte haritasındaki
+`Disk 0 / Partition 28 / 600 MB` üçlüsünü salt-okunur çıktıda doğrular. Ancak
+bu güvenlik kapısından sonra Samsung'un özel CACHE type GUID'ini Microsoft
+Basic Data GUID'ine çevirir, GPT attribute alanını temizler, `CACHE` etiketli
+FAT32 volume'u `W:` olarak bağlar ve `W:\B2LUFS-WRITE-OK.TXT` dosyasını yazıp
+geri okur. Bölüm başlangıcı, uzunluğu ve FAT32 içeriği yeniden oluşturulmaz.
 Dolayısıyla tekrar `B2LUFS paketi yok` görülürse çalışan ESP, bu doğrulama
 kapısından geçmiş son artefakt değildir; UFS donanım sonucu olarak yorumlanmaz.
 
@@ -324,10 +336,10 @@ kapısından geçmiş son artefakt değildir; UFS donanım sonucu olarak yorumla
 `1US_TO_CNT=000000A6`. CAP alanında NUTRS `[4:0]` ve NUTMRS `[18:16]`
 sırasıyla `31` ve `3` olduğundan denetleyici 32 UTR + 4 UTMR kapasitelidir;
 bit 24 de 64-bit adreslemeyi bildirir. B2LUFS bu kapasitenin yalnız bir UTR
-yuvasını kullanır; StorPort bu yüzden tek SRB'ye sınırlandırılır. Sürücü bitişik
-fiziksel RAM varsaymaz: `HwBuildIo` sırasında aldığı StorPort DMA SGL'sindeki
-en çok 32 parçayı, standart 256 KiB DBC sınırı içinde doğrudan PRDT'ye çevirir.
-Tek istek için üst sınır 128 KiB'dir.
+yuvasını kullanır; StorPort bu yüzden tek SRB'ye sınırlandırılır. Sürücü
+Windows'un rastgele sayfalarını bitişik varsaymaz: en çok 128 KiB'lik isteği
+StorPort'un CPU/aygıt ortak uncached DMA tamponuna kopyalar ve bu doğrulanmış
+fiziksel alanı PRDT'ye verir.
 
 Yerel doğrulama:
 
