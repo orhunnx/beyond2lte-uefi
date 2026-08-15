@@ -11,6 +11,7 @@ set "DPSCRIPT=%SystemDrive%\B2LDISK.TXT"
 set "DPPOSTSCRIPT=%SystemDrive%\B2LDISK-POST.TXT"
 set "UFSBOOTREPORT=%SystemRoot%\B2LUFS.TXT"
 set "B2LUFSDIR=%SystemRoot%\B2LUFS"
+set "B2LUFSETW=%SystemRoot%\B2LUFS-ETW.TXT"
 
 echo.
 echo === Beyond2LTE WinPE: otomatik tani ===
@@ -149,6 +150,10 @@ rem HwFindAdapter hatalari kaybolmasin diye Operational kanali, surucu
 rem yuklenmeden once etkinlestirilir. Kanal WinPE'de yoksa sessizce atlanir.
 if exist "%SystemRoot%\System32\wevtutil.exe" (
   wevtutil sl "Microsoft-Windows-Storage-Storport/Operational" /e:true >nul 2>&1
+  rem Bu WinPE gunlugu RAM'dedir. Surucu kurulmadan hemen once temizleyerek
+  rem asagidaki sinirsiz sorgularda yalniz bu B2LUFS yuklemesinin olaylarini
+  rem gosteririz; cihazdaki UFS medyasina veya kalici firmware'e dokunulmaz.
+  wevtutil cl "Microsoft-Windows-Storage-Storport/Operational" >nul 2>&1
 )
 pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install
 echo PnP yeniden taraniyor:
@@ -167,11 +172,11 @@ if not exist "%SystemRoot%\System32\wevtutil.exe" (
   echo wevtutil yok; StorPort ETW kanali okunamiyor.
   exit /b 0
 )
-echo Operational kayitlari (B2LUFS kaynak, BLT1 timer ve ilk SRB olaylari):
-rem StorPort'un ETW semasi WDK surumleri arasinda degisebilir. Bu nedenle
-rem EventData alanlarina gore kirilgan XPath kurmak yerine, PnP kurulumundan
-rem hemen sonra olusan son olaylari ham metin olarak gostermek daha guvenilir.
-wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:true /f:text /c:32 2>nul
+echo Operational kayitlarinin TAMAMI (eskiden yeniye: kaynak, timer, PnP ve SRB):
+rem Kanal kurulumdan hemen once temizlendi. /c siniri ve XPath filtresi yok;
+rem dolayisiyla bu surucu yuklemesindeki hicbir StorPort olayi atlanmaz.
+wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:false /f:text > "%B2LUFSETW%" 2>&1
+type "%B2LUFSETW%"
 echo Not: "B2LUFS HwFindAdapter resource contract failure" gorunurse altindaki ikili kayit sirasiyla Failure, RangeIndex, RangeCount, InterfaceType, BusNumber, RangeLength, RangeBase'dir.
 echo Not: "B2LUFS deferred bus scan timer fired" BLT1 kaydi, gecikmeli bus taramasinin gercekten basladigini kanitlar.
 exit /b 0
@@ -181,13 +186,16 @@ if not exist "%SystemRoot%\System32\wevtutil.exe" (
   echo wevtutil yok; B2LUFS UFS okuma kaydi gosterilemiyor.
   exit /b 0
 )
-echo Son B2LUFS SRB ve PnP/LUN yasam-dongusu kayitlari StorPort Operational gunlugunden okunuyor:
+echo B2LUFS SRB ve PnP/LUN yasam-dongusu kayitlarinin TAMAMI okunuyor:
 echo Her "BLS1" ikili kaydinin son 64 bayti yalniz UFS'in dondugu okuma/sense verisidir; yazma payload'i kaydedilmez.
 echo CDB=12 INQUIRY, 1B START_STOP(no-op), 25 READ_CAPACITY, 28/88 READ, 2A/8A WRITE.
 echo Result=0 ve SCSI=0 basaridir; CHECK CONDITION kaydinin ornegi UFS sense baytlaridir.
-echo "BLC2" kapasite kaydi: Outcome=5, MapStatus=0, MapSource=1 ve ReturnedLength=8 beklenir.
+echo "BLC3" kapasite kaydi: Outcome=5, MapStatus=0, MapSource=1, CompletionPhase=1 ^(HwBuildIo^) ve ReturnedLength=8 beklenir.
+echo BLC3 son 16 baytta disk sinifina yazilan gercek kapasite cevabini da tasir: 01DC9FFF00001000 beklenir.
 echo "BLP1" kaydi legacy BTL8 PnP istegidir; UFS medya verisi veya CDB icermez.
-wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:true /f:text /c:24 2>nul
+wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:false /f:text > "%B2LUFSETW%" 2>&1
+type "%B2LUFSETW%"
+echo Tam ETW metni RAM diskte: %B2LUFSETW%
 exit /b 0
 
 :UfsReport
@@ -225,7 +233,7 @@ exit /b 0
 :LunInventory
 echo --- B2LUFS: READ CAPACITY onceligi ve ham cevap ---
 echo Surucu once 10-baytli READ CAPACITY kullanir; 16-baytli form yalniz 2 TiB ustu LUN icindir.
-echo Windows capacity SRB'si MapBuffers=3 ile Srb-DataBuffer sistem adresine yazilir; GetSystemAddress yalniz yedektir.
+echo Windows capacity SRB'si StorAHCI gibi HwBuildIo'da mapped Srb-DataBuffer'a yazilip orada tamamlanir.
 echo Result=0 ve ScsiStatus=0 ile ReadCapacityValid=1 beklenir; BlockBytes bu cihazda 4096 olmalidir.
 set "B2L_LUN_KEY=HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0\Device Parameters\B2LUFS"
 echo Exynos/UFSHCI devralma durumu (CAP=1303FF1F, HCS ready, 32 UTR + 4 UTMR beklenir):

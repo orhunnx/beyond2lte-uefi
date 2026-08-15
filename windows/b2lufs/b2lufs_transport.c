@@ -57,8 +57,13 @@
  * stop submitting further work without resetting HCE/link/PHY.
  */
 #define B2LUFS_COMMAND_TIMEOUT_US         50000UL
-#define B2LUFS_TRACE_BUDGET                  12UL
-#define B2LUFS_PNP_TRACE_BUDGET               16UL
+/*
+ * This WinPE image is a bring-up environment. Keep every miniport event until
+ * the volatile StorPort Operational log fills; startnet.cmd clears that log
+ * immediately before installing B2LUFS and prints it without a count limit.
+ */
+#define B2LUFS_TRACE_BUDGET          0x7FFFFFFFUL
+#define B2LUFS_PNP_TRACE_BUDGET      0x7FFFFFFFUL
 #define B2LUFS_TRACE_SAMPLE_BYTES            64UL
 #define B2LUFS_ETW_SCSI_TRACE        0x42324C02UL
 #define B2LUFS_ETW_PNP_TRACE         0x42324C03UL
@@ -294,9 +299,18 @@ typedef struct B2LUFS_CAPACITY_TRACE_DATA {
     ULONG MapStatus;
     ULONG MapSource;
     ULONG ReturnedLength;
+    ULONG CompletionPhase;
+    ULONG CdbAllocationLength;
+    UCHAR CdbLength;
+    UCHAR CdbOperation;
+    UCHAR CdbServiceAction;
+    UCHAR ScsiStatus;
+    UCHAR ReturnedData[16];
 } B2LUFS_CAPACITY_TRACE_DATA;
 
-C_ASSERT(sizeof(B2LUFS_CAPACITY_TRACE_DATA) == 28);
+C_ASSERT(sizeof(B2LUFS_CAPACITY_TRACE_DATA) == 56);
+
+#define B2LUFS_CAPACITY_PHASE_BUILD_IO       1UL
 
 #define B2LUFS_CAPACITY_OUTCOME_NO_SNAPSHOT  1UL
 #define B2LUFS_CAPACITY_OUTCOME_ZERO_LENGTH  2UL
@@ -389,7 +403,9 @@ B2LUfsLogScsiTrace(
     _In_ UCHAR SrbStatus)
 {
     B2LUFS_SCSI_TRACE_DATA Data;
+    PVOID SampleBuffer;
     ULONG SampleLength;
+    ULONG MapStatus;
 
     if (Adapter->TraceBudget == 0) {
         return;
@@ -410,15 +426,27 @@ B2LUfsLogScsiTrace(
     Data.SrbStatus = SrbStatus;
     Data.ScsiStatus = Srb->ScsiStatus;
 
+    SampleBuffer = Srb->DataBuffer;
+    if (SampleBuffer == NULL &&
+        Srb->Function == SRB_FUNCTION_EXECUTE_SCSI &&
+        Srb->DataTransferLength != 0 &&
+        B2LUfsResolveDataDirection(Srb) == B2LUfsDataIn) {
+        MapStatus = StorPortGetSystemAddress(
+            DeviceExtension, Srb, &SampleBuffer);
+        if (MapStatus != STOR_STATUS_SUCCESS) {
+            SampleBuffer = NULL;
+        }
+    }
+
     if (Result == B2LUfsTransferOk &&
         Srb->ScsiStatus == B2LUFS_SCSI_STATUS_GOOD &&
         B2LUfsResolveDataDirection(Srb) == B2LUfsDataIn &&
-        Srb->DataBuffer != NULL && Srb->DataTransferLength != 0) {
+        SampleBuffer != NULL && Srb->DataTransferLength != 0) {
         SampleLength = Srb->DataTransferLength;
         if (SampleLength > B2LUFS_TRACE_SAMPLE_BYTES) {
             SampleLength = B2LUFS_TRACE_SAMPLE_BYTES;
         }
-        B2LUfsCopyMemory(Data.Sample, Srb->DataBuffer, SampleLength);
+        B2LUfsCopyMemory(Data.Sample, SampleBuffer, SampleLength);
         Data.SampleLength = (UCHAR)SampleLength;
     } else if ((SrbStatus & SRB_STATUS_AUTOSENSE_VALID) != 0 &&
                Srb->SenseInfoBuffer != NULL &&
@@ -826,13 +854,11 @@ B2LUfsAllocateTransport(
     /* UFSHCI PRDT byte counts are DWORD granular. */
     ConfigInfo->AlignmentMask = FILE_LONG_ALIGNMENT;
     /*
-     * StorPort otherwise maps DataBuffer only for IOCTL/WMI requests.  The
-     * first LUN discovery is ordinary SCSI INQUIRY / READ CAPACITY / READ,
-     * and B2LUFS must obtain a physical address for each I/O buffer before
-     * it can place it in the UFS PRDT. This setting makes both read and write
-     * buffers addressable by the miniport.
+     * Match Microsoft's StorAHCI and LSI miniports: map non-read/write CDB
+     * buffers (including READ CAPACITY), while normal block I/O is described
+     * exclusively by StorPortGetScatterGatherList and the UFS PRDT.
      */
-    ConfigInfo->MapBuffers = STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE;
+    ConfigInfo->MapBuffers = STOR_MAP_NON_READ_WRITE_BUFFERS;
     /* CAP[24] reports full 64-bit UFSHCI DMA addressing. */
     ConfigInfo->Dma64BitAddresses =
         SCSI_DMA64_MINIPORT_FULL64BIT_NO_BOUNDARY_REQ_SUPPORTED;
@@ -931,9 +957,9 @@ B2LUfsAllocateTransport(
 
 /*
  * Build normal read and write SRBs from StorPort's scatter/gather list. This is
- * independent of Srb->DataBuffer, which the DDI permits to be NULL even when
- * STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE was requested. The two pre-PnP
- * probes have no SRB and use their known contiguous common-buffer addresses.
+ * independent of Srb->DataBuffer, which STOR_MAP_NON_READ_WRITE_BUFFERS does
+ * not map for block I/O. The two pre-PnP probes have no SRB and use their
+ * known contiguous common-buffer addresses.
  */
 static BOOLEAN
 B2LUfsBuildPrdt(
@@ -1682,16 +1708,17 @@ B2LUfsCacheCapacityFromSrb(
 
 /*
  * The pre-enumeration probe has already obtained and validated the real UFS
- * LUN-0 capacity through a StorPort common DMA buffer.  Complete subsequent
+ * LUN-0 capacity through a StorPort common DMA buffer. Complete subsequent
  * disk-class READ CAPACITY requests from that immutable snapshot.
- * MapBuffers=STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE is declared in both
- * HW_INITIALIZATION_DATA and PORT_CONFIGURATION_INFORMATION. Under that
- * StorPort contract Srb->DataBuffer is already a system virtual address and
- * is the primary target. StorPortGetSystemAddress is retained only as a
- * defensive fallback when a host supplies a NULL pointer.
+ *
+ * Microsoft's StorAHCI sample generates fixed-media capacity data in
+ * HwBuildIo and completes the SRB there. Do the same: this is a software
+ * response, not a DMA request that should be queued to HwStartIo. With
+ * STOR_MAP_NON_READ_WRITE_BUFFERS, READ CAPACITY is one of the requests for
+ * which StorPort supplies Srb->DataBuffer as a system virtual address.
  */
-static BOOLEAN
-B2LUfsCompleteCachedCapacity(
+BOOLEAN
+B2LUfsTryCompleteCachedCapacity(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter,
     _Inout_ PSCSI_REQUEST_BLOCK Srb)
@@ -1704,11 +1731,19 @@ B2LUfsCompleteCachedCapacity(
     ULONG Status;
 
     B2LUfsZeroMemory(&Trace, sizeof(Trace));
-    Trace.Magic = 0x32434C42UL; /* "BLC2" little-endian */
+    Trace.Magic = 0x33434C42UL; /* "BLC3" little-endian */
     Trace.SrbFlags = Srb->SrbFlags;
     Trace.RequestedLength = Srb->DataTransferLength;
     Trace.MapStatus = MAXULONG;
     Trace.MapSource = B2LUFS_CAPACITY_MAP_NONE;
+    Trace.CompletionPhase = B2LUFS_CAPACITY_PHASE_BUILD_IO;
+    Trace.CdbLength = Srb->CdbLength;
+    Trace.CdbOperation = Srb->Cdb[0];
+    Trace.CdbServiceAction = (UCHAR)(Srb->Cdb[1] & 0x1FU);
+    if (Srb->CdbLength >= 14 &&
+        Srb->Cdb[0] == B2LUFS_SCSI_SERVICE_ACTION_IN_16) {
+        Trace.CdbAllocationLength = B2LUfsReadBe32(&Srb->Cdb[10]);
+    }
 
     if (Srb->Cdb[0] != B2LUFS_SCSI_READ_CAPACITY_10 &&
         !(Srb->Cdb[0] == B2LUFS_SCSI_SERVICE_ACTION_IN_16 &&
@@ -1777,12 +1812,18 @@ B2LUfsCompleteCachedCapacity(
     KeMemoryBarrier();
     Trace.Outcome = B2LUFS_CAPACITY_OUTCOME_COMPLETED;
     Trace.ReturnedLength = TransferLength;
+    Trace.ScsiStatus = Srb->ScsiStatus;
+    B2LUfsCopyMemory(
+        Trace.ReturnedData,
+        Output,
+        B2LUfsMinUlong(
+            TransferLength, (ULONG)sizeof(Trace.ReturnedData)));
     if (!Adapter->DumpMode) {
         (void)StorPortEtwLogError(
             DeviceExtension,
             NULL,
             B2LUFS_ETW_CAPACITY_TRACE,
-            L"B2LUFS cached UFS capacity completion; binary data is BLC2",
+            L"B2LUFS cached UFS capacity completed in HwBuildIo; binary data is BLC3",
             sizeof(Trace),
             &Trace);
     }
@@ -1797,7 +1838,7 @@ LogAndFallback:
             DeviceExtension,
             NULL,
             B2LUFS_ETW_CAPACITY_TRACE,
-            L"B2LUFS cached UFS capacity fallback; binary data is BLC2",
+            L"B2LUFS cached UFS capacity fallback in HwBuildIo; binary data is BLC3",
             sizeof(Trace),
             &Trace);
     }
@@ -1939,20 +1980,11 @@ B2LUfsExecuteScsi(
         return;
     }
 
-    /* Microsoft permits this field update only for an unspecified direction. */
-    if ((Srb->SrbFlags & SRB_FLAGS_UNSPECIFIED_DIRECTION) ==
-        SRB_FLAGS_UNSPECIFIED_DIRECTION) {
-        Srb->SrbFlags &= ~SRB_FLAGS_UNSPECIFIED_DIRECTION;
-        if (DataDirection == B2LUfsDataIn) {
-            Srb->SrbFlags |= SRB_FLAGS_DATA_IN;
-        } else if (DataDirection == B2LUfsDataOut) {
-            Srb->SrbFlags |= SRB_FLAGS_DATA_OUT;
-        }
-    }
-
-    if (B2LUfsCompleteCachedCapacity(DeviceExtension, Adapter, Srb)) {
-        return;
-    }
+    /* SrbFlags is read-only for this bus-master HBA; use the resolved value
+     * only in our UTRD/UPIU direction fields. Microsoft permits rewriting
+     * an unspecified direction solely for subordinate-DMA adapters before
+     * ScsiPortIoMapTransfer, neither of which applies to this StorPort HBA.
+     */
 
     Result = B2LUfsSubmitScsi(
         DeviceExtension,

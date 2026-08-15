@@ -37,11 +37,12 @@ B2LUFS bu PnP sözleşmesini korur ve aşağıdaki taşıma akışını uygular:
 4. PnP taramasından hemen önce, bitişik DMA tamponunda önce standart
    `READ CAPACITY(10)` cevabını doğrular; yalnız `0xFFFFFFFF` LBA yanıtı
    verirse `READ CAPACITY(16)`ye geçer. Bu gerçek UFS cevabı doğrulanıp
-   saklanır; disk sınıfının sonraki kapasite SRB'si
-   `MapBuffers=3` sözleşmesine göre doğrudan `Srb->DataBuffer` sistem
-   eşlemesine yazılarak aynı cevaptan tamamlanır;
-   `StorPortGetSystemAddress` yalnız NULL işaretçi için yedektir. Böylece
-   `Srb->DataBuffer == NULL` olabilen StorPort SRB'lerinde de kapasite kaybolmaz.
+   saklanır. Disk sınıfının sonraki kapasite SRB'si Microsoft StorAHCI ile
+   aynı yaşam döngüsünde, `HwBuildIo` içindeki mapped `Srb->DataBuffer`
+   adresine yazılıp tamamlanır; callback `FALSE` döndürdüğü için yazılımsal
+   cevap sahte bir donanım DMA isteği olarak `HwStartIo`ya girmez. Normal
+   READ/WRITE tamponları ise yalnız StorPort scatter/gather listesiyle PRDT'ye
+   çevrilir (`STOR_MAP_NON_READ_WRITE_BUFFERS`).
 5. Aynı LUN 0 üzerinden bir kez standart `REPORT LUNS` envanterini alır.
    Bu, diğer LUN'ların bloklarını okumaz, hiçbir LUN'u Windows'a eklemez ve
    boot/RPMB LUN'larını StorPort/PnP taramasından uzak tutar. Yanıt, yalnız
@@ -211,12 +212,12 @@ belirttiği düşük bellek durumunda `DataBuffer == NULL` olsa da disk okuması
 fiziksel SG listesi üzerinden ilerleyebilir.
 Ön taramadaki gerçek UFS `READ CAPACITY` cevabı doğrulandıktan sonra disk
 sınıfının aynı kapasite sorgusu bu değişmez anlık görüntüden tamamlanır.
-`MapBuffers=STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE` hem başlangıç hem
-adapter yapılandırmasında ilan edildiği için Microsoft sözleşmesine göre
-`Srb->DataBuffer` sistem sanal adresidir ve yanıtın birincil hedefidir.
-`StorPortGetSystemAddress` yalnız bu işaretçi NULL gelirse yedek olarak
-kullanılır. Bu yol kapasite uydurmaz: `last-LBA` ve 4096 bayt blok değeri
-doğrudan aynı açılışta UFS'den gelen doğrulanmış cevaptır.
+`STOR_MAP_NON_READ_WRITE_BUFFERS` hem başlangıç hem adapter yapılandırmasında
+ilan edilir. Bu nedenle READ CAPACITY'nin `Srb->DataBuffer` alanı sistem sanal
+adresidir; yazılımsal cevap Microsoft StorAHCI ile aynı biçimde `HwBuildIo`da
+yazılıp tamamlanır. Normal READ/WRITE için bu alanın NULL olması beklenir ve
+PRDT yalnız StorPort SGL'sinden kurulur. Bu yol kapasite uydurmaz: `last-LBA`
+ve 4096 bayt blok değeri aynı açılışta UFS'den gelen doğrulanmış cevaptır.
 Kesme sahipliği alınmaz; tamamlanma kapı zili poll edilir. Miniport fiziksel
 bir ACPI HBA olduğu için `Internal` arayüz türünü
 kullanmaz: `InterfaceTypeUndefined` ile
@@ -247,7 +248,7 @@ sonucunu gösterir. Fotoğrafta şu üç kanıt birlikte aranır:
    `X:` yalnız WinPE RAM diskidir.
 
 StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
-ve `BLT1`, ardından `BLC2 Outcome=5, MapSource=1`, normal `BLS1`
+ve `BLT1`, ardından `BLC3 Outcome=5, MapSource=1, CompletionPhase=1`, normal `BLS1`
 INQUIRY/READ CAPACITY kayıtları beklenir.
 `BLT1` var fakat `BLS1` yoksa timer/adapter yaşam döngüsü tamamlanmış olmasına
 rağmen StorPort tarama üretmemiştir; `BLT1` de yoksa sorun timer'ın

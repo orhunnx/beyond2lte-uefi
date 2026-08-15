@@ -30,9 +30,9 @@ typedef struct B2LUFS_ADAPTER {
      * the 16-byte form is used only for a device larger than its address
      * range. It never contains user data and is never written to UFS. The
      * validated result is both diagnostic telemetry and the authoritative
-     * reply to disk class's later READ CAPACITY SRB. MapBuffers=3 makes
-     * Srb->DataBuffer a system mapping; StorPortGetSystemAddress remains a
-     * fallback for hosts that omit that otherwise contracted pointer.
+     * reply to disk class's later READ CAPACITY SRB. Like Microsoft's
+     * StorAHCI miniport, that software-only reply is completed from HwBuildIo,
+     * before StorPort hands a hardware request to HwStartIo.
      */
     PVOID CapacityProbeVirtual;
     STOR_PHYSICAL_ADDRESS CapacityProbePhysical;
@@ -138,6 +138,13 @@ VOID
 B2LUfsProbeLuns(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter);
+
+/* Complete a cached READ CAPACITY in HwBuildIo; TRUE means SRB completed. */
+BOOLEAN
+B2LUfsTryCompleteCachedCapacity(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _Inout_ PSCSI_REQUEST_BLOCK Srb);
 
 /* Complete a legacy PnP SRB without submitting a UFS media command. */
 VOID

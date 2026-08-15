@@ -1891,8 +1891,11 @@ tamamlama yoluna ulaşmadan reddediyordu.
 Salt-okunur CDB allow-list'i kaldırıldı. LUN 0 için WRITE, UNMAP, MODE SELECT,
 WRITE SAME ve diğer açık DATA_OUT istekleri gerçek UFS PRDT aktarımına gider.
 Boot/RPMB LUN'ları hâlâ Windows'a sunulmaz. Ön-probda doğrulanan gerçek kapasite
-disk sınıfı SRB'sine `StorPortGetSystemAddress` üzerinden yazılır; `BLC1`
-tanısında `Outcome=5`, `MapStatus=0`, `ReturnedLength=8` beklenir.
+Microsoft StorAHCI örneğindeki gibi `HwBuildIo` içinde mapped
+`Srb->DataBuffer` adresine yazılır ve orada tamamlanır. Callback `FALSE`
+döndürerek SRB'nin `HwStartIo`ya ikinci kez verilmesini engeller. `BLC3`
+tanısında `Outcome=5`, `MapStatus=0`, `MapSource=1`, `CompletionPhase=1`,
+`ReturnedLength=8` ve gerçek cevap baytları beklenir.
 
 Microsoft'un boot/dump kısıtları da tamamlandı: NULL `DriverEntry` argümanları,
 `ConfigInfo->DumpMode` ve `dump=1` tanınır; dump modunda timer, PASSIVE kayıt
