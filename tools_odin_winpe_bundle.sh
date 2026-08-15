@@ -6,7 +6,7 @@
 # NEDEN: Bu turda iki farkli katman degisiyor:
 #   boot.img   -> UEFI + etkin UFS ACPI tanimi (ham firmware imaji)
 #   system.img -> WinPE boot.wim + girissiz PnP/UFS raporu (Android sparse)
-#   cache.img  -> eski startup.nsh/ESP'nin secilmesini onlemek icin bosaltma
+#   cache.img  -> eski startup.nsh olmadan bos FAT32 CACHE dosya sistemi
 #                (Android sparse)
 #
 # Odin, FAT imajlarini ham halde reddedebiliyor. Bu betik SYSTEM ve CACHE

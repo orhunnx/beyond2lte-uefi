@@ -11,17 +11,16 @@
 # Argüman verilmezse Mu-Silicium build'indeki Shell.efi aranir.
 #
 # ---------------------------------------------------------------------------
-# UC KISIT VAR, ucu de zorunlu. Her biri bir tur kaybettirdi:
+# Dolu ESP uretim yolunun uc temel kisiti var:
 #
 # 1) -S 4096 : UFS'in mantiksal blok boyutu 4096 (log: "BlockSize : 4096").
 #    FAT'in BPB'sindeki sektor boyutu BlockIo'nunkiyle esitlesmeli, yoksa
 #    FatPkg birimi baglamaz.
 #
-# 2) -F 16   : FAT32 DEGIL. FatPkg/EnhancedFatDxe/Init.c:
-#         if (Volume->MaxCluster < FAT_MAX_FAT16_CLUSTER) return EFI_VOLUME_CORRUPTED;
-#    FAT_MAX_FAT16_CLUSTER = 65525. CACHE 75 MB; 4K sektorle 19200 cluster
-#    cikiyor -> FAT32 sessizce reddediliyor. 4K sektorle FAT32 icin en az
-#    256 MB lazim. FAT16'nin gecerli araligi 4085-65525; 19200 tam ortasinda.
+# 2) Dolu CACHE ESP yolu, daha once cihazda dogrulanan FAT16 + 32 KiB kume
+#    davranisini korur. CACHE'in dogru boyutu 600 MiB oldugundan FAT32 + 4 KiB
+#    kume de gecerlidir (yaklasik 153600 kume). `--win --bos` bunu kullanarak
+#    tam boyutlu ve icinde dosya olmayan FAT32 imaji uretir.
 #
 # 3) sparse  : Odin ham FAT imajini reddediyor. Android sparse formatina
 #    (0xED26FF3A) cevirince kabul ediyor. dd yolu icin ham imaj gerekli,
@@ -38,8 +37,9 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 # --win   : sadece Windows dosyalarini koy (Linux kernel/initramfs haric).
 # --linux : Linux dosyalarini BILEREK buyuk boluma yaz. Asagidaki korumayi
 #           kaldirmaz, niyeti acikca soyler.
-# --bos   : eski CACHE ESP'sini gecersiz kil. Bu bir Windows WinPE turudur;
-#           bayraksiz calisma Linux modu oldugu icin --win zorunludur.
+# --bos   : eski CACHE ESP icerigini bos, 600 MiB FAT32 CACHE imajiyla
+#           degistir. Bu bir Windows WinPE turudur; bayraksiz calisma Linux
+#           modu oldugu icin --win zorunludur.
 #
 # 600 MiB'lik bolume hem 570 MB'lik boot.wim hem 68 MB'lik Linux dosyalari
 # sigmiyor - bir tur mcopy "Disk full" verdi ve sources/ bos kaldi.
@@ -100,6 +100,11 @@ fi
 if [ "$BOSALT" = 1 ] && [ "$WINONLY" = 0 ]; then
   echo "--bos yalnizca Windows WinPE turunde kullanilir: bash cache_esp.sh --win --bos"
   echo "Bayraksiz calisma Linux modu oldugu icin bos CACHE imaji yanlis moda etiketlenmez."
+  exit 1
+fi
+if [ "$BOSALT" = 1 ] && [ "$BIGPART" = 1 ]; then
+  echo "--bos yalniz CACHE icindir; --system ile birlikte kullanilmaz."
+  echo "Dogru komut: bash cache_esp.sh --win --bos"
   exit 1
 fi
 if [ "$WINONLY" = 1 ]; then say "MOD: Windows"; else say "MOD: Linux"; fi
@@ -205,14 +210,6 @@ else
   LIMIT_MB=588
 fi
 
-APP="${1:-}"
-if [ -z "$APP" ]; then
-  APP="$(find "$MU/Build" -name 'Shell.efi' -path '*ShellPkg*' 2>/dev/null | head -1)"
-  [ -n "$APP" ] || APP="$(find "$MU/Build" -maxdepth 5 -name 'Shell.efi' 2>/dev/null | head -1)"
-fi
-[ -f "$APP" ] || { echo "EFI uygulamasi bulunamadi. Yolu argüman olarak ver."; exit 1; }
-say "Icerik: $APP ($(du -h "$APP" | cut -f1))"
-
 #
 # CACHE = 153600 blok x 4096 = 629145600 bayt = 600 MiB.
 #
@@ -220,15 +217,13 @@ say "Icerik: $APP ($(du -h "$APP" | cut -f1))"
 # kaliyordu. Cihazdan geri okununca gercek boyut 600 MiB cikti (PARTITIONS.md).
 # Windows'un boot.wim'i icin bu alana ihtiyacimiz var.
 #
-# KUME BOYUTU: 600 MiB'i 4K kumeyle bicimlendirirsek 153600 kume cikar ve bu
-# FAT16'nin ust siniri olan 65525'i asar -> FatPkg birimi baglamaz. "-s 8"
-# ile kume 32 KiB oluyor, kume sayisi 19200'e dusuyor ve FAT16'nin gecerli
-# araligi olan 4085-65525'in tam ortasinda kaliyor. (FAT32'ye gecemiyoruz,
-# bkz. yukaridaki 2 numarali kisit.)
+# KUME BOYUTU: Dolu ESP'nin tarihsel FAT16 yolu "-s 8" ile 32 KiB kume ve
+# yaklasik 19200 kume kullanir. Bosaltma yolu ise FAT32 + 4 KiB kume kullanir;
+# 600 MiB'de yaklasik 153600 kume FAT32'nin gecerli araligindadir.
 #
 #
 # ---------------------------------------------------------------------------
-# --bos : WINDOWS TURUNDE BOLUMU SIL, ICINE HICBIR SEY KOYMA
+# --bos : WINDOWS TURUNDE BOS FAT32 CACHE DOSYASI URET
 # ---------------------------------------------------------------------------
 # NEDEN GEREKTI - BES TURLUK KAFA KARISIKLIGININ SEBEBI BUYDU:
 #
@@ -243,15 +238,41 @@ say "Icerik: $APP ($(du -h "$APP" | cut -f1))"
 # edilmedi - eski map ciktisi, kaybolmayan B2L UFS satirlari, bulunamayan
 # EBSTEST.EFI, degismeyen 15 saniye, hepsi bundan.
 #
-# Bu mod yalnizca `--win --bos` ile cagrilir ve bolumun basina 16 MiB sifir
-# yaziyor. FAT onyukleme sektoru gidince
-# birim hic taninmiyor ve ortada tek bir startup.nsh kaliyor.
+# Bu mod yalnizca `--win --bos` ile cagrilir. Tam CACHE boyutunda, icinde
+# dosya bulunmayan FAT32 olusturur. Boylece eski startup.nsh silinir ama
+# Windows bolumu gecerli bir FAT32 birim olarak gorebilir.
 #
 if [ "$BOSALT" = 1 ]; then
   IMG="$OUT/$PART.img"
-  say "BOLUM SILINIYOR: $(echo "$PART" | tr a-z A-Z)  (basina 16 MiB sifir)"
+  say "BOS FAT32 URETILIYOR: $(echo "$PART" | tr a-z A-Z)  (600 MiB, 4096 bayt sektor/kume)"
   rm -f "$IMG"
-  dd if=/dev/zero of="$IMG" bs=1M count=16 status=none
+  dd if=/dev/zero of="$IMG" bs=1M count=600 status=none
+  mkfs.vfat -F 32 -S 4096 -s 1 -n CACHE "$IMG" >/dev/null
+
+  BPB_SECTOR_BYTES="$(od -An -tu2 -j11 -N2 "$IMG" | tr -d ' ')"
+  BPB_SECTORS_PER_CLUSTER="$(od -An -tu1 -j13 -N1 "$IMG" | tr -d ' ')"
+  BPB_LABEL="$(dd if="$IMG" bs=1 skip=71 count=11 status=none | tr -d ' ')"
+  BPB_FILESYSTEM="$(dd if="$IMG" bs=1 skip=82 count=8 status=none | tr -d ' ')"
+  [ "$BPB_SECTOR_BYTES" = 4096 ] || {
+    echo "HATA: bos CACHE BPB sektor boyutu 4096 degil: $BPB_SECTOR_BYTES"
+    exit 1
+  }
+  [ "$BPB_SECTORS_PER_CLUSTER" = 1 ] || {
+    echo "HATA: bos CACHE BPB kume boyutu 1 sektor degil: $BPB_SECTORS_PER_CLUSTER"
+    exit 1
+  }
+  [ "$BPB_FILESYSTEM" = FAT32 ] || {
+    echo "HATA: bos CACHE dosya sistemi FAT32 degil: $BPB_FILESYSTEM"
+    exit 1
+  }
+  [ "$BPB_LABEL" = CACHE ] || {
+    echo "HATA: bos CACHE birim etiketi CACHE degil: $BPB_LABEL"
+    exit 1
+  }
+  echo "  dogrulandi: FAT32, 4096 bayt sektor, 4096 bayt kume, etiket CACHE"
+  if command -v mdir >/dev/null; then
+    MTOOLS_SKIP_CHECK=1 mdir -i "$IMG" ::/
+  fi
 
   WORK="$(mktemp -d)"
   if command -v img2simg >/dev/null; then
@@ -275,6 +296,14 @@ if [ "$BOSALT" = 1 ]; then
   done
   exit 0
 fi
+
+APP="${1:-}"
+if [ -z "$APP" ]; then
+  APP="$(find "$MU/Build" -name 'Shell.efi' -path '*ShellPkg*' 2>/dev/null | head -1)"
+  [ -n "$APP" ] || APP="$(find "$MU/Build" -maxdepth 5 -name 'Shell.efi' 2>/dev/null | head -1)"
+fi
+[ -f "$APP" ] || { echo "EFI uygulamasi bulunamadi. Yolu argüman olarak ver."; exit 1; }
+say "Icerik: $APP ($(du -h "$APP" | cut -f1))"
 
 # `out/b2lufs/b2lufs.sys` varsa bu WinPE turu o surucuyu olcmek icindir.
 # Eski hata zinciri burada kapanir: WIM'e basariyla enjekte edilmis bir

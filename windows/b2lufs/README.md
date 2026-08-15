@@ -314,6 +314,9 @@ INF/SYS/CAT SHA-256 değerlerini taşır. `cache_esp.sh --win --system`,
 `out/b2lufs/b2lufs.sys` bulunduğunda bu manifestteki SYS hash'ini WIM'i geri
 okuyarak doğrular; uyuşmazsa sparse `system.img` üretmez. WinPE'de
 `startnet.cmd` manifestin içeriğini PnP kurulumundan hemen önce gösterir.
+`cache_esp.sh --win --bos`, CACHE'i WinPE içinden formatlamaz; Odin'in
+flaşlayacağı tam 600 MiB `cache.img` dosyasını boş FAT32, 4096 bayt sektör ve
+4096 bayt küme ile üretir.
 Dolayısıyla tekrar `B2LUFS paketi yok` görülürse çalışan ESP, bu doğrulama
 kapısından geçmiş son artefakt değildir; UFS donanım sonucu olarak yorumlanmaz.
 

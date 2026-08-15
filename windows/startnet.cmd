@@ -172,12 +172,15 @@ if not exist "%SystemRoot%\System32\wevtutil.exe" (
   exit /b 0
 )
 echo Operational kayitlarinin TAMAMI (eskiden yeniye: kaynak, timer, PnP ve SRB):
-echo WinPE'de bulunan StorPort olay kanallari:
-wevtutil el | findstr /i "Storage-Storport Storport" 2>nul
 rem /c siniri ve XPath filtresi yok; B2LUFS kayitlari BLS2/BLP1/BLC3/BLT1
 rem kimlikleriyle ayirt edilir.
 wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:false /f:text > "%B2LUFSETW%" 2>&1
+set "B2L_ETW_QUERY_ERROR=%errorlevel%"
 type "%B2LUFSETW%"
+if not "%B2L_ETW_QUERY_ERROR%"=="0" (
+  echo Operational sorgusu basarisiz; kanal durumu:
+  wevtutil gli "Microsoft-Windows-Storage-Storport/Operational" 2>&1
+)
 echo Not: "B2LUFS HwFindAdapter resource contract failure" gorunurse altindaki ikili kayit sirasiyla Failure, RangeIndex, RangeCount, InterfaceType, BusNumber, RangeLength, RangeBase'dir.
 echo Not: "B2LUFS deferred bus scan timer fired" BLT1 kaydi, gecikmeli bus taramasinin gercekten basladigini kanitlar.
 exit /b 0
@@ -201,8 +204,6 @@ type "%B2LUFSETW%"
 if not "%B2L_ETW_QUERY_ERROR%"=="0" (
   echo Operational sorgusu basarisiz; kanal durumu:
   wevtutil gli "Microsoft-Windows-Storage-Storport/Operational" 2>&1
-  echo WinPE'de bulunan StorPort olay kanallari:
-  wevtutil el | findstr /i "Storage-Storport Storport" 2>nul
 )
 echo Tam ETW metni RAM diskte: %B2LUFSETW%
 exit /b 0
