@@ -23,6 +23,8 @@
  * yalnız WIM'deki startnet.cmd ile okunur; UFS'ye veya HCI'ye yazı yapmaz.
  */
 #define B2LUFS_ETW_FIND_ADAPTER_FAILURE  0x42324C01UL
+#define B2LUFS_ETW_DEFERRED_BUS_SCAN      0x42324C04UL
+#define B2LUFS_BUS_SCAN_DELAY_US          500000UL
 
 /*
  * WinPE reads this diagnostic-only subkey after PnP settles.  All contents
@@ -79,6 +81,15 @@ typedef struct B2LUFS_FIND_FAILURE_DATA {
     ULONGLONG RangeBase;
 } B2LUFS_FIND_FAILURE_DATA;
 
+typedef struct B2LUFS_DEFERRED_BUS_SCAN_DATA {
+    ULONG Magic;
+    ULONG DelayMicroseconds;
+    ULONG TransportReady;
+    ULONG HciStatus;
+} B2LUFS_DEFERRED_BUS_SCAN_DATA;
+
+C_ASSERT(sizeof(B2LUFS_DEFERRED_BUS_SCAN_DATA) == 16);
+
 /*
  * Faz 0 derlemesi CRT'ye baglanmaz. RtlZeroMemory'nin libc'ye donusme
  * olasiligini da ortadan kaldirmak icin bu kucuk yerel yardimci kullanilir.
@@ -126,6 +137,41 @@ B2LUfsLogFindFailure(
         L"B2LUFS HwFindAdapter resource contract failure",
         sizeof(Data),
         &Data);
+}
+
+static HW_TIMER B2LUfsDeferredBusScan;
+
+_Use_decl_annotations_
+static VOID
+B2LUfsDeferredBusScan(_In_ PVOID DeviceExtension)
+{
+    B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
+    B2LUFS_DEFERRED_BUS_SCAN_DATA Data;
+
+    B2LUfsZeroMemory(&Data, sizeof(Data));
+    Data.Magic = 0x31544C42UL; /* "BLT1" little-endian */
+    Data.DelayMicroseconds = B2LUFS_BUS_SCAN_DELAY_US;
+    Data.TransportReady = Adapter->TransportReady ? 1UL : 0UL;
+    Data.HciStatus = Adapter->ControllerStatus;
+
+    /*
+     * This record distinguishes a timer that actually fired from an early
+     * BusChangeDetected notification that StorPort coalesced during adapter
+     * initialization.  It contains controller state only, never media data.
+     */
+    (void)StorPortEtwLogError(
+        DeviceExtension,
+        NULL,
+        B2LUFS_ETW_DEFERRED_BUS_SCAN,
+        L"B2LUFS deferred bus scan timer fired; binary data is BLT1",
+        sizeof(Data),
+        &Data);
+
+    if (!Adapter->TransportReady) {
+        return;
+    }
+
+    StorPortNotification(BusChangeDetected, DeviceExtension, (UCHAR)0);
 }
 
 /*
@@ -422,12 +468,16 @@ B2LUfsPassiveInitialize(_In_ PVOID DeviceExtension)
     B2LUfsPublishLunSnapshot(DeviceExtension, Adapter);
 
     /*
-     * Retry the bus-0 scan after passive diagnostics are published.  The
-     * first notification is issued at the end of HwInitialize because that
-     * exact ordering produced the measured 0.0.2.0 disk PDO; moving the only
-     * notification here regressed later flashes to no PDO at all.
+     * This callback runs after HwInitialize, but it is still part of the
+     * StorPort initialization sequence.  Defer the actual bus change until
+     * StorPort has completed its adapter-control capability query and made
+     * the demand-started adapter available for normal SRB processing.
      */
-    StorPortNotification(BusChangeDetected, DeviceExtension, (UCHAR)0);
+    StorPortNotification(
+        RequestTimerCall,
+        DeviceExtension,
+        B2LUfsDeferredBusScan,
+        B2LUFS_BUS_SCAN_DELAY_US);
     return TRUE;
 }
 
@@ -452,14 +502,6 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
     /* The diagnostic registry key is written only from PASSIVE_LEVEL. */
     (void)StorPortEnablePassiveInitialization(
         DeviceExtension, B2LUfsPassiveInitialize);
-
-    /*
-     * LUN 0 is already transport-ready and its static BTL8 address contract
-     * was finalized in HwFindAdapter.  Notify StorPort before returning so
-     * the initial bus scan cannot be lost behind passive initialization.
-     * The passive callback repeats this notification only as a safe rescan.
-     */
-    StorPortNotification(BusChangeDetected, DeviceExtension, (UCHAR)0);
 
     return TRUE;
 }

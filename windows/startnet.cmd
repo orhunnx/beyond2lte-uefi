@@ -153,10 +153,10 @@ if exist "%SystemRoot%\System32\wevtutil.exe" (
 pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install
 echo PnP yeniden taraniyor:
 pnputil /scan-devices
-rem Miniport legacy SRB + BTL8 sozlesmesini kurduktan sonra PASSIVE BusChange
-rem bildirir; StorPort'un INQUIRY/LUN taramasina kisa bir zaman penceresi ver.
-timeout /t 2 /nobreak >nul 2>&1
-echo Beklenen: b2lufs Started; legacy SRB/BTL8 ile LUN 0 disk PDO'su taranir.
+rem PASSIVE baslatma 500 ms'lik HW_TIMER kurar; timer adapter-control
+rem sorgusundan sonra BusChange bildirir. INQUIRY/LUN/PDO taramasina zaman ver.
+timeout /t 5 /nobreak >nul 2>&1
+echo Beklenen: BLT1 timer kaydi; ardindan legacy SRB/BTL8 ile LUN 0 taranir.
 echo --- B2LUFS: StorPort kaynak-esleme tanisi ---
 call :B2LUfsStorPortLog
 exit /b 0
@@ -166,12 +166,13 @@ if not exist "%SystemRoot%\System32\wevtutil.exe" (
   echo wevtutil yok; StorPort ETW kanali okunamiyor.
   exit /b 0
 )
-echo Operational kayitlari (yalniz B2LUFS kaynak redleri gorunur):
+echo Operational kayitlari (B2LUFS kaynak, BLT1 timer ve ilk SRB olaylari):
 rem StorPort'un ETW semasi WDK surumleri arasinda degisebilir. Bu nedenle
 rem EventData alanlarina gore kirilgan XPath kurmak yerine, PnP kurulumundan
 rem hemen sonra olusan son olaylari ham metin olarak gostermek daha guvenilir.
-wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:true /f:text /c:12 2>nul
+wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:true /f:text /c:32 2>nul
 echo Not: "B2LUFS HwFindAdapter resource contract failure" gorunurse altindaki ikili kayit sirasiyla Failure, RangeIndex, RangeCount, InterfaceType, BusNumber, RangeLength, RangeBase'dir.
+echo Not: "B2LUFS deferred bus scan timer fired" BLT1 kaydi, gecikmeli bus taramasinin gercekten basladigini kanitlar.
 exit /b 0
 
 :B2LUfsTransportLog

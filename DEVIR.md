@@ -1540,9 +1540,16 @@ Git geçmişi ile cihaz fotoğrafları ayrıca bir enumerasyon regresyonunu
 gösterdi. `0.0.2.0`, `HwInitialize` sonunda `BusChangeDetected` gönderdiğinde
 `Disk 0` PDO'su oluşmuştu (kapasite henüz 0 B idi). Bildirimin tek kopyasını
 PASSIVE callback'e taşıyan `0.0.2.1/0.0.2.2` flaşlarında PDO tamamen
-kayboldu. Ölçülmüş çalışan sıralama geri getirildi: ilk bildirim
-`HwInitialize` sonunda, ikinci bildirim PASSIVE tanı yayımından sonra güvenli
-bir rescan olarak gönderiliyor.
+kayboldu. Ancak `0.0.2.4` ile iki erken bildirim birlikte gönderildiğinde de
+normal `BLS1`/`BLP1` isteği oluşmadı. Microsoft'un yaşam döngüsü belgesi
+başlangıç sırasını `HwFindAdapter`, `HwInitialize`, ardından
+`HwAdapterControl(ScsiQuerySupportedControlTypes)` olarak tanımlar; PASSIVE
+callback de bu başlangıç zincirine aittir. `0.0.2.5` iki erken bildirimi
+kaldırır. PASSIVE callback `RequestTimerCall` ile 500 ms gecikmeli bir
+`HW_TIMER` planlar; timer çalışınca bus 0 için `BusChangeDetected` gönderir.
+Timer ayrı `BLT1` Operational kaydı bırakır. Böylece `BLT1` yokluğu timer
+öncesi başlangıç sorununu, `BLT1` olup `BLS1` olmaması StorPort tarama
+sorununu, `BLS1` oluşması ise gerçek SCSI/UFS keşif sonucunu ayırır.
 
 `AutoRequestSense=TRUE` artık yalnız bir iddia değil: UFS RESPONSE UPIU'nun
 DW8 alanındaki büyük-endian sense uzunluğu ve onu izleyen en çok 18 sense

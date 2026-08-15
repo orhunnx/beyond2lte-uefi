@@ -156,12 +156,22 @@ Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
 `InIoSpace` parametresi için terslenir. Kısmi/uyuşmayan kaynak dizisi hemen
 geri bırakılır. `HwInitialize`, canlı HCE ve boş UTRL scheduler'ını
-doğrulayıp tek DMA slotunu bağlar. Cihazda disk PDO'su ürettiği ölçülmüş
-sıralamayı korumak için ilk `BusChangeDetected`, `HwInitialize` sonunda;
-ikinci, zararsız rescan ise PASSIVE tanı yayımından sonra yapılır. Bildirimler
-PDO oluşturma sözleşmesinin yerine geçmez. StorPort, ilan edilmiş
+doğrulayıp tek DMA slotunu bağlar. Microsoft'un
+[StorPort yaşam döngüsü](https://learn.microsoft.com/en-us/windows-hardware/drivers/storage/life-cycle-of-a-storport-driver)
+`HwFindAdapter -> HwInitialize -> HwAdapterControl(QuerySupported) -> I/O`
+sırasındadır. Bu nedenle `HwInitialize` veya PASSIVE başlatma callback'i
+içinde doğrudan bus taraması istenmez. PASSIVE tanı yayımından sonra
+`RequestTimerCall` ile 500 ms gecikmeli `HW_TIMER` kurulur; timer çalışınca
+bus 0 için tek `BusChangeDetected` gönderilir. Operational kanaldaki `BLT1`
+kaydı timer'ın gerçekten çalıştığını, içindeki `TransportReady=1` ise UFS
+taşımasının tarama öncesinde hazır olduğunu gösterir. Bildirim PDO oluşturma
+sözleşmesinin yerine geçmez. StorPort, ilan edilmiş
 BTL8 yolunda `HwBuildIo`/`HwUnitControl` sözleşmesi üzerinden LUN 0 için
-standart PnP ve ardından SCSI keşfini yürütür.
+standart PnP ve ardından SCSI keşfini yürütür. `RequestTimerCall`/`HW_TIMER`
+eşleşmesi Microsoft'un
+[miniport rutinleri](https://learn.microsoft.com/en-us/windows-hardware/drivers/storage/storport-miniport-driver-routines)
+ve [StorPortNotification](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/storport/nf-storport-storportnotification)
+sözleşmesini izler.
 Kesme sahipliği alınmaz; tamamlanma kapı zili poll edilir. Miniport fiziksel
 bir ACPI HBA olduğu için `Internal` arayüz türünü
 kullanmaz: `InterfaceTypeUndefined` ile
@@ -190,6 +200,12 @@ sonucunu gösterir. Fotoğrafta şu üç kanıt birlikte aranır:
 3. İkinci DiskPart bloğu `Disk 0`ı göstermeli, ardından `detail disk` ile
    `list partition` Android kullanıcı-LUN'ındaki GPT bölümlerini listelemelidir.
    `X:` yalnız WinPE RAM diskidir.
+
+StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
+ve `BLT1`, ardından normal `BLS1` INQUIRY/READ CAPACITY kayıtları beklenir.
+`BLT1` var fakat `BLS1` yoksa timer/adapter yaşam döngüsü tamamlanmış olmasına
+rağmen StorPort tarama üretmemiştir; `BLT1` de yoksa sorun timer'ın
+planlanmasından önceki miniport başlatma aşamasındadır.
 
 `Code 10`/`FAILED_START`, HCE/link durumunun firmware'den canlı devralınamadığını
 veya transfer-list scheduler'ın boş olmadığını gösterir. İmza veya `pnputil`
