@@ -142,12 +142,18 @@ envanterdir; B2LUFS yine sadece kullanıcı **LUN 0** için I/O kabul eder.
 ise `Path=0, Target=0, Lun=0` BTL8 yolunu seçer. Bu ikisi, `HwStartIo`nun
 okuduğu alanlarla aynıdır ve StorPort'un LUN 0 için disk PDO'su
 numaralandırabilmesinin önkoşuludur. Fiziksel StorPort miniportlarının
-zorunlu `TaggedQueuing` ve `MultipleRequestPerLu` yetenekleri açık tutulur;
-tek UTRD kısıtı `MaxNumberOfIO=1`, `MaxIOsPerLun=1`, kuyruk derinliği 1 ve
-half-duplex eşzamanlama ile uygulanır. StorPort'un legacy `QueueTag` değeri
-UFS COMMAND UPIU'ya taşınır ve RESPONSE UPIU'da doğrulanır. Microsoft'un fiziksel StorPort
-örneklerindeki PnP yüzeyi de buna eklenmiştir: `HwBuildIo`, legacy
-`SRB_FUNCTION_PNP` isteklerini CDB'den önce tamamlar; `HwUnitControl`, yalnız
+zorunlu `TaggedQueuing` ve `MultipleRequestPerLu` yetenekleri açık tutulur.
+`NumberOfPhysicalBreaks=32`, 32 girişli PRDT'nin tamamını StorPort'a bildirir.
+Tek aktif UTRD'yi doğru yansıtmak için `MaxNumberOfIO`, `MaxIOsPerLun` ve
+başlangıç kuyruk derinliği 1'dir; bunlar zorunlu tagged/multiple-request
+yetenek bayraklarını kapatmak için kullanılmaz.
+Miniport tam çift yönlü (`StorSynchronizeFullDuplex`) çalışır; StorPort'un
+StartIo kilidi altında her komut `HwStartIo` dönmeden eşzamanlı tamamlandığı
+için donanımda yalnız UTRD slot 0 etkin olabilir. Legacy `QueueTag`, UFS
+COMMAND UPIU'ya taşınır ve RESPONSE UPIU'da doğrulanır. Microsoft'un fiziksel
+StorPort örneklerindeki PnP yüzeyi de buna eklenmiştir: eşzamansız ve kilitsiz
+`HwBuildIo` aygıt durumunu değiştirmez; legacy `SRB_FUNCTION_PNP` istekleri
+kilitli `HwStartIo` yolunda tamamlanır. `HwUnitControl`, yalnız
 statik `Path=0, Target=0, Lun=0` için unit-start/remove/surprise-removal
 yaşam döngüsünü ilan eder; `StorQueryCapabilities` için tam ve salt-okunur
 `STOR_DEVICE_CAPABILITIES_EX` cevabı verilir. Böylece StorPort disk PDO'sunu
@@ -156,22 +162,39 @@ Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
 `InIoSpace` parametresi için terslenir. Kısmi/uyuşmayan kaynak dizisi hemen
 geri bırakılır. `HwInitialize`, canlı HCE ve boş UTRL scheduler'ını
-doğrulayıp tek DMA slotunu bağlar. Microsoft'un
+doğrulayıp tek DMA slotunu bağlar; uzun sürebilen salt-okunur kapasite/LUN
+probları `PASSIVE_LEVEL` callback'ine bırakılır. Microsoft'un
 [StorPort yaşam döngüsü](https://learn.microsoft.com/en-us/windows-hardware/drivers/storage/life-cycle-of-a-storport-driver)
 `HwFindAdapter -> HwInitialize -> HwAdapterControl(QuerySupported) -> I/O`
-sırasındadır. Bu nedenle `HwInitialize` veya PASSIVE başlatma callback'i
-içinde doğrudan bus taraması istenmez. PASSIVE tanı yayımından sonra
-`RequestTimerCall` ile 500 ms gecikmeli `HW_TIMER` kurulur; timer çalışınca
-bus 0 için tek `BusChangeDetected` gönderilir. Operational kanaldaki `BLT1`
+sırasındadır. Bu nedenle başlangıç callback'leri içinden doğrudan bus taraması
+istenmez. `HwFindAdapter`, sonucu denetlenebilen açık bir StorPort timer
+nesnesini `StorPortInitializeTimer` ile oluşturur. PASSIVE probundan sonra
+`StorPortRequestTimer` bunu 500 ms'ye kurar; timer çalışınca bus 0 için tek
+`BusChangeDetected` gönderilir. Operational kanaldaki `BLT1`
 kaydı timer'ın gerçekten çalıştığını, içindeki `TransportReady=1` ise UFS
 taşımasının tarama öncesinde hazır olduğunu gösterir. Bildirim PDO oluşturma
 sözleşmesinin yerine geçmez. StorPort, ilan edilmiş
 BTL8 yolunda `HwBuildIo`/`HwUnitControl` sözleşmesi üzerinden LUN 0 için
-standart PnP ve ardından SCSI keşfini yürütür. `RequestTimerCall`/`HW_TIMER`
-eşleşmesi Microsoft'un
-[miniport rutinleri](https://learn.microsoft.com/en-us/windows-hardware/drivers/storage/storport-miniport-driver-routines)
-ve [StorPortNotification](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/storport/nf-storport-storportnotification)
-sözleşmesini izler.
+standart PnP ve ardından SCSI keşfini yürütür. Timer'ın oluşturma ve planlama
+durumları `BusScanTimerInitializeStatus`/`BusScanTimerRequestStatus` olarak
+tanıya yazılır; PnP remove sırasında bekleyen istek iptal edilip nesne
+`StorPortFreeTimer` ile bırakılır. StorAHCI örneğiyle aynı şekilde dump
+stack'te timer/PASSIVE tanı yolu kurulmaz. Zorunlu adapter-control çağrıları
+Microsoft'un istediği gibi daima `ScsiAdapterControlSuccess` döndürür; gerçek
+taşıma durumu ayrıca `TransportReady` ile korunur.
+
+`ScatterGather`, `Master`, `NeedPhysicalAddresses`, `TaggedQueuing`,
+`AutoRequestSense` ve `MultipleRequestPerLu` alanları StorPort tarafından
+hazırlanır; güncel DDI'nin “miniport must not modify” kuralına göre
+`PORT_CONFIGURATION_INFORMATION` içinde yeniden yazılmaz. Eski
+`ResetTargetSupported` alanı da Microsoft tarafından obsolete ilan edildiği
+için kullanılmaz; çok katmanlı reset desteği gerçek reset SRB'leri ve
+`HwResetBus` callback'iyle sağlanır.
+Normal SRB veri yolu `Srb->DataBuffer` sanal eşlemesine bağımlı değildir;
+PRDT doğrudan `StorPortGetScatterGatherList` tarafından verilen, SRB
+tamamlanana kadar geçerli fiziksel listeden kurulur. Böylece Microsoft'un
+belirttiği düşük bellek durumunda `DataBuffer == NULL` olsa da disk okuması
+fiziksel SG listesi üzerinden ilerleyebilir.
 Kesme sahipliği alınmaz; tamamlanma kapı zili poll edilir. Miniport fiziksel
 bir ACPI HBA olduğu için `Internal` arayüz türünü
 kullanmaz: `InterfaceTypeUndefined` ile

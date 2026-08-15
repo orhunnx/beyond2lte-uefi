@@ -153,10 +153,11 @@ if exist "%SystemRoot%\System32\wevtutil.exe" (
 pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install
 echo PnP yeniden taraniyor:
 pnputil /scan-devices
-rem PASSIVE baslatma 500 ms'lik HW_TIMER kurar; timer adapter-control
-rem sorgusundan sonra BusChange bildirir. INQUIRY/LUN/PDO taramasina zaman ver.
+rem PASSIVE baslatma, HwFindAdapter'da olusturulan acik StorPort timer'ini
+rem 500 ms'e kurar. Durum kodlari Device Parameters\B2LUFS altinda gorunur.
 timeout /t 5 /nobreak >nul 2>&1
-echo Beklenen: BLT1 timer kaydi; ardindan legacy SRB/BTL8 ile LUN 0 taranir.
+echo Beklenen: timer HandleValid=1, InitializeStatus=0, RequestStatus=0; sonra BLT1 ve BLS1.
+echo Sozlesme: PhysicalBreaks=0x20, SynchronizationModel=1, MaxIO=1; ScatterGather/Master StorPort'a aittir.
 echo --- B2LUFS: StorPort kaynak-esleme tanisi ---
 call :B2LUfsStorPortLog
 exit /b 0

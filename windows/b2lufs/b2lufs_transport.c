@@ -5,10 +5,10 @@
  * WinPE.  We intentionally preserve that state: no HCE reset, no UIC/DME,
  * no PHY/CAL sequence, and no UFS query/write command is issued here.
  *
- * The driver owns one transfer-request slot.  StorPort's mandatory tagged
- * queue contract remains enabled, while MaxNumberOfIO=1 and half-duplex
- * dispatch serialize StartIo.  One slot is therefore enough to make the
- * first LUN-0 GPT and partition reads visible to DiskPart.
+ * The driver owns one transfer-request slot. StorPort's mandatory tagged and
+ * multi-request contracts remain enabled. Full-duplex StorPort serializes
+ * HwStartIo with its StartIo lock, and this phase completes each command
+ * synchronously before returning, so only slot 0 can be active at a time.
  */
 #include <ntddk.h>
 #include <storport.h>
@@ -125,6 +125,7 @@
 #define B2LUFS_REG_UTRLBA                      0x0050UL
 #define B2LUFS_REG_UTRLBAU                     0x0054UL
 #define B2LUFS_REG_UTRLDBR                     0x0058UL
+#define B2LUFS_REG_UTRLCLR                     0x005CUL
 #define B2LUFS_REG_UTRLRSR                     0x0060UL
 #define B2LUFS_REG_AHIT                        0x0018UL
 #define B2LUFS_VS_TXPRDT_ENTRY_SIZE            0x0000UL
@@ -383,9 +384,9 @@ B2LUfsLogPnpTrace(
      *
      * Bu iki sayac YALNIZCA TANI kaydi icin. Atomikligin karsiligi, en kotu
      * ihtimalle bir izleme kaydinin fazla ya da eksik yazilmasi. Sayaclar
-     * ne UFS'e komut gonderiyor ne de bir kaynagi koruyor. Ustelik
-     * ConfigInfo'da MaxNumberOfIO=1 ve StorSynchronizeHalfDuplex ilan
-     * edildigi icin StorPort bu miniportu zaten sirali surer.
+     * ne UFS'e komut gonderiyor ne de bir kaynagi koruyor. PnP izleri yalnız
+     * tam çift yönlü modelin StorPort tarafından kilitlenen HwStartIo yolunda
+     * üretilir; eşzamansız HwBuildIo bu sayaca dokunmaz.
      *
      * Toolchain'le guresmek yerine ihtiyaci ortadan kaldirmak dogrusu.
      */
@@ -583,8 +584,13 @@ B2LUfsHandlePnpSrb(
                                                   SRB_STATUS_NO_DEVICE;
             break;
         case StorStopDevice:
+            SrbStatus = SRB_STATUS_SUCCESS;
+            break;
         case StorRemoveDevice:
         case StorSurpriseRemoval:
+            Adapter->AdapterRemoved = TRUE;
+            Adapter->TransportReady = FALSE;
+            B2LUfsReleaseBusScanTimer(DeviceExtension, Adapter);
             SrbStatus = SRB_STATUS_SUCCESS;
             break;
         default:
@@ -646,6 +652,7 @@ B2LUfsAllocateTransport(
     Adapter->ConfiguredAddressType = (ULONG)ConfigInfo->AddressType;
 
     ConfigInfo->MaximumTransferLength = B2LUFS_MAX_TRANSFER;
+    /* StorPort treats this historical "breaks" field as the SG entry count. */
     ConfigInfo->NumberOfPhysicalBreaks = B2LUFS_MAX_PRDT_ENTRIES;
     ConfigInfo->NumberOfBuses = 1;
     /*
@@ -678,7 +685,7 @@ B2LUfsAllocateTransport(
      * uzerinden de bildirmek gerekiyor. ScatterGather, 32 girisli PRDT'ye
      * bolunmus istekler icin sart.
      */
-    /* StorPort initializes Master/ScatterGather/queue capability to TRUE. */
+    /* StorPort owns ScatterGather/Master; current DDI forbids changing them. */
     ConfigInfo->CachesData = FALSE;
     /* UFSHCI PRDT byte counts are DWORD granular. */
     ConfigInfo->AlignmentMask = FILE_LONG_ALIGNMENT;
@@ -694,8 +701,13 @@ B2LUfsAllocateTransport(
     /* CAP[24] reports full 64-bit UFSHCI DMA addressing. */
     ConfigInfo->Dma64BitAddresses =
         SCSI_DMA64_MINIPORT_FULL64BIT_NO_BOUNDARY_REQ_SUPPORTED;
-    /* One borrowed UTRD means StorPort must not queue more than one SRB. */
-    ConfigInfo->SynchronizationModel = StorSynchronizeHalfDuplex;
+    /*
+     * StorPort requires tagged/multiple-request capability, but these three
+     * values describe requests actually outstanding in this phase. StartIo
+     * completes synchronously and owns only slot 0, so the truthful limit is
+     * one until the multi-slot interrupt transport is implemented.
+     */
+    ConfigInfo->SynchronizationModel = StorSynchronizeFullDuplex;
     ConfigInfo->MaxNumberOfIO = 1;
     ConfigInfo->MaxIOsPerLun = 1;
     ConfigInfo->InitialLunQueueDepth = 1;
@@ -712,16 +724,22 @@ B2LUfsAllocateTransport(
         ConfigInfo->AutoRequestSense ? 1UL : 0UL;
     Adapter->ConfiguredMultipleRequestPerLu =
         ConfigInfo->MultipleRequestPerLu ? 1UL : 0UL;
+    Adapter->ConfiguredPhysicalBreaks = ConfigInfo->NumberOfPhysicalBreaks;
+    Adapter->ConfiguredSynchronizationModel =
+        (ULONG)ConfigInfo->SynchronizationModel;
     Adapter->ConfiguredMaxNumberOfIo = ConfigInfo->MaxNumberOfIO;
     Adapter->ConfiguredMaxIoPerLun = ConfigInfo->MaxIOsPerLun;
     Adapter->ConfiguredInitialLunQueueDepth = ConfigInfo->InitialLunQueueDepth;
 
-    Adapter->CommonBuffer = StorPortGetUncachedExtension(
-        DeviceExtension,
-        ConfigInfo,
-        B2LUFS_COMMON_BUFFER_BYTES);
+    /* StorPort preserves the extension across stop/restart; allocate once. */
     if (Adapter->CommonBuffer == NULL) {
-        return FALSE;
+        Adapter->CommonBuffer = StorPortGetUncachedExtension(
+            DeviceExtension,
+            ConfigInfo,
+            B2LUFS_COMMON_BUFFER_BYTES);
+        if (Adapter->CommonBuffer == NULL) {
+            return FALSE;
+        }
     }
 
     Length = B2LUFS_COMMON_BUFFER_BYTES;
@@ -777,21 +795,17 @@ B2LUfsAllocateTransport(
 }
 
 /*
- * StorPortGetPhysicalAddress returns the contiguous run that starts at the
- * supplied virtual address, not an entire SRB's scatter/gather map.  Build
- * the UFS PRDT one run at a time so a normal Windows 4 KiB GPT read does not
- * become an accidental "must fit in one physical page" requirement.
- *
- * The two pre-PnP probes live in StorPort's common buffer and do not have an
- * SRB.  They are already physically contiguous; all other paths require the
- * SRB mapping supplied by StorPort.
+ * Build normal SRBs from StorPort's read-only scatter/gather list. This is
+ * independent of Srb->DataBuffer, which the DDI permits to be NULL even when
+ * STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE was requested. The two pre-PnP
+ * probes have no SRB and use their known contiguous common-buffer addresses.
  */
 static BOOLEAN
 B2LUfsBuildPrdt(
     _In_ PVOID DeviceExtension,
     _In_opt_ PSCSI_REQUEST_BLOCK Srb,
     _Inout_ B2LUFS_ADAPTER *Adapter,
-    _In_ PVOID DataBuffer,
+    _In_opt_ PVOID DataBuffer,
     _In_ ULONG RequestedLength,
     _Out_writes_(B2LUFS_MAX_PRDT_ENTRIES) B2LUFS_PRDT *Prdt,
     _Out_ PULONG PrdtEntryCount)
@@ -799,18 +813,19 @@ B2LUfsBuildPrdt(
     STOR_PHYSICAL_ADDRESS Physical;
     ULONG PhysicalLength;
     ULONG Remaining;
-    ULONG BufferOffset;
     ULONG EntryLength;
     ULONG EntryCount;
+    ULONG ElementIndex;
+    PSTOR_SCATTER_GATHER_LIST ScatterGather;
     BOOLEAN CommonBuffer;
 
-    if (DataBuffer == NULL || RequestedLength == 0) {
+    if (RequestedLength == 0) {
         return FALSE;
     }
 
-    CommonBuffer = FALSE;
     Physical.QuadPart = 0;
     PhysicalLength = 0;
+    CommonBuffer = FALSE;
     if (DataBuffer == Adapter->CapacityProbeVirtual) {
         if (RequestedLength > Adapter->CapacityProbeLength) {
             return FALSE;
@@ -825,47 +840,69 @@ B2LUfsBuildPrdt(
         Physical = Adapter->LunReportPhysical;
         PhysicalLength = Adapter->LunReportLength;
         CommonBuffer = TRUE;
-    } else if (Srb == NULL) {
+    }
+
+    if (CommonBuffer) {
+        if (Physical.QuadPart == 0) {
+            return FALSE;
+        }
+
+        Remaining = RequestedLength;
+        EntryCount = 0;
+        while (Remaining != 0) {
+            EntryLength = B2LUfsMinUlong(Remaining, PhysicalLength);
+            EntryLength = B2LUfsMinUlong(
+                EntryLength, B2LUFS_PRDT_MAX_BYTES);
+            if (EntryLength == 0 ||
+                EntryCount == B2LUFS_MAX_PRDT_ENTRIES) {
+                return FALSE;
+            }
+            Prdt[EntryCount].BaseAddressLow = Physical.LowPart;
+            Prdt[EntryCount].BaseAddressHigh = Physical.HighPart;
+            Prdt[EntryCount].DataByteCount = EntryLength - 1UL;
+            ++EntryCount;
+            Remaining -= EntryLength;
+            Physical.QuadPart += EntryLength;
+            PhysicalLength -= EntryLength;
+        }
+        *PrdtEntryCount = EntryCount;
+        return TRUE;
+    }
+
+    if (Srb == NULL) {
+        return FALSE;
+    }
+    ScatterGather = StorPortGetScatterGatherList(DeviceExtension, Srb);
+    if (ScatterGather == NULL || ScatterGather->NumberOfElements == 0) {
         return FALSE;
     }
 
     Remaining = RequestedLength;
-    BufferOffset = 0;
     EntryCount = 0;
-    while (Remaining != 0) {
-        if (PhysicalLength == 0) {
-            PhysicalLength = Remaining;
-            Physical = StorPortGetPhysicalAddress(
-                DeviceExtension,
-                Srb,
-                (PUCHAR)DataBuffer + BufferOffset,
-                &PhysicalLength);
-            if (Physical.QuadPart == 0 || PhysicalLength == 0) {
+    for (ElementIndex = 0;
+         ElementIndex < ScatterGather->NumberOfElements && Remaining != 0;
+         ++ElementIndex) {
+        Physical = ScatterGather->List[ElementIndex].PhysicalAddress;
+        PhysicalLength = B2LUfsMinUlong(
+            Remaining, ScatterGather->List[ElementIndex].Length);
+        while (PhysicalLength != 0) {
+            EntryLength = B2LUfsMinUlong(
+                PhysicalLength, B2LUFS_PRDT_MAX_BYTES);
+            if (EntryCount == B2LUFS_MAX_PRDT_ENTRIES) {
                 return FALSE;
             }
-        }
-
-        EntryLength = B2LUfsMinUlong(Remaining, PhysicalLength);
-        EntryLength = B2LUfsMinUlong(EntryLength, B2LUFS_PRDT_MAX_BYTES);
-        if (EntryLength == 0 || EntryCount == B2LUFS_MAX_PRDT_ENTRIES) {
-            return FALSE;
-        }
-
-        Prdt[EntryCount].BaseAddressLow = Physical.LowPart;
-        Prdt[EntryCount].BaseAddressHigh = Physical.HighPart;
-        Prdt[EntryCount].DataByteCount = EntryLength - 1UL;
-        ++EntryCount;
-        Remaining -= EntryLength;
-        BufferOffset += EntryLength;
-        Physical.QuadPart += EntryLength;
-        PhysicalLength -= EntryLength;
-
-        if (CommonBuffer && Remaining != 0 && PhysicalLength == 0) {
-            /* The requested probe did not fit in its own DMA allocation. */
-            return FALSE;
+            Prdt[EntryCount].BaseAddressLow = Physical.LowPart;
+            Prdt[EntryCount].BaseAddressHigh = Physical.HighPart;
+            Prdt[EntryCount].DataByteCount = EntryLength - 1UL;
+            ++EntryCount;
+            Remaining -= EntryLength;
+            Physical.QuadPart += EntryLength;
+            PhysicalLength -= EntryLength;
         }
     }
-
+    if (Remaining != 0) {
+        return FALSE;
+    }
     *PrdtEntryCount = EntryCount;
     return TRUE;
 }
@@ -980,9 +1017,80 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
     }
 
     Adapter->TransportReady = TRUE;
+    Adapter->AdapterRemoved = FALSE;
     Adapter->TraceBudget = B2LUFS_TRACE_BUDGET;
     Adapter->PnpTraceBudget = B2LUFS_PNP_TRACE_BUDGET;
     return TRUE;
+}
+
+BOOLEAN
+B2LUfsStopTransport(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter)
+{
+    ULONG Attempts;
+    ULONG Doorbell;
+
+    Adapter->TransportReady = FALSE;
+    if (Adapter->AdapterRemoved ||
+        Adapter->Resources.Base[B2LUfsResourceHci] == NULL) {
+        return FALSE;
+    }
+
+    /* Stop interrupt production before halting the borrowed transfer list. */
+    B2LUfsWriteHci(DeviceExtension, Adapter, B2LUFS_REG_IE, 0);
+    Doorbell = B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR);
+    if (Doorbell != 0) {
+        /* UFSHCI clears selected slots with zero bits; ones mean no change. */
+        B2LUfsWriteHci(
+            DeviceExtension, Adapter, B2LUFS_REG_UTRLCLR, ~Doorbell);
+        for (Attempts = 0; Attempts < 5000UL; ++Attempts) {
+            if (B2LUfsReadHci(
+                    DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR) == 0) {
+                break;
+            }
+            StorPortStallExecution(1);
+        }
+        if (Attempts == 5000UL) {
+            return FALSE;
+        }
+    }
+
+    B2LUfsWriteHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLRSR, 0);
+    for (Attempts = 0; Attempts < 1000UL; ++Attempts) {
+        if ((B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLRSR) &
+             B2LUFS_UTRL_RUN_STOP) == 0) {
+            break;
+        }
+        StorPortStallExecution(10);
+    }
+    if (Attempts == 1000UL) {
+        return FALSE;
+    }
+
+    /* Restore firmware's idle policy while Windows is not using the HBA. */
+    B2LUfsWriteHci(
+        DeviceExtension, Adapter, B2LUFS_REG_AHIT,
+        Adapter->AutoHibern8Before);
+    return TRUE;
+}
+
+BOOLEAN
+B2LUfsResetTransport(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter)
+{
+    if (!B2LUfsStopTransport(DeviceExtension, Adapter)) {
+        return FALSE;
+    }
+
+    /*
+     * Multi-tier reset recovery is intentionally limited to UTP queue state:
+     * HCE, UniPro, PHY and the UFS logical units are never reset or written.
+     */
+    B2LUfsZeroMemory(Adapter->UtrdVirtual, B2LUFS_UTRD_ALIGNMENT);
+    B2LUfsZeroMemory(Adapter->UcdVirtual, B2LUFS_UCD_BYTES);
+    return B2LUfsStartTransport(DeviceExtension, Adapter);
 }
 
 static B2LUFS_TRANSFER_RESULT
@@ -1066,8 +1174,8 @@ B2LUfsSubmitReadOnlyScsi(
     CommandUpiu->Lun = 0;
     /*
      * TaggedQueuing is mandatory for StorPort.  Preserve StorPort's tag in
-     * the UFS COMMAND/RESPONSE UPIU even though MaxNumberOfIO=1 keeps only
-     * one UTRD active.  The two pre-PnP probes have no SRB and use tag 0.
+     * the UFS COMMAND/RESPONSE UPIU. StartIo completes synchronously, so only
+     * one UTRD is active. The two pre-PnP probes have no SRB and use tag 0.
      */
     TaskTag = (Srb != NULL) ? Srb->QueueTag : 0;
     CommandUpiu->TaskTag = TaskTag;
@@ -1416,10 +1524,32 @@ B2LUfsExecuteScsi(
     _Inout_ PSCSI_REQUEST_BLOCK Srb)
 {
     B2LUFS_TRANSFER_RESULT Result;
+    BOOLEAN ResetOk;
 
-    /* BuildIo normally completes PnP; retain this guard for unusual paths. */
+    /* Lifecycle requests are serialized here after unsynchronized BuildIo. */
     if (Srb->Function == SRB_FUNCTION_PNP) {
         B2LUfsHandlePnpSrb(DeviceExtension, Adapter, Srb);
+        return;
+    }
+
+    if (Srb->Function == SRB_FUNCTION_RESET_BUS ||
+        Srb->Function == SRB_FUNCTION_RESET_DEVICE ||
+        Srb->Function == SRB_FUNCTION_RESET_LOGICAL_UNIT) {
+        ResetOk = Srb->PathId == 0;
+        if (Srb->Function != SRB_FUNCTION_RESET_BUS) {
+            ResetOk = ResetOk && Srb->TargetId == 0;
+        }
+        if (Srb->Function == SRB_FUNCTION_RESET_LOGICAL_UNIT) {
+            ResetOk = ResetOk && Srb->Lun == 0;
+        }
+        if (ResetOk) {
+            ResetOk = B2LUfsResetTransport(DeviceExtension, Adapter);
+        }
+        Srb->DataTransferLength = 0;
+        B2LUfsComplete(
+            DeviceExtension,
+            Srb,
+            ResetOk ? SRB_STATUS_SUCCESS : SRB_STATUS_ERROR);
         return;
     }
 

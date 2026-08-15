@@ -13,6 +13,7 @@
 #include "b2lufs_hw.h"
 
 typedef struct B2LUFS_ADAPTER {
+    ULONG Signature;
     B2LUFS_RESOURCES Resources;
 
     /* StorPort-owned, uncached common DMA allocation. */
@@ -74,9 +75,17 @@ typedef struct B2LUFS_ADAPTER {
     ULONG ConfiguredTaggedQueuing;
     ULONG ConfiguredAutoRequestSense;
     ULONG ConfiguredMultipleRequestPerLu;
+    ULONG ConfiguredPhysicalBreaks;
+    ULONG ConfiguredSynchronizationModel;
     ULONG ConfiguredMaxNumberOfIo;
     ULONG ConfiguredMaxIoPerLun;
     ULONG ConfiguredInitialLunQueueDepth;
+    /* Explicit StorPort timer used for the post-start LUN scan. */
+    PVOID BusScanTimer;
+    ULONG BusScanTimerInitializeStatus;
+    ULONG BusScanTimerRequestStatus;
+    BOOLEAN DumpMode;
+    BOOLEAN AdapterRemoved;
     /* Read-only CMD telemetry; copied to the StorPort Operational channel. */
     ULONG TraceSequence;
     ULONG TraceBudget;
@@ -101,6 +110,17 @@ B2LUfsStartTransport(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter);
 
+/* Stop/restart only the borrowed UTP transfer list; never reset UFS media. */
+BOOLEAN
+B2LUfsStopTransport(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter);
+
+BOOLEAN
+B2LUfsResetTransport(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter);
+
 /* Read and validate the live LUN-0 capacity reply before scanning. */
 VOID
 B2LUfsProbeLun0Capacity(
@@ -119,6 +139,12 @@ B2LUfsHandlePnpSrb(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter,
     _Inout_ PSCSI_REQUEST_BLOCK Srb);
+
+/* Release the explicit bus-scan timer when PnP removes the adapter. */
+VOID
+B2LUfsReleaseBusScanTimer(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter);
 
 /* Route a single, serialized SRB to UFS logical unit 0. */
 VOID

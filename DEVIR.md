@@ -1531,10 +1531,13 @@ InitData.MultipleRequestPerLu = FALSE;   // StorPort: TRUE zorunlu
 ```
 
 Yeni sürüm üç bayrağı da StorPort'un istediği biçimde `TRUE` bırakıyor.
-Donanımda yalnız tek UTRD kullanma sınırı bayrakları kapatarak değil,
-`MaxNumberOfIO=1`, `MaxIOsPerLun=1`, `InitialLunQueueDepth=1` ve
-half-duplex yürütmeyle sağlanıyor. StorPort'un `QueueTag` değeri UFS COMMAND
-UPIU'ya taşınıyor ve RESPONSE UPIU'da doğrulanıyor.
+StorPort'un en az 16 scatter/gather girdisi şartına karşı 32 girişli PRDT
+`NumberOfPhysicalBreaks=32` olarak ilan ediliyor. Tek aktif UTRD'yi doğru
+yansıtmak için `MaxNumberOfIO`, `MaxIOsPerLun` ve başlangıç kuyruk derinliği
+1; miniport `StorSynchronizeFullDuplex` kullanıyor. Donanımda yalnız tek UTRD
+kullanma sınırı, StorPort'un StartIo kilidi altında komutu `HwStartIo`
+dönmeden eşzamanlı tamamlayarak sağlanıyor. `QueueTag` UFS COMMAND UPIU'ya
+taşınıyor ve RESPONSE UPIU'da doğrulanıyor.
 
 Git geçmişi ile cihaz fotoğrafları ayrıca bir enumerasyon regresyonunu
 gösterdi. `0.0.2.0`, `HwInitialize` sonunda `BusChangeDetected` gönderdiğinde
@@ -1545,9 +1548,14 @@ normal `BLS1`/`BLP1` isteği oluşmadı. Microsoft'un yaşam döngüsü belgesi
 başlangıç sırasını `HwFindAdapter`, `HwInitialize`, ardından
 `HwAdapterControl(ScsiQuerySupportedControlTypes)` olarak tanımlar; PASSIVE
 callback de bu başlangıç zincirine aittir. `0.0.2.5` iki erken bildirimi
-kaldırır. PASSIVE callback `RequestTimerCall` ile 500 ms gecikmeli bir
-`HW_TIMER` planlar; timer çalışınca bus 0 için `BusChangeDetected` gönderir.
-Timer ayrı `BLT1` Operational kaydı bırakır. Böylece `BLT1` yokluğu timer
+kaldırdı; fakat cihaz çıktısı implicit `RequestTimerCall` isteğinin hiç
+çalışmadığını gösterdi. `0.0.2.7`, Microsoft StorAHCI örneğindeki gibi
+`HwFindAdapter` içinde `StorPortInitializeTimer` ile açık bir timer nesnesi
+oluşturur; PASSIVE callback `StorPortRequestTimer` ile bunu 500 ms'ye kurar.
+Dump stack'in yüksek IRQL yolu bu timer/PASSIVE tanısını atlar. Her iki
+API'nin dönüş kodu kayıt altındadır. Timer çalışınca bus 0 için
+`BusChangeDetected` gönderir ve ayrı `BLT1` Operational kaydı bırakır.
+Böylece `BLT1` yokluğu timer
 öncesi başlangıç sorununu, `BLT1` olup `BLS1` olmaması StorPort tarama
 sorununu, `BLS1` oluşması ise gerçek SCSI/UFS keşif sonucunu ayırır.
 
@@ -1576,12 +1584,34 @@ başlattığını ve Linux'un aynı `13d60000.ufs` denetleyicisini kullandığı
 doğruluyor. Bu ölçümler link/PHY/handoff'un çalıştığını, eksik Disk PDO'nun
 StorPort/SCSI enumerasyon katmanında olduğunu gösteriyor.
 
+`0.0.2.7` ayrıca Microsoft'un yaşam döngüsü sözleşmesindeki kalan farkları
+kapatır: uzun süren UFS probları DIRQL `HwInitialize` yerine PASSIVE'a
+taşındı; kilitsiz/eşzamanlı çağrılabilen `HwBuildIo` artık PnP durumu
+değiştirmiyor; zorunlu `ScsiStopAdapter` gerçekten UTRL işlemeyi durduruyor,
+`ScsiRestartAdapter` denetleyiciyi `HwInitialize` ile aynı taşıma yolundan
+yeniden başlatıyor; bus/device/LUN reset SRB'leri ve `HwResetBus` yalnız UTP
+kuyruk durumunu güvenli biçimde yeniden kuruyor. Stop yolundaki UTRLCLR de
+UFSHCI/Linux sözleşmesine uyarlandı: temizlenecek slot biti `0`, değişmeyecek
+bitler `1` yazılıyor (`~Doorbell`). HCE, UniPro, PHY ve UFS medya resetlenmiyor.
+`PORT_CONFIGURATION_INFORMATION` karşılaştırmasında `ScatterGather` ve
+`Master` alanlarının StorPort'a ait olduğu, miniportun bunları değiştirmemesi
+gerektiği; `ResetTargetSupported` alanının ise obsolete olduğu doğrulandı.
+Kod bu alanlara artık yazmıyor. Çok katmanlı reset gerçek reset SRB'leri ve
+`HwResetBus` üzerinden uygulanıyor.
+Normal I/O PRDT'si de `Srb->DataBuffer` sanal eşlemesini tekrar fiziksele
+çevirmek yerine StorPort'un salt-okunur `StorPortGetScatterGatherList`
+çıktısından kuruluyor. DDI'nin izin verdiği düşük bellek
+`DataBuffer == NULL` durumunda fiziksel SG listesi kullanılmaya devam ediyor.
+
 Yeni tanı şeması `NumberOfBuses=1`, `MaximumTargets=2`, `InitiatorBusId=1`,
 `ScatterGather=1`, `Master=1`, `TaggedQueuing=1`, `AutoRequestSense=1`,
-`MultipleRequestPerLu=1`, `MaxNumberOfIO=1`,
-`MaxIOsPerLun=1` ve `InitialLunQueueDepth=1` değerlerini CMD'de yan yana
-gösterir. Nihai doğrulama ölçütü ikinci DiskPart bloğunda `Disk 0` ve
-ardından `list partition` ile Android GPT bölümleridir.
+`MultipleRequestPerLu=1`, `NumberOfPhysicalBreaks=32`,
+`SynchronizationModel=1`, `MaxNumberOfIO=1`, `MaxIOsPerLun=1` ve
+`InitialLunQueueDepth=1` değerlerini CMD'de yan yana
+gösterir. `BusScanTimerHandleValid=1`, initialize/request durumlarının `0`
+olması ve ardından `BLT1` görülmesi StorPort timer zincirinin çalıştığını
+kanıtlar. Nihai doğrulama ölçütü ikinci DiskPart bloğunda `Disk 0` ve ardından
+`list partition` ile Android GPT bölümleridir.
 
 ---
 

@@ -25,6 +25,7 @@
 #define B2LUFS_ETW_FIND_ADAPTER_FAILURE  0x42324C01UL
 #define B2LUFS_ETW_DEFERRED_BUS_SCAN      0x42324C04UL
 #define B2LUFS_BUS_SCAN_DELAY_US          500000UL
+#define B2LUFS_ADAPTER_SIGNATURE          0x41465542UL /* "BUFA" */
 
 /*
  * WinPE reads this diagnostic-only subkey after PnP settles.  All contents
@@ -48,9 +49,14 @@ static UCHAR B2LUFS_REG_MASTER[] = "Master";
 static UCHAR B2LUFS_REG_TAGGED_QUEUEING[] = "TaggedQueuing";
 static UCHAR B2LUFS_REG_AUTO_SENSE[] = "AutoRequestSense";
 static UCHAR B2LUFS_REG_MULTIPLE_REQUESTS[] = "MultipleRequestPerLu";
+static UCHAR B2LUFS_REG_PHYSICAL_BREAKS[] = "NumberOfPhysicalBreaks";
+static UCHAR B2LUFS_REG_SYNCHRONIZATION_MODEL[] = "SynchronizationModel";
 static UCHAR B2LUFS_REG_MAX_IO[] = "MaxNumberOfIO";
 static UCHAR B2LUFS_REG_MAX_IO_PER_LUN[] = "MaxIOsPerLun";
 static UCHAR B2LUFS_REG_INITIAL_QUEUE_DEPTH[] = "InitialLunQueueDepth";
+static UCHAR B2LUFS_REG_TIMER_HANDLE_VALID[] = "BusScanTimerHandleValid";
+static UCHAR B2LUFS_REG_TIMER_INITIALIZE_STATUS[] = "BusScanTimerInitializeStatus";
+static UCHAR B2LUFS_REG_TIMER_REQUEST_STATUS[] = "BusScanTimerRequestStatus";
 static UCHAR B2LUFS_REG_CAPACITY_RESULT[] = "ReadCapacityResult";
 static UCHAR B2LUFS_REG_CAPACITY_SCSI_STATUS[] = "ReadCapacityScsiStatus";
 static UCHAR B2LUFS_REG_CAPACITY_OPCODE[] = "ReadCapacityOpcode";
@@ -68,7 +74,8 @@ static UCHAR B2LUFS_REG_LUNS_RAW[] = "ReportLunsRaw";
 typedef enum B2LUFS_FIND_FAILURE {
     B2LUfsFindFailureRangeCount = 1,
     B2LUfsFindFailureMap = 2,
-    B2LUfsFindFailureResourceContract = 3
+    B2LUfsFindFailureResourceContract = 3,
+    B2LUfsFindFailureTimer = 4
 } B2LUFS_FIND_FAILURE;
 
 typedef struct B2LUFS_FIND_FAILURE_DATA {
@@ -84,11 +91,13 @@ typedef struct B2LUFS_FIND_FAILURE_DATA {
 typedef struct B2LUFS_DEFERRED_BUS_SCAN_DATA {
     ULONG Magic;
     ULONG DelayMicroseconds;
+    ULONG TimerInitializeStatus;
+    ULONG TimerRequestStatus;
     ULONG TransportReady;
     ULONG HciStatus;
 } B2LUFS_DEFERRED_BUS_SCAN_DATA;
 
-C_ASSERT(sizeof(B2LUFS_DEFERRED_BUS_SCAN_DATA) == 16);
+C_ASSERT(sizeof(B2LUFS_DEFERRED_BUS_SCAN_DATA) == 24);
 
 /*
  * Faz 0 derlemesi CRT'ye baglanmaz. RtlZeroMemory'nin libc'ye donusme
@@ -139,18 +148,20 @@ B2LUfsLogFindFailure(
         &Data);
 }
 
-static HW_TIMER B2LUfsDeferredBusScan;
-
-_Use_decl_annotations_
 static VOID
-B2LUfsDeferredBusScan(_In_ PVOID DeviceExtension)
+B2LUfsDeferredBusScan(
+    _In_ PVOID DeviceExtension,
+    _In_opt_ PVOID Context)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
     B2LUFS_DEFERRED_BUS_SCAN_DATA Data;
 
+    UNREFERENCED_PARAMETER(Context);
     B2LUfsZeroMemory(&Data, sizeof(Data));
     Data.Magic = 0x31544C42UL; /* "BLT1" little-endian */
     Data.DelayMicroseconds = B2LUFS_BUS_SCAN_DELAY_US;
+    Data.TimerInitializeStatus = Adapter->BusScanTimerInitializeStatus;
+    Data.TimerRequestStatus = Adapter->BusScanTimerRequestStatus;
     Data.TransportReady = Adapter->TransportReady ? 1UL : 0UL;
     Data.HciStatus = Adapter->ControllerStatus;
 
@@ -167,7 +178,7 @@ B2LUfsDeferredBusScan(_In_ PVOID DeviceExtension)
         sizeof(Data),
         &Data);
 
-    if (!Adapter->TransportReady) {
+    if (!Adapter->TransportReady || Adapter->AdapterRemoved) {
         return;
     }
 
@@ -267,7 +278,14 @@ B2LUfsFindAdapter(
     }
 
     Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
-    B2LUfsZeroMemory(Adapter, sizeof(*Adapter));
+    /*
+     * StorPort zeroes a physical miniport's device extension only once and
+     * explicitly preserves it across PnP stop/restart.  Clear only an
+     * extension that has never completed our first FindAdapter call.
+     */
+    if (Adapter->Signature != B2LUFS_ADAPTER_SIGNATURE) {
+        B2LUfsZeroMemory(Adapter, sizeof(*Adapter));
+    }
     if (B2LUfsBindResources(Given, B2LUFS_RESOURCE_COUNT,
                             &Adapter->Resources) != 0) {
         B2LUfsLogFindFailure(
@@ -299,8 +317,38 @@ B2LUfsFindAdapter(
             ConfigInfo,
             0,
             0);
+        B2LUfsReleaseGivenResources(DeviceExtension, Given);
+        B2LUfsZeroMemory(&Adapter->Resources, sizeof(Adapter->Resources));
         return SP_RETURN_BAD_CONFIG;
     }
+
+    /*
+     * Unlike RequestTimerCall's implicit timer, this object has observable
+     * creation and scheduling results.  Microsoft recommends allocating an
+     * explicit StorPort timer in HwFindAdapter so its resources are known to
+     * be available before adapter initialization completes.
+     */
+    Adapter->DumpMode = ConfigInfo->DumpMode ? TRUE : FALSE;
+    if (!Adapter->DumpMode && Adapter->BusScanTimer == NULL) {
+        Adapter->BusScanTimerInitializeStatus =
+            StorPortInitializeTimer(DeviceExtension, &Adapter->BusScanTimer);
+    }
+    if (!Adapter->DumpMode &&
+        (Adapter->BusScanTimerInitializeStatus != STOR_STATUS_SUCCESS ||
+         Adapter->BusScanTimer == NULL)) {
+        B2LUfsLogFindFailure(
+            DeviceExtension,
+            B2LUfsFindFailureTimer,
+            MAXULONG,
+            ConfigInfo,
+            0,
+            0);
+        B2LUfsReleaseGivenResources(DeviceExtension, Given);
+        B2LUfsZeroMemory(&Adapter->Resources, sizeof(Adapter->Resources));
+        return SP_RETURN_ERROR;
+    }
+    Adapter->Signature = B2LUFS_ADAPTER_SIGNATURE;
+    Adapter->AdapterRemoved = FALSE;
     return SP_RETURN_FOUND;
 }
 
@@ -313,11 +361,12 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 7;
+    ULONG SchemaVersion = 9;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
     ULONG ScsiStatus = Adapter->LunReportScsiStatus;
+    ULONG TimerHandleValid = Adapter->BusScanTimer != NULL ? 1UL : 0UL;
     ULONG Index;
     UCHAR ValueName[] = "Lun00Id";
 
@@ -385,6 +434,14 @@ B2LUfsPublishLunSnapshot(
         REG_DWORD, &Adapter->ConfiguredMultipleRequestPerLu,
         sizeof(Adapter->ConfiguredMultipleRequestPerLu));
     (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_PHYSICAL_BREAKS,
+        REG_DWORD, &Adapter->ConfiguredPhysicalBreaks,
+        sizeof(Adapter->ConfiguredPhysicalBreaks));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_SYNCHRONIZATION_MODEL,
+        REG_DWORD, &Adapter->ConfiguredSynchronizationModel,
+        sizeof(Adapter->ConfiguredSynchronizationModel));
+    (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MAX_IO,
         REG_DWORD, &Adapter->ConfiguredMaxNumberOfIo,
         sizeof(Adapter->ConfiguredMaxNumberOfIo));
@@ -396,6 +453,17 @@ B2LUfsPublishLunSnapshot(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_INITIAL_QUEUE_DEPTH,
         REG_DWORD, &Adapter->ConfiguredInitialLunQueueDepth,
         sizeof(Adapter->ConfiguredInitialLunQueueDepth));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_TIMER_HANDLE_VALID,
+        REG_DWORD, &TimerHandleValid, sizeof(TimerHandleValid));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_TIMER_INITIALIZE_STATUS,
+        REG_DWORD, &Adapter->BusScanTimerInitializeStatus,
+        sizeof(Adapter->BusScanTimerInitializeStatus));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_TIMER_REQUEST_STATUS,
+        REG_DWORD, &Adapter->BusScanTimerRequestStatus,
+        sizeof(Adapter->BusScanTimerRequestStatus));
     (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_CAPACITY_RESULT,
         REG_DWORD, &Adapter->CapacityProbeResult,
@@ -465,7 +533,9 @@ B2LUfsPassiveInitialize(_In_ PVOID DeviceExtension)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
 
-    B2LUfsPublishLunSnapshot(DeviceExtension, Adapter);
+    /* Time-consuming polled discovery belongs at PASSIVE_LEVEL, not DIRQL. */
+    B2LUfsProbeLun0Capacity(DeviceExtension, Adapter);
+    B2LUfsProbeLuns(DeviceExtension, Adapter);
 
     /*
      * This callback runs after HwInitialize, but it is still part of the
@@ -473,12 +543,43 @@ B2LUfsPassiveInitialize(_In_ PVOID DeviceExtension)
      * StorPort has completed its adapter-control capability query and made
      * the demand-started adapter available for normal SRB processing.
      */
-    StorPortNotification(
-        RequestTimerCall,
-        DeviceExtension,
-        B2LUfsDeferredBusScan,
-        B2LUFS_BUS_SCAN_DELAY_US);
+    if (Adapter->BusScanTimer != NULL &&
+        Adapter->BusScanTimerInitializeStatus == STOR_STATUS_SUCCESS) {
+        Adapter->BusScanTimerRequestStatus = StorPortRequestTimer(
+            DeviceExtension,
+            Adapter->BusScanTimer,
+            B2LUfsDeferredBusScan,
+            NULL,
+            (ULONGLONG)B2LUFS_BUS_SCAN_DELAY_US,
+            0ULL);
+    } else {
+        Adapter->BusScanTimerRequestStatus = STOR_STATUS_INVALID_PARAMETER;
+    }
+
+    /* Publish after scheduling so WinPE can distinguish every timer state. */
+    B2LUfsPublishLunSnapshot(DeviceExtension, Adapter);
     return TRUE;
+}
+
+VOID
+B2LUfsReleaseBusScanTimer(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter)
+{
+    if (Adapter->BusScanTimer != NULL) {
+        /* TimerValue=0 cancels a still-pending callback before destruction. */
+        (void)StorPortRequestTimer(
+            DeviceExtension,
+            Adapter->BusScanTimer,
+            B2LUfsDeferredBusScan,
+            NULL,
+            0ULL,
+            0ULL);
+        if (StorPortFreeTimer(DeviceExtension, Adapter->BusScanTimer) ==
+            STOR_STATUS_SUCCESS) {
+            Adapter->BusScanTimer = NULL;
+        }
+    }
 }
 
 _Use_decl_annotations_
@@ -491,19 +592,14 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
         return FALSE;
     }
 
-    /*
-     * Obtain LUN 0's exact capacity in the driver's contiguous DMA scratch
-     * space before Windows starts PnP discovery.  A failed probe is
-     * non-destructive and does not block the existing normal SRB path.
-     */
-    B2LUfsProbeLun0Capacity(DeviceExtension, Adapter);
-    B2LUfsProbeLuns(DeviceExtension, Adapter);
+    /* Crash-dump stacks run at elevated IRQL and cannot use PASSIVE work. */
+    if (Adapter->DumpMode) {
+        return TRUE;
+    }
 
     /* The diagnostic registry key is written only from PASSIVE_LEVEL. */
-    (void)StorPortEnablePassiveInitialization(
+    return StorPortEnablePassiveInitialization(
         DeviceExtension, B2LUfsPassiveInitialize);
-
-    return TRUE;
 }
 
 static HW_STARTIO B2LUfsStartIo;
@@ -514,18 +610,13 @@ _Use_decl_annotations_
 static BOOLEAN
 B2LUfsBuildIo(_In_ PVOID DeviceExtension, _In_ PSCSI_REQUEST_BLOCK Srb)
 {
-    B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
-
     /*
-     * StorAHCI handles PnP before normal StartIo processing.  The legacy
-     * equivalent is SCSI_PNP_REQUEST_BLOCK; completing it here prevents it
-     * from being misread as a CDB by the UFS transport.
+     * HwBuildIo is unsynchronized and can run concurrently.  Match StorAHCI:
+     * leave PnP/lifecycle requests for serialized HwStartIo rather than
+     * changing adapter state or releasing a timer from this callback.
      */
-    if (Srb->Function == SRB_FUNCTION_PNP) {
-        B2LUfsHandlePnpSrb(DeviceExtension, Adapter, Srb);
-        return FALSE;
-    }
-
+    UNREFERENCED_PARAMETER(DeviceExtension);
+    UNREFERENCED_PARAMETER(Srb);
     return TRUE;
 }
 
@@ -614,9 +705,12 @@ _Use_decl_annotations_
 static BOOLEAN
 B2LUfsResetBus(_In_ PVOID DeviceExtension, _In_ ULONG PathId)
 {
-    UNREFERENCED_PARAMETER(DeviceExtension);
-    UNREFERENCED_PARAMETER(PathId);
-    return FALSE;
+    B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
+
+    if (PathId != 0 || Adapter->AdapterRemoved) {
+        return FALSE;
+    }
+    return B2LUfsResetTransport(DeviceExtension, Adapter);
 }
 
 static HW_ADAPTER_CONTROL B2LUfsAdapterControl;
@@ -628,44 +722,54 @@ B2LUfsAdapterControl(
     _In_ SCSI_ADAPTER_CONTROL_TYPE ControlType,
     _In_ PVOID Parameters)
 {
+    B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
+
     if (ControlType == ScsiQuerySupportedControlTypes) {
         PSCSI_SUPPORTED_CONTROL_TYPE_LIST Supported;
 
         Supported = (PSCSI_SUPPORTED_CONTROL_TYPE_LIST)Parameters;
-        if (Supported == NULL ||
-            Supported->MaxControlType <= ScsiRestartAdapter) {
-            return ScsiAdapterControlUnsuccessful;
+        if (Supported == NULL) {
+            /* StorPort requires success for every adapter-control callback. */
+            return ScsiAdapterControlSuccess;
         }
 
-        /* Salt-okunur LUN 0 taşıması PnP stop/restart sözleşmesini tutar. */
-        Supported->SupportedTypeList[ScsiQuerySupportedControlTypes] = TRUE;
-        Supported->SupportedTypeList[ScsiStopAdapter] = TRUE;
-        Supported->SupportedTypeList[ScsiRestartAdapter] = TRUE;
+        if (Supported->MaxControlType > ScsiQuerySupportedControlTypes) {
+            Supported->SupportedTypeList[ScsiQuerySupportedControlTypes] = TRUE;
+        }
+        if (Supported->MaxControlType > ScsiStopAdapter) {
+            Supported->SupportedTypeList[ScsiStopAdapter] = TRUE;
+        }
+        if (Supported->MaxControlType > ScsiRestartAdapter) {
+            Supported->SupportedTypeList[ScsiRestartAdapter] = TRUE;
+        }
         return ScsiAdapterControlSuccess;
     }
 
     if (ControlType == ScsiStopAdapter) {
         /*
-         * StorPortFreeDeviceBase yalniz HwFindAdapter icinden cagrilabilir.
-         * Ortak DMA belleğinin ve MMIO eşlemelerinin ömrünü StorPort yönetir.
-         * HCE/link/PHY resetlenmez; Android verisine hiçbir stop yazısı yoktur.
+         * StorPort guarantees no outstanding request here.  Halt background
+         * UTP processing, but never free PnP-owned mappings or DMA memory.
+         * A surprise-removed adapter must not be touched through MMIO.
          */
-        UNREFERENCED_PARAMETER(DeviceExtension);
         UNREFERENCED_PARAMETER(Parameters);
-        /* Bu ilk aşama kesme ya da eşzamanlı I/O kullanmaz. */
+        if (Adapter->AdapterRemoved) {
+            Adapter->TransportReady = FALSE;
+            return ScsiAdapterControlSuccess;
+        }
+        (void)B2LUfsStopTransport(DeviceExtension, Adapter);
         return ScsiAdapterControlSuccess;
     }
 
     if (ControlType == ScsiRestartAdapter) {
-        /* PnP yeniden başlatırsa HwInitialize canlı firmware linkini yeniden bağlar. */
-        UNREFERENCED_PARAMETER(DeviceExtension);
         UNREFERENCED_PARAMETER(Parameters);
+        Adapter->AdapterRemoved = FALSE;
+        (void)B2LUfsStartTransport(DeviceExtension, Adapter);
         return ScsiAdapterControlSuccess;
     }
 
-    UNREFERENCED_PARAMETER(DeviceExtension);
     UNREFERENCED_PARAMETER(Parameters);
-    return ScsiAdapterControlUnsuccessful;
+    /* StorPort only calls operations advertised in the query above. */
+    return ScsiAdapterControlSuccess;
 }
 
 ULONG
@@ -716,8 +820,8 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
     InitData.NeedPhysicalAddresses = TRUE;
     /*
      * StorPort fiziksel miniport sözleşmesi bu iki yeteneği zorunlu tutar.
-     * B2LUFS'in tek UTRD sınırı bunları kapatarak değil, HwFindAdapter'daki
-     * MaxNumberOfIO/MaxIOsPerLun=1 ve half-duplex modeliyle uygulanır.
+     * B2LUFS'in tek UTRD sınırı bunları kapatarak değil, tam çift yönlü
+     * StartIo kilidi altında her isteği dönüşten önce tamamlayarak uygulanır.
      */
     InitData.TaggedQueuing = TRUE;
     InitData.AutoRequestSense = TRUE;
