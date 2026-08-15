@@ -30,8 +30,9 @@ typedef struct B2LUFS_ADAPTER {
      * the 16-byte form is used only for a device larger than its address
      * range. It never contains user data and is never written to UFS. The
      * validated result is both diagnostic telemetry and the authoritative
-     * reply to disk class's later READ CAPACITY SRB, mapped with
-     * StorPortGetSystemAddress.
+     * reply to disk class's later READ CAPACITY SRB. MapBuffers=3 makes
+     * Srb->DataBuffer a system mapping; StorPortGetSystemAddress remains a
+     * fallback for hosts that omit that otherwise contracted pointer.
      */
     PVOID CapacityProbeVirtual;
     STOR_PHYSICAL_ADDRESS CapacityProbePhysical;

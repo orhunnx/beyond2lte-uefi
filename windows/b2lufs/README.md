@@ -38,7 +38,9 @@ B2LUFS bu PnP sözleşmesini korur ve aşağıdaki taşıma akışını uygular:
    `READ CAPACITY(10)` cevabını doğrular; yalnız `0xFFFFFFFF` LBA yanıtı
    verirse `READ CAPACITY(16)`ye geçer. Bu gerçek UFS cevabı doğrulanıp
    saklanır; disk sınıfının sonraki kapasite SRB'si
-   `StorPortGetSystemAddress` ile aynı cevaptan tamamlanır. Böylece
+   `MapBuffers=3` sözleşmesine göre doğrudan `Srb->DataBuffer` sistem
+   eşlemesine yazılarak aynı cevaptan tamamlanır;
+   `StorPortGetSystemAddress` yalnız NULL işaretçi için yedektir. Böylece
    `Srb->DataBuffer == NULL` olabilen StorPort SRB'lerinde de kapasite kaybolmaz.
 5. Aynı LUN 0 üzerinden bir kez standart `REPORT LUNS` envanterini alır.
    Bu, diğer LUN'ların bloklarını okumaz, hiçbir LUN'u Windows'a eklemez ve
@@ -209,10 +211,12 @@ belirttiği düşük bellek durumunda `DataBuffer == NULL` olsa da disk okuması
 fiziksel SG listesi üzerinden ilerleyebilir.
 Ön taramadaki gerçek UFS `READ CAPACITY` cevabı doğrulandıktan sonra disk
 sınıfının aynı kapasite sorgusu bu değişmez anlık görüntüden tamamlanır.
-Yanıt hedefi olarak `Srb->DataBuffer` doğrudan dereference edilmez;
-Microsoft'un StorPort veri SRB'leri için sağladığı `StorPortGetSystemAddress`
-ile sistem adresi alınır. Bu yol kapasite uydurmaz: `last-LBA` ve 4096 bayt
-blok değeri doğrudan aynı açılışta UFS'den gelen doğrulanmış cevaptır.
+`MapBuffers=STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE` hem başlangıç hem
+adapter yapılandırmasında ilan edildiği için Microsoft sözleşmesine göre
+`Srb->DataBuffer` sistem sanal adresidir ve yanıtın birincil hedefidir.
+`StorPortGetSystemAddress` yalnız bu işaretçi NULL gelirse yedek olarak
+kullanılır. Bu yol kapasite uydurmaz: `last-LBA` ve 4096 bayt blok değeri
+doğrudan aynı açılışta UFS'den gelen doğrulanmış cevaptır.
 Kesme sahipliği alınmaz; tamamlanma kapı zili poll edilir. Miniport fiziksel
 bir ACPI HBA olduğu için `Internal` arayüz türünü
 kullanmaz: `InterfaceTypeUndefined` ile
@@ -243,8 +247,8 @@ sonucunu gösterir. Fotoğrafta şu üç kanıt birlikte aranır:
    `X:` yalnız WinPE RAM diskidir.
 
 StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
-ve `BLT1`, ardından `BLC1 Outcome=5`, normal `BLS1` INQUIRY/READ CAPACITY
-kayıtları beklenir.
+ve `BLT1`, ardından `BLC2 Outcome=5, MapSource=1`, normal `BLS1`
+INQUIRY/READ CAPACITY kayıtları beklenir.
 `BLT1` var fakat `BLS1` yoksa timer/adapter yaşam döngüsü tamamlanmış olmasına
 rağmen StorPort tarama üretmemiştir; `BLT1` de yoksa sorun timer'ın
 planlanmasından önceki miniport başlatma aşamasındadır.

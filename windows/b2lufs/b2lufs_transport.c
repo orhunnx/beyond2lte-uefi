@@ -292,16 +292,21 @@ typedef struct B2LUFS_CAPACITY_TRACE_DATA {
     ULONG SrbFlags;
     ULONG RequestedLength;
     ULONG MapStatus;
+    ULONG MapSource;
     ULONG ReturnedLength;
 } B2LUFS_CAPACITY_TRACE_DATA;
 
-C_ASSERT(sizeof(B2LUFS_CAPACITY_TRACE_DATA) == 24);
+C_ASSERT(sizeof(B2LUFS_CAPACITY_TRACE_DATA) == 28);
 
 #define B2LUFS_CAPACITY_OUTCOME_NO_SNAPSHOT  1UL
 #define B2LUFS_CAPACITY_OUTCOME_ZERO_LENGTH  2UL
 #define B2LUFS_CAPACITY_OUTCOME_SHORT_BUFFER 3UL
 #define B2LUFS_CAPACITY_OUTCOME_MAP_FAILED   4UL
 #define B2LUFS_CAPACITY_OUTCOME_COMPLETED    5UL
+
+#define B2LUFS_CAPACITY_MAP_NONE             0UL
+#define B2LUFS_CAPACITY_MAP_SRB_DATA_BUFFER  1UL
+#define B2LUFS_CAPACITY_MAP_SYSTEM_ADDRESS   2UL
 
 static VOID
 B2LUfsZeroMemory(_Out_ PVOID Buffer, _In_ SIZE_T ByteCount)
@@ -1643,11 +1648,13 @@ B2LUfsCacheCapacityFromSrb(
         return;
     }
 
-    SystemAddress = NULL;
-    if (StorPortGetSystemAddress(DeviceExtension, Srb, &SystemAddress) !=
-            STOR_STATUS_SUCCESS ||
-        SystemAddress == NULL) {
-        return;
+    SystemAddress = Srb->DataBuffer;
+    if (SystemAddress == NULL) {
+        if (StorPortGetSystemAddress(DeviceExtension, Srb, &SystemAddress) !=
+                STOR_STATUS_SUCCESS ||
+            SystemAddress == NULL) {
+            return;
+        }
     }
     Input = (const UCHAR *)SystemAddress;
     if (Srb->Cdb[0] == B2LUFS_SCSI_READ_CAPACITY_10) {
@@ -1676,11 +1683,12 @@ B2LUfsCacheCapacityFromSrb(
 /*
  * The pre-enumeration probe has already obtained and validated the real UFS
  * LUN-0 capacity through a StorPort common DMA buffer.  Complete subsequent
- * disk-class READ CAPACITY requests from that immutable snapshot.  This is
- * deliberately not based on Srb->DataBuffer: Microsoft documents that a
- * StorPort data SRB can leave that member NULL even though an associated I/O
- * buffer exists. StorPortGetSystemAddress is the supported way to obtain a
- * system mapping at HwStartIo's IRQL.
+ * disk-class READ CAPACITY requests from that immutable snapshot.
+ * MapBuffers=STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE is declared in both
+ * HW_INITIALIZATION_DATA and PORT_CONFIGURATION_INFORMATION. Under that
+ * StorPort contract Srb->DataBuffer is already a system virtual address and
+ * is the primary target. StorPortGetSystemAddress is retained only as a
+ * defensive fallback when a host supplies a NULL pointer.
  */
 static BOOLEAN
 B2LUfsCompleteCachedCapacity(
@@ -1696,10 +1704,11 @@ B2LUfsCompleteCachedCapacity(
     ULONG Status;
 
     B2LUfsZeroMemory(&Trace, sizeof(Trace));
-    Trace.Magic = 0x31434C42UL; /* "BLC1" little-endian */
+    Trace.Magic = 0x32434C42UL; /* "BLC2" little-endian */
     Trace.SrbFlags = Srb->SrbFlags;
     Trace.RequestedLength = Srb->DataTransferLength;
     Trace.MapStatus = MAXULONG;
+    Trace.MapSource = B2LUFS_CAPACITY_MAP_NONE;
 
     if (Srb->Cdb[0] != B2LUFS_SCSI_READ_CAPACITY_10 &&
         !(Srb->Cdb[0] == B2LUFS_SCSI_SERVICE_ACTION_IN_16 &&
@@ -1731,12 +1740,19 @@ B2LUfsCompleteCachedCapacity(
         }
     }
 
-    SystemAddress = NULL;
-    Status = StorPortGetSystemAddress(DeviceExtension, Srb, &SystemAddress);
-    Trace.MapStatus = Status;
-    if (Status != STOR_STATUS_SUCCESS || SystemAddress == NULL) {
-        Trace.Outcome = B2LUFS_CAPACITY_OUTCOME_MAP_FAILED;
-        goto LogAndFallback;
+    SystemAddress = Srb->DataBuffer;
+    if (SystemAddress != NULL) {
+        Trace.MapStatus = STOR_STATUS_SUCCESS;
+        Trace.MapSource = B2LUFS_CAPACITY_MAP_SRB_DATA_BUFFER;
+    } else {
+        Status = StorPortGetSystemAddress(
+            DeviceExtension, Srb, &SystemAddress);
+        Trace.MapStatus = Status;
+        Trace.MapSource = B2LUFS_CAPACITY_MAP_SYSTEM_ADDRESS;
+        if (Status != STOR_STATUS_SUCCESS || SystemAddress == NULL) {
+            Trace.Outcome = B2LUFS_CAPACITY_OUTCOME_MAP_FAILED;
+            goto LogAndFallback;
+        }
     }
 
     TransferLength = B2LUfsMinUlong(
@@ -1758,6 +1774,7 @@ B2LUfsCompleteCachedCapacity(
     Adapter->LastInterruptStatus = 0;
     Srb->DataTransferLength = TransferLength;
     Srb->ScsiStatus = B2LUFS_SCSI_STATUS_GOOD;
+    KeMemoryBarrier();
     Trace.Outcome = B2LUFS_CAPACITY_OUTCOME_COMPLETED;
     Trace.ReturnedLength = TransferLength;
     if (!Adapter->DumpMode) {
@@ -1765,7 +1782,7 @@ B2LUfsCompleteCachedCapacity(
             DeviceExtension,
             NULL,
             B2LUFS_ETW_CAPACITY_TRACE,
-            L"B2LUFS cached UFS capacity completion; binary data is BLC1",
+            L"B2LUFS cached UFS capacity completion; binary data is BLC2",
             sizeof(Trace),
             &Trace);
     }
@@ -1780,7 +1797,7 @@ LogAndFallback:
             DeviceExtension,
             NULL,
             B2LUFS_ETW_CAPACITY_TRACE,
-            L"B2LUFS cached UFS capacity fallback; binary data is BLC1",
+            L"B2LUFS cached UFS capacity fallback; binary data is BLC2",
             sizeof(Trace),
             &Trace);
     }

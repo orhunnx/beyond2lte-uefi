@@ -185,7 +185,7 @@ echo Son B2LUFS SRB ve PnP/LUN yasam-dongusu kayitlari StorPort Operational gunl
 echo Her "BLS1" ikili kaydinin son 64 bayti yalniz UFS'in dondugu okuma/sense verisidir; yazma payload'i kaydedilmez.
 echo CDB=12 INQUIRY, 1B START_STOP(no-op), 25 READ_CAPACITY, 28/88 READ, 2A/8A WRITE.
 echo Result=0 ve SCSI=0 basaridir; CHECK CONDITION kaydinin ornegi UFS sense baytlaridir.
-echo "BLC1" kapasite kaydi: Outcome=5, MapStatus=0 ve ReturnedLength=8 beklenir.
+echo "BLC2" kapasite kaydi: Outcome=5, MapStatus=0, MapSource=1 ve ReturnedLength=8 beklenir.
 echo "BLP1" kaydi legacy BTL8 PnP istegidir; UFS medya verisi veya CDB icermez.
 wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:true /f:text /c:24 2>nul
 exit /b 0
@@ -225,7 +225,7 @@ exit /b 0
 :LunInventory
 echo --- B2LUFS: READ CAPACITY onceligi ve ham cevap ---
 echo Surucu once 10-baytli READ CAPACITY kullanir; 16-baytli form yalniz 2 TiB ustu LUN icindir.
-echo Windows capacity SRB'si on-probda dogrulanmis gercek UFS cevabindan StorPortGetSystemAddress ile tamamlanir.
+echo Windows capacity SRB'si MapBuffers=3 ile Srb-DataBuffer sistem adresine yazilir; GetSystemAddress yalniz yedektir.
 echo Result=0 ve ScsiStatus=0 ile ReadCapacityValid=1 beklenir; BlockBytes bu cihazda 4096 olmalidir.
 set "B2L_LUN_KEY=HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0\Device Parameters\B2LUFS"
 echo Exynos/UFSHCI devralma durumu (CAP=1303FF1F, HCS ready, 32 UTR + 4 UTMR beklenir):
