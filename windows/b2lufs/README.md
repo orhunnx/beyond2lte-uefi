@@ -84,9 +84,9 @@ Yazılımsal reset bu platformda WinPE'den dönemediği için, aynı kayıt
 %SystemRoot%\B2LUFS.TXT
 ```
 
-`startnet.cmd` bunu otomatik tanının sonunda ekrana basar. Bu ikinci kanal
-yalnız CMD'den fotoğraflanabilirlik içindir: dosya `X:` RAM diskindedir ve
-UFS LUN'una yazı yapılmaz. Sıcak reset çalıştığında B2LGoster yine şu iki
+Dosya gerektiğinde CMD'den elle okunabilir; sadeleştirilmiş `startnet.cmd`
+normal disk/GPT akışında bu eski HCI dökümünü basmaz. Dosya `X:` RAM
+diskindedir ve UFS LUN'una yazı yapılmaz. Sıcak reset çalıştığında B2LGoster şu iki
 satırı da gösterir:
 
 ```
@@ -125,8 +125,8 @@ ETW kanalına bir `BLS2` ikili tanı kaydı bırakır. Kayıt özgün/dönen akt
 uzunluğunu, SGL/PRDT girdi sayılarını ve ilk fiziksel parçayı da taşır.
 `PrdtBuildStatus` alanı `0=denenmedi`, `1=başarılı`, `2=DMA eşlemesi yok`,
 `3=PRDT dolu`, `4=SGL kısa`, `5=geçersiz adres/uzunluk` olarak yorumlanır.
-`startnet.cmd`, ikinci
-DiskPart taramasından hemen sonra bu kayıtları CMD'de gösterir. Kaydın son 64
+Sadeleştirilmiş `startnet.cmd` bütün Operational günlüğünü ekrana dökmez;
+gerektiğinde `wevtutil` ile elle okunabilir. Kaydın son 64
 baytı, başarılı bir `INQUIRY`, kapasite veya `READ` isteğinden dönen ham
 örnektir. UFS bir `CHECK CONDITION` döndürürse aynı alan medya yerine UFS
 RESPONSE UPIU'dan kopyalanan sense baytlarını taşır ve SRB
@@ -142,8 +142,8 @@ iptal yazısı göndermez. İlk SRB `TIMEOUT` ile tamamlanır, yeni komutlar hı
 biçimde `NO_DEVICE` döner ve WinPE/PnP akışı ekranda takılı kalmaz. Bu koruma,
 tek-slotlu, senkron taşımanın kilitlenmesini önler.
 
-`startnet.cmd` ayrıca `REPORT LUNS` anlık görüntüsünü `Device Parameters\B2LUFS`
-altından basar. `ReportLunsRaw` değeri standart yanıtın tamamıdır: ilk dört
+`startnet.cmd` yalnız `ReportLunsEntryCount` özetini basar; tam anlık görüntü
+`Device Parameters\B2LUFS` altında kalır. `ReportLunsRaw` değeri standart yanıtın tamamıdır: ilk dört
 bayt big-endian liste uzunluğudur, sekizinci bayttan sonra her sekiz bayt bir
 LUN adresidir. Aynı kayıt altında görünen `Lun00Id`, `Lun01Id`, ... değerleri
 bu adreslerin etiketlenmiş kopyalarıdır. Bu liste yalnız donanımın bildirdiği
@@ -244,8 +244,8 @@ arayüzünü seçtirtir. Bu ayrım önemlidir; Microsoft `Internal`ı sanal
 miniportun işareti olarak tanımlar. Kaynak sayısı, MMIO eşlemesi veya kaynak
 sözleşmesi reddedilirse sürücü `Microsoft-Windows-Storage-Storport/Operational`
 kanalına `B2LUFS HwFindAdapter resource contract failure` ETW kaydı bırakır.
-`startnet.cmd` yalnız bu kayıtları otomatik ekrana basar. PnP
-kurulumundan sonraki ikinci DiskPart betiği `list disk`, `detail disk` ve
+Bu kayıtlar gerektiğinde Operational kanaldan elle alınır. PnP kurulumundan
+sonraki ikinci DiskPart betiği `list disk`, `detail disk` ve
 `list partition` çalıştırır; bunların tümü salt-okunurdur.
 
 ## WinPE kabul ölçütü
@@ -254,16 +254,18 @@ kurulumundan sonraki ikinci DiskPart betiği `list disk`, `detail disk` ve
 `pnputil /add-driver`, yeniden tarama ve **kurulum sonrası** ikinci DiskPart
 sonucunu gösterir. Fotoğrafta şu üç kanıt birlikte aranır:
 
-1. `B2LUFS: LUN 0 okuma/yazma miniportunu PnP'ye ekle` altında INF'nin eklendiği ve
+1. `B2LUFS kurulumu` altında INF'nin eklendiği ve
    yeniden taramanın tamamlandığı görülür.
-2. `UFS0: CID, eslesen surucu ve stack` ile `SCSIAdapter` çıktılarında
-   `ACPI\SMSN9820\0` için `Beyond2LTE Exynos 9820 UFS Host Controller`,
-   `b2lufs.inf` ve `Started` yer alır. INF'nin eşleşmesi `ACPI\BYND9820`
+2. `B2LUFS özet` PnP çıktısında `ACPI\SMSN9820\0` için
+   `Beyond2LTE Exynos 9820 UFS Host Controller`, `b2lufs.inf` ve `Started`
+   yer alır. INF'nin eşleşmesi `ACPI\BYND9820`
    compatible ID'si üzerinden olur; instance ID'nin `SMSN9820` kalması
    normaldir.
 3. İkinci DiskPart bloğu `Disk 0`ı yaklaşık 119 GiB göstermeli, ardından `detail disk` ile
    `list partition` Android kullanıcı-LUN'ındaki GPT bölümlerini listelemelidir.
    `X:` yalnız WinPE RAM diskidir.
+4. `MediaProbeResult=0`, `MediaProbeScsiStatus=0`, `MediaProbeValid=1`,
+   `MediaProbeMbrSignature=1` ve `MediaProbeGptSignature=1` olmalıdır.
 
 StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
 ve `BLT1`, ardından `BLC3 Outcome=5, MapSource=1, CompletionPhase=1`, normal `BLS2`
