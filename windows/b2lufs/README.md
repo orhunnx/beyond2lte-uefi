@@ -30,7 +30,8 @@ B2LUFS bu PnP sözleşmesini korur ve aşağıdaki taşıma akışını uygular:
    `HCS` hazır bitlerini doğrular. HCE sıfırsa sürücü onu açmaz; UIC/DME,
    PHY/CAL veya software reset göndermez.
 3. Denetleyicinin boş transfer-list scheduler'ını kendi DMA halkasına
-   yöneltir. Exynos Linux sürücüsünün transfer-özel ayarlarını (4 KiB PRDT,
+   yöneltir. Exynos Linux sürücüsünün transfer-özel ayarlarını (4 KiB DMA
+   data-unit değeri,
    `DATA_REORDER=0xa`, UTR/UTMR nexus maskeleri, AXI burst) uygular ve
    firmware'den kalan donanım AHIT zamanlayıcısını kapatır. Link/power-mode
    yeniden kurulmaz.
@@ -116,8 +117,12 @@ keşfi ve normal blok I/O'su fiziksel UFS kullanıcı-LUN'ına gider.
 ## WinPE'de ham okuma izi
 
 `HwStartIo` çağrısı içinde konsola veya dosya sistemine doğrudan yazmak güvenli
-değildir. Bunun yerine miniport, ilk on iki SCSI SRB için StorPort Operational
-ETW kanalına bir `BLS1` ikili tanı kaydı bırakır. `startnet.cmd`, ikinci
+değildir. Bunun yerine miniport, bütün SCSI SRB'leri için StorPort Operational
+ETW kanalına bir `BLS2` ikili tanı kaydı bırakır. Kayıt özgün/dönen aktarım
+uzunluğunu, SGL/PRDT girdi sayılarını ve ilk fiziksel parçayı da taşır.
+`PrdtBuildStatus` alanı `0=denenmedi`, `1=başarılı`, `2=SGL yok`,
+`3=PRDT dolu`, `4=SGL kısa`, `5=geçersiz adres/uzunluk` olarak yorumlanır.
+`startnet.cmd`, ikinci
 DiskPart taramasından hemen sonra bu kayıtları CMD'de gösterir. Kaydın son 64
 baytı, başarılı bir `INQUIRY`, kapasite veya `READ` isteğinden dönen ham
 örnektir. UFS bir `CHECK CONDITION` döndürürse aynı alan medya yerine UFS
@@ -150,6 +155,13 @@ okuduğu alanlarla aynıdır ve StorPort'un LUN 0 için disk PDO'su
 numaralandırabilmesinin önkoşuludur. Fiziksel StorPort miniportlarının
 zorunlu `TaggedQueuing` ve `MultipleRequestPerLu` yetenekleri açık tutulur.
 `NumberOfPhysicalBreaks=32`, 32 girişli PRDT'nin tamamını StorPort'a bildirir.
+Microsoft StorAHCI örneğindeki gibi, `HwBuildIo` sırasında hazır olan DMA SGL
+pointer'ı isteğe özel `SrbExtension` içine alınır ve kilitli `HwStartIo`
+yolunda tüketilir. Exynos vendor yazmacındaki `PRDT_ENTRY_SIZE=12`, aktarım
+girdisini 4 KiB ile sınırlamaz; Linux UFS çekirdeği de bu yazmacı 12 yaparken
+her DMA SGL girdisini doğrudan UFSHCI PRDT girdisine eşler ve standart
+256 KiB DBC üst sınırını kullanır. B2LUFS'in istek üst sınırı bring-up için
+128 KiB olarak kalır.
 Tek aktif UTRD'yi doğru yansıtmak için `MaxNumberOfIO`, `MaxIOsPerLun` ve
 başlangıç kuyruk derinliği 1'dir; bunlar zorunlu tagged/multiple-request
 yetenek bayraklarını kapatmak için kullanılmaz.
@@ -248,9 +260,9 @@ sonucunu gösterir. Fotoğrafta şu üç kanıt birlikte aranır:
    `X:` yalnız WinPE RAM diskidir.
 
 StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
-ve `BLT1`, ardından `BLC3 Outcome=5, MapSource=1, CompletionPhase=1`, normal `BLS1`
+ve `BLT1`, ardından `BLC3 Outcome=5, MapSource=1, CompletionPhase=1`, normal `BLS2`
 INQUIRY/READ CAPACITY kayıtları beklenir.
-`BLT1` var fakat `BLS1` yoksa timer/adapter yaşam döngüsü tamamlanmış olmasına
+`BLT1` var fakat `BLS2` yoksa timer/adapter yaşam döngüsü tamamlanmış olmasına
 rağmen StorPort tarama üretmemiştir; `BLT1` de yoksa sorun timer'ın
 planlanmasından önceki miniport başlatma aşamasındadır.
 
@@ -309,9 +321,10 @@ kapısından geçmiş son artefakt değildir; UFS donanım sonucu olarak yorumla
 `1US_TO_CNT=000000A6`. CAP alanında NUTRS `[4:0]` ve NUTMRS `[18:16]`
 sırasıyla `31` ve `3` olduğundan denetleyici 32 UTR + 4 UTMR kapasitelidir;
 bit 24 de 64-bit adreslemeyi bildirir. B2LUFS bu kapasitenin yalnız bir UTR
-yuvasını kullanır; StorPort bu yüzden tek SRB'ye sınırlandırılır. Sürücü,
-fiziksel sayfa sınırını geçebilen bir isteği en çok 32 adet 4 KiB PRDT girişine
-böler; bitişik fiziksel RAM varsaymaz ve tek okuma için üst sınır 128 KiB'dir.
+yuvasını kullanır; StorPort bu yüzden tek SRB'ye sınırlandırılır. Sürücü bitişik
+fiziksel RAM varsaymaz: `HwBuildIo` sırasında aldığı StorPort DMA SGL'sindeki
+en çok 32 parçayı, standart 256 KiB DBC sınırı içinde doğrudan PRDT'ye çevirir.
+Tek istek için üst sınır 128 KiB'dir.
 
 Yerel doğrulama:
 

@@ -24,20 +24,18 @@
 #define B2LUFS_PRDT_ENTRY_BYTES              16UL
 #define B2LUFS_MAX_PRDT_ENTRIES               32UL
 /*
- * Exynos' VS-HCI PRDT entry-size registers are programmed with 12 below,
- * i.e. 2^12 = 4 KiB.  Split a physically contiguous StorPort segment at
- * that boundary instead of depending on the Windows buffer being contiguous
- * or on an undocumented larger vendor entry size.
+ * UFSHCI DBC supports 256 KiB per entry. Exynos' vendor register value 12 is
+ * the 4 KiB data-unit size, not a 4 KiB PRDT transfer limit: Linux sets that
+ * register to 12 while mapping each DMA scatter/gather element directly and
+ * advertises PRDT_DATA_BYTE_COUNT_MAX as its maximum segment size.
  */
-#define B2LUFS_PRDT_MAX_BYTES              4096UL
+#define B2LUFS_PRDT_MAX_BYTES          (256UL * 1024UL)
 /*
- * Linux programs Exynos' PRDT-entry-size registers to 4 KiB and then uses
- * one entry per scatter/gather segment.  The descriptor below has 32 entries,
- * so Windows may submit a normal 128 KiB GPT/partition-table read without
- * inventing a larger vendor PRDT entry size.
+ * Keep the conservative 128 KiB StorPort request limit used during bring-up.
+ * The 32-entry table can therefore represent every StorPort SGL without
+ * inventing additional 4 KiB boundaries.
  */
-#define B2LUFS_MAX_TRANSFER \
-    (B2LUFS_MAX_PRDT_ENTRIES * B2LUFS_PRDT_MAX_BYTES)
+#define B2LUFS_MAX_TRANSFER             (128UL * 1024UL)
 #define B2LUFS_RESPONSE_UPIU_OFFSET_BYTES  B2LUFS_ALIGNED_UPIU_SIZE
 #define B2LUFS_PRDT_OFFSET_BYTES \
     (B2LUFS_ALIGNED_UPIU_SIZE * 2UL)
@@ -59,8 +57,8 @@
 #define B2LUFS_COMMAND_TIMEOUT_US         50000UL
 /*
  * This WinPE image is a bring-up environment. Keep every miniport event until
- * the volatile StorPort Operational log fills; startnet.cmd clears that log
- * immediately before installing B2LUFS and prints it without a count limit.
+ * the volatile StorPort Operational log fills; startnet.cmd preserves and
+ * prints that channel without a count limit.
  */
 #define B2LUFS_TRACE_BUDGET          0x7FFFFFFFUL
 #define B2LUFS_PNP_TRACE_BUDGET      0x7FFFFFFFUL
@@ -237,6 +235,13 @@ typedef enum B2LUFS_DATA_DIRECTION {
     B2LUfsDataInvalid
 } B2LUFS_DATA_DIRECTION;
 
+#define B2LUFS_PRDT_BUILD_NOT_ATTEMPTED      0UL
+#define B2LUFS_PRDT_BUILD_SUCCESS            1UL
+#define B2LUFS_PRDT_BUILD_NO_SGL             2UL
+#define B2LUFS_PRDT_BUILD_TOO_MANY_ENTRIES   3UL
+#define B2LUFS_PRDT_BUILD_SHORT_SGL          4UL
+#define B2LUFS_PRDT_BUILD_BAD_ELEMENT        5UL
+
 C_ASSERT(SRB_FLAGS_UNSPECIFIED_DIRECTION ==
          (SRB_FLAGS_DATA_IN | SRB_FLAGS_DATA_OUT));
 
@@ -264,14 +269,20 @@ typedef struct B2LUFS_SCSI_TRACE_DATA {
     UCHAR ScsiStatus;
     UCHAR SampleLength;
     UCHAR Reserved;
+    ULONG OriginalLength;
+    ULONG ScatterGatherElements;
+    ULONG PrdtBuildStatus;
+    ULONG PrdtEntryCount;
+    ULONG FirstSglLength;
+    ULONGLONG FirstSglPhysical;
     UCHAR Sample[B2LUFS_TRACE_SAMPLE_BYTES];
 } B2LUFS_SCSI_TRACE_DATA;
 
-C_ASSERT(sizeof(B2LUFS_SCSI_TRACE_DATA) == 96);
+C_ASSERT(sizeof(B2LUFS_SCSI_TRACE_DATA) == 128);
 
 /*
  * Legacy StorPort sends SRB_FUNCTION_PNP as SCSI_PNP_REQUEST_BLOCK, not as
- * a SCSI CDB.  Keep a separate record so normal BLS1 tracing never reads a
+ * a SCSI CDB.  Keep a separate record so normal BLS2 tracing never reads a
  * non-existent CDB from a PnP request.  BLP1 contains only lifecycle state
  * and no UFS-media bytes.
  */
@@ -406,6 +417,7 @@ B2LUfsLogScsiTrace(
     PVOID SampleBuffer;
     ULONG SampleLength;
     ULONG MapStatus;
+    PB2LUFS_SRB_EXTENSION SrbExtension;
 
     if (Adapter->TraceBudget == 0) {
         return;
@@ -413,7 +425,7 @@ B2LUfsLogScsiTrace(
     Adapter->TraceBudget--;
 
     B2LUfsZeroMemory(&Data, sizeof(Data));
-    Data.Magic = 0x31534C42UL; /* "BLS1" little-endian */
+    Data.Magic = 0x32534C42UL; /* "BLS2" little-endian */
     Data.Sequence = ++Adapter->TraceSequence;
     Data.TransferResult = (ULONG)Result;
     Data.RequestedLength = Srb->DataTransferLength;
@@ -425,6 +437,18 @@ B2LUfsLogScsiTrace(
     Data.CdbOperation = Srb->Cdb[0];
     Data.SrbStatus = SrbStatus;
     Data.ScsiStatus = Srb->ScsiStatus;
+    SrbExtension = (PB2LUFS_SRB_EXTENSION)Srb->SrbExtension;
+    if (SrbExtension != NULL &&
+        SrbExtension->Signature == B2LUFS_SRB_EXTENSION_SIGNATURE) {
+        Data.OriginalLength = SrbExtension->OriginalTransferLength;
+        Data.ScatterGatherElements = SrbExtension->ScatterGatherElements;
+    } else {
+        Data.OriginalLength = Srb->DataTransferLength;
+    }
+    Data.PrdtBuildStatus = Adapter->LastPrdtBuildStatus;
+    Data.PrdtEntryCount = Adapter->LastPrdtEntryCount;
+    Data.FirstSglLength = Adapter->LastFirstSglLength;
+    Data.FirstSglPhysical = Adapter->LastFirstSglPhysical;
 
     SampleBuffer = Srb->DataBuffer;
     if (SampleBuffer == NULL &&
@@ -463,7 +487,7 @@ B2LUfsLogScsiTrace(
         DeviceExtension,
         NULL,
         B2LUFS_ETW_SCSI_TRACE,
-        L"B2LUFS SCSI/UFS trace; binary data is BLS1 header then read/sense sample bytes",
+        L"B2LUFS SCSI/UFS trace; binary data is BLS2 header, SGL/PRDT metadata, then read/sense bytes",
         sizeof(Data),
         &Data);
 }
@@ -798,10 +822,9 @@ B2LUfsAllocateTransport(
     ULONG Offset;
 
     /*
-     * The platform reports coherent 64-bit DMA (CAP[24]). Each PRDT entry
-     * remains limited to one verified 4 KiB UFS logical block, but Windows
-     * buffers need not be physically contiguous: B2LUfsSubmitScsi
-     * expands a request into at most 32 such entries (128 KiB total).
+     * The platform reports coherent 64-bit DMA (CAP[24]). Windows buffers
+     * need not be physically contiguous; StorPort supplies the DMA SGL and
+     * every element becomes one standard UFSHCI PRDT entry.
      */
     /*
      * Keep this in lockstep with DriverEntry. B2LUfsStartIo receives a
@@ -873,7 +896,7 @@ B2LUfsAllocateTransport(
     ConfigInfo->MaxIOsPerLun = 1;
     ConfigInfo->InitialLunQueueDepth = 1;
     ConfigInfo->BusResetHoldTime = 0;
-    ConfigInfo->SrbExtensionSize = 0;
+    ConfigInfo->SrbExtensionSize = sizeof(B2LUFS_SRB_EXTENSION);
 
     Adapter->ConfiguredNumberOfBuses = ConfigInfo->NumberOfBuses;
     Adapter->ConfiguredMaximumTargets = ConfigInfo->MaximumNumberOfTargets;
@@ -979,10 +1002,17 @@ B2LUfsBuildPrdt(
     ULONG ElementIndex;
     PSTOR_SCATTER_GATHER_LIST ScatterGather;
     BOOLEAN CommonBuffer;
+    PB2LUFS_SRB_EXTENSION SrbExtension;
 
     if (RequestedLength == 0) {
+        Adapter->LastPrdtBuildStatus = B2LUFS_PRDT_BUILD_BAD_ELEMENT;
         return FALSE;
     }
+
+    Adapter->LastPrdtBuildStatus = B2LUFS_PRDT_BUILD_NOT_ATTEMPTED;
+    Adapter->LastPrdtEntryCount = 0;
+    Adapter->LastFirstSglLength = 0;
+    Adapter->LastFirstSglPhysical = 0;
 
     Physical.QuadPart = 0;
     PhysicalLength = 0;
@@ -1015,7 +1045,13 @@ B2LUfsBuildPrdt(
             EntryLength = B2LUfsMinUlong(
                 EntryLength, B2LUFS_PRDT_MAX_BYTES);
             if (EntryLength == 0 ||
-                EntryCount == B2LUFS_MAX_PRDT_ENTRIES) {
+                (EntryLength & 3UL) != 0) {
+                Adapter->LastPrdtBuildStatus = B2LUFS_PRDT_BUILD_BAD_ELEMENT;
+                return FALSE;
+            }
+            if (EntryCount == B2LUFS_MAX_PRDT_ENTRIES) {
+                Adapter->LastPrdtBuildStatus =
+                    B2LUFS_PRDT_BUILD_TOO_MANY_ENTRIES;
                 return FALSE;
             }
             Prdt[EntryCount].BaseAddressLow = Physical.LowPart;
@@ -1027,16 +1063,32 @@ B2LUfsBuildPrdt(
             PhysicalLength -= EntryLength;
         }
         *PrdtEntryCount = EntryCount;
+        Adapter->LastPrdtBuildStatus = B2LUFS_PRDT_BUILD_SUCCESS;
+        Adapter->LastPrdtEntryCount = EntryCount;
+        Adapter->LastFirstSglLength = RequestedLength;
+        Adapter->LastFirstSglPhysical = Physical.QuadPart - RequestedLength;
         return TRUE;
     }
 
     if (Srb == NULL) {
+        Adapter->LastPrdtBuildStatus = B2LUFS_PRDT_BUILD_NO_SGL;
         return FALSE;
     }
-    ScatterGather = StorPortGetScatterGatherList(DeviceExtension, Srb);
+    UNREFERENCED_PARAMETER(DeviceExtension);
+    SrbExtension = (PB2LUFS_SRB_EXTENSION)Srb->SrbExtension;
+    ScatterGather = NULL;
+    if (SrbExtension != NULL &&
+        SrbExtension->Signature == B2LUFS_SRB_EXTENSION_SIGNATURE) {
+        ScatterGather = SrbExtension->ScatterGather;
+    }
     if (ScatterGather == NULL || ScatterGather->NumberOfElements == 0) {
+        Adapter->LastPrdtBuildStatus = B2LUFS_PRDT_BUILD_NO_SGL;
         return FALSE;
     }
+
+    Adapter->LastFirstSglPhysical =
+        ScatterGather->List[0].PhysicalAddress.QuadPart;
+    Adapter->LastFirstSglLength = ScatterGather->List[0].Length;
 
     Remaining = RequestedLength;
     EntryCount = 0;
@@ -1049,7 +1101,14 @@ B2LUfsBuildPrdt(
         while (PhysicalLength != 0) {
             EntryLength = B2LUfsMinUlong(
                 PhysicalLength, B2LUFS_PRDT_MAX_BYTES);
+            if (EntryLength == 0 || (EntryLength & 3UL) != 0 ||
+                (Physical.QuadPart & 3ULL) != 0) {
+                Adapter->LastPrdtBuildStatus = B2LUFS_PRDT_BUILD_BAD_ELEMENT;
+                return FALSE;
+            }
             if (EntryCount == B2LUFS_MAX_PRDT_ENTRIES) {
+                Adapter->LastPrdtBuildStatus =
+                    B2LUFS_PRDT_BUILD_TOO_MANY_ENTRIES;
                 return FALSE;
             }
             Prdt[EntryCount].BaseAddressLow = Physical.LowPart;
@@ -1062,9 +1121,12 @@ B2LUfsBuildPrdt(
         }
     }
     if (Remaining != 0) {
+        Adapter->LastPrdtBuildStatus = B2LUFS_PRDT_BUILD_SHORT_SGL;
         return FALSE;
     }
     *PrdtEntryCount = EntryCount;
+    Adapter->LastPrdtBuildStatus = B2LUFS_PRDT_BUILD_SUCCESS;
+    Adapter->LastPrdtEntryCount = EntryCount;
     return TRUE;
 }
 
@@ -1140,10 +1202,11 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
         Adapter->UtrdPhysical.HighPart);
 
     /*
-     * Match the transfer-only Exynos setup in ufs-exynos: 4 KiB PRDT
-     * entries, data reorder 0xa, one SCSI nexus bit per hardware UTR slot,
-     * and the platform's AXI read/write burst setting. No PHY, UIC, power
-     * mode, clock or media setting is changed here.
+     * Match the transfer-only Exynos setup in ufs-exynos: 4 KiB DMA data-unit
+     * size, data reorder 0xa, one SCSI nexus bit per hardware UTR slot, and
+     * the platform's AXI read/write burst setting. The data-unit register is
+     * not a PRDT segment-length limit. No PHY, UIC, power mode, clock or media
+     * setting is changed here.
      */
     B2LUfsWriteVs(DeviceExtension, Adapter, B2LUFS_VS_TXPRDT_ENTRY_SIZE, 12);
     B2LUfsWriteVs(DeviceExtension, Adapter, B2LUFS_VS_RXPRDT_ENTRY_SIZE, 12);
@@ -1281,6 +1344,10 @@ B2LUfsSubmitScsi(
 
     Adapter->LastUtrdOcs = B2LUFS_OCS_INVALID_COMMAND_STATUS;
     Adapter->LastInterruptStatus = 0;
+    Adapter->LastPrdtBuildStatus = B2LUFS_PRDT_BUILD_NOT_ATTEMPTED;
+    Adapter->LastPrdtEntryCount = 0;
+    Adapter->LastFirstSglLength = 0;
+    Adapter->LastFirstSglPhysical = 0;
     *ScsiStatus = B2LUFS_SCSI_STATUS_GOOD;
     if (ReturnedLength != NULL) {
         *ReturnedLength = 0;
@@ -1827,8 +1894,8 @@ B2LUfsTryCompleteCachedCapacity(
             sizeof(Trace),
             &Trace);
     }
-    B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, B2LUfsTransferOk,
-                       SRB_STATUS_SUCCESS);
+    /* BLC3 already contains the complete software response. Do not touch the
+     * StartIo-only BLS2 sequence/budget from unsynchronized HwBuildIo. */
     B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
     return TRUE;
 

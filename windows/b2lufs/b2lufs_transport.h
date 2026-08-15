@@ -12,6 +12,22 @@
 
 #include "b2lufs_hw.h"
 
+#define B2LUFS_SRB_EXTENSION_SIGNATURE 0x58455342UL /* "BSEX" */
+
+/*
+ * Microsoft'in StorAHCI ornegindeki gibi, StorPort'un HwBuildIo sirasinda
+ * hazirladigi DMA scatter/gather listesini istege ozel SrbExtension'da tut.
+ * HwBuildIo eszamansiz olabilir; bu nedenle bu bilgi adapter extension'a
+ * yazilmaz. Liste SRB tamamlanana kadar StorPort'a aittir.
+ */
+typedef struct B2LUFS_SRB_EXTENSION {
+    ULONG Signature;
+    ULONG OriginalTransferLength;
+    ULONG ScatterGatherElements;
+    ULONG Reserved;
+    PSTOR_SCATTER_GATHER_LIST ScatterGather;
+} B2LUFS_SRB_EXTENSION, *PB2LUFS_SRB_EXTENSION;
+
 typedef struct B2LUFS_ADAPTER {
     ULONG Signature;
     B2LUFS_RESOURCES Resources;
@@ -100,6 +116,10 @@ typedef struct B2LUFS_ADAPTER {
     ULONG PnpTraceBudget;
     ULONG LastUtrdOcs;
     ULONG LastInterruptStatus;
+    ULONG LastPrdtBuildStatus;
+    ULONG LastPrdtEntryCount;
+    ULONG LastFirstSglLength;
+    ULONGLONG LastFirstSglPhysical;
     BOOLEAN TransportReady;
 } B2LUFS_ADAPTER;
 

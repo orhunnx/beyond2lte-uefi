@@ -150,10 +150,9 @@ rem HwFindAdapter hatalari kaybolmasin diye Operational kanali, surucu
 rem yuklenmeden once etkinlestirilir. Kanal WinPE'de yoksa sessizce atlanir.
 if exist "%SystemRoot%\System32\wevtutil.exe" (
   wevtutil sl "Microsoft-Windows-Storage-Storport/Operational" /e:true >nul 2>&1
-  rem Bu WinPE gunlugu RAM'dedir. Surucu kurulmadan hemen once temizleyerek
-  rem asagidaki sinirsiz sorgularda yalniz bu B2LUFS yuklemesinin olaylarini
-  rem gosteririz; cihazdaki UFS medyasina veya kalici firmware'e dokunulmaz.
-  wevtutil cl "Microsoft-Windows-Storage-Storport/Operational" >nul 2>&1
+  rem WinPE'de `wevtutil cl`, volatile Operational .evtx dosyasini silip
+  rem StorPort'un yeniden olusturamadigi bir duruma dusurebiliyor. Kanal
+  rem temizlenmez; B2LUFS kimligi ve Sequence alani bizim kayitlari ayirir.
 )
 pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install
 echo PnP yeniden taraniyor:
@@ -161,7 +160,7 @@ pnputil /scan-devices
 rem PASSIVE baslatma, HwFindAdapter'da olusturulan acik StorPort timer'ini
 rem 500 ms'e kurar. Durum kodlari Device Parameters\B2LUFS altinda gorunur.
 timeout /t 5 /nobreak >nul 2>&1
-echo Beklenen: timer HandleValid=1, InitializeStatus=0, RequestStatus=0; sonra BLT1 ve BLS1.
+echo Beklenen: timer HandleValid=1, InitializeStatus=0, RequestStatus=0; sonra BLT1 ve BLS2.
 echo Sozlesme: PhysicalBreaks=0x20, SynchronizationModel=1, MaxIO=1; ScatterGather/Master StorPort'a aittir.
 echo --- B2LUFS: StorPort kaynak-esleme tanisi ---
 call :B2LUfsStorPortLog
@@ -173,8 +172,10 @@ if not exist "%SystemRoot%\System32\wevtutil.exe" (
   exit /b 0
 )
 echo Operational kayitlarinin TAMAMI (eskiden yeniye: kaynak, timer, PnP ve SRB):
-rem Kanal kurulumdan hemen once temizlendi. /c siniri ve XPath filtresi yok;
-rem dolayisiyla bu surucu yuklemesindeki hicbir StorPort olayi atlanmaz.
+echo WinPE'de bulunan StorPort olay kanallari:
+wevtutil el | findstr /i "Storage-Storport Storport" 2>nul
+rem /c siniri ve XPath filtresi yok; B2LUFS kayitlari BLS2/BLP1/BLC3/BLT1
+rem kimlikleriyle ayirt edilir.
 wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:false /f:text > "%B2LUFSETW%" 2>&1
 type "%B2LUFSETW%"
 echo Not: "B2LUFS HwFindAdapter resource contract failure" gorunurse altindaki ikili kayit sirasiyla Failure, RangeIndex, RangeCount, InterfaceType, BusNumber, RangeLength, RangeBase'dir.
@@ -187,14 +188,22 @@ if not exist "%SystemRoot%\System32\wevtutil.exe" (
   exit /b 0
 )
 echo B2LUFS SRB ve PnP/LUN yasam-dongusu kayitlarinin TAMAMI okunuyor:
-echo Her "BLS1" ikili kaydinin son 64 bayti yalniz UFS'in dondugu okuma/sense verisidir; yazma payload'i kaydedilmez.
+echo Her "BLS2" ikili kaydi original/returned length, SGL/PRDT sayisi ve ilk fiziksel parcayi; son 64 baytta yalniz okuma/sense verisini tasir. Yazma payload'i kaydedilmez.
+echo PrdtBuildStatus: 0=denenmedi, 1=basarili, 2=SGL yok, 3=PRDT dolu, 4=SGL kisa, 5=gecersiz adres/uzunluk.
 echo CDB=12 INQUIRY, 1B START_STOP(no-op), 25 READ_CAPACITY, 28/88 READ, 2A/8A WRITE.
 echo Result=0 ve SCSI=0 basaridir; CHECK CONDITION kaydinin ornegi UFS sense baytlaridir.
 echo "BLC3" kapasite kaydi: Outcome=5, MapStatus=0, MapSource=1, CompletionPhase=1 ^(HwBuildIo^) ve ReturnedLength=8 beklenir.
 echo BLC3 son 16 baytta disk sinifina yazilan gercek kapasite cevabini da tasir: 01DC9FFF00001000 beklenir.
 echo "BLP1" kaydi legacy BTL8 PnP istegidir; UFS medya verisi veya CDB icermez.
 wevtutil qe "Microsoft-Windows-Storage-Storport/Operational" /rd:false /f:text > "%B2LUFSETW%" 2>&1
+set "B2L_ETW_QUERY_ERROR=%errorlevel%"
 type "%B2LUFSETW%"
+if not "%B2L_ETW_QUERY_ERROR%"=="0" (
+  echo Operational sorgusu basarisiz; kanal durumu:
+  wevtutil gli "Microsoft-Windows-Storage-Storport/Operational" 2>&1
+  echo WinPE'de bulunan StorPort olay kanallari:
+  wevtutil el | findstr /i "Storage-Storport Storport" 2>nul
+)
 echo Tam ETW metni RAM diskte: %B2LUFSETW%
 exit /b 0
 

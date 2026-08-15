@@ -375,9 +375,9 @@ B2LUfsFindAdapter(
      * bekler. Bu çağrı HCI'ye ya da herhangi bir UFS LUN'una dokunmaz.
      */
     /*
-     * İstek üst sınırı 32 adet doğrulanmış 4 KiB PRDT parçasıdır (128 KiB).
-     * Transport, Windows fiziksel sayfa sınırlarını bu çok girişli PRDT'ye
-     * böler; daha büyük bir transfer StorPort üst sınırıyla parçalanır.
+     * İstek üst sınırı 128 KiB ve PRDT en çok 32 girdidir. Her StorPort DMA
+     * SGL girdisi, UFSHCI'nin standart 256 KiB DBC sınırı içinde doğrudan
+     * PRDT'ye çevrilir; daha büyük istekleri StorPort parçalar.
      */
     if (!B2LUfsAllocateTransport(DeviceExtension, Adapter, ConfigInfo)) {
         B2LUfsLogFindFailure(
@@ -432,7 +432,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 12;
+    ULONG SchemaVersion = 13;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -695,6 +695,30 @@ static BOOLEAN
 B2LUfsBuildIo(_In_ PVOID DeviceExtension, _In_ PSCSI_REQUEST_BLOCK Srb)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
+    PB2LUFS_SRB_EXTENSION SrbExtension;
+
+    /*
+     * StorPort, DMA SGL'yi HwBuildIo'dan once hazirlar. Microsoft'un
+     * StorAHCI ornegi gibi bu istege ozel pointer'i SrbExtension'a al;
+     * HwStartIo daha sonra yalniz bu hazirlanmis listeyi tuketsin.
+     */
+    SrbExtension = (PB2LUFS_SRB_EXTENSION)Srb->SrbExtension;
+    if (SrbExtension != NULL) {
+        SrbExtension->Signature = B2LUFS_SRB_EXTENSION_SIGNATURE;
+        SrbExtension->OriginalTransferLength = Srb->DataTransferLength;
+        SrbExtension->ScatterGatherElements = 0;
+        SrbExtension->Reserved = 0;
+        SrbExtension->ScatterGather = NULL;
+        if (Srb->Function == SRB_FUNCTION_EXECUTE_SCSI &&
+            Srb->DataTransferLength != 0) {
+            SrbExtension->ScatterGather =
+                StorPortGetScatterGatherList(DeviceExtension, Srb);
+            if (SrbExtension->ScatterGather != NULL) {
+                SrbExtension->ScatterGatherElements =
+                    SrbExtension->ScatterGather->NumberOfElements;
+            }
+        }
+    }
 
     /*
      * Match Microsoft's StorAHCI fixed-media path: software-generated READ
@@ -964,6 +988,7 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
     InitData.HwAdapterControl = B2LUfsAdapterControl;
     InitData.HwUnitControl = B2LUfsUnitControl;
     InitData.DeviceExtensionSize = sizeof(B2LUFS_ADAPTER);
+    InitData.SrbExtensionSize = sizeof(B2LUFS_SRB_EXTENSION);
     InitData.NumberOfAccessRanges = B2LUFS_RESOURCE_COUNT;
     /* Match StorAHCI: software CDBs are mapped; read/write uses StorPort SGLs. */
     InitData.MapBuffers = STOR_MAP_NON_READ_WRITE_BUFFERS;
