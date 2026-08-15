@@ -155,7 +155,12 @@ StorPort örneklerindeki PnP yüzeyi de buna eklenmiştir: eşzamansız ve kilit
 `HwBuildIo` aygıt durumunu değiştirmez; legacy `SRB_FUNCTION_PNP` istekleri
 kilitli `HwStartIo` yolunda tamamlanır. `HwUnitControl`, yalnız
 statik `Path=0, Target=0, Lun=0` için unit-start/remove/surprise-removal
-yaşam döngüsünü ilan eder; `StorQueryCapabilities` için tam ve salt-okunur
+yaşam döngüsünü ilan eder. Ayrıca Microsoft'un iki parçalı bus-türü
+sözleşmesini uygular: `HwFindAdapter` başında
+`StorPortSetFeatureList(StorportFeatureBusTypeUnitControl)` çağrılır,
+`ScsiUnitQueryBusType` destek listesine eklenir ve birim sorgusuna
+`BusTypeUfs` döndürülür. Bu bildirim olmadan StorPort aygıtı varsayılan
+`FIBRE` olarak etiketler. `StorQueryCapabilities` için tam ve salt-okunur
 `STOR_DEVICE_CAPABILITIES_EX` cevabı verilir. Böylece StorPort disk PDO'sunu
 normal PnP sözleşmesi ile kurar; PnP isteği UFS'e komut göndermez.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
@@ -195,6 +200,12 @@ PRDT doğrudan `StorPortGetScatterGatherList` tarafından verilen, SRB
 tamamlanana kadar geçerli fiziksel listeden kurulur. Böylece Microsoft'un
 belirttiği düşük bellek durumunda `DataBuffer == NULL` olsa da disk okuması
 fiziksel SG listesi üzerinden ilerleyebilir.
+Ön taramadaki gerçek UFS `READ CAPACITY` cevabı doğrulandıktan sonra disk
+sınıfının aynı kapasite sorgusu bu değişmez anlık görüntüden tamamlanır.
+Yanıt hedefi olarak `Srb->DataBuffer` doğrudan dereference edilmez;
+Microsoft'un StorPort veri SRB'leri için sağladığı `StorPortGetSystemAddress`
+ile sistem adresi alınır. Bu yol kapasite uydurmaz: `last-LBA` ve 4096 bayt
+blok değeri doğrudan aynı açılışta UFS'den gelen doğrulanmış cevaptır.
 Kesme sahipliği alınmaz; tamamlanma kapı zili poll edilir. Miniport fiziksel
 bir ACPI HBA olduğu için `Internal` arayüz türünü
 kullanmaz: `InterfaceTypeUndefined` ile

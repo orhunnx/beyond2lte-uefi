@@ -248,6 +248,10 @@ reg query "%B2L_LUN_KEY%" /v MultipleRequestPerLu 2>nul
 reg query "%B2L_LUN_KEY%" /v MaxNumberOfIO 2>nul
 reg query "%B2L_LUN_KEY%" /v MaxIOsPerLun 2>nul
 reg query "%B2L_LUN_KEY%" /v InitialLunQueueDepth 2>nul
+echo StorPort birim bus-turu sozlesmesi (FeatureStatus=0, UnitBusType=0x13/UFS beklenir):
+reg query "%B2L_LUN_KEY%" /v BusTypeFeatureStatus 2>nul
+reg query "%B2L_LUN_KEY%" /v UnitBusType 2>nul
+reg query "%B2L_LUN_KEY%" /v BusTypeQueryCount 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityResult 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityScsiStatus 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityOpcode 2>nul

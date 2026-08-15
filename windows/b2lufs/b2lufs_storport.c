@@ -11,6 +11,7 @@
  * StorPort'un PnP aygıtından seçmesini özellikle istiyoruz.
  */
 #include <ntddk.h>
+#include <ntddstor.h>
 #include <storport.h>
 
 #include "b2lufs_transport.h"
@@ -54,6 +55,9 @@ static UCHAR B2LUFS_REG_SYNCHRONIZATION_MODEL[] = "SynchronizationModel";
 static UCHAR B2LUFS_REG_MAX_IO[] = "MaxNumberOfIO";
 static UCHAR B2LUFS_REG_MAX_IO_PER_LUN[] = "MaxIOsPerLun";
 static UCHAR B2LUFS_REG_INITIAL_QUEUE_DEPTH[] = "InitialLunQueueDepth";
+static UCHAR B2LUFS_REG_BUS_TYPE_FEATURE_STATUS[] = "BusTypeFeatureStatus";
+static UCHAR B2LUFS_REG_UNIT_BUS_TYPE[] = "UnitBusType";
+static UCHAR B2LUFS_REG_BUS_TYPE_QUERY_COUNT[] = "BusTypeQueryCount";
 static UCHAR B2LUFS_REG_TIMER_HANDLE_VALID[] = "BusScanTimerHandleValid";
 static UCHAR B2LUFS_REG_TIMER_INITIALIZE_STATUS[] = "BusScanTimerInitializeStatus";
 static UCHAR B2LUFS_REG_TIMER_REQUEST_STATUS[] = "BusScanTimerRequestStatus";
@@ -219,6 +223,8 @@ B2LUfsFindAdapter(
 {
     B2LUFS_RESOURCE Given[B2LUFS_RESOURCE_COUNT];
     B2LUFS_ADAPTER *Adapter;
+    BOOLEAN FeatureList[StorportFeatureMax];
+    ULONG BusTypeFeatureStatus;
     ULONG Index;
 
     UNREFERENCED_PARAMETER(HwContext);
@@ -226,6 +232,23 @@ B2LUfsFindAdapter(
     UNREFERENCED_PARAMETER(ArgumentString);
 
     UNREFERENCED_PARAMETER(Reserved3);
+
+    /*
+     * Microsoft requires this registration at the beginning of every
+     * HwFindAdapter invocation before ScsiUnitQueryBusType may be advertised.
+     * Without it StorPort never asks for the LUN bus type and disk.sys falls
+     * back to the controller's legacy Fibre value.
+     */
+    B2LUfsZeroMemory(FeatureList, sizeof(FeatureList));
+    FeatureList[StorportFeatureBusTypeUnitControl] = TRUE;
+    BusTypeFeatureStatus = StorPortSetFeatureList(
+        DeviceExtension,
+        StorportFeatureMax,
+        FeatureList);
+    if (BusTypeFeatureStatus != STOR_STATUS_SUCCESS) {
+        return SP_RETURN_ERROR;
+    }
+
     if (ConfigInfo->NumberOfAccessRanges != B2LUFS_RESOURCE_COUNT ||
         ConfigInfo->AccessRanges == NULL) {
         B2LUfsLogFindFailure(
@@ -286,6 +309,8 @@ B2LUfsFindAdapter(
     if (Adapter->Signature != B2LUFS_ADAPTER_SIGNATURE) {
         B2LUfsZeroMemory(Adapter, sizeof(*Adapter));
     }
+    Adapter->BusTypeFeatureStatus = BusTypeFeatureStatus;
+    Adapter->ConfiguredUnitBusType = (ULONG)BusTypeUfs;
     if (B2LUfsBindResources(Given, B2LUFS_RESOURCE_COUNT,
                             &Adapter->Resources) != 0) {
         B2LUfsLogFindFailure(
@@ -361,7 +386,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 9;
+    ULONG SchemaVersion = 10;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -453,6 +478,19 @@ B2LUfsPublishLunSnapshot(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_INITIAL_QUEUE_DEPTH,
         REG_DWORD, &Adapter->ConfiguredInitialLunQueueDepth,
         sizeof(Adapter->ConfiguredInitialLunQueueDepth));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY,
+        B2LUFS_REG_BUS_TYPE_FEATURE_STATUS,
+        REG_DWORD, &Adapter->BusTypeFeatureStatus,
+        sizeof(Adapter->BusTypeFeatureStatus));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_UNIT_BUS_TYPE,
+        REG_DWORD, &Adapter->ConfiguredUnitBusType,
+        sizeof(Adapter->ConfiguredUnitBusType));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_BUS_TYPE_QUERY_COUNT,
+        REG_DWORD, &Adapter->BusTypeQueryCount,
+        sizeof(Adapter->BusTypeQueryCount));
     (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_TIMER_HANDLE_VALID,
         REG_DWORD, &TimerHandleValid, sizeof(TimerHandleValid));
@@ -659,6 +697,35 @@ B2LUfsUnitControl(
         if (Supported->MaxControlType > ScsiUnitSurpriseRemoval) {
             Supported->SupportedTypeList[ScsiUnitSurpriseRemoval] = TRUE;
         }
+        if (Supported->MaxControlType > ScsiUnitQueryBusType) {
+            Supported->SupportedTypeList[ScsiUnitQueryBusType] = TRUE;
+        }
+        return ScsiUnitControlSuccess;
+    }
+
+    if (ControlType == ScsiUnitQueryBusType) {
+        PSTOR_UNIT_CONTROL_QUERY_BUS_TYPE Query;
+
+        Query = (PSTOR_UNIT_CONTROL_QUERY_BUS_TYPE)Parameters;
+        if (Query == NULL ||
+            !B2LUfsUnitAddressIsLun0(
+                (const STOR_ADDR_BTL8 *)Query->Address)) {
+            return ScsiUnitControlUnsuccessful;
+        }
+
+        Query->BusType = (ULONG)BusTypeUfs;
+        Adapter->ConfiguredUnitBusType = (ULONG)BusTypeUfs;
+        Adapter->BusTypeQueryCount++;
+        /* ScsiUnitQueryBusType is documented at PASSIVE_LEVEL. */
+        (void)StorPortRegistryWriteAdapterKey(
+            DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_UNIT_BUS_TYPE,
+            REG_DWORD, &Adapter->ConfiguredUnitBusType,
+            sizeof(Adapter->ConfiguredUnitBusType));
+        (void)StorPortRegistryWriteAdapterKey(
+            DeviceExtension, B2LUFS_REG_SUBKEY,
+            B2LUFS_REG_BUS_TYPE_QUERY_COUNT,
+            REG_DWORD, &Adapter->BusTypeQueryCount,
+            sizeof(Adapter->BusTypeQueryCount));
         return ScsiUnitControlSuccess;
     }
 

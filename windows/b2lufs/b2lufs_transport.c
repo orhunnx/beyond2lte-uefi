@@ -300,6 +300,26 @@ B2LUfsReadBe16(_In_reads_bytes_(2) const UCHAR *Buffer)
 }
 
 static VOID
+B2LUfsWriteBe32(_Out_writes_bytes_(4) UCHAR *Buffer, _In_ ULONG Value)
+{
+    Buffer[0] = (UCHAR)(Value >> 24);
+    Buffer[1] = (UCHAR)(Value >> 16);
+    Buffer[2] = (UCHAR)(Value >> 8);
+    Buffer[3] = (UCHAR)Value;
+}
+
+static VOID
+B2LUfsWriteBe64(_Out_writes_bytes_(8) UCHAR *Buffer, _In_ ULONGLONG Value)
+{
+    ULONG Index;
+
+    for (Index = 0; Index < 8UL; ++Index) {
+        Buffer[7UL - Index] = (UCHAR)Value;
+        Value >>= 8;
+    }
+}
+
+static VOID
 B2LUfsLogScsiTrace(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter,
@@ -1517,6 +1537,78 @@ B2LUfsCacheCapacityFromSrb(
     (void)B2LUfsCacheCapacity(Adapter, LastLba, BlockLength);
 }
 
+/*
+ * The pre-enumeration probe has already obtained and validated the real UFS
+ * LUN-0 capacity through a StorPort common DMA buffer.  Complete subsequent
+ * disk-class READ CAPACITY requests from that immutable snapshot.  This is
+ * deliberately not based on Srb->DataBuffer: Microsoft documents that a
+ * StorPort data SRB can leave that member NULL even though an associated I/O
+ * buffer exists. StorPortGetSystemAddress is the supported way to obtain a
+ * system mapping at HwStartIo's IRQL.
+ */
+static BOOLEAN
+B2LUfsCompleteCachedCapacity(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _Inout_ PSCSI_REQUEST_BLOCK Srb)
+{
+    PVOID SystemAddress;
+    UCHAR *Output;
+    ULONG ResponseLength;
+    ULONG TransferLength;
+    ULONG Status;
+
+    if (!Adapter->CapacityValid || Srb->DataTransferLength == 0) {
+        return FALSE;
+    }
+
+    if (Srb->Cdb[0] == B2LUFS_SCSI_READ_CAPACITY_10) {
+        ResponseLength = B2LUFS_CAPACITY_10_BYTES;
+        if (Srb->DataTransferLength < ResponseLength) {
+            return FALSE;
+        }
+    } else if (Srb->Cdb[0] == B2LUFS_SCSI_SERVICE_ACTION_IN_16 &&
+               (Srb->Cdb[1] & 0x1FU) ==
+                   B2LUFS_SCSI_SAI_READ_CAPACITY_16) {
+        ResponseLength = B2LUFS_CAPACITY_16_BYTES;
+        if (Srb->DataTransferLength < 12UL) {
+            return FALSE;
+        }
+    } else {
+        return FALSE;
+    }
+
+    SystemAddress = NULL;
+    Status = StorPortGetSystemAddress(DeviceExtension, Srb, &SystemAddress);
+    if (Status != STOR_STATUS_SUCCESS || SystemAddress == NULL) {
+        return FALSE;
+    }
+
+    TransferLength = B2LUfsMinUlong(
+        Srb->DataTransferLength, ResponseLength);
+    Output = (UCHAR *)SystemAddress;
+    B2LUfsZeroMemory(Output, TransferLength);
+    if (Srb->Cdb[0] == B2LUFS_SCSI_READ_CAPACITY_10) {
+        ULONG LastLba10 = Adapter->CapacityLastLba > MAXULONG ?
+                          MAXULONG : (ULONG)Adapter->CapacityLastLba;
+
+        B2LUfsWriteBe32(Output, LastLba10);
+        B2LUfsWriteBe32(Output + 4UL, Adapter->CapacityBlockLength);
+    } else {
+        B2LUfsWriteBe64(Output, Adapter->CapacityLastLba);
+        B2LUfsWriteBe32(Output + 8UL, Adapter->CapacityBlockLength);
+    }
+
+    Adapter->LastUtrdOcs = B2LUFS_OCS_SUCCESS;
+    Adapter->LastInterruptStatus = 0;
+    Srb->DataTransferLength = TransferLength;
+    Srb->ScsiStatus = B2LUFS_SCSI_STATUS_GOOD;
+    B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, B2LUfsTransferOk,
+                       SRB_STATUS_SUCCESS);
+    B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
+    return TRUE;
+}
+
 VOID
 B2LUfsExecuteScsi(
     _In_ PVOID DeviceExtension,
@@ -1618,6 +1710,10 @@ B2LUfsExecuteScsi(
         B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb, B2LUfsTransferBadDma,
                             SRB_STATUS_INVALID_REQUEST);
         B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_INVALID_REQUEST);
+        return;
+    }
+
+    if (B2LUfsCompleteCachedCapacity(DeviceExtension, Adapter, Srb)) {
         return;
     }
 

@@ -30,7 +30,9 @@ typedef struct B2LUFS_ADAPTER {
      * the 16-byte form is used only for a device larger than its address
      * range. The result is diagnostic telemetry only: Windows' own later
      * READ CAPACITY(10/16) SRBs always follow the normal UFS command path.
-     * It never contains user data and is never written to UFS.
+     * It never contains user data and is never written to UFS. The validated
+     * snapshot is also the authoritative reply to disk class's later READ
+     * CAPACITY SRB, mapped with StorPortGetSystemAddress.
      */
     PVOID CapacityProbeVirtual;
     STOR_PHYSICAL_ADDRESS CapacityProbePhysical;
@@ -80,6 +82,10 @@ typedef struct B2LUFS_ADAPTER {
     ULONG ConfiguredMaxNumberOfIo;
     ULONG ConfiguredMaxIoPerLun;
     ULONG ConfiguredInitialLunQueueDepth;
+    /* StorPort unit bus-type feature/query contract (BusTypeUfs). */
+    ULONG BusTypeFeatureStatus;
+    ULONG ConfiguredUnitBusType;
+    ULONG BusTypeQueryCount;
     /* Explicit StorPort timer used for the post-start LUN scan. */
     PVOID BusScanTimer;
     ULONG BusScanTimerInitializeStatus;

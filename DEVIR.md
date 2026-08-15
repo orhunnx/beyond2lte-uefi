@@ -1603,6 +1603,29 @@ Normal I/O PRDT'si de `Srb->DataBuffer` sanal eşlemesini tekrar fiziksele
 çıktısından kuruluyor. DDI'nin izin verdiği düşük bellek
 `DataBuffer == NULL` durumunda fiziksel SG listesi kullanılmaya devam ediyor.
 
+**15 Ağustos 2026 cihaz sonucu:** `0.0.2.7` ile açık timer gerçekten ateşledi,
+StorPort normal INQUIRY yürüttü ve `Disk 0` PDO'su yeniden oluştu. Disk kimliği
+`SAMSUNG KLUDG4U1EA-B0C1` doğru; fakat `detail disk` bus türünü `FIBRE`, boyutu
+ise `0 B` gösterdi. Aynı açılıştaki bağımsız UFS probu hâlâ başarılıydı:
+`ReadCapacityRaw=01DC9FFF00001000`, yani son LBA `0x01dc9fff` ve mantıksal
+blok 4096 bayt. Bu sonuç UEFI/PHY/link veya medyanın değil, StorPort birim
+sözleşmesinin kalan kısmının hatalı olduğunu kesinleştirir.
+
+`0.0.2.8` bu iki üst-katman farkını Microsoft DDI'sine göre kapatır.
+`HwFindAdapter` başında `StorPortSetFeatureList` ile
+`StorportFeatureBusTypeUnitControl` kaydedilir; `HwUnitControl` destek
+listesinde `ScsiUnitQueryBusType` ilan edilir ve yalnız BTL8 LUN 0 için
+`BusTypeUfs` döndürülür. İki adım birlikte yapılmazsa Windows 10 21H1 ve
+sonrasında StorPort sorguyu göndermediği için görülen `FIBRE` varsayılanı
+değişmez. Kapasite için ön taramada gerçek UFS'den DMA ile alınmış ve
+doğrulanmış aynı `last-LBA + block-length` anlık görüntüsü kullanılır.
+Disk sınıfının READ CAPACITY SRB tamponu `Srb->DataBuffer` doğrudan
+dereference edilmeden, Microsoft'un bu amaçla sağladığı
+`StorPortGetSystemAddress` ile eşlenir; cevap büyük-endian READ CAPACITY(10)
+veya (16) biçiminde tamamlanır. Medya değeri uydurulmaz ve yazma CDB'si
+eklenmez. Tanı şeması 10'dur; `BusTypeFeatureStatus=0`, `UnitBusType=0x13`
+ve disk taramasından sonra `BusTypeQueryCount>=1` beklenir.
+
 Yeni tanı şeması `NumberOfBuses=1`, `MaximumTargets=2`, `InitiatorBusId=1`,
 `ScatterGather=1`, `Master=1`, `TaggedQueuing=1`, `AutoRequestSense=1`,
 `MultipleRequestPerLu=1`, `NumberOfPhysicalBreaks=32`,
