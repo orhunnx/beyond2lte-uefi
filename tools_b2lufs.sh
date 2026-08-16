@@ -316,7 +316,7 @@ rm -f "$PFX"
 # paketleme asamasinda kesin bir hata haline getirir.
 MANIFEST="$OUT/b2lufs-manifest.txt"
 {
-  echo "B2LUFS_PACKAGE=storport-4kn-header-canonical-gpt"
+  echo "B2LUFS_PACKAGE=storport-cache-write-letter-reserve"
   echo "B2LUFS_INF_SHA256=$(sha256sum "$OUT/b2lufs.inf" | awk '{print $1}')"
   echo "B2LUFS_SYS_SHA256=$(sha256sum "$OUT/b2lufs.sys" | awk '{print $1}')"
   echo "B2LUFS_CAT_SHA256=$(sha256sum "$OUT/b2lufs.cat" | awk '{print $1}')"
@@ -343,9 +343,9 @@ wimlib-imagex update "$WIM" 1 \
   --command="add '$OUT/b2lgptdump.exe' /Windows/System32/b2lgptdump.exe" >/dev/null
 echo "  /Windows/System32/b2lgptdump.exe"
 
-# tools_b2lfb.sh'nin sarmaladigi diagnostik komutu kaybolmasin: bu script
-# startnet'i de kaynakla birebir yeniler. Bu sayede calisma sirasi hatasi
-# nedeniyle eski startnet'in WIM'de kalmasi mumkun degil.
+# Manuel ham-okuma araci WIM'de kalsin; otomatik akista cagrilmaz. Bu script
+# startnet'i de kaynakla birebir yeniler. Bu sayede eski, ayrintili tani
+# startnet'inin WIM'de kalmasi mumkun degil.
 SNTMP="$OUT/startnet.cmd"
 sed 's/\r$//; s/$/\r/' "$HERE/windows/startnet.cmd" > "$SNTMP"
 wimlib-imagex update "$WIM" 1 \
@@ -381,5 +381,5 @@ wimlib-imagex extract "$WIM" 1 /Windows/System32/startnet.cmd \
 echo "  dogrulandi: startnet.cmd B2LUFS PnP kurulumunu iceriyor"
 
 say "B2LUFS hazir"
-echo "Bu imajda beklenen durum: ACPI\\SMSN9820\\0 -> b2lufs.inf, Started; DiskPart Disk 0 kapasitesini ve GPT bolumlerini gorur."
+echo "Bu imajda beklenen sonuc: CACHE W: olarak baglanir, test dosyasi yazilir ve geri okunur."
 echo "Sonraki paketleme: bash cache_esp.sh --win --system && bash cache_esp.sh --win --bos"

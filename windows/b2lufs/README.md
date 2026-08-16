@@ -270,37 +270,22 @@ arayüzünü seçtirtir. Bu ayrım önemlidir; Microsoft `Internal`ı sanal
 miniportun işareti olarak tanımlar. Kaynak sayısı, MMIO eşlemesi veya kaynak
 sözleşmesi reddedilirse sürücü `Microsoft-Windows-Storage-Storport/Operational`
 kanalına `B2LUFS HwFindAdapter resource contract failure` ETW kaydı bırakır.
-Bu kayıtlar gerektiğinde Operational kanaldan elle alınır. PnP kurulumundan
-sonraki ikinci DiskPart betiği `list disk`, `detail disk` ve
-`list partition` çalıştırır; bunların tümü salt-okunurdur.
+Bu kayıtlar gerektiğinde Operational kanaldan elle alınır. Otomatik WinPE
+akışı bu kayıtları veya genel disk envanterini konsola dökmez.
 
 ## WinPE kabul ölçütü
 
-`startnet.cmd` önce sürücü kurulmadan önceki DiskPart sonucunu, ardından
-`pnputil /add-driver`, yeniden tarama ve **kurulum sonrası** ikinci DiskPart
-sonucunu gösterir. Fotoğrafta şu üç kanıt birlikte aranır:
+`startnet.cmd` otomatik harf atamasını sürücü kurulumundan önce kapatır,
+B2LUFS'u kurup yeniden tarar ve CACHE güvenlik kapısını arka planda uygular.
+Başarılı testin kabul kanıtı şu tek satırdır:
 
-1. `B2LUFS kurulumu` altında INF'nin eklendiği ve
-   yeniden taramanın tamamlandığı görülür.
-2. `B2LUFS özet` PnP çıktısında `ACPI\SMSN9820\0` için
-   `Beyond2LTE Exynos 9820 UFS Host Controller`, `b2lufs.inf` ve `Started`
-   yer alır. INF'nin eşleşmesi `ACPI\BYND9820`
-   compatible ID'si üzerinden olur; instance ID'nin `SMSN9820` kalması
-   normaldir.
-3. İkinci DiskPart bloğu `Disk 0`ı yaklaşık 119 GiB göstermeli, ardından `detail disk` ile
-   `list partition` Android kullanıcı-LUN'ındaki GPT bölümlerini listelemelidir.
-   `X:` yalnız WinPE RAM diskidir.
-4. `MediaProbeResult=0`, `MediaProbeScsiStatus=0`,
-   `MediaProbeGptHeaderValid=1` ve `MediaProbeGptEntriesValid=1` olmalıdır.
-   Ayrıca `MediaProbeProtectiveMbrValid=1` veya, yalnız PMBR kusurluysa,
-   `MediaProtectiveMbrNormalized=1` görülmelidir.
-5. `MediaWindowsGptSnapshotValid=1`,
-   `MediaWindowsGptSnapshotReason=1`, `MediaWindowsGptSelfCheckValid=1` ve
-   `MediaWindowsGptSelfCheckReason=1` beklenir. Snapshot nedenleri
-   `0=denenmedi`, `1=geçerli`, `2=blok boyutu`, `3=header boyutu`,
-   `4=entry boyutu`, `5=entry blok sayısı`, `6=entry alanı fazla`,
-   `7=self-check başarısız` biçimindedir. Self-check nedenleri kaynak
-   başlığındaki `B2LUFS_GPT_SELF_CHECK_*` sabitleriyle ayrıntılandırılır.
+`CACHE basarili: W:\B2LUFS-WRITE-OK.TXT yazildi ve geri okundu.`
+
+Bu satır, `Disk 0 / Partition 28 / 600 MB`, `CACHE` etiketi ve FAT32 bağlama
+kontrollerinin geçtiğini; dosyanın yazılıp aynı içerikle geri okunduğunu
+gösterir. Bir kapı başarısız olursa yalnız ilgili hata ve o kapıyı açıklayan
+DiskPart/volume çıktısı gösterilir. Otomatik akış GPT, PnP, registry veya ETW
+tanı dökümü üretmez.
 
 WIM'deki `b2lgptdump.exe`, `\\.\PhysicalDrive0` üzerinden salt-okunur olarak
 PMBR, primary header, 16 KiB entry dizisi ve backup header'ı okur. Sonuçlar
@@ -309,8 +294,8 @@ sırasıyla `X:\B2LGPT-PMBR.BIN`, `X:\B2LGPT-PRIMARY.BIN`,
 ilk 64 baytlar aynı boot'ta konsola basılır. Dört okuma da başarılıysa araç
 `IOCTL_DISK_UPDATE_PROPERTIES` göndererek `disk.sys`/`partmgr` bölüm
 önbelleğini geçersiz kılar ve aynı aygıtı yeniden numaralandırır. Bu kontrol
-isteği medyadaki GPT baytlarını değiştirmez. `startnet.cmd`, DiskPart
-envanterini bu yenilemeden sonra alır.
+isteği medyadaki GPT baytlarını değiştirmez. Araç WIM'de manuel tanı için
+bulunur; sade otomatik CACHE yazma testi tarafından çağrılmaz.
 
 StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
 ve `BLT1`, ardından `BLC3 Outcome=5, CompletionPhase=2`, normal `BLS2`
@@ -388,11 +373,16 @@ DiskPart'ın `Location Path: UNAVAILABLE` metni UFS için bir I/O veya GPT
 başarısızlık koşulu değildir; HBA'nın PnP `LocationPaths` değeri ayrıca
 tanıda gösterilir.
 
-GPT görünür olduktan sonra `startnet.cmd`, stok beyond2lte haritasındaki
-`Disk 0 / Partition 28 / 600 MB` üçlüsünü salt-okunur çıktıda doğrular. Bu
-güvenlik kapısından sonra `CACHE` etiketli FAT32 volume'u `W:` olarak bağlar
-ve `W:\B2LUFS-WRITE-OK.TXT` dosyasını yazıp
-geri okur. Bölüm başlangıcı, uzunluğu ve FAT32 içeriği yeniden oluşturulmaz.
+Normal otomatik harf ataması Android RAW bölümleri için C:-Z: aralığını
+tükettiğinden `startnet.cmd`, B2LUFS kurulmadan önce WinPE mount manager
+automount özelliğini kapatır. Ardından stok beyond2lte haritasındaki
+`Disk 0 / Partition 28 / 600 MB` üçlüsünü arka planda doğrular, varsa eski
+W: mount pointini kaldırır ve `CACHE` etiketli FAT32 volume'u `W:` olarak
+bağlar. Son kullanıcı çıktısında yalnız kurulum ve yaz/geri-okuma sonucu
+gösterilir; ham GPT, DiskPart envanteri, PnP/registry özeti ve ETW dökümü
+otomatik akışta çalıştırılmaz. Güvenlik kapısından sonra
+`W:\B2LUFS-WRITE-OK.TXT` dosyası yazılıp geri okunur. Bölüm başlangıcı,
+uzunluğu ve FAT32 içeriği yeniden oluşturulmaz.
 Dolayısıyla tekrar `B2LUFS paketi yok` görülürse çalışan ESP, bu doğrulama
 kapısından geçmiş son artefakt değildir; UFS donanım sonucu olarak yorumlanmaz.
 

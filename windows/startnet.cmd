@@ -3,9 +3,7 @@ setlocal EnableExtensions
 title Beyond2LTE WinPE UFS
 mode con: cols=112 lines=72 >nul 2>&1
 
-rem Klavye/dokunmatik zorunlu degildir; tani ve guvenli CACHE testi otomatiktir.
-set "DPSCRIPT=%SystemDrive%\B2LDISK.TXT"
-set "DPPOSTSCRIPT=%SystemDrive%\B2LDISK-POST.TXT"
+rem Klavye/dokunmatik zorunlu degildir; guvenli CACHE yazma testi otomatiktir.
 set "B2LUFSDIR=%SystemRoot%\B2LUFS"
 set "B2LCACHEPROBE=%SystemDrive%\B2LCACHE-PROBE.TXT"
 set "B2LCACHEVOLUMES=%SystemDrive%\B2LCACHE-VOLUMES.TXT"
@@ -16,24 +14,10 @@ echo.
 echo === Beyond2LTE WinPE UFS ===
 echo PnP baslatiliyor...
 %SystemRoot%\System32\wpeinit.exe
-if exist "%SystemRoot%\System32\b2lcmd.exe" "%SystemRoot%\System32\b2lcmd.exe" >nul 2>&1
 
-> "%DPSCRIPT%" (
-  echo list disk
-  echo list volume
-)
-> "%DPPOSTSCRIPT%" (
-  echo list disk
-  echo select disk 0
-  echo detail disk
-  echo list partition
-  echo list volume
-)
-
-echo.
-echo [Surucu oncesi]
-diskpart /s "%DPSCRIPT%"
-echo Not: X: WinPE RAM diskidir; dahili UFS degildir.
+rem Android RAW bolumlerinin C:-Z: harflerini tuketmesini engelle. Bu ayar
+rem yalniz calisan WinPE oturumunun mount manager durumunu degistirir.
+if exist "%SystemRoot%\System32\mountvol.exe" mountvol /N >nul 2>&1
 
 echo.
 echo [B2LUFS kurulumu]
@@ -41,28 +25,12 @@ call :B2LUfsInstall
 if errorlevel 1 goto :Finish
 
 echo.
-if exist "%SystemRoot%\System32\b2lgptdump.exe" (
-  "%SystemRoot%\System32\b2lgptdump.exe"
-) else (
-  echo B2LGPT ham-okuma araci WIM'de yok.
-)
-
-echo.
-echo [Disk ve GPT]
-diskpart /s "%DPPOSTSCRIPT%"
-
-echo.
-call :B2LUfsSummary
-
-echo.
-echo [CACHE: W: baglama ve yaz/geri-oku]
+echo [CACHE yaz/geri-oku]
 call :B2LUfsMountCache
 
 :Finish
 echo.
-call :B2LUfsExportTrace
-echo.
-echo === Tani sonu ===
+echo === Test sonu ===
 echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
 cmd.exe /k
 goto :eof
@@ -76,59 +44,17 @@ if not exist "%B2LUFSDIR%\manifest.txt" (
   echo HATA: B2LUFS manifest yok; eski veya yari paketlenmis WIM reddedildi.
   exit /b 1
 )
-type "%B2LUFSDIR%\manifest.txt"
 if not exist "%SystemRoot%\System32\pnputil.exe" (
   echo HATA: PnPUtil yok.
   exit /b 1
 )
-rem BLT1/BLS2/BLG1 sonunda hem konsola dokulur hem X: RAM diskine aktarilir.
-if exist "%SystemRoot%\System32\wevtutil.exe" wevtutil sl "Microsoft-Windows-Storage-Storport/Operational" /e:true >nul 2>&1
-pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install
-if errorlevel 1 exit /b 1
-pnputil /scan-devices
+pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install > "%SystemDrive%\B2LUFS-PNP.TXT" 2>&1
+if errorlevel 1 (
+  type "%SystemDrive%\B2LUFS-PNP.TXT"
+  exit /b 1
+)
+pnputil /scan-devices >> "%SystemDrive%\B2LUFS-PNP.TXT" 2>&1
 timeout /t 5 /nobreak >nul 2>&1
-exit /b 0
-
-:B2LUfsSummary
-set "B2L_LUN_KEY=HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0\Device Parameters\B2LUFS"
-echo [B2LUFS ozet: Result/Scsi=0; GPT header/entries=1 beklenir]
-pnputil /enum-devices /instanceid "ACPI\SMSN9820\0" /drivers /services /properties
-echo [Disk PDO LocationPaths ve kimlik]
-pnputil /enum-devices /class DiskDrive /connected /properties
-reg query "%B2L_LUN_KEY%" /v SchemaVersion 2>nul
-reg query "%B2L_LUN_KEY%" /v HciStatus 2>nul
-reg query "%B2L_LUN_KEY%" /v EnumerationReady 2>nul
-reg query "%B2L_LUN_KEY%" /v EnumerationGateRejectCount 2>nul
-reg query "%B2L_LUN_KEY%" /v ReadCapacityResult 2>nul
-reg query "%B2L_LUN_KEY%" /v ReadCapacityScsiStatus 2>nul
-reg query "%B2L_LUN_KEY%" /v ReadCapacityValid 2>nul
-reg query "%B2L_LUN_KEY%" /v ReadCapacityBlockBytes 2>nul
-reg query "%B2L_LUN_KEY%" /v ReadCapacityRaw 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeResult 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeScsiStatus 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeReturnedBytes 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeValid 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeMbrSignature 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeGptSignature 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeProtectiveMbrValid 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeGptHeaderValid 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesValid 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProtectiveMbrNormalized 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntryCount 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntrySize 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesBytes 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeGptHeaderCrc 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeGptHeaderCrcCalculated 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesCrc 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesCrcCalculated 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaWindowsGptSnapshotValid 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaWindowsGptSnapshotReason 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaWindowsGptSelfCheckValid 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaWindowsGptSelfCheckReason 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaWindowsGptEntriesCrc 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaWindowsCacheEntryFound 2>nul
-reg query "%B2L_LUN_KEY%" /v MediaWindowsCacheEntryIndex 2>nul
-reg query "%B2L_LUN_KEY%" /v ReportLunsEntryCount 2>nul
 exit /b 0
 
 :B2LUfsMountCache
@@ -141,14 +67,15 @@ rem Bu uc kanit olmadan GPT'ye veya medyaya yazilmaz.
   echo detail partition
 )
 diskpart /s "%B2LCACHEPROBE%" > "%B2LCACHEPROBE%.OUT" 2>&1
-type "%B2LCACHEPROBE%.OUT"
 findstr /i /c:"Partition 28" "%B2LCACHEPROBE%.OUT" >nul 2>&1
 if errorlevel 1 (
+  type "%B2LCACHEPROBE%.OUT"
   echo CACHE guvenlik kapisi: Partition 28 yok; yazilmadi.
   exit /b 1
 )
 findstr /i /c:"600 MB" "%B2LCACHEPROBE%.OUT" >nul 2>&1
 if errorlevel 1 (
+  type "%B2LCACHEPROBE%.OUT"
   echo CACHE guvenlik kapisi: 600 MB boyut kaniti yok; yazilmadi.
   exit /b 1
 )
@@ -158,13 +85,17 @@ rem gosterir. Samsung GPT medyada degismez; burada GPT yazma komutu yoktur.
 
 > "%B2LCACHEVOLUMES%" echo list volume
 diskpart /s "%B2LCACHEVOLUMES%" > "%B2LCACHEVOLUMES%.OUT" 2>&1
-type "%B2LCACHEVOLUMES%.OUT"
 set "B2LCACHEVOL="
 for /f "tokens=2" %%V in ('findstr /i /c:"CACHE" "%B2LCACHEVOLUMES%.OUT"') do set "B2LCACHEVOL=%%V"
 if not defined B2LCACHEVOL (
+  type "%B2LCACHEVOLUMES%.OUT"
   echo CACHE FAT32 volume etiketi bulunamadi.
   exit /b 1
 )
+
+rem Daha once otomatik atanmis bir RAW W: varsa yalniz mount pointini kaldir.
+rem Medyaya, GPT'ye veya dosya sistemine yazmaz.
+if exist "%SystemRoot%\System32\mountvol.exe" mountvol W: /D >nul 2>&1
 
 > "%B2LCACHEMOUNT%" (
   echo select volume %B2LCACHEVOL%
@@ -172,15 +103,16 @@ if not defined B2LCACHEVOL (
   echo attributes volume clear hidden
   echo assign letter=W noerr
 )
-diskpart /s "%B2LCACHEMOUNT%"
+diskpart /s "%B2LCACHEMOUNT%" > "%B2LCACHEMOUNT%.OUT" 2>&1
 if not exist W:\NUL (
+  type "%B2LCACHEMOUNT%.OUT"
   echo CACHE W: olarak baglanamadi.
   exit /b 1
 )
 vol W: > "%B2LCACHEVOLREPORT%" 2>&1
-type "%B2LCACHEVOLREPORT%"
 findstr /i /c:"CACHE" "%B2LCACHEVOLREPORT%" >nul 2>&1
 if errorlevel 1 (
+  type "%B2LCACHEVOLREPORT%"
   echo W: etiketi CACHE degil; yazma atlandi.
   exit /b 1
 )
@@ -196,20 +128,4 @@ if errorlevel 1 (
   exit /b 1
 )
 echo CACHE basarili: W:\B2LUFS-WRITE-OK.TXT yazildi ve geri okundu.
-exit /b 0
-
-:B2LUfsExportTrace
-set "B2L_STORPORT_LOG=Microsoft-Windows-Storage-Storport/Operational"
-if not exist "%SystemRoot%\System32\wevtutil.exe" (
-  echo StorPort ETW: wevtutil yok.
-  exit /b 1
-)
-echo [StorPort ETW: BLT1/BLS2/BLG1 kayitlari]
-wevtutil epl "%B2L_STORPORT_LOG%" "%SystemDrive%\B2LUFS-StorPort.evtx" /ow:true >nul 2>&1
-if errorlevel 1 (
-  echo StorPort Operational kanali disari aktarilamadi.
-) else (
-  echo X:\B2LUFS-StorPort.evtx yazildi.
-)
-wevtutil qe "%B2L_STORPORT_LOG%" /rd:true /f:text /c:96 2>nul
 exit /b 0
