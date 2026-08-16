@@ -276,13 +276,14 @@ akışı bu kayıtları veya genel disk envanterini konsola dökmez.
 ## WinPE kabul ölçütü
 
 `startnet.cmd` otomatik harf atamasını sürücü kurulumundan önce kapatır,
-B2LUFS'u kurup yeniden tarar ve CACHE güvenlik kapısını arka planda uygular.
+B2LUFS'u kurup yeniden tarar; `Disk 0 / Partition 28` odağındaki CACHE
+volume'unu açıkça çevrimiçi yapıp `W:` olarak bağlar.
 Başarılı testin kabul kanıtı şu tek satırdır:
 
 `CACHE basarili: W:\B2LUFS-WRITE-OK.TXT yazildi ve geri okundu.`
 
-Bu satır, `Disk 0 / Partition 28 / 600 MB`, `CACHE` etiketi ve FAT32 bağlama
-kontrollerinin geçtiğini; dosyanın yazılıp aynı içerikle geri okunduğunu
+Bu satır, `Disk 0 / Partition 28`, bağlama sonrası `CACHE` etiketi ve FAT32
+bağlama kontrollerinin geçtiğini; dosyanın yazılıp aynı içerikle geri okunduğunu
 gösterir. Bir kapı başarısız olursa yalnız ilgili hata ve o kapıyı açıklayan
 DiskPart/volume çıktısı gösterilir. Otomatik akış GPT, PnP, registry veya ETW
 tanı dökümü üretmez.
@@ -376,9 +377,10 @@ tanıda gösterilir.
 Normal otomatik harf ataması Android RAW bölümleri için C:-Z: aralığını
 tükettiğinden `startnet.cmd`, B2LUFS kurulmadan önce WinPE mount manager
 automount özelliğini kapatır. Ardından stok beyond2lte haritasındaki
-`Disk 0 / Partition 28 / 600 MB` üçlüsünü arka planda doğrular, varsa eski
-W: mount pointini kaldırır ve `CACHE` etiketli FAT32 volume'u `W:` olarak
-bağlar. Son kullanıcı çıktısında yalnız kurulum ve yaz/geri-okuma sonucu
+`Disk 0 / Partition 28` odağını kurar, bu yüzden `Healthy / Offline` kalan
+ilişkili volume'u açıkça çevrimiçi yapar, varsa eski W: mount pointini kaldırır
+ve volume'u `W:` olarak bağlar. `CACHE` etiketi bağlama sonrasında doğrulanmadan
+dosya yazılmaz. Son kullanıcı çıktısında yalnız kurulum ve yaz/geri-okuma sonucu
 gösterilir; ham GPT, DiskPart envanteri, PnP/registry özeti ve ETW dökümü
 otomatik akışta çalıştırılmaz. Güvenlik kapısından sonra
 `W:\B2LUFS-WRITE-OK.TXT` dosyası yazılıp geri okunur. Bölüm başlangıcı,

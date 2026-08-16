@@ -5,8 +5,6 @@ mode con: cols=112 lines=72 >nul 2>&1
 
 rem Klavye/dokunmatik zorunlu degildir; guvenli CACHE yazma testi otomatiktir.
 set "B2LUFSDIR=%SystemRoot%\B2LUFS"
-set "B2LCACHEPROBE=%SystemDrive%\B2LCACHE-PROBE.TXT"
-set "B2LCACHEVOLUMES=%SystemDrive%\B2LCACHE-VOLUMES.TXT"
 set "B2LCACHEMOUNT=%SystemDrive%\B2LCACHE-MOUNT.TXT"
 set "B2LCACHEVOLREPORT=%SystemDrive%\B2LCACHE-VOL.TXT"
 
@@ -58,55 +56,21 @@ timeout /t 5 /nobreak >nul 2>&1
 exit /b 0
 
 :B2LUfsMountCache
-rem Stok beyond2lte GPT'sinde CACHE tam olarak disk 0 / partition 28 / 600 MiB.
-rem Bu uc kanit olmadan GPT'ye veya medyaya yazilmaz.
-> "%B2LCACHEPROBE%" (
-  echo select disk 0
-  echo list partition
-  echo select partition 28
-  echo detail partition
-)
-diskpart /s "%B2LCACHEPROBE%" > "%B2LCACHEPROBE%.OUT" 2>&1
-findstr /i /c:"Partition 28" "%B2LCACHEPROBE%.OUT" >nul 2>&1
-if errorlevel 1 (
-  type "%B2LCACHEPROBE%.OUT"
-  echo CACHE guvenlik kapisi: Partition 28 yok; yazilmadi.
-  exit /b 1
-)
-findstr /i /c:"600 MB" "%B2LCACHEPROBE%.OUT" >nul 2>&1
-if errorlevel 1 (
-  type "%B2LCACHEPROBE%.OUT"
-  echo CACHE guvenlik kapisi: 600 MB boyut kaniti yok; yazilmadi.
-  exit /b 1
-)
-
-rem Surucu CACHE girdisini yalniz Windows'a Basic Data/attributes=0 olarak
-rem gosterir. Samsung GPT medyada degismez; burada GPT yazma komutu yoktur.
-
-> "%B2LCACHEVOLUMES%" echo list volume
-diskpart /s "%B2LCACHEVOLUMES%" > "%B2LCACHEVOLUMES%.OUT" 2>&1
-set "B2LCACHEVOL="
-for /f "tokens=2" %%V in ('findstr /i /c:"CACHE" "%B2LCACHEVOLUMES%.OUT"') do set "B2LCACHEVOL=%%V"
-if not defined B2LCACHEVOL (
-  type "%B2LCACHEVOLUMES%.OUT"
-  echo CACHE FAT32 volume etiketi bulunamadi.
-  exit /b 1
-)
-
-rem Daha once otomatik atanmis bir RAW W: varsa yalniz mount pointini kaldir.
-rem Medyaya, GPT'ye veya dosya sistemine yazmaz.
+rem Automount kapaliyken CACHE volume Healthy/Offline kalir. Stok haritadaki
+rem Disk 0 / Partition 28'e odaklan, iliskili volume'u online yap ve W: ata.
+rem Daha once atanmis bir W: varsa yalniz mount pointini kaldir.
 if exist "%SystemRoot%\System32\mountvol.exe" mountvol W: /D >nul 2>&1
 
 > "%B2LCACHEMOUNT%" (
-  echo select volume %B2LCACHEVOL%
-  echo attributes volume clear readonly
-  echo attributes volume clear hidden
+  echo select disk 0
+  echo select partition 28
+  echo online volume noerr
   echo assign letter=W noerr
 )
 diskpart /s "%B2LCACHEMOUNT%" > "%B2LCACHEMOUNT%.OUT" 2>&1
 if not exist W:\NUL (
   type "%B2LCACHEMOUNT%.OUT"
-  echo CACHE W: olarak baglanamadi.
+  echo CACHE guvenlik kapisi: Disk 0 / Partition 28 online edilip W: olarak baglanamadi.
   exit /b 1
 )
 vol W: > "%B2LCACHEVOLREPORT%" 2>&1
