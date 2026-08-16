@@ -402,16 +402,16 @@ döngüsünde iptal edilip bırakılır.
 - İstek için sistem sanal adresini alır.
 - Tanı için StorPort scatter/gather listesini kaydeder.
 - Bu bilgileri yalnız SRB extension içine yazar.
-- Uygun `READ CAPACITY` cevabını cache'den tamamlayabilir.
-- Tamamen GPT metadata snapshot'ına düşen READ'i cache'den tamamlayabilir.
-- Yazılımda tamamlanan istek için `FALSE`, donanıma gidecek istek için
-  `TRUE` döndürür.
+- Adapter extension'a ve ortak snapshot'lara dokunmaz.
+- İsteği serileştirilmiş `HwStartIo` yoluna geçirmek için `TRUE` döndürür.
 
 #### `B2LUfsStartIo`
 
 Kilitli StorPort çalışma yoludur. İsteği `B2LUfsExecuteScsi()`ye verir.
 Miniport tek aktif donanım slotu kullandığı için normal istek burada
-eşzamanlı tamamlanır.
+eşzamanlı tamamlanır. Cache'deki `READ CAPACITY` ve tamamen canonical GPT
+snapshot'ına düşen metadata READ cevapları da adapter durumuna yalnız bu
+serileştirilmiş yoldan erişerek burada tamamlanır.
 
 #### `B2LUfsUnitControl`
 

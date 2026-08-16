@@ -50,9 +50,9 @@ typedef struct B2LUFS_ADAPTER {
      * the 16-byte form is used only for a device larger than its address
      * range. It never contains user data and is never written to UFS. The
      * validated result is both diagnostic telemetry and the authoritative
-     * reply to disk class's later READ CAPACITY SRB. Like Microsoft's
-     * StorAHCI miniport, that software-only reply is completed from HwBuildIo,
-     * before StorPort hands a hardware request to HwStartIo.
+     * reply to disk class's later READ CAPACITY SRB. The software-only reply
+     * is completed from serialized HwStartIo because it reads adapter-owned
+     * state and issues RequestComplete.
      */
     PVOID CapacityProbeVirtual;
     STOR_PHYSICAL_ADDRESS CapacityProbePhysical;
@@ -84,7 +84,7 @@ typedef struct B2LUFS_ADAPTER {
      * The same READ(10) + common-DMA path later used by disk class is
      * exercised before BusChange. Raw signatures/CRCs remain diagnostic.
      * Once both GPT CRCs validate, an immutable, CPU-only Windows view is
-     * also retained. HwBuildIo can then answer partmgr's metadata reads from
+     * also retained. HwStartIo can then answer partmgr's metadata reads from
      * one coherent snapshot instead of mixing separate live UFS commands.
      */
     ULONG MediaProbeResult;
@@ -214,14 +214,14 @@ B2LUfsProbeMediaHeaders(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter);
 
-/* Complete a cached READ CAPACITY in HwBuildIo; TRUE means SRB completed. */
+/* Complete a cached READ CAPACITY in HwStartIo; TRUE means SRB completed. */
 BOOLEAN
 B2LUfsTryCompleteCachedCapacity(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter,
     _Inout_ PSCSI_REQUEST_BLOCK Srb);
 
-/* Complete an all-metadata GPT READ in HwBuildIo from the validated view. */
+/* Complete an all-metadata GPT READ in HwStartIo from the validated view. */
 BOOLEAN
 B2LUfsTryCompleteCachedGptRead(
     _In_ PVOID DeviceExtension,

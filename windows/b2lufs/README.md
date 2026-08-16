@@ -240,11 +240,14 @@ DMA tamponuna; başarılı READ sonucunu da bu tampondan Windows adresine
 kopyalar. Doğrudan Windows sayfalarına DMA yapılmadığı için kapasite probunda
 çalıştığı kanıtlanmış fiziksel yol GPT ve dosya sistemi I/O'sunda da kullanılır.
 Ön taramadaki gerçek UFS `READ CAPACITY` cevabı doğrulandıktan sonra disk
-sınıfının aynı kapasite sorgusu bu değişmez anlık görüntüden tamamlanır.
+sınıfının aynı kapasite sorgusu bu değişmez anlık görüntüden, kilitli
+`HwStartIo` yolunda tamamlanır.
 `STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE` hem başlangıç hem adapter
 yapılandırmasında ilan edilir. READ CAPACITY'nin `Srb->DataBuffer` alanı sistem
-sanal adresidir; yazılımsal cevap Microsoft StorAHCI ile aynı biçimde
-`HwBuildIo`da yazılıp tamamlanır. Normal READ/WRITE için eşleme düşük bellek
+sanal adresidir; `HwBuildIo` yalnız istek-yerel adres/SGL hazırlığını yapar.
+Adapter snapshot'ını okuyan yazılımsal cevap ve `RequestComplete`, eşzamanlı
+`HwBuildIo`dan değil StorPort'un serileştirdiği `HwStartIo`dan yürütülür.
+Normal READ/WRITE için eşleme düşük bellek
 nedeniyle NULL gelirse `StorPortGetSystemAddress` denenir; bu da başarısızsa
 SRB medyaya dokunmadan hatayla tamamlanır. Bu yol kapasite uydurmaz: `last-LBA`
 ve 4096 bayt blok değeri aynı açılışta UFS'den gelen doğrulanmış cevaptır.
@@ -282,7 +285,7 @@ sonucunu gösterir. Fotoğrafta şu üç kanıt birlikte aranır:
    `MediaProtectiveMbrNormalized=1` görülmelidir.
 
 StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
-ve `BLT1`, ardından `BLC3 Outcome=5, MapSource=1, CompletionPhase=1`, normal `BLS2`
+ve `BLT1`, ardından `BLC3 Outcome=5, CompletionPhase=2`, normal `BLS2`
 INQUIRY/READ CAPACITY kayıtları beklenir.
 `BLT1` var fakat `BLS2` yoksa timer/adapter yaşam döngüsü tamamlanmış olmasına
 rağmen StorPort tarama üretmemiştir; `BLT1` de yoksa sorun timer'ın
@@ -340,8 +343,8 @@ okuyarak doğrular; uyuşmazsa sparse `system.img` üretmez. WinPE'de
 flaşlayacağı tam 600 MiB `cache.img` dosyasını boş FAT32, 4096 bayt sektör ve
 4096 bayt küme ile üretir.
 Sürücü, CRC ile doğruladığı 4Kn GPT başlığını ve 16 KiB entry dizisini tek
-bir CPU snapshot'ında tutar. `partmgr` metadata `READ` istekleri
-`HwBuildIo` içinde bu tutarlı snapshot'tan tamamlanır; bir istekte düzeltilmiş
+bir CPU snapshot'ında tutar. `partmgr` metadata `READ` istekleri kilitli
+`HwStartIo` içinde bu tutarlı snapshot'tan tamamlanır; bir istekte düzeltilmiş
 PMBR, başka bir istekte ham Samsung GPT dönmesi engellenir. Stok medyadaki
 `CACHE` girdisi bu salt Windows görünümünde Microsoft Basic Data GUID'i ve
 temiz GPT attribute alanı taşır; ham GPT'ye yazılmaz.

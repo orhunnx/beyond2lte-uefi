@@ -344,7 +344,7 @@ typedef struct B2LUFS_CAPACITY_TRACE_DATA {
 
 C_ASSERT(sizeof(B2LUFS_CAPACITY_TRACE_DATA) == 56);
 
-#define B2LUFS_CAPACITY_PHASE_BUILD_IO       1UL
+#define B2LUFS_CAPACITY_PHASE_START_IO       2UL
 
 #define B2LUFS_CAPACITY_OUTCOME_NO_SNAPSHOT  1UL
 #define B2LUFS_CAPACITY_OUTCOME_ZERO_LENGTH  2UL
@@ -2594,11 +2594,11 @@ B2LUfsCacheCapacityFromSrb(
  * LUN-0 capacity through a StorPort common DMA buffer. Complete subsequent
  * disk-class READ CAPACITY requests from that immutable snapshot.
  *
- * Microsoft's StorAHCI sample generates fixed-media capacity data in
- * HwBuildIo and completes the SRB there. Do the same: this is a software
- * response, not a DMA request that should be queued to HwStartIo. Resolve its
- * CPU address with StorPortGetSystemAddress just like normal program-
- * controlled I/O; the MapBuffers-provided DataBuffer is only a fallback.
+ * The answer is software-generated, but it reads adapter-owned state and
+ * completes the request.  Both operations therefore run in the serialized
+ * HwStartIo path rather than the unsynchronized HwBuildIo callback.  Reuse
+ * the per-SRB mapping captured by HwBuildIo; resolve it here only if that
+ * request-local preparation did not provide one.
  */
 BOOLEAN
 B2LUfsTryCompleteCachedCapacity(
@@ -2612,6 +2612,7 @@ B2LUfsTryCompleteCachedCapacity(
     ULONG ResponseLength;
     ULONG TransferLength;
     ULONG Status;
+    PB2LUFS_SRB_EXTENSION SrbExtension;
 
     B2LUfsZeroMemory(&Trace, sizeof(Trace));
     Trace.Magic = 0x33434C42UL; /* "BLC3" little-endian */
@@ -2619,7 +2620,7 @@ B2LUfsTryCompleteCachedCapacity(
     Trace.RequestedLength = Srb->DataTransferLength;
     Trace.MapStatus = MAXULONG;
     Trace.MapSource = B2LUFS_CAPACITY_MAP_NONE;
-    Trace.CompletionPhase = B2LUFS_CAPACITY_PHASE_BUILD_IO;
+    Trace.CompletionPhase = B2LUFS_CAPACITY_PHASE_START_IO;
     Trace.CdbLength = Srb->CdbLength;
     Trace.CdbOperation = Srb->Cdb[0];
     Trace.CdbServiceAction = (UCHAR)(Srb->Cdb[1] & 0x1FU);
@@ -2659,10 +2660,20 @@ B2LUfsTryCompleteCachedCapacity(
     }
 
     SystemAddress = NULL;
-    Status = StorPortGetSystemAddress(
-        DeviceExtension, Srb, &SystemAddress);
+    SrbExtension = (PB2LUFS_SRB_EXTENSION)Srb->SrbExtension;
+    if (SrbExtension != NULL &&
+        SrbExtension->Signature == B2LUFS_SRB_EXTENSION_SIGNATURE &&
+        SrbExtension->SystemAddressStatus == STOR_STATUS_SUCCESS &&
+        SrbExtension->SystemAddress != NULL) {
+        SystemAddress = SrbExtension->SystemAddress;
+        Status = STOR_STATUS_SUCCESS;
+        Trace.MapSource = B2LUFS_CAPACITY_MAP_SYSTEM_ADDRESS;
+    } else {
+        Status = StorPortGetSystemAddress(
+            DeviceExtension, Srb, &SystemAddress);
+        Trace.MapSource = B2LUFS_CAPACITY_MAP_SYSTEM_ADDRESS;
+    }
     Trace.MapStatus = Status;
-    Trace.MapSource = B2LUFS_CAPACITY_MAP_SYSTEM_ADDRESS;
     if (Status != STOR_STATUS_SUCCESS || SystemAddress == NULL) {
         SystemAddress = Srb->DataBuffer;
         if (SystemAddress == NULL) {
@@ -2706,12 +2717,11 @@ B2LUfsTryCompleteCachedCapacity(
             DeviceExtension,
             NULL,
             B2LUFS_ETW_CAPACITY_TRACE,
-            L"B2LUFS cached UFS capacity completed in HwBuildIo; binary data is BLC3",
+            L"B2LUFS cached UFS capacity completed in HwStartIo; binary data is BLC3",
             sizeof(Trace),
             &Trace);
     }
-    /* BLC3 already contains the complete software response. Do not touch the
-     * StartIo-only BLS2 sequence/budget from unsynchronized HwBuildIo. */
+    /* BLC3 already contains the complete software response. */
     B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
     return TRUE;
 
@@ -2721,7 +2731,7 @@ LogAndFallback:
             DeviceExtension,
             NULL,
             B2LUFS_ETW_CAPACITY_TRACE,
-            L"B2LUFS cached UFS capacity fallback in HwBuildIo; binary data is BLC3",
+            L"B2LUFS cached UFS capacity fallback in HwStartIo; binary data is BLC3",
             sizeof(Trace),
             &Trace);
     }
@@ -2730,10 +2740,11 @@ LogAndFallback:
 
 /*
  * partmgr reads GPT metadata through ordinary SCSI READ SRBs. The validated
- * primary header and entry array are immutable during this WinPE session,
- * so all-metadata requests can be completed in HwBuildIo exactly like the
- * cached READ CAPACITY response. This avoids presenting a PMBR from one UFS
- * command and the GPT header/entries from later independent commands.
+ * primary header and entry array are immutable during this WinPE session.
+ * Complete all-metadata requests in serialized HwStartIo so adapter state
+ * and RequestComplete obey the same lifecycle as real UFS requests. This
+ * avoids presenting a PMBR from one UFS command and the GPT header/entries
+ * from later independent commands.
  */
 BOOLEAN
 B2LUfsTryCompleteCachedGptRead(
@@ -2748,6 +2759,7 @@ B2LUfsTryCompleteCachedGptRead(
     ULONG BlockCount;
     ULONG Index;
     ULONG Status;
+    PB2LUFS_SRB_EXTENSION SrbExtension;
 
     if (!Adapter->MediaWindowsGptSnapshotValid ||
         !B2LUfsIsBlockRead(Srb->Cdb[0])) {
@@ -2773,8 +2785,17 @@ B2LUfsTryCompleteCachedGptRead(
     }
 
     SystemAddress = NULL;
-    Status = StorPortGetSystemAddress(
-        DeviceExtension, Srb, &SystemAddress);
+    SrbExtension = (PB2LUFS_SRB_EXTENSION)Srb->SrbExtension;
+    if (SrbExtension != NULL &&
+        SrbExtension->Signature == B2LUFS_SRB_EXTENSION_SIGNATURE &&
+        SrbExtension->SystemAddressStatus == STOR_STATUS_SUCCESS &&
+        SrbExtension->SystemAddress != NULL) {
+        SystemAddress = SrbExtension->SystemAddress;
+        Status = STOR_STATUS_SUCCESS;
+    } else {
+        Status = StorPortGetSystemAddress(
+            DeviceExtension, Srb, &SystemAddress);
+    }
     if ((Status != STOR_STATUS_SUCCESS || SystemAddress == NULL) &&
         Srb->DataBuffer != NULL) {
         SystemAddress = Srb->DataBuffer;
@@ -2907,6 +2928,17 @@ B2LUfsExecuteScsi(
         Srb->CdbLength > (UCHAR)sizeof(Srb->Cdb)) {
         Srb->DataTransferLength = 0;
         B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_INVALID_REQUEST);
+        return;
+    }
+
+    /*
+     * Cached geometry and the canonical GPT view are adapter-owned state.
+     * Consume and complete them only from StorPort's serialized StartIo
+     * callback. If a request is not covered by either snapshot, it continues
+     * through the normal UFS command path below.
+     */
+    if (B2LUfsTryCompleteCachedCapacity(DeviceExtension, Adapter, Srb) ||
+        B2LUfsTryCompleteCachedGptRead(DeviceExtension, Adapter, Srb)) {
         return;
     }
 

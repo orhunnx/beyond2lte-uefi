@@ -456,7 +456,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 20;
+    ULONG SchemaVersion = 21;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -827,7 +827,6 @@ _Use_decl_annotations_
 static BOOLEAN
 B2LUfsBuildIo(_In_ PVOID DeviceExtension, _In_ PSCSI_REQUEST_BLOCK Srb)
 {
-    B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
     PB2LUFS_SRB_EXTENSION SrbExtension;
 
     /*
@@ -873,28 +872,11 @@ B2LUfsBuildIo(_In_ PVOID DeviceExtension, _In_ PSCSI_REQUEST_BLOCK Srb)
     }
 
     /*
-     * Match Microsoft's StorAHCI fixed-media path: software-generated READ
-     * CAPACITY data is written and completed here. Returning FALSE tells
-     * StorPort not to pass an already-completed SRB to HwStartIo. The cached
-     * geometry is immutable after the pre-enumeration probe, so concurrent
-     * HwBuildIo calls only read shared adapter state.
+     * Microsoft calls HwBuildIo at DISPATCH_LEVEL without a StorPort lock
+     * and permits multiple concurrent calls.  Keep this callback strictly
+     * request-local: shared adapter snapshots, completion bookkeeping and
+     * every RequestComplete notification are handled by serialized StartIo.
      */
-    if (Srb->Function == SRB_FUNCTION_EXECUTE_SCSI &&
-        Srb->PathId == 0 && Srb->TargetId == 0 && Srb->Lun == 0 &&
-        Srb->CdbLength != 0 &&
-        Srb->CdbLength <= (UCHAR)sizeof(Srb->Cdb) &&
-        B2LUfsTryCompleteCachedCapacity(DeviceExtension, Adapter, Srb)) {
-        return FALSE;
-    }
-    if (Srb->Function == SRB_FUNCTION_EXECUTE_SCSI &&
-        Srb->PathId == 0 && Srb->TargetId == 0 && Srb->Lun == 0 &&
-        Srb->CdbLength != 0 &&
-        Srb->CdbLength <= (UCHAR)sizeof(Srb->Cdb) &&
-        B2LUfsTryCompleteCachedGptRead(DeviceExtension, Adapter, Srb)) {
-        return FALSE;
-    }
-
-    /* PnP/lifecycle and actual UFS commands remain serialized in StartIo. */
     return TRUE;
 }
 
