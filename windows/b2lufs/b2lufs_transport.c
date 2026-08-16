@@ -23,17 +23,17 @@
 #define B2LUFS_UTRD_SLOT_BYTES               32UL
 #define B2LUFS_PRDT_ENTRY_BYTES              16UL
 #define B2LUFS_MAX_PRDT_ENTRIES               32UL
+#define B2LUFS_PRDT_COMMON_CHUNK_BYTES       4096UL
 /*
- * UFSHCI DBC supports 256 KiB per entry. Exynos' vendor register value 12 is
- * the 4 KiB data-unit size, not a 4 KiB PRDT transfer limit: Linux sets that
- * register to 12 while mapping each DMA scatter/gather element directly and
- * advertises PRDT_DATA_BYTE_COUNT_MAX as its maximum segment size.
+ * UFSHCI DBC supports 256 KiB per entry. Exynos' vendor register value 12
+ * selects a 4 KiB data unit. Keep the architectural ceiling here; the common
+ * DMA path below uses the narrower size proven by this inherited controller.
  */
 #define B2LUFS_PRDT_MAX_BYTES          (256UL * 1024UL)
 /*
  * Keep the conservative 128 KiB StorPort request limit used during bring-up.
- * The 32-entry table can therefore represent every StorPort SGL without
- * inventing additional 4 KiB boundaries.
+ * The 32-entry table can therefore describe the common DMA bounce buffer in
+ * the controller's proven 4 KiB data units.
  */
 #define B2LUFS_MAX_TRANSFER             (128UL * 1024UL)
 #define B2LUFS_RESPONSE_UPIU_OFFSET_BYTES  B2LUFS_ALIGNED_UPIU_SIZE
@@ -1238,6 +1238,15 @@ B2LUfsBuildPrdt(
         EntryCount = 0;
         while (Remaining != 0) {
             EntryLength = B2LUfsMinUlong(Remaining, PhysicalLength);
+            /*
+             * Exynos was proven on-device with one 4 KiB data unit per PRDT
+             * entry.  Larger DBC values are legal UFSHCI, but the failed GPT
+             * array read showed that this inherited controller path does not
+             * complete a 16 KiB common-buffer entry reliably.  Multiple PRDT
+             * entries preserve one SCSI transfer and remain standard UFSHCI.
+             */
+            EntryLength = B2LUfsMinUlong(
+                EntryLength, B2LUFS_PRDT_COMMON_CHUNK_BYTES);
             EntryLength = B2LUfsMinUlong(
                 EntryLength, B2LUFS_PRDT_MAX_BYTES);
             if (EntryLength == 0 ||
@@ -1960,6 +1969,26 @@ B2LUfsProbeRead10(
         ReturnedLength);
 }
 
+static VOID
+B2LUfsRecoverProbeQueue(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _In_ B2LUFS_TRANSFER_RESULT Result)
+{
+    /*
+     * A timed-out polled command leaves UTRLDBR set.  If that diagnostic
+     * request is allowed to escape into the deferred BusChange, every normal
+     * StorPort SRB sees slot 0 busy and the disk PDO disappears.  Reset only
+     * the driver-owned UTP list; B2LUfsResetTransport deliberately preserves
+     * HCE, UniPro, PHY and all media contents.
+     */
+    if (Result == B2LUfsTransferTimeout ||
+        Result == B2LUfsTransferBusy ||
+        Result == B2LUfsTransferFatal) {
+        (void)B2LUfsResetTransport(DeviceExtension, Adapter);
+    }
+}
+
 static BOOLEAN
 B2LUfsProtectiveMbrIsValid(
     _In_reads_bytes_(512) const UCHAR *Mbr,
@@ -2099,6 +2128,7 @@ B2LUfsProbeMediaHeaders(
     if (Result != B2LUfsTransferOk ||
         ScsiStatus != B2LUFS_SCSI_STATUS_GOOD ||
         ReturnedLength != BlockLength) {
+        B2LUfsRecoverProbeQueue(DeviceExtension, Adapter, Result);
         return;
     }
     Media = (const UCHAR *)Adapter->IoBounceVirtual;
@@ -2117,6 +2147,7 @@ B2LUfsProbeMediaHeaders(
     if (Result != B2LUfsTransferOk ||
         ScsiStatus != B2LUFS_SCSI_STATUS_GOOD ||
         ReturnedLength != BlockLength) {
+        B2LUfsRecoverProbeQueue(DeviceExtension, Adapter, Result);
         return;
     }
     Media = (const UCHAR *)Adapter->IoBounceVirtual;
@@ -2187,10 +2218,13 @@ B2LUfsProbeMediaHeaders(
     Result = B2LUfsProbeRead10(
         DeviceExtension, Adapter, (ULONG)EntryLba, (USHORT)EntryBlocks,
         &ScsiStatus, &ReturnedLength);
+    Adapter->MediaProbeResult = (ULONG)Result;
+    Adapter->MediaProbeScsiStatus = ScsiStatus;
     Adapter->MediaProbeGptEntriesBytes = ReturnedLength;
     if (Result != B2LUfsTransferOk ||
         ScsiStatus != B2LUFS_SCSI_STATUS_GOOD ||
         ReturnedLength != EntryBlocks * BlockLength) {
+        B2LUfsRecoverProbeQueue(DeviceExtension, Adapter, Result);
         return;
     }
     Adapter->MediaProbeGptEntriesCrcCalculated = B2LUfsCrc32(

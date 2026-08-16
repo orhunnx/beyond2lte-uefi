@@ -104,6 +104,7 @@ reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesValid 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProtectiveMbrNormalized 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntryCount 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntrySize 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesBytes 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeGptHeaderCrc 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeGptHeaderCrcCalculated 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesCrc 2>nul

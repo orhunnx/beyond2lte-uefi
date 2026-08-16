@@ -161,11 +161,11 @@ zorunlu `TaggedQueuing` ve `MultipleRequestPerLu` yetenekleri açık tutulur.
 Microsoft StorAHCI örneğindeki gibi, `HwBuildIo` sırasında hazır olan sistem
 adresi ve tanı amaçlı DMA SGL pointer'ı isteğe özel `SrbExtension` içine
 alınır. Kilitli `HwStartIo` normal aktarımı ortak DMA bounce tamponuyla yapar.
-Exynos vendor yazmacındaki `PRDT_ENTRY_SIZE=12`, aktarım
-girdisini 4 KiB ile sınırlamaz; Linux UFS çekirdeği de bu yazmacı 12 yaparken
-her DMA SGL girdisini doğrudan UFSHCI PRDT girdisine eşler ve standart
-256 KiB DBC üst sınırını kullanır. B2LUFS'in istek üst sınırı bring-up için
-128 KiB olarak kalır.
+Exynos vendor yazmacındaki `PRDT_ENTRY_SIZE=12`, 4 KiB veri birimini seçer.
+UFSHCI daha büyük bir DBC'ye izin verse de cihaz testi, tek 16 KiB ortak-DMA
+girdisinin tamamlanmadığını; 4 KiB girdilerin ise güvenilir olduğunu gösterdi.
+Bu nedenle B2LUFS, en çok 128 KiB'lik normal isteği tek SCSI komutu olarak
+korurken ortak DMA alanını en çok 32 adet 4 KiB PRDT girdisine böler.
 Tek aktif UTRD'yi doğru yansıtmak için `MaxNumberOfIO`, `MaxIOsPerLun` ve
 başlangıç kuyruk derinliği 1'dir; bunlar zorunlu tagged/multiple-request
 yetenek bayraklarını kapatmak için kullanılmaz.
@@ -335,6 +335,12 @@ FAT32 volume'u `W:` olarak bağlar ve `W:\B2LUFS-WRITE-OK.TXT` dosyasını yazı
 geri okur. Bölüm başlangıcı, uzunluğu ve FAT32 içeriği yeniden oluşturulmaz.
 Dolayısıyla tekrar `B2LUFS paketi yok` görülürse çalışan ESP, bu doğrulama
 kapısından geçmiş son artefakt değildir; UFS donanım sonucu olarak yorumlanmaz.
+
+GPT partition-entry dizisi 128 x 128 bayt olduğundan toplam 16 KiB'dir. Erken
+doğrulama bunu dört 4 KiB PRDT girdisiyle tek `READ(10)` olarak okur. Bu salt
+okunur tanı komutu zaman aşımına uğrarsa UTRL doorbell'i sonraki StorPort
+taramasını sürekli BUSY bırakmasın diye yalnız sürücünün UTP kuyruğu durdurulup
+yeniden başlatılır; HCE, UniPro/PHY ve medya içeriğine dokunulmaz.
 
 Ölçülen ilk HCI durumu: `CAP=1303FF1F`, `VER=00000300`, `HCE=1`,
 `1US_TO_CNT=000000A6`. CAP alanında NUTRS `[4:0]` ve NUTMRS `[18:16]`
