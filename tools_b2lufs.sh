@@ -173,9 +173,12 @@ if [ "${B2L_SKIP_MSVC_BUILD:-0}" = "1" ]; then
   # Bu yuzden ikili, kaynaklardan yeni olmak ZORUNDA. Bilerek eski ikiliyle
   # paketlemek isteniyorsa B2L_ALLOW_STALE_SYS=1 ile acikca soylenir.
   #
+  # INF sablonu SYS'e baglanmaz; asagida her paketleme turunda yeniden
+  # kopyalanip Inf2Cat'e verilir. Bu nedenle yalniz gercek derleme girdileri
+  # bayat SYS kapisini tetikler.
   YENI_KAYNAK="$(find "$SRC" -maxdepth 1 -newer "$OUT/b2lufs.sys" \
                    \( -name 'b2lufs_*.c' -o -name 'b2lufs_*.h' -o \
-                      -name 'b2lufs.inf.in' -o -name 'build-b2lufs.ps1' \) \
+                      -name 'build-b2lufs.ps1' \) \
                    -printf '%f\n' 2>/dev/null || true)"
   if [ -n "$YENI_KAYNAK" ] && [ "${B2L_ALLOW_STALE_SYS:-0}" != "1" ]; then
     echo
