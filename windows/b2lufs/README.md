@@ -278,15 +278,20 @@ akışı bu kayıtları veya genel disk envanterini konsola dökmez.
 `startnet.cmd` otomatik harf atamasını sürücü kurulumundan önce kapatır,
 B2LUFS'u kurup yeniden tarar; `Disk 0 / Partition 28` odağındaki CACHE
 volume'unu açıkça çevrimiçi yapıp `W:` olarak bağlar.
-Başarılı testin kabul kanıtı şu tek satırdır:
+Akış, eski GPT/PnP envanteri/registry/ETW tanı kalabalığını üretmeden
+yalnız yazma yolunun karar vermek için gereken ayrıntılarını gösterir:
+paket kimliği, PnP kurulum ve tarama sonucu, DiskPart'ın volume'u online
+yapma ve `W:` atama sonucu, `vol W:` bilgisi, yazılan yol ve geri okunan
+içerik. Başarılı testin kabul kanıtı şu tek satırdır:
 
 `CACHE basarili: W:\B2LUFS-WRITE-OK.TXT yazildi ve geri okundu.`
 
 Bu satır, `Disk 0 / Partition 28`, bağlama sonrası `CACHE` etiketi ve FAT32
 bağlama kontrollerinin geçtiğini; dosyanın yazılıp aynı içerikle geri okunduğunu
-gösterir. Bir kapı başarısız olursa yalnız ilgili hata ve o kapıyı açıklayan
-DiskPart/volume çıktısı gösterilir. Otomatik akış GPT, PnP, registry veya ETW
-tanı dökümü üretmez.
+gösterir. `vol` çıktısındaki `CACHE` etiketi Windows'un `find.exe`
+aracıyla doğrulanır; böylece yerelleştirilmiş `vol` metninde `findstr` kaynaklı
+yanlış negatif oluşmaz. Otomatik akış GPT, tam PnP envanteri, registry veya
+ETW tanı dökümü üretmez.
 
 WIM'deki `b2lgptdump.exe`, `\\.\PhysicalDrive0` üzerinden salt-okunur olarak
 PMBR, primary header, 16 KiB entry dizisi ve backup header'ı okur. Sonuçlar

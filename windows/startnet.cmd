@@ -46,6 +46,10 @@ if not exist "%SystemRoot%\System32\pnputil.exe" (
   echo HATA: PnPUtil yok.
   exit /b 1
 )
+echo Paket kimligi:
+type "%B2LUFSDIR%\manifest.txt"
+echo.
+echo PnP surucusu kuruluyor ve aygitlar yeniden taraniyor...
 pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install > "%SystemDrive%\B2LUFS-PNP.TXT" 2>&1
 if errorlevel 1 (
   type "%SystemDrive%\B2LUFS-PNP.TXT"
@@ -53,6 +57,9 @@ if errorlevel 1 (
 )
 pnputil /scan-devices >> "%SystemDrive%\B2LUFS-PNP.TXT" 2>&1
 timeout /t 5 /nobreak >nul 2>&1
+echo.
+echo PnP kurulum ve tarama sonucu:
+type "%SystemDrive%\B2LUFS-PNP.TXT"
 exit /b 0
 
 :B2LUfsMountCache
@@ -68,26 +75,39 @@ if exist "%SystemRoot%\System32\mountvol.exe" mountvol W: /D >nul 2>&1
   echo assign letter=W noerr
 )
 diskpart /s "%B2LCACHEMOUNT%" > "%B2LCACHEMOUNT%.OUT" 2>&1
+echo.
+echo DiskPart: Disk 0 / Partition 28 online ve W: atama sonucu:
+type "%B2LCACHEMOUNT%.OUT"
 if not exist W:\NUL (
-  type "%B2LCACHEMOUNT%.OUT"
   echo CACHE guvenlik kapisi: Disk 0 / Partition 28 online edilip W: olarak baglanamadi.
   exit /b 1
 )
 vol W: > "%B2LCACHEVOLREPORT%" 2>&1
-findstr /i /c:"CACHE" "%B2LCACHEVOLREPORT%" >nul 2>&1
+echo.
+echo W: volume bilgisi:
+type "%B2LCACHEVOLREPORT%"
+%SystemRoot%\System32\find.exe /i "CACHE" < "%B2LCACHEVOLREPORT%" >nul 2>&1
 if errorlevel 1 (
-  type "%B2LCACHEVOLREPORT%"
   echo W: etiketi CACHE degil; yazma atlandi.
   exit /b 1
 )
+echo CACHE etiketi dogrulandi.
 
+echo.
+echo Yaziliyor: W:\B2LUFS-WRITE-OK.TXT
 > W:\B2LUFS-WRITE-OK.TXT echo B2LUFS CACHE WRITE OK
 if errorlevel 1 (
   echo CACHE yazma basarisiz.
   exit /b 1
 )
-findstr /x /c:"B2LUFS CACHE WRITE OK" W:\B2LUFS-WRITE-OK.TXT >nul 2>&1
-if errorlevel 1 (
+if not exist W:\B2LUFS-WRITE-OK.TXT (
+  echo CACHE yazma basarisiz: dosya olusmadi.
+  exit /b 1
+)
+set "B2LCACHEREAD="
+set /p "B2LCACHEREAD="<W:\B2LUFS-WRITE-OK.TXT
+echo Geri okunan: %B2LCACHEREAD%
+if not "%B2LCACHEREAD%"=="B2LUFS CACHE WRITE OK" (
   echo CACHE geri-okuma basarisiz.
   exit /b 1
 )
