@@ -3,6 +3,9 @@
  *
  * Reads through the top of the Windows storage stack, never writes to the
  * physical disk, and stores four binary snapshots on WinPE's X: RAM disk.
+ * After all four reads succeed it asks disk.sys to invalidate its cached
+ * partition table with IOCTL_DISK_UPDATE_PROPERTIES.  That control request
+ * changes only Windows' in-memory view; it does not modify GPT/media bytes.
  * No CRT is used so the executable runs in the minimal image.
  */
 typedef void *PVOID;
@@ -52,6 +55,7 @@ __declspec(dllimport) void ExitProcess(DWORD);
 #define B2L_FILE_BEGIN                0UL
 #define B2L_STD_OUTPUT_HANDLE         ((DWORD)-11L)
 #define B2L_IOCTL_DISK_GET_LENGTH_INFO 0x0007405CUL
+#define B2L_IOCTL_DISK_UPDATE_PROPERTIES 0x00074140UL
 #define B2L_BLOCK_BYTES               4096UL
 #define B2L_ENTRY_BYTES              16384UL
 #define B2L_SAMPLE_BYTES                64UL
@@ -233,6 +237,17 @@ mainCRTStartup(void)
             Disk, DiskBytes - B2L_BLOCK_BYTES, B2L_BLOCK_BYTES,
             L"X:\\B2LGPT-BACKUP.BIN", "BACKUP")) {
         ++Failures;
+    }
+    if (Failures == 0) {
+        Returned = 0;
+        if (!DeviceIoControl(
+                Disk, B2L_IOCTL_DISK_UPDATE_PROPERTIES,
+                0, 0, 0, 0, &Returned, 0)) {
+            B2LPrint("B2LGPT ERROR IOCTL_DISK_UPDATE_PROPERTIES\r\n");
+            ++Failures;
+        } else {
+            B2LPrint("B2LGPT partition-cache=REFRESHED\r\n");
+        }
     }
     (void)CloseHandle(Disk);
     B2LPrint(Failures == 0 ?

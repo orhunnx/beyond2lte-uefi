@@ -185,6 +185,15 @@ typedef struct B2LUFS_ADAPTER {
     PVOID BusScanTimer;
     ULONG BusScanTimerInitializeStatus;
     ULONG BusScanTimerRequestStatus;
+    /*
+     * StorPort can begin its first LUN scan before the PASSIVE media probe
+     * has built the immutable Windows GPT view.  Keep discovery closed until
+     * capacity, GPT snapshot and its self-check are all published; the
+     * deferred BusChange then creates a fresh disk PDO whose first partmgr
+     * read already sees the canonical view.
+     */
+    volatile BOOLEAN EnumerationReady;
+    ULONG EnumerationGateRejectCount;
     BOOLEAN DumpMode;
     BOOLEAN AdapterRemoved;
     /* Bounded CMD telemetry; write payloads are never copied to ETW. */

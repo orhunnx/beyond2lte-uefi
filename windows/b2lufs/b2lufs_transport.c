@@ -3211,6 +3211,22 @@ B2LUfsExecuteScsi(
         return;
     }
 
+    /*
+     * Fail the overlapping initial StorPort scan as "not present" until the
+     * PASSIVE probe has atomically published the canonical GPT snapshot.
+     * The delayed BusChangeDetected notification performs the first
+     * successful enumeration.  This prevents disk.sys/partmgr from caching
+     * the raw protective MBR before normalized GPT reads are available.
+     */
+    if (!Adapter->DumpMode && !Adapter->EnumerationReady) {
+        Adapter->EnumerationGateRejectCount++;
+        Srb->DataTransferLength = 0;
+        B2LUfsLogScsiTrace(DeviceExtension, Adapter, Srb,
+                            B2LUfsTransferFatal, SRB_STATUS_NO_DEVICE);
+        B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_NO_DEVICE);
+        return;
+    }
+
     if (Srb->Function == SRB_FUNCTION_FLUSH ||
         Srb->Function == SRB_FUNCTION_SHUTDOWN) {
         /* The HBA has no private cache; disk class sends target SYNCHRONIZE CACHE. */

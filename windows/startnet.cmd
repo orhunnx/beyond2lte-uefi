@@ -41,15 +41,15 @@ call :B2LUfsInstall
 if errorlevel 1 goto :Finish
 
 echo.
-echo [Disk ve GPT]
-diskpart /s "%DPPOSTSCRIPT%"
-
-echo.
 if exist "%SystemRoot%\System32\b2lgptdump.exe" (
   "%SystemRoot%\System32\b2lgptdump.exe"
 ) else (
   echo B2LGPT ham-okuma araci WIM'de yok.
 )
+
+echo.
+echo [Disk ve GPT]
+diskpart /s "%DPPOSTSCRIPT%"
 
 echo.
 call :B2LUfsSummary
@@ -97,6 +97,8 @@ echo [Disk PDO LocationPaths ve kimlik]
 pnputil /enum-devices /class DiskDrive /connected /properties
 reg query "%B2L_LUN_KEY%" /v SchemaVersion 2>nul
 reg query "%B2L_LUN_KEY%" /v HciStatus 2>nul
+reg query "%B2L_LUN_KEY%" /v EnumerationReady 2>nul
+reg query "%B2L_LUN_KEY%" /v EnumerationGateRejectCount 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityResult 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityScsiStatus 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityValid 2>nul

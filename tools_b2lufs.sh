@@ -211,8 +211,8 @@ say "Baglandi (MSVC link.exe; StorPort + ntoskrnl, ARM64)"
 file "$OUT/b2lufs.sys" | sed 's/^/  /'
 
 # Bu arac PhysicalDrive0'i yalniz GENERIC_READ ile acar ve dort GPT bolgesini
-# X: RAM diskine kopyalar. Windows depolama yigini ustunden donen baytlari,
-# miniportun BLG1 post-copy iziyle ayni boot'ta karsilastirmak icindir.
+# X: RAM diskine kopyalar. Hepsi dogrulaninca Windows'un bolum onbellegini
+# IOCTL_DISK_UPDATE_PROPERTIES ile yeniler; bu IOCTL medyaya yazmaz.
 say "B2LGPTDUMP derleniyor (WSL clang/lld ARM64, salt-okunur)"
 cat > "$OUT/kernel32-gptdump.def" <<'DEF'
 LIBRARY kernel32.dll
@@ -316,7 +316,7 @@ rm -f "$PFX"
 # paketleme asamasinda kesin bir hata haline getirir.
 MANIFEST="$OUT/b2lufs-manifest.txt"
 {
-  echo "B2LUFS_PACKAGE=storport-cached-gpt-selfcheck-rawdump"
+  echo "B2LUFS_PACKAGE=storport-enumeration-gate-gpt-refresh"
   echo "B2LUFS_INF_SHA256=$(sha256sum "$OUT/b2lufs.inf" | awk '{print $1}')"
   echo "B2LUFS_SYS_SHA256=$(sha256sum "$OUT/b2lufs.sys" | awk '{print $1}')"
   echo "B2LUFS_CAT_SHA256=$(sha256sum "$OUT/b2lufs.cat" | awk '{print $1}')"

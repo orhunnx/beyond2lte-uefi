@@ -60,6 +60,8 @@ static UCHAR B2LUFS_REG_BUS_TYPE_QUERY_COUNT[] = "BusTypeQueryCount";
 static UCHAR B2LUFS_REG_TIMER_HANDLE_VALID[] = "BusScanTimerHandleValid";
 static UCHAR B2LUFS_REG_TIMER_INITIALIZE_STATUS[] = "BusScanTimerInitializeStatus";
 static UCHAR B2LUFS_REG_TIMER_REQUEST_STATUS[] = "BusScanTimerRequestStatus";
+static UCHAR B2LUFS_REG_ENUMERATION_READY[] = "EnumerationReady";
+static UCHAR B2LUFS_REG_ENUMERATION_REJECTS[] = "EnumerationGateRejectCount";
 static UCHAR B2LUFS_REG_CAPACITY_RESULT[] = "ReadCapacityResult";
 static UCHAR B2LUFS_REG_CAPACITY_SCSI_STATUS[] = "ReadCapacityScsiStatus";
 static UCHAR B2LUFS_REG_CAPACITY_OPCODE[] = "ReadCapacityOpcode";
@@ -125,9 +127,10 @@ typedef struct B2LUFS_DEFERRED_BUS_SCAN_DATA {
     ULONG TimerRequestStatus;
     ULONG TransportReady;
     ULONG HciStatus;
+    ULONG EnumerationReady;
 } B2LUFS_DEFERRED_BUS_SCAN_DATA;
 
-C_ASSERT(sizeof(B2LUFS_DEFERRED_BUS_SCAN_DATA) == 24);
+C_ASSERT(sizeof(B2LUFS_DEFERRED_BUS_SCAN_DATA) == 28);
 
 /*
  * Faz 0 derlemesi CRT'ye baglanmaz. RtlZeroMemory'nin libc'ye donusme
@@ -229,6 +232,7 @@ B2LUfsDeferredBusScan(
     Data.TimerRequestStatus = Adapter->BusScanTimerRequestStatus;
     Data.TransportReady = Adapter->TransportReady ? 1UL : 0UL;
     Data.HciStatus = Adapter->ControllerStatus;
+    Data.EnumerationReady = Adapter->EnumerationReady ? 1UL : 0UL;
 
     /*
      * This record distinguishes a timer that actually fired from an early
@@ -243,7 +247,8 @@ B2LUfsDeferredBusScan(
         sizeof(Data),
         &Data);
 
-    if (!Adapter->TransportReady || Adapter->AdapterRemoved) {
+    if (!Adapter->TransportReady || Adapter->AdapterRemoved ||
+        (!Adapter->DumpMode && !Adapter->EnumerationReady)) {
         return;
     }
 
@@ -459,12 +464,13 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 22;
+    ULONG SchemaVersion = 23;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
     ULONG ScsiStatus = Adapter->LunReportScsiStatus;
     ULONG TimerHandleValid = Adapter->BusScanTimer != NULL ? 1UL : 0UL;
+    ULONG EnumerationReady = Adapter->EnumerationReady ? 1UL : 0UL;
     ULONG MediaScsiStatus = Adapter->MediaProbeScsiStatus;
     ULONG MediaValid = Adapter->MediaProbeValid ? 1UL : 0UL;
     ULONG MediaMbr = Adapter->MediaProbeMbrSignature ? 1UL : 0UL;
@@ -591,6 +597,13 @@ B2LUfsPublishLunSnapshot(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_TIMER_REQUEST_STATUS,
         REG_DWORD, &Adapter->BusScanTimerRequestStatus,
         sizeof(Adapter->BusScanTimerRequestStatus));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_ENUMERATION_READY,
+        REG_DWORD, &EnumerationReady, sizeof(EnumerationReady));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_ENUMERATION_REJECTS,
+        REG_DWORD, &Adapter->EnumerationGateRejectCount,
+        sizeof(Adapter->EnumerationGateRejectCount));
     (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_CAPACITY_RESULT,
         REG_DWORD, &Adapter->CapacityProbeResult,
@@ -774,6 +787,20 @@ B2LUfsPassiveInitialize(_In_ PVOID DeviceExtension)
     B2LUfsProbeMediaHeaders(DeviceExtension, Adapter);
 
     /*
+     * The first automatic StorPort scan can overlap this PASSIVE callback.
+     * Until now it could create disk.sys/partmgr before the normalized GPT
+     * snapshot existed. partmgr then cached the protective 0xEE entry as one
+     * 119-GB MBR partition even though later PhysicalDrive reads returned a
+     * valid GPT. Publish every snapshot field before opening enumeration.
+     */
+    KeMemoryBarrier();
+    Adapter->EnumerationReady =
+        Adapter->CapacityValid &&
+        Adapter->MediaWindowsGptSnapshotValid &&
+        Adapter->MediaWindowsGptSelfCheckValid;
+    KeMemoryBarrier();
+
+    /*
      * This callback runs after HwInitialize, but it is still part of the
      * StorPort initialization sequence.  Defer the actual bus change until
      * StorPort has completed its adapter-control capability query and made
@@ -824,12 +851,18 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
 
+    /* Normal discovery stays closed throughout transport takeover. */
+    if (!Adapter->DumpMode) {
+        Adapter->EnumerationReady = FALSE;
+    }
+
     if (!B2LUfsStartTransport(DeviceExtension, Adapter)) {
         return FALSE;
     }
 
     /* Crash-dump stacks run at elevated IRQL and cannot use PASSIVE work. */
     if (Adapter->DumpMode) {
+        Adapter->EnumerationReady = TRUE;
         return TRUE;
     }
 

@@ -80,7 +80,7 @@ başlığıdır:
 |---|---|
 | `windows/b2lufs/b2lufs.inf.in` | ARM64 PnP sürücü paketinin INF şablonu |
 | `windows/b2lufs/build-b2lufs.ps1` | Windows MSVC/WDK ile yalnız `b2lufs.sys` derlemesi |
-| `windows/b2lufs/b2lgptdump.c` | WinPE'de PhysicalDrive0 GPT bölgelerini salt-okunur döken freestanding ARM64 araç |
+| `windows/b2lufs/b2lgptdump.c` | WinPE'de PhysicalDrive0 GPT bölgelerini salt-okunur döken ve başarılı doğrulamadan sonra Windows bölüm önbelleğini yenileyen freestanding ARM64 araç |
 | `windows/b2lufs/test_resources.c` | WDK gerektirmeyen kaynak-bağlama birim testi |
 | `windows/b2lufs/README.md` | Tasarım ve çalışma davranışının geliştirici notları |
 | `windows/b2lufs/AI_DRIVER_BUILD_REFERENCE.md` | Bu dosya; kaynak ve build zinciri referansı |
@@ -392,10 +392,14 @@ Passive init sırası:
 1. LUN 0 kapasite probu.
 2. REPORT LUNS probu.
 3. Medya/GPT header probu.
-4. Registry telemetrisinin yayımlanması.
+4. Kapasite, Windows GPT snapshot ve snapshot self-check geçerliyse normal
+   LUN keşif kapısının açılması.
 5. StorPort timer'ın bus scan bildirimi için planlanması.
+6. Registry telemetrisinin yayımlanması.
 
-Timer callback'i `BusChangeDetected` bildirimi üretir. Timer, remove yaşam
+Kapı açılmadan gelen normal SCSI keşif istekleri aygıt yok durumuyla
+tamamlanır; dump stack bu kapıdan muaftır. Timer callback'i yalnız kapı
+açıldıktan sonra `BusChangeDetected` bildirimi üretir. Timer, remove yaşam
 döngüsünde iptal edilip bırakılır.
 
 #### `B2LUfsBuildIo`
@@ -664,7 +668,8 @@ Betik aşağıdaki işleri yapar:
 1. WDK/SDK ve Visual Studio araç yollarını doğrular.
 2. `B2L_SKIP_MSVC_BUILD=1` ise mevcut SYS'nin sürücü kaynaklarından eski olmadığını
    kontrol eder.
-3. WSL clang/lld ile salt-okunur ARM64 `b2lgptdump.exe` üretir.
+3. WSL clang/lld ile salt-okunur GPT okuyan ve yalnız Windows'un bellek içi
+   bölüm önbelleğini yenileyen ARM64 `b2lgptdump.exe` üretir.
 4. SYS'yi test sertifikasıyla Authenticode imzalar.
 5. INF şablonunu `out/b2lufs/b2lufs.inf` olarak kopyalar.
 6. Inf2Cat ile INF+SYS katalogu üretir.
@@ -828,9 +833,10 @@ Ana bölümleri:
 - StorPort Operational event channel'ını etkinleştirme.
 - `pnputil /add-driver ... /install` ile INF paketini ekleme ve bağlama.
 - `pnputil /scan-devices` ile PnP yeniden tarama.
-- Kurulum sonrası disk/partition/volume envanteri.
 - PhysicalDrive0 üzerinden PMBR, primary header/entries ve backup header ham
-  okuması; sonuçların X: RAM diskine yazılması.
+  okuması; sonuçların X: RAM diskine yazılması ve başarılı doğrulamadan sonra
+  `IOCTL_DISK_UPDATE_PROPERTIES` ile bellek içi bölüm önbelleğinin yenilenmesi.
+- Kurulum sonrası disk/partition/volume envanteri.
 - Aygıt property ve registry telemetri özeti.
 - Snapshot neden/self-check telemetrisi ve StorPort Operational EVTX aktarımı.
 - Tanımlı CACHE volume için güvenlik kontrollü bağlama ve dosya yaz/geri-oku

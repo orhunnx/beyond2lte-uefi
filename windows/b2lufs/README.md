@@ -219,8 +219,15 @@ nesnesini `StorPortInitializeTimer` ile oluşturur. PASSIVE probundan sonra
 `StorPortRequestTimer` bunu 500 ms'ye kurar; timer çalışınca bus 0 için tek
 `BusChangeDetected` gönderilir. Operational kanaldaki `BLT1`
 kaydı timer'ın gerçekten çalıştığını, içindeki `TransportReady=1` ise UFS
-taşımasının tarama öncesinde hazır olduğunu gösterir. Bildirim PDO oluşturma
-sözleşmesinin yerine geçmez. StorPort, ilan edilmiş
+taşımasının tarama öncesinde hazır olduğunu gösterir. Normal çalışma
+yığınında otomatik ilk LUN taraması, kapasite ile Windows GPT snapshot ve
+self-check sonuçları hazır olana kadar `SRB_STATUS_NO_DEVICE` ile kapalı
+tutulur. PASSIVE probu bütün snapshot alanlarını yayımladıktan sonra
+`EnumerationReady=1` olur; gecikmeli `BusChangeDetected` böylece disk PDO'yu
+ilk başarılı okumadan itibaren tek ve CRC-tutarlı GPT görünümüyle oluşturur.
+`EnumerationGateRejectCount`, bu başlangıç penceresinde reddedilen keşif
+isteklerini sayar. Bildirim PDO oluşturma sözleşmesinin yerine geçmez.
+StorPort, ilan edilmiş
 BTL8 yolunda `HwBuildIo`/`HwUnitControl` sözleşmesi üzerinden LUN 0 için
 standart PnP ve ardından SCSI keşfini yürütür. Timer'ın oluşturma ve planlama
 durumları `BusScanTimerInitializeStatus`/`BusScanTimerRequestStatus` olarak
@@ -299,7 +306,11 @@ WIM'deki `b2lgptdump.exe`, `\\.\PhysicalDrive0` üzerinden salt-okunur olarak
 PMBR, primary header, 16 KiB entry dizisi ve backup header'ı okur. Sonuçlar
 sırasıyla `X:\B2LGPT-PMBR.BIN`, `X:\B2LGPT-PRIMARY.BIN`,
 `X:\B2LGPT-ENTRIES.BIN` ve `X:\B2LGPT-BACKUP.BIN` dosyalarına yazılır;
-ilk 64 baytlar aynı boot'ta konsola basılır.
+ilk 64 baytlar aynı boot'ta konsola basılır. Dört okuma da başarılıysa araç
+`IOCTL_DISK_UPDATE_PROPERTIES` göndererek `disk.sys`/`partmgr` bölüm
+önbelleğini geçersiz kılar ve aynı aygıtı yeniden numaralandırır. Bu kontrol
+isteği medyadaki GPT baytlarını değiştirmez. `startnet.cmd`, DiskPart
+envanterini bu yenilemeden sonra alır.
 
 StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
 ve `BLT1`, ardından `BLC3 Outcome=5, CompletionPhase=2`, normal `BLS2`
