@@ -2268,7 +2268,15 @@ B2LUfsBuildWindowsGptSnapshot(
             B2LUFS_GPT_SNAPSHOT_BAD_BLOCK_LENGTH;
         return;
     }
-    if (Adapter->MediaProbeGptHeaderSize != B2LUFS_GPT_HEADER_MIN_BYTES) {
+    /*
+     * Samsung's 4Kn GPT declares the whole 4096-byte logical block as the
+     * source header and protects it with a CRC over all 4096 bytes.  The
+     * probe has already validated that representation.  Accept it here, but
+     * publish the UEFI-defined 92-byte header to Windows below; partmgr must
+     * never see the vendor-sized HeaderSize in the canonical snapshot.
+     */
+    if (Adapter->MediaProbeGptHeaderSize < B2LUFS_GPT_HEADER_MIN_BYTES ||
+        Adapter->MediaProbeGptHeaderSize > Adapter->CapacityBlockLength) {
         Adapter->MediaWindowsGptSnapshotReason =
             B2LUFS_GPT_SNAPSHOT_BAD_HEADER_SIZE;
         return;
@@ -2322,16 +2330,20 @@ B2LUfsBuildWindowsGptSnapshot(
     Adapter->MediaWindowsGptEntriesCrc = B2LUfsCrc32(
         Adapter->MediaWindowsGptEntries, EntryBytes);
     B2LUfsWriteLe32(
+        Adapter->MediaWindowsGptHeader + 12UL,
+        B2LUFS_GPT_HEADER_MIN_BYTES);
+    B2LUfsWriteLe32(
         Adapter->MediaWindowsGptHeader + 88UL,
         Adapter->MediaWindowsGptEntriesCrc);
+    B2LUfsZeroMemory(
+        Adapter->MediaWindowsGptHeader + B2LUFS_GPT_HEADER_MIN_BYTES,
+        Adapter->CapacityBlockLength - B2LUFS_GPT_HEADER_MIN_BYTES);
+    B2LUfsWriteLe32(Adapter->MediaWindowsGptHeader + 16UL, 0);
     B2LUfsWriteLe32(
         Adapter->MediaWindowsGptHeader + 16UL,
         B2LUfsGptHeaderCrc32(
             Adapter->MediaWindowsGptHeader,
-            Adapter->MediaProbeGptHeaderSize));
-    B2LUfsZeroMemory(
-        Adapter->MediaWindowsGptHeader + Adapter->MediaProbeGptHeaderSize,
-        Adapter->CapacityBlockLength - Adapter->MediaProbeGptHeaderSize);
+            B2LUFS_GPT_HEADER_MIN_BYTES));
     Adapter->MediaWindowsGptEntryBlocks = EntryBlocks;
     Adapter->MediaWindowsGptSnapshotValid = TRUE;
     Adapter->MediaWindowsGptSnapshotReason = B2LUFS_GPT_SNAPSHOT_VALID;
@@ -2416,7 +2428,7 @@ B2LUfsCopyWindowsGptBlock(
     B2LUfsWriteLe32(Output + 16UL, 0);
     B2LUfsWriteLe32(
         Output + 16UL,
-        B2LUfsGptHeaderCrc32(Output, Adapter->MediaProbeGptHeaderSize));
+        B2LUfsGptHeaderCrc32(Output, B2LUFS_GPT_HEADER_MIN_BYTES));
     return TRUE;
 }
 
@@ -2479,7 +2491,7 @@ B2LUfsValidateWindowsGptSnapshot(_Inout_ B2LUFS_ADAPTER *Adapter)
         Scratch[6] != 'R' || Scratch[7] != 'T' ||
         B2LUfsReadLe32(Scratch + 8UL) != B2LUFS_GPT_REVISION_1_0 ||
         B2LUfsReadLe32(Scratch + 12UL) !=
-            Adapter->MediaProbeGptHeaderSize ||
+            B2LUFS_GPT_HEADER_MIN_BYTES ||
         B2LUfsReadLe32(Scratch + 20UL) != 0) {
         Adapter->MediaWindowsGptSelfCheckReason =
             B2LUFS_GPT_SELF_CHECK_PRIMARY_HEADER;
@@ -2515,7 +2527,7 @@ B2LUfsValidateWindowsGptSnapshot(_Inout_ B2LUFS_ADAPTER *Adapter)
     }
     if (B2LUfsReadLe32(Scratch + 16UL) !=
         B2LUfsGptHeaderCrc32(
-            Scratch, Adapter->MediaProbeGptHeaderSize)) {
+            Scratch, B2LUFS_GPT_HEADER_MIN_BYTES)) {
         Adapter->MediaWindowsGptSelfCheckReason =
             B2LUFS_GPT_SELF_CHECK_PRIMARY_CRC;
         return FALSE;
@@ -2559,7 +2571,7 @@ B2LUfsValidateWindowsGptSnapshot(_Inout_ B2LUFS_ADAPTER *Adapter)
         Scratch[6] != 'R' || Scratch[7] != 'T' ||
         B2LUfsReadLe32(Scratch + 8UL) != B2LUFS_GPT_REVISION_1_0 ||
         B2LUfsReadLe32(Scratch + 12UL) !=
-            Adapter->MediaProbeGptHeaderSize ||
+            B2LUFS_GPT_HEADER_MIN_BYTES ||
         B2LUfsReadLe32(Scratch + 20UL) != 0) {
         Adapter->MediaWindowsGptSelfCheckReason =
             B2LUFS_GPT_SELF_CHECK_BACKUP_HEADER;
@@ -2586,7 +2598,7 @@ B2LUfsValidateWindowsGptSnapshot(_Inout_ B2LUFS_ADAPTER *Adapter)
     }
     if (B2LUfsReadLe32(Scratch + 16UL) !=
         B2LUfsGptHeaderCrc32(
-            Scratch, Adapter->MediaProbeGptHeaderSize)) {
+            Scratch, B2LUFS_GPT_HEADER_MIN_BYTES)) {
         Adapter->MediaWindowsGptSelfCheckReason =
             B2LUFS_GPT_SELF_CHECK_BACKUP_CRC;
         return FALSE;

@@ -20,6 +20,11 @@
 #define B2LUFS_GPT_SNAPSHOT_NOT_ATTEMPTED       0UL
 #define B2LUFS_GPT_SNAPSHOT_VALID               1UL
 #define B2LUFS_GPT_SNAPSHOT_BAD_BLOCK_LENGTH    2UL
+/*
+ * Reason 3 is a defensive range check: the probe normally guarantees
+ * 92..BlockLength. The Windows view always uses a canonical 92-byte header
+ * independently of the validated source header size.
+ */
 #define B2LUFS_GPT_SNAPSHOT_BAD_HEADER_SIZE     3UL
 #define B2LUFS_GPT_SNAPSHOT_BAD_ENTRY_SIZE      4UL
 #define B2LUFS_GPT_SNAPSHOT_NO_ENTRY_BLOCKS     5UL
