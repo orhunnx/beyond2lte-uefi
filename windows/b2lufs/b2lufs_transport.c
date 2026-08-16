@@ -154,6 +154,18 @@
 #define B2LUFS_SCSI_MAINTENANCE_OUT            0xA4U
 #define B2LUFS_SCSI_SECURITY_PROTOCOL_OUT      0xB5U
 
+/* Windows GPT acceptance limits and on-media offsets (all little-endian). */
+#define B2LUFS_MBR_PARTITION_TABLE_OFFSET       446UL
+#define B2LUFS_MBR_PARTITION_ENTRY_BYTES         16UL
+#define B2LUFS_MBR_PARTITION_COUNT                 4UL
+#define B2LUFS_MBR_PARTITION_TYPE_OFFSET           4UL
+#define B2LUFS_MBR_PARTITION_START_LBA_OFFSET      8UL
+#define B2LUFS_MBR_PARTITION_SECTORS_OFFSET       12UL
+#define B2LUFS_MBR_PROTECTIVE_TYPE              0xEEU
+#define B2LUFS_GPT_HEADER_MIN_BYTES               92UL
+#define B2LUFS_GPT_REVISION_1_0            0x00010000UL
+#define B2LUFS_GPT_MAX_WINDOWS_ENTRIES           128UL
+
 /* UFSHCI offsets, all relative to the first (HCI) or second (VS) resource. */
 #define B2LUFS_REG_IE                          0x0024UL
 #define B2LUFS_REG_HCS                         0x0030UL
@@ -392,6 +404,70 @@ B2LUfsReadBe16(_In_reads_bytes_(2) const UCHAR *Buffer)
     return (USHORT)(((USHORT)Buffer[0] << 8) | Buffer[1]);
 }
 
+static ULONG
+B2LUfsReadLe32(_In_reads_bytes_(4) const UCHAR *Buffer)
+{
+    return (ULONG)Buffer[0] |
+           ((ULONG)Buffer[1] << 8) |
+           ((ULONG)Buffer[2] << 16) |
+           ((ULONG)Buffer[3] << 24);
+}
+
+static ULONGLONG
+B2LUfsReadLe64(_In_reads_bytes_(8) const UCHAR *Buffer)
+{
+    return (ULONGLONG)B2LUfsReadLe32(Buffer) |
+           ((ULONGLONG)B2LUfsReadLe32(Buffer + 4UL) << 32);
+}
+
+static VOID
+B2LUfsWriteLe32(_Out_writes_bytes_(4) UCHAR *Buffer, _In_ ULONG Value)
+{
+    Buffer[0] = (UCHAR)Value;
+    Buffer[1] = (UCHAR)(Value >> 8);
+    Buffer[2] = (UCHAR)(Value >> 16);
+    Buffer[3] = (UCHAR)(Value >> 24);
+}
+
+static ULONG
+B2LUfsCrc32(_In_reads_bytes_(ByteCount) const UCHAR *Buffer,
+            _In_ ULONG ByteCount)
+{
+    ULONG Crc = MAXULONG;
+    ULONG Index;
+    ULONG Bit;
+
+    for (Index = 0; Index < ByteCount; ++Index) {
+        Crc ^= Buffer[Index];
+        for (Bit = 0; Bit < 8UL; ++Bit) {
+            Crc = (Crc >> 1) ^
+                  ((Crc & 1UL) != 0 ? 0xEDB88320UL : 0UL);
+        }
+    }
+    return ~Crc;
+}
+
+static ULONG
+B2LUfsGptHeaderCrc32(_In_reads_bytes_(HeaderSize) const UCHAR *Header,
+                     _In_ ULONG HeaderSize)
+{
+    ULONG Crc = MAXULONG;
+    ULONG Index;
+    ULONG Bit;
+    UCHAR Value;
+
+    for (Index = 0; Index < HeaderSize; ++Index) {
+        /* The HeaderCRC32 field itself is treated as zero. */
+        Value = (Index >= 16UL && Index < 20UL) ? 0 : Header[Index];
+        Crc ^= Value;
+        for (Bit = 0; Bit < 8UL; ++Bit) {
+            Crc = (Crc >> 1) ^
+                  ((Crc & 1UL) != 0 ? 0xEDB88320UL : 0UL);
+        }
+    }
+    return ~Crc;
+}
+
 static VOID
 B2LUfsWriteBe32(_Out_writes_bytes_(4) UCHAR *Buffer, _In_ ULONG Value)
 {
@@ -457,15 +533,20 @@ B2LUfsLogScsiTrace(
     Data.FirstSglLength = Adapter->LastFirstSglLength;
     Data.FirstSglPhysical = Adapter->LastFirstSglPhysical;
 
-    SampleBuffer = Srb->DataBuffer;
-    if (SampleBuffer == NULL &&
-        Srb->Function == SRB_FUNCTION_EXECUTE_SCSI &&
-        Srb->DataTransferLength != 0 &&
-        B2LUfsResolveDataDirection(Srb) == B2LUfsDataIn) {
+    SampleBuffer = NULL;
+    SrbExtension = (PB2LUFS_SRB_EXTENSION)Srb->SrbExtension;
+    if (SrbExtension != NULL &&
+        SrbExtension->Signature == B2LUFS_SRB_EXTENSION_SIGNATURE &&
+        SrbExtension->SystemAddressStatus == STOR_STATUS_SUCCESS &&
+        SrbExtension->SystemAddress != NULL) {
+        SampleBuffer = SrbExtension->SystemAddress;
+    } else if (Srb->Function == SRB_FUNCTION_EXECUTE_SCSI &&
+               Srb->DataTransferLength != 0 &&
+               B2LUfsResolveDataDirection(Srb) == B2LUfsDataIn) {
         MapStatus = StorPortGetSystemAddress(
             DeviceExtension, Srb, &SampleBuffer);
-        if (MapStatus != STOR_STATUS_SUCCESS) {
-            SampleBuffer = NULL;
+        if (MapStatus != STOR_STATUS_SUCCESS || SampleBuffer == NULL) {
+            SampleBuffer = Srb->DataBuffer;
         }
     }
 
@@ -623,6 +704,20 @@ B2LUfsIsBlockReadWrite(_In_ UCHAR Operation)
     }
 }
 
+static BOOLEAN
+B2LUfsIsBlockRead(_In_ UCHAR Operation)
+{
+    switch (Operation) {
+    case B2LUFS_SCSI_READ_6:
+    case B2LUFS_SCSI_READ_10:
+    case B2LUFS_SCSI_READ_12:
+    case B2LUFS_SCSI_READ_16:
+        return TRUE;
+    default:
+        return FALSE;
+    }
+}
+
 static ULONG
 B2LUfsCdbBlockCount(_In_reads_bytes_(16) const UCHAR *Cdb)
 {
@@ -641,6 +736,27 @@ B2LUfsCdbBlockCount(_In_reads_bytes_(16) const UCHAR *Cdb)
         return B2LUfsReadBe32(&Cdb[10]);
     default:
         return 0;
+    }
+}
+
+static ULONGLONG
+B2LUfsCdbStartLba(_In_reads_bytes_(16) const UCHAR *Cdb)
+{
+    switch (Cdb[0]) {
+    case B2LUFS_SCSI_READ_6:
+    case B2LUFS_SCSI_WRITE_6:
+        return ((ULONGLONG)(Cdb[1] & 0x1FU) << 16) |
+               ((ULONGLONG)Cdb[2] << 8) | Cdb[3];
+    case B2LUFS_SCSI_READ_10:
+    case B2LUFS_SCSI_WRITE_10:
+    case B2LUFS_SCSI_READ_12:
+    case B2LUFS_SCSI_WRITE_12:
+        return (ULONGLONG)B2LUfsReadBe32(&Cdb[2]);
+    case B2LUFS_SCSI_READ_16:
+    case B2LUFS_SCSI_WRITE_16:
+        return B2LUfsReadBe64(&Cdb[2]);
+    default:
+        return (ULONGLONG)-1;
     }
 }
 
@@ -940,8 +1056,8 @@ B2LUfsAllocateTransport(
     ConfigInfo->AlignmentMask = FILE_LONG_ALIGNMENT;
     /*
      * Normal I/O is serialized through one common DMA bounce buffer. Ask
-     * StorPort for a system virtual address for READ/WRITE as well; if low
-     * memory still leaves DataBuffer NULL, StorPortGetSystemAddress is used.
+     * StorPort to map READ/WRITE buffers so StorPortGetSystemAddress can
+     * supply the CPU-visible address used by that copy path.
      */
     ConfigInfo->MapBuffers = STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE;
     /* CAP[24] reports full 64-bit UFSHCI DMA addressing. */
@@ -1811,15 +1927,137 @@ B2LUfsProbeLuns(
     Adapter->LunReportValid = TRUE;
 }
 
+static B2LUFS_TRANSFER_RESULT
+B2LUfsProbeRead10(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _In_ ULONG StartLba,
+    _In_range_(1, MAXUSHORT) USHORT BlockCount,
+    _Out_ PUCHAR ScsiStatus,
+    _Out_ PULONG ReturnedLength)
+{
+    UCHAR Cdb[16];
+    ULONG RequestedLength;
+
+    if (BlockCount == 0 || Adapter->CapacityBlockLength == 0 ||
+        (ULONG)BlockCount > Adapter->IoBounceLength /
+                            Adapter->CapacityBlockLength) {
+        *ScsiStatus = 0xFFU;
+        *ReturnedLength = 0;
+        return B2LUfsTransferBadDma;
+    }
+
+    RequestedLength = (ULONG)BlockCount * Adapter->CapacityBlockLength;
+    B2LUfsZeroMemory(Cdb, sizeof(Cdb));
+    Cdb[0] = B2LUFS_SCSI_READ_10;
+    B2LUfsWriteBe32(&Cdb[2], StartLba);
+    Cdb[7] = (UCHAR)(BlockCount >> 8);
+    Cdb[8] = (UCHAR)BlockCount;
+    B2LUfsZeroMemory(Adapter->IoBounceVirtual, RequestedLength);
+    return B2LUfsSubmitScsi(
+        DeviceExtension, Adapter, NULL, Cdb, 10, B2LUfsDataIn,
+        Adapter->IoBounceVirtual, RequestedLength, ScsiStatus,
+        ReturnedLength);
+}
+
+static BOOLEAN
+B2LUfsProtectiveMbrIsValid(
+    _In_reads_bytes_(512) const UCHAR *Mbr,
+    _In_ ULONGLONG LastLba)
+{
+    ULONG Index;
+    const UCHAR *Entry;
+    ULONG ExpectedSectors;
+
+    if (Mbr[510] != 0x55U || Mbr[511] != 0xAAU) {
+        return FALSE;
+    }
+    ExpectedSectors = LastLba > MAXULONG ? MAXULONG : (ULONG)LastLba;
+    for (Index = 0; Index < B2LUFS_MBR_PARTITION_COUNT; ++Index) {
+        Entry = Mbr + B2LUFS_MBR_PARTITION_TABLE_OFFSET +
+                (Index * B2LUFS_MBR_PARTITION_ENTRY_BYTES);
+        if (Entry[B2LUFS_MBR_PARTITION_TYPE_OFFSET] ==
+                B2LUFS_MBR_PROTECTIVE_TYPE &&
+            B2LUfsReadLe32(Entry + B2LUFS_MBR_PARTITION_START_LBA_OFFSET) ==
+                1UL &&
+            B2LUfsReadLe32(Entry + B2LUFS_MBR_PARTITION_SECTORS_OFFSET) ==
+                ExpectedSectors) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static VOID
+B2LUfsBuildProtectiveMbr(
+    _Inout_updates_bytes_(512) UCHAR *Mbr,
+    _In_ ULONGLONG LastLba)
+{
+    UCHAR *Entry;
+    ULONG Sectors;
+
+    B2LUfsZeroMemory(
+        Mbr + B2LUFS_MBR_PARTITION_TABLE_OFFSET,
+        B2LUFS_MBR_PARTITION_ENTRY_BYTES * B2LUFS_MBR_PARTITION_COUNT);
+    Entry = Mbr + B2LUFS_MBR_PARTITION_TABLE_OFFSET;
+    /* Conventional CHS sentinels; Windows uses the following LBA fields. */
+    Entry[1] = 0x00U;
+    Entry[2] = 0x02U;
+    Entry[3] = 0x00U;
+    Entry[B2LUFS_MBR_PARTITION_TYPE_OFFSET] = B2LUFS_MBR_PROTECTIVE_TYPE;
+    Entry[5] = 0xFFU;
+    Entry[6] = 0xFFU;
+    Entry[7] = 0xFFU;
+    B2LUfsWriteLe32(
+        Entry + B2LUFS_MBR_PARTITION_START_LBA_OFFSET, 1UL);
+    Sectors = LastLba > MAXULONG ? MAXULONG : (ULONG)LastLba;
+    B2LUfsWriteLe32(
+        Entry + B2LUFS_MBR_PARTITION_SECTORS_OFFSET, Sectors);
+    Mbr[510] = 0x55U;
+    Mbr[511] = 0xAAU;
+}
+
+static VOID
+B2LUfsNormalizeWindowsGptRead(
+    _In_ const B2LUFS_ADAPTER *Adapter,
+    _In_reads_bytes_(16) const UCHAR *Cdb,
+    _Inout_updates_bytes_(ReturnedLength) PVOID Buffer,
+    _In_ ULONG ReturnedLength)
+{
+    if (!Adapter->MediaNormalizeProtectiveMbr ||
+        Buffer == NULL || !B2LUfsIsBlockRead(Cdb[0]) ||
+        B2LUfsCdbStartLba(Cdb) != 0 ||
+        ReturnedLength < Adapter->CapacityBlockLength ||
+        Adapter->CapacityBlockLength < 512UL) {
+        return;
+    }
+
+    /*
+     * Samsung's media remains untouched.  Only a standards-valid GPT whose
+     * sole incompatibility is its PMBR is presented to partmgr with the one
+     * 0xEE entry required by Windows.  Subsequent writes still reach UFS.
+     */
+    B2LUfsBuildProtectiveMbr((UCHAR *)Buffer, Adapter->CapacityLastLba);
+}
+
 VOID
 B2LUfsProbeMediaHeaders(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter)
 {
-    UCHAR Cdb[16];
+    const UCHAR *Media;
     UCHAR ScsiStatus;
     ULONG ReturnedLength;
     ULONG BlockLength;
+    ULONG HeaderRevision;
+    ULONG HeaderSize;
+    ULONG EntryCount;
+    ULONG EntrySize;
+    ULONG EntryBytes;
+    ULONG EntryBlocks;
+    ULONGLONG EntryLba;
+    ULONGLONG FirstUsableLba;
+    ULONGLONG LastUsableLba;
     B2LUFS_TRANSFER_RESULT Result;
 
     Adapter->MediaProbeResult = (ULONG)B2LUfsTransferBadDma;
@@ -1828,6 +2066,18 @@ B2LUfsProbeMediaHeaders(
     Adapter->MediaProbeValid = FALSE;
     Adapter->MediaProbeMbrSignature = FALSE;
     Adapter->MediaProbeGptSignature = FALSE;
+    Adapter->MediaProbeProtectiveMbrValid = FALSE;
+    Adapter->MediaProbeGptHeaderValid = FALSE;
+    Adapter->MediaProbeGptEntriesValid = FALSE;
+    Adapter->MediaNormalizeProtectiveMbr = FALSE;
+    Adapter->MediaProbeGptHeaderSize = 0;
+    Adapter->MediaProbeGptHeaderCrc = 0;
+    Adapter->MediaProbeGptHeaderCrcCalculated = 0;
+    Adapter->MediaProbeGptEntryCount = 0;
+    Adapter->MediaProbeGptEntrySize = 0;
+    Adapter->MediaProbeGptEntriesBytes = 0;
+    Adapter->MediaProbeGptEntriesCrc = 0;
+    Adapter->MediaProbeGptEntriesCrcCalculated = 0;
     B2LUfsZeroMemory(Adapter->MediaProbeLba0,
                      sizeof(Adapter->MediaProbeLba0));
     B2LUfsZeroMemory(Adapter->MediaProbeLba1,
@@ -1841,13 +2091,8 @@ B2LUfsProbeMediaHeaders(
         return;
     }
 
-    B2LUfsZeroMemory(Cdb, sizeof(Cdb));
-    Cdb[0] = B2LUFS_SCSI_READ_10;
-    Cdb[8] = 1; /* one logical block at LBA 0 */
-    B2LUfsZeroMemory(Adapter->IoBounceVirtual, BlockLength);
-    Result = B2LUfsSubmitScsi(
-        DeviceExtension, Adapter, NULL, Cdb, 10, B2LUfsDataIn,
-        Adapter->IoBounceVirtual, BlockLength, &ScsiStatus, &ReturnedLength);
+    Result = B2LUfsProbeRead10(
+        DeviceExtension, Adapter, 0, 1, &ScsiStatus, &ReturnedLength);
     Adapter->MediaProbeResult = (ULONG)Result;
     Adapter->MediaProbeScsiStatus = ScsiStatus;
     Adapter->MediaProbeBytes = ReturnedLength;
@@ -1856,18 +2101,16 @@ B2LUfsProbeMediaHeaders(
         ReturnedLength != BlockLength) {
         return;
     }
-    B2LUfsCopyMemory(Adapter->MediaProbeLba0,
-                     Adapter->IoBounceVirtual,
+    Media = (const UCHAR *)Adapter->IoBounceVirtual;
+    B2LUfsCopyMemory(Adapter->MediaProbeLba0, Media,
                      sizeof(Adapter->MediaProbeLba0));
     Adapter->MediaProbeMbrSignature =
-        ((const UCHAR *)Adapter->IoBounceVirtual)[510] == 0x55U &&
-        ((const UCHAR *)Adapter->IoBounceVirtual)[511] == 0xAAU;
+        Media[510] == 0x55U && Media[511] == 0xAAU;
+    Adapter->MediaProbeProtectiveMbrValid =
+        B2LUfsProtectiveMbrIsValid(Media, Adapter->CapacityLastLba);
 
-    Cdb[5] = 1; /* LBA 1 */
-    B2LUfsZeroMemory(Adapter->IoBounceVirtual, BlockLength);
-    Result = B2LUfsSubmitScsi(
-        DeviceExtension, Adapter, NULL, Cdb, 10, B2LUfsDataIn,
-        Adapter->IoBounceVirtual, BlockLength, &ScsiStatus, &ReturnedLength);
+    Result = B2LUfsProbeRead10(
+        DeviceExtension, Adapter, 1, 1, &ScsiStatus, &ReturnedLength);
     Adapter->MediaProbeResult = (ULONG)Result;
     Adapter->MediaProbeScsiStatus = ScsiStatus;
     Adapter->MediaProbeBytes += ReturnedLength;
@@ -1876,20 +2119,88 @@ B2LUfsProbeMediaHeaders(
         ReturnedLength != BlockLength) {
         return;
     }
-    B2LUfsCopyMemory(Adapter->MediaProbeLba1,
-                     Adapter->IoBounceVirtual,
+    Media = (const UCHAR *)Adapter->IoBounceVirtual;
+    B2LUfsCopyMemory(Adapter->MediaProbeLba1, Media,
                      sizeof(Adapter->MediaProbeLba1));
     Adapter->MediaProbeGptSignature =
-        ((const UCHAR *)Adapter->IoBounceVirtual)[0] == 'E' &&
-        ((const UCHAR *)Adapter->IoBounceVirtual)[1] == 'F' &&
-        ((const UCHAR *)Adapter->IoBounceVirtual)[2] == 'I' &&
-        ((const UCHAR *)Adapter->IoBounceVirtual)[3] == ' ' &&
-        ((const UCHAR *)Adapter->IoBounceVirtual)[4] == 'P' &&
-        ((const UCHAR *)Adapter->IoBounceVirtual)[5] == 'A' &&
-        ((const UCHAR *)Adapter->IoBounceVirtual)[6] == 'R' &&
-        ((const UCHAR *)Adapter->IoBounceVirtual)[7] == 'T';
+        Media[0] == 'E' && Media[1] == 'F' && Media[2] == 'I' &&
+        Media[3] == ' ' && Media[4] == 'P' && Media[5] == 'A' &&
+        Media[6] == 'R' && Media[7] == 'T';
     Adapter->MediaProbeValid =
         Adapter->MediaProbeMbrSignature && Adapter->MediaProbeGptSignature;
+    /*
+     * A missing 55-AA marker is itself one of the PMBR defects repaired in
+     * the Windows-facing read.  Validate the GPT independently once LBA 1
+     * has its signature; MediaProbeValid keeps its older dual-signature
+     * diagnostic meaning.
+     */
+    if (!Adapter->MediaProbeGptSignature) {
+        return;
+    }
+
+    HeaderRevision = B2LUfsReadLe32(Media + 8UL);
+    HeaderSize = B2LUfsReadLe32(Media + 12UL);
+    Adapter->MediaProbeGptHeaderSize = HeaderSize;
+    Adapter->MediaProbeGptHeaderCrc = B2LUfsReadLe32(Media + 16UL);
+    if (HeaderRevision != B2LUFS_GPT_REVISION_1_0 ||
+        HeaderSize < B2LUFS_GPT_HEADER_MIN_BYTES ||
+        HeaderSize > BlockLength || B2LUfsReadLe32(Media + 20UL) != 0 ||
+        B2LUfsReadLe64(Media + 24UL) != 1ULL ||
+        B2LUfsReadLe64(Media + 32UL) != Adapter->CapacityLastLba) {
+        return;
+    }
+    Adapter->MediaProbeGptHeaderCrcCalculated =
+        B2LUfsGptHeaderCrc32(Media, HeaderSize);
+    if (Adapter->MediaProbeGptHeaderCrcCalculated !=
+        Adapter->MediaProbeGptHeaderCrc) {
+        return;
+    }
+
+    FirstUsableLba = B2LUfsReadLe64(Media + 40UL);
+    LastUsableLba = B2LUfsReadLe64(Media + 48UL);
+    EntryLba = B2LUfsReadLe64(Media + 72UL);
+    EntryCount = B2LUfsReadLe32(Media + 80UL);
+    EntrySize = B2LUfsReadLe32(Media + 84UL);
+    Adapter->MediaProbeGptEntryCount = EntryCount;
+    Adapter->MediaProbeGptEntrySize = EntrySize;
+    Adapter->MediaProbeGptEntriesCrc = B2LUfsReadLe32(Media + 88UL);
+    if (FirstUsableLba > LastUsableLba ||
+        LastUsableLba >= Adapter->CapacityLastLba ||
+        EntryLba < 2ULL || EntryLba > MAXULONG ||
+        EntryCount == 0 || EntryCount > B2LUFS_GPT_MAX_WINDOWS_ENTRIES ||
+        EntrySize < 128UL || (EntrySize & 7UL) != 0 ||
+        EntryCount > MAXULONG / EntrySize) {
+        return;
+    }
+    EntryBytes = EntryCount * EntrySize;
+    if (EntryBytes > Adapter->IoBounceLength ||
+        EntryBytes > MAXULONG - (BlockLength - 1UL)) {
+        return;
+    }
+    EntryBlocks = (EntryBytes + BlockLength - 1UL) / BlockLength;
+    if (EntryBlocks == 0 || EntryBlocks > MAXUSHORT ||
+        EntryLba + EntryBlocks > FirstUsableLba) {
+        return;
+    }
+    Adapter->MediaProbeGptHeaderValid = TRUE;
+
+    Result = B2LUfsProbeRead10(
+        DeviceExtension, Adapter, (ULONG)EntryLba, (USHORT)EntryBlocks,
+        &ScsiStatus, &ReturnedLength);
+    Adapter->MediaProbeGptEntriesBytes = ReturnedLength;
+    if (Result != B2LUfsTransferOk ||
+        ScsiStatus != B2LUFS_SCSI_STATUS_GOOD ||
+        ReturnedLength != EntryBlocks * BlockLength) {
+        return;
+    }
+    Adapter->MediaProbeGptEntriesCrcCalculated = B2LUfsCrc32(
+        (const UCHAR *)Adapter->IoBounceVirtual, EntryBytes);
+    Adapter->MediaProbeGptEntriesValid =
+        Adapter->MediaProbeGptEntriesCrcCalculated ==
+        Adapter->MediaProbeGptEntriesCrc;
+    Adapter->MediaNormalizeProtectiveMbr =
+        Adapter->MediaProbeGptEntriesValid &&
+        !Adapter->MediaProbeProtectiveMbrValid;
 }
 
 /*
@@ -1907,16 +2218,18 @@ B2LUfsCacheCapacityFromSrb(
     const UCHAR *Input;
     ULONGLONG LastLba;
     ULONG BlockLength;
+    ULONG MapStatus;
 
     if (Adapter->CapacityValid) {
         return;
     }
 
-    SystemAddress = Srb->DataBuffer;
-    if (SystemAddress == NULL) {
-        if (StorPortGetSystemAddress(DeviceExtension, Srb, &SystemAddress) !=
-                STOR_STATUS_SUCCESS ||
-            SystemAddress == NULL) {
+    SystemAddress = NULL;
+    MapStatus = StorPortGetSystemAddress(
+        DeviceExtension, Srb, &SystemAddress);
+    if (MapStatus != STOR_STATUS_SUCCESS || SystemAddress == NULL) {
+        SystemAddress = Srb->DataBuffer;
+        if (SystemAddress == NULL) {
             return;
         }
     }
@@ -1951,9 +2264,9 @@ B2LUfsCacheCapacityFromSrb(
  *
  * Microsoft's StorAHCI sample generates fixed-media capacity data in
  * HwBuildIo and completes the SRB there. Do the same: this is a software
- * response, not a DMA request that should be queued to HwStartIo. With
- * STOR_MAP_ALL_BUFFERS_INCLUDING_READ_WRITE makes Srb->DataBuffer a system
- * virtual address; StorPortGetSystemAddress remains the low-memory fallback.
+ * response, not a DMA request that should be queued to HwStartIo. Resolve its
+ * CPU address with StorPortGetSystemAddress just like normal program-
+ * controlled I/O; the MapBuffers-provided DataBuffer is only a fallback.
  */
 BOOLEAN
 B2LUfsTryCompleteCachedCapacity(
@@ -2013,19 +2326,19 @@ B2LUfsTryCompleteCachedCapacity(
         }
     }
 
-    SystemAddress = Srb->DataBuffer;
-    if (SystemAddress != NULL) {
-        Trace.MapStatus = STOR_STATUS_SUCCESS;
-        Trace.MapSource = B2LUFS_CAPACITY_MAP_SRB_DATA_BUFFER;
-    } else {
-        Status = StorPortGetSystemAddress(
-            DeviceExtension, Srb, &SystemAddress);
-        Trace.MapStatus = Status;
-        Trace.MapSource = B2LUFS_CAPACITY_MAP_SYSTEM_ADDRESS;
-        if (Status != STOR_STATUS_SUCCESS || SystemAddress == NULL) {
+    SystemAddress = NULL;
+    Status = StorPortGetSystemAddress(
+        DeviceExtension, Srb, &SystemAddress);
+    Trace.MapStatus = Status;
+    Trace.MapSource = B2LUFS_CAPACITY_MAP_SYSTEM_ADDRESS;
+    if (Status != STOR_STATUS_SUCCESS || SystemAddress == NULL) {
+        SystemAddress = Srb->DataBuffer;
+        if (SystemAddress == NULL) {
             Trace.Outcome = B2LUFS_CAPACITY_OUTCOME_MAP_FAILED;
             goto LogAndFallback;
         }
+        Trace.MapStatus = STOR_STATUS_SUCCESS;
+        Trace.MapSource = B2LUFS_CAPACITY_MAP_SRB_DATA_BUFFER;
     }
 
     TransferLength = B2LUfsMinUlong(
@@ -2249,15 +2562,19 @@ B2LUfsExecuteScsi(
     if (RequestedLength != 0) {
         if (SrbExtension != NULL &&
             SrbExtension->Signature == B2LUFS_SRB_EXTENSION_SIGNATURE &&
-            SrbExtension->SystemAddressStatus == STOR_STATUS_SUCCESS) {
+            SrbExtension->SystemAddressStatus == STOR_STATUS_SUCCESS &&
+            SrbExtension->SystemAddress != NULL) {
             SystemAddress = SrbExtension->SystemAddress;
-            MapStatus = STOR_STATUS_SUCCESS;
-        } else if (Srb->DataBuffer != NULL) {
-            SystemAddress = Srb->DataBuffer;
             MapStatus = STOR_STATUS_SUCCESS;
         } else {
             MapStatus = StorPortGetSystemAddress(
                 DeviceExtension, Srb, &SystemAddress);
+            if ((MapStatus != STOR_STATUS_SUCCESS ||
+                 SystemAddress == NULL) &&
+                Srb->DataBuffer != NULL) {
+                SystemAddress = Srb->DataBuffer;
+                MapStatus = STOR_STATUS_SUCCESS;
+            }
         }
 
         if (MapStatus != STOR_STATUS_SUCCESS || SystemAddress == NULL ||
@@ -2307,6 +2624,8 @@ B2LUfsExecuteScsi(
         Srb->ScsiStatus == B2LUFS_SCSI_STATUS_GOOD &&
         DataDirection == B2LUfsDataIn && ReturnedLength != 0) {
         KeMemoryBarrier();
+        B2LUfsNormalizeWindowsGptRead(
+            Adapter, Srb->Cdb, TransportBuffer, ReturnedLength);
         B2LUfsCopyMemory(SystemAddress, TransportBuffer, ReturnedLength);
         KeMemoryBarrier();
     }

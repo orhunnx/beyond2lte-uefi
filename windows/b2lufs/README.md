@@ -264,8 +264,10 @@ sonucunu gösterir. Fotoğrafta şu üç kanıt birlikte aranır:
 3. İkinci DiskPart bloğu `Disk 0`ı yaklaşık 119 GiB göstermeli, ardından `detail disk` ile
    `list partition` Android kullanıcı-LUN'ındaki GPT bölümlerini listelemelidir.
    `X:` yalnız WinPE RAM diskidir.
-4. `MediaProbeResult=0`, `MediaProbeScsiStatus=0`, `MediaProbeValid=1`,
-   `MediaProbeMbrSignature=1` ve `MediaProbeGptSignature=1` olmalıdır.
+4. `MediaProbeResult=0`, `MediaProbeScsiStatus=0`,
+   `MediaProbeGptHeaderValid=1` ve `MediaProbeGptEntriesValid=1` olmalıdır.
+   Ayrıca `MediaProbeProtectiveMbrValid=1` veya, yalnız PMBR kusurluysa,
+   `MediaProtectiveMbrNormalized=1` görülmelidir.
 
 StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
 ve `BLT1`, ardından `BLC3 Outcome=5, MapSource=1, CompletionPhase=1`, normal `BLS2`
@@ -345,9 +347,16 @@ fiziksel alanı PRDT'ye verir.
 
 BusChange öncesinde aynı ortak-DMA yoluyla LBA 0 ve LBA 1 için birer gerçek
 `READ(10)` yapılır. `MediaProbeMbrSignature=1`, LBA 0 sonundaki `55 AA`yı;
-`MediaProbeGptSignature=1`, LBA 1 başındaki `EFI PART` imzasını doğrular. Bu
-okumalar GPT'yi taklit etmez veya önbellekten Windows'a sunmaz; disk sınıfının
-kullanacağı normal blok yolunu erkenden sınar. Normal READ/WRITE CDB blok
+`MediaProbeGptSignature=1`, LBA 1 başındaki `EFI PART` imzasını doğrular. GPT
+başlık CRC'si ve Windows'un desteklediği en çok 128 girişlik partition-array
+CRC'si de doğrulanır. Geçerli GPT'ye rağmen Samsung LBA0'ında Windows'un
+zorunlu tuttuğu diski kapsayan tek `0xEE` girdisi yoksa sürücü medyaya yazmaz;
+yalnız disk-class READ yanıtındaki PMBR'yi standart görünüme getirir ve
+`MediaProtectiveMbrNormalized=1` yayımlar. Normal blok tamponlarına CPU erişimi
+Microsoft'un program-controlled I/O sözleşmesine göre doğrudan
+`StorPortGetSystemAddress` ile alınır. Ham GPT içeriği önbellekten Windows'a
+sunulmaz; disk sınıfının kullanacağı normal blok yolu erkenden sınanır. Normal
+READ/WRITE CDB blok
 sayısı, READ CAPACITY ile alınan mantıksal blok boyutuyla tam olarak
 `DataTransferLength` üretmiyorsa ya da aygıt kısa blok aktarımı döndürürse SRB
 artık sessiz başarıyla tamamlanmaz. Böylece partition yöneticisi sıfır/eksik

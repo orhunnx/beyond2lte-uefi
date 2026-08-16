@@ -79,6 +79,18 @@ static UCHAR B2LUFS_REG_MEDIA_BYTES[] = "MediaProbeReturnedBytes";
 static UCHAR B2LUFS_REG_MEDIA_VALID[] = "MediaProbeValid";
 static UCHAR B2LUFS_REG_MEDIA_MBR[] = "MediaProbeMbrSignature";
 static UCHAR B2LUFS_REG_MEDIA_GPT[] = "MediaProbeGptSignature";
+static UCHAR B2LUFS_REG_MEDIA_PMBR[] = "MediaProbeProtectiveMbrValid";
+static UCHAR B2LUFS_REG_MEDIA_GPT_HEADER[] = "MediaProbeGptHeaderValid";
+static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRIES[] = "MediaProbeGptEntriesValid";
+static UCHAR B2LUFS_REG_MEDIA_PMBR_NORMALIZED[] = "MediaProtectiveMbrNormalized";
+static UCHAR B2LUFS_REG_MEDIA_GPT_HEADER_SIZE[] = "MediaProbeGptHeaderSize";
+static UCHAR B2LUFS_REG_MEDIA_GPT_HEADER_CRC[] = "MediaProbeGptHeaderCrc";
+static UCHAR B2LUFS_REG_MEDIA_GPT_HEADER_CRC_CALC[] = "MediaProbeGptHeaderCrcCalculated";
+static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRY_COUNT[] = "MediaProbeGptEntryCount";
+static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRY_SIZE[] = "MediaProbeGptEntrySize";
+static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRIES_BYTES[] = "MediaProbeGptEntriesBytes";
+static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRIES_CRC[] = "MediaProbeGptEntriesCrc";
+static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRIES_CRC_CALC[] = "MediaProbeGptEntriesCrcCalculated";
 static UCHAR B2LUFS_REG_MEDIA_LBA0[] = "MediaProbeLba0";
 static UCHAR B2LUFS_REG_MEDIA_LBA1[] = "MediaProbeLba1";
 
@@ -440,7 +452,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 14;
+    ULONG SchemaVersion = 15;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -450,6 +462,12 @@ B2LUfsPublishLunSnapshot(
     ULONG MediaValid = Adapter->MediaProbeValid ? 1UL : 0UL;
     ULONG MediaMbr = Adapter->MediaProbeMbrSignature ? 1UL : 0UL;
     ULONG MediaGpt = Adapter->MediaProbeGptSignature ? 1UL : 0UL;
+    ULONG MediaProtectiveMbr =
+        Adapter->MediaProbeProtectiveMbrValid ? 1UL : 0UL;
+    ULONG MediaGptHeader = Adapter->MediaProbeGptHeaderValid ? 1UL : 0UL;
+    ULONG MediaGptEntries = Adapter->MediaProbeGptEntriesValid ? 1UL : 0UL;
+    ULONG MediaProtectiveMbrNormalized =
+        Adapter->MediaNormalizeProtectiveMbr ? 1UL : 0UL;
     ULONG Index;
     UCHAR ValueName[] = "Lun00Id";
 
@@ -641,6 +659,54 @@ B2LUfsPublishLunSnapshot(
     (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_GPT,
         REG_DWORD, &MediaGpt, sizeof(MediaGpt));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_PMBR,
+        REG_DWORD, &MediaProtectiveMbr, sizeof(MediaProtectiveMbr));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_GPT_HEADER,
+        REG_DWORD, &MediaGptHeader, sizeof(MediaGptHeader));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_GPT_ENTRIES,
+        REG_DWORD, &MediaGptEntries, sizeof(MediaGptEntries));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY,
+        B2LUFS_REG_MEDIA_PMBR_NORMALIZED,
+        REG_DWORD, &MediaProtectiveMbrNormalized,
+        sizeof(MediaProtectiveMbrNormalized));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_GPT_HEADER_SIZE,
+        REG_DWORD, &Adapter->MediaProbeGptHeaderSize,
+        sizeof(Adapter->MediaProbeGptHeaderSize));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_GPT_HEADER_CRC,
+        REG_DWORD, &Adapter->MediaProbeGptHeaderCrc,
+        sizeof(Adapter->MediaProbeGptHeaderCrc));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY,
+        B2LUFS_REG_MEDIA_GPT_HEADER_CRC_CALC,
+        REG_DWORD, &Adapter->MediaProbeGptHeaderCrcCalculated,
+        sizeof(Adapter->MediaProbeGptHeaderCrcCalculated));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_GPT_ENTRY_COUNT,
+        REG_DWORD, &Adapter->MediaProbeGptEntryCount,
+        sizeof(Adapter->MediaProbeGptEntryCount));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_GPT_ENTRY_SIZE,
+        REG_DWORD, &Adapter->MediaProbeGptEntrySize,
+        sizeof(Adapter->MediaProbeGptEntrySize));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_GPT_ENTRIES_BYTES,
+        REG_DWORD, &Adapter->MediaProbeGptEntriesBytes,
+        sizeof(Adapter->MediaProbeGptEntriesBytes));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_GPT_ENTRIES_CRC,
+        REG_DWORD, &Adapter->MediaProbeGptEntriesCrc,
+        sizeof(Adapter->MediaProbeGptEntriesCrc));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY,
+        B2LUFS_REG_MEDIA_GPT_ENTRIES_CRC_CALC,
+        REG_DWORD, &Adapter->MediaProbeGptEntriesCrcCalculated,
+        sizeof(Adapter->MediaProbeGptEntriesCrcCalculated));
     if (Adapter->MediaProbeBytes != 0) {
         (void)StorPortRegistryWriteAdapterKey(
             DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_LBA0,
@@ -756,14 +822,22 @@ B2LUfsBuildIo(_In_ PVOID DeviceExtension, _In_ PSCSI_REQUEST_BLOCK Srb)
         SrbExtension->SystemAddress = NULL;
         if (Srb->Function == SRB_FUNCTION_EXECUTE_SCSI &&
             Srb->DataTransferLength != 0) {
-            if (Srb->DataBuffer != NULL) {
+            /*
+             * This miniport performs a CPU copy to/from its common DMA
+             * buffer, so Microsoft classifies the access as program-
+             * controlled I/O. Obtain the system-space address explicitly;
+             * a non-NULL legacy DataBuffer is not used as proof of mapping.
+             */
+            SrbExtension->SystemAddressStatus = StorPortGetSystemAddress(
+                DeviceExtension,
+                Srb,
+                &SrbExtension->SystemAddress);
+            if ((SrbExtension->SystemAddressStatus != STOR_STATUS_SUCCESS ||
+                 SrbExtension->SystemAddress == NULL) &&
+                Srb->DataBuffer != NULL) {
+                /* MapBuffers=INCLUDING_READ_WRITE makes this a valid fallback. */
                 SrbExtension->SystemAddress = Srb->DataBuffer;
                 SrbExtension->SystemAddressStatus = STOR_STATUS_SUCCESS;
-            } else {
-                SrbExtension->SystemAddressStatus = StorPortGetSystemAddress(
-                    DeviceExtension,
-                    Srb,
-                    &SrbExtension->SystemAddress);
             }
             SrbExtension->ScatterGather =
                 StorPortGetScatterGatherList(DeviceExtension, Srb);

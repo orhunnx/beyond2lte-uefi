@@ -83,7 +83,7 @@ exit /b 0
 
 :B2LUfsSummary
 set "B2L_LUN_KEY=HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0\Device Parameters\B2LUFS"
-echo [B2LUFS ozet: Result/Scsi=0, Valid/imzalar=1 beklenir]
+echo [B2LUFS ozet: Result/Scsi=0; GPT header/entries=1 beklenir]
 pnputil /enum-devices /instanceid "ACPI\SMSN9820\0" /drivers /services
 reg query "%B2L_LUN_KEY%" /v SchemaVersion 2>nul
 reg query "%B2L_LUN_KEY%" /v HciStatus 2>nul
@@ -98,6 +98,16 @@ reg query "%B2L_LUN_KEY%" /v MediaProbeReturnedBytes 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeValid 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeMbrSignature 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeGptSignature 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeProtectiveMbrValid 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeGptHeaderValid 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesValid 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProtectiveMbrNormalized 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntryCount 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntrySize 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeGptHeaderCrc 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeGptHeaderCrcCalculated 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesCrc 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesCrcCalculated 2>nul
 reg query "%B2L_LUN_KEY%" /v ReportLunsEntryCount 2>nul
 exit /b 0
 

@@ -89,6 +89,18 @@ typedef struct B2LUFS_ADAPTER {
     BOOLEAN MediaProbeValid;
     BOOLEAN MediaProbeMbrSignature;
     BOOLEAN MediaProbeGptSignature;
+    BOOLEAN MediaProbeProtectiveMbrValid;
+    BOOLEAN MediaProbeGptHeaderValid;
+    BOOLEAN MediaProbeGptEntriesValid;
+    BOOLEAN MediaNormalizeProtectiveMbr;
+    ULONG MediaProbeGptHeaderSize;
+    ULONG MediaProbeGptHeaderCrc;
+    ULONG MediaProbeGptHeaderCrcCalculated;
+    ULONG MediaProbeGptEntryCount;
+    ULONG MediaProbeGptEntrySize;
+    ULONG MediaProbeGptEntriesBytes;
+    ULONG MediaProbeGptEntriesCrc;
+    ULONG MediaProbeGptEntriesCrcCalculated;
     UCHAR MediaProbeLba0[64];
     UCHAR MediaProbeLba1[64];
 
