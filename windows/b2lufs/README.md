@@ -3,6 +3,9 @@
 Bu klasör `storufs.sys` filtresi değildir. Hedef, `ACPI\\SMSN9820\\0`
 aygıtına bağlanan bir **fiziksel StorPort miniportu**dur.
 
+Kaynak dosyalarının görevleri, MSVC/WDK bayrakları ve imza–WIM–Odin araç
+zinciri için: [`AI_DRIVER_BUILD_REFERENCE.md`](AI_DRIVER_BUILD_REFERENCE.md).
+
 ## LUN 0 okuma/yazma ve GPT erişimi
 
 `b2lufs_resources.c`, UEFI `PlatformUfsLib` ile stok Exynos sürücüsünün
