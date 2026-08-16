@@ -13,6 +13,8 @@
 #include "b2lufs_hw.h"
 
 #define B2LUFS_SRB_EXTENSION_SIGNATURE 0x58455342UL /* "BSEX" */
+#define B2LUFS_WINDOWS_GPT_BLOCK_BYTES       4096UL
+#define B2LUFS_WINDOWS_GPT_ENTRIES_BYTES    16384UL
 
 /*
  * Microsoft'in StorAHCI ornegindeki gibi, StorPort'un HwBuildIo sirasinda
@@ -80,8 +82,10 @@ typedef struct B2LUFS_ADAPTER {
 
     /*
      * The same READ(10) + common-DMA path later used by disk class is
-     * exercised before BusChange.  Keep only signatures and small samples;
-     * this is evidence about the media path, not a synthetic GPT cache.
+     * exercised before BusChange. Raw signatures/CRCs remain diagnostic.
+     * Once both GPT CRCs validate, an immutable, CPU-only Windows view is
+     * also retained. HwBuildIo can then answer partmgr's metadata reads from
+     * one coherent snapshot instead of mixing separate live UFS commands.
      */
     ULONG MediaProbeResult;
     UCHAR MediaProbeScsiStatus;
@@ -103,6 +107,14 @@ typedef struct B2LUFS_ADAPTER {
     ULONG MediaProbeGptEntriesCrcCalculated;
     UCHAR MediaProbeLba0[64];
     UCHAR MediaProbeLba1[64];
+    BOOLEAN MediaWindowsGptSnapshotValid;
+    BOOLEAN MediaWindowsCacheEntryFound;
+    ULONG MediaWindowsGptEntryLba;
+    ULONG MediaWindowsGptEntryBlocks;
+    ULONG MediaWindowsGptEntriesCrc;
+    ULONG MediaWindowsCacheEntryIndex;
+    UCHAR MediaWindowsGptHeader[B2LUFS_WINDOWS_GPT_BLOCK_BYTES];
+    UCHAR MediaWindowsGptEntries[B2LUFS_WINDOWS_GPT_ENTRIES_BYTES];
 
     /*
      * Serialized normal I/O uses one StorPort common DMA bounce buffer.
@@ -205,6 +217,13 @@ B2LUfsProbeMediaHeaders(
 /* Complete a cached READ CAPACITY in HwBuildIo; TRUE means SRB completed. */
 BOOLEAN
 B2LUfsTryCompleteCachedCapacity(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _Inout_ PSCSI_REQUEST_BLOCK Srb);
+
+/* Complete an all-metadata GPT READ in HwBuildIo from the validated view. */
+BOOLEAN
+B2LUfsTryCompleteCachedGptRead(
     _In_ PVOID DeviceExtension,
     _Inout_ B2LUFS_ADAPTER *Adapter,
     _Inout_ PSCSI_REQUEST_BLOCK Srb);

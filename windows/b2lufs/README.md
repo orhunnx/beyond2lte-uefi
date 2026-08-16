@@ -336,11 +336,28 @@ okuyarak doğrular; uyuşmazsa sparse `system.img` üretmez. WinPE'de
 `cache_esp.sh --win --bos`, CACHE'i WinPE içinden formatlamaz; Odin'in
 flaşlayacağı tam 600 MiB `cache.img` dosyasını boş FAT32, 4096 bayt sektör ve
 4096 bayt küme ile üretir.
+Sürücü, CRC ile doğruladığı 4Kn GPT başlığını ve 16 KiB entry dizisini tek
+bir CPU snapshot'ında tutar. `partmgr` metadata `READ` istekleri
+`HwBuildIo` içinde bu tutarlı snapshot'tan tamamlanır; bir istekte düzeltilmiş
+PMBR, başka bir istekte ham Samsung GPT dönmesi engellenir. Stok medyadaki
+`CACHE` girdisi bu salt Windows görünümünde Microsoft Basic Data GUID'i ve
+temiz GPT attribute alanı taşır; ham GPT'ye yazılmaz.
+
+Renegade/edk2-msm SM7125 karşılaştırmasında firmware tarafı UFS
+denetleyicisini `QCOM24A5`, MMIO/IRQ, `_CCA` ve `_ADR=8` alt aygıtıyla
+tanıtıp `UFSDxe` ile boot erişimini sağlar; GPT'yi ACPI/UEFI üzerinden
+Windows'a ayrıca aktarmaz. Windows tarafındaki fark Qualcomm donanımını
+tanıyan inbox `storufs.sys` miniportudur. B2LUFS'ta kapasite, READ ve CRC
+doğrulamaları başarılı olduğundan Exynos handoff/MMIO/DMA yolu çalışır;
+bölüm tanıma StorPort'a dönen tutarlı blok görünümünde çözülür.
+DiskPart'ın `Location Path: UNAVAILABLE` metni UFS için bir I/O veya GPT
+başarısızlık koşulu değildir; HBA'nın PnP `LocationPaths` değeri ayrıca
+tanıda gösterilir.
+
 GPT görünür olduktan sonra `startnet.cmd`, stok beyond2lte haritasındaki
-`Disk 0 / Partition 28 / 600 MB` üçlüsünü salt-okunur çıktıda doğrular. Ancak
-bu güvenlik kapısından sonra Samsung'un özel CACHE type GUID'ini Microsoft
-Basic Data GUID'ine çevirir, GPT attribute alanını temizler, `CACHE` etiketli
-FAT32 volume'u `W:` olarak bağlar ve `W:\B2LUFS-WRITE-OK.TXT` dosyasını yazıp
+`Disk 0 / Partition 28 / 600 MB` üçlüsünü salt-okunur çıktıda doğrular. Bu
+güvenlik kapısından sonra `CACHE` etiketli FAT32 volume'u `W:` olarak bağlar
+ve `W:\B2LUFS-WRITE-OK.TXT` dosyasını yazıp
 geri okur. Bölüm başlangıcı, uzunluğu ve FAT32 içeriği yeniden oluşturulmaz.
 Dolayısıyla tekrar `B2LUFS paketi yok` görülürse çalışan ESP, bu doğrulama
 kapısından geçmiş son artefakt değildir; UFS donanım sonucu olarak yorumlanmaz.

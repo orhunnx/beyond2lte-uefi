@@ -8,7 +8,6 @@ set "DPSCRIPT=%SystemDrive%\B2LDISK.TXT"
 set "DPPOSTSCRIPT=%SystemDrive%\B2LDISK-POST.TXT"
 set "B2LUFSDIR=%SystemRoot%\B2LUFS"
 set "B2LCACHEPROBE=%SystemDrive%\B2LCACHE-PROBE.TXT"
-set "B2LCACHEEXPOSE=%SystemDrive%\B2LCACHE-EXPOSE.TXT"
 set "B2LCACHEVOLUMES=%SystemDrive%\B2LCACHE-VOLUMES.TXT"
 set "B2LCACHEMOUNT=%SystemDrive%\B2LCACHE-MOUNT.TXT"
 set "B2LCACHEVOLREPORT=%SystemDrive%\B2LCACHE-VOL.TXT"
@@ -111,6 +110,10 @@ reg query "%B2L_LUN_KEY%" /v MediaProbeGptHeaderCrc 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeGptHeaderCrcCalculated 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesCrc 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesCrcCalculated 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaWindowsGptSnapshotValid 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaWindowsGptEntriesCrc 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaWindowsCacheEntryFound 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaWindowsCacheEntryIndex 2>nul
 reg query "%B2L_LUN_KEY%" /v ReportLunsEntryCount 2>nul
 exit /b 0
 
@@ -136,16 +139,8 @@ if errorlevel 1 (
   exit /b 1
 )
 
-rem Odin'in yazdigi FAT32 icerigi ve bolum sinirlari korunur. Yalniz Android
-rem CACHE type GUID'i Windows Basic Data yapilir ve gizli/readonly niteligi acilir.
-> "%B2LCACHEEXPOSE%" (
-  echo select disk 0
-  echo select partition 28
-  echo set id=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 override
-  echo gpt attributes=0x0000000000000000
-  echo rescan
-)
-diskpart /s "%B2LCACHEEXPOSE%"
+rem Surucu CACHE girdisini yalniz Windows'a Basic Data/attributes=0 olarak
+rem gosterir. Samsung GPT medyada degismez; burada GPT yazma komutu yoktur.
 
 > "%B2LCACHEVOLUMES%" echo list volume
 diskpart /s "%B2LCACHEVOLUMES%" > "%B2LCACHEVOLUMES%.OUT" 2>&1

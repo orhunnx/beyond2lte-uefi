@@ -91,6 +91,10 @@ static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRY_SIZE[] = "MediaProbeGptEntrySize";
 static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRIES_BYTES[] = "MediaProbeGptEntriesBytes";
 static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRIES_CRC[] = "MediaProbeGptEntriesCrc";
 static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRIES_CRC_CALC[] = "MediaProbeGptEntriesCrcCalculated";
+static UCHAR B2LUFS_REG_WINDOWS_GPT_VALID[] = "MediaWindowsGptSnapshotValid";
+static UCHAR B2LUFS_REG_WINDOWS_GPT_ENTRIES_CRC[] = "MediaWindowsGptEntriesCrc";
+static UCHAR B2LUFS_REG_WINDOWS_CACHE_FOUND[] = "MediaWindowsCacheEntryFound";
+static UCHAR B2LUFS_REG_WINDOWS_CACHE_INDEX[] = "MediaWindowsCacheEntryIndex";
 static UCHAR B2LUFS_REG_MEDIA_LBA0[] = "MediaProbeLba0";
 static UCHAR B2LUFS_REG_MEDIA_LBA1[] = "MediaProbeLba1";
 
@@ -452,7 +456,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 19;
+    ULONG SchemaVersion = 20;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -468,6 +472,10 @@ B2LUfsPublishLunSnapshot(
     ULONG MediaGptEntries = Adapter->MediaProbeGptEntriesValid ? 1UL : 0UL;
     ULONG MediaProtectiveMbrNormalized =
         Adapter->MediaNormalizeProtectiveMbr ? 1UL : 0UL;
+    ULONG MediaWindowsGptValid =
+        Adapter->MediaWindowsGptSnapshotValid ? 1UL : 0UL;
+    ULONG MediaWindowsCacheFound =
+        Adapter->MediaWindowsCacheEntryFound ? 1UL : 0UL;
     ULONG Index;
     UCHAR ValueName[] = "Lun00Id";
 
@@ -707,6 +715,22 @@ B2LUfsPublishLunSnapshot(
         B2LUFS_REG_MEDIA_GPT_ENTRIES_CRC_CALC,
         REG_DWORD, &Adapter->MediaProbeGptEntriesCrcCalculated,
         sizeof(Adapter->MediaProbeGptEntriesCrcCalculated));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_WINDOWS_GPT_VALID,
+        REG_DWORD, &MediaWindowsGptValid, sizeof(MediaWindowsGptValid));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY,
+        B2LUFS_REG_WINDOWS_GPT_ENTRIES_CRC,
+        REG_DWORD, &Adapter->MediaWindowsGptEntriesCrc,
+        sizeof(Adapter->MediaWindowsGptEntriesCrc));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_WINDOWS_CACHE_FOUND,
+        REG_DWORD, &MediaWindowsCacheFound,
+        sizeof(MediaWindowsCacheFound));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_WINDOWS_CACHE_INDEX,
+        REG_DWORD, &Adapter->MediaWindowsCacheEntryIndex,
+        sizeof(Adapter->MediaWindowsCacheEntryIndex));
     if (Adapter->MediaProbeBytes != 0) {
         (void)StorPortRegistryWriteAdapterKey(
             DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_LBA0,
@@ -860,6 +884,13 @@ B2LUfsBuildIo(_In_ PVOID DeviceExtension, _In_ PSCSI_REQUEST_BLOCK Srb)
         Srb->CdbLength != 0 &&
         Srb->CdbLength <= (UCHAR)sizeof(Srb->Cdb) &&
         B2LUfsTryCompleteCachedCapacity(DeviceExtension, Adapter, Srb)) {
+        return FALSE;
+    }
+    if (Srb->Function == SRB_FUNCTION_EXECUTE_SCSI &&
+        Srb->PathId == 0 && Srb->TargetId == 0 && Srb->Lun == 0 &&
+        Srb->CdbLength != 0 &&
+        Srb->CdbLength <= (UCHAR)sizeof(Srb->Cdb) &&
+        B2LUfsTryCompleteCachedGptRead(DeviceExtension, Adapter, Srb)) {
         return FALSE;
     }
 

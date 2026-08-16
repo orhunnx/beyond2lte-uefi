@@ -165,6 +165,10 @@
 #define B2LUFS_GPT_HEADER_MIN_BYTES               92UL
 #define B2LUFS_GPT_REVISION_1_0            0x00010000UL
 #define B2LUFS_GPT_MAX_WINDOWS_ENTRIES           128UL
+#define B2LUFS_GPT_ENTRY_TYPE_OFFSET                0UL
+#define B2LUFS_GPT_ENTRY_ATTRIBUTES_OFFSET         48UL
+#define B2LUFS_GPT_ENTRY_NAME_OFFSET               56UL
+#define B2LUFS_GPT_ENTRY_NAME_CODE_UNITS           36UL
 
 /* UFSHCI offsets, all relative to the first (HCI) or second (VS) resource. */
 #define B2LUFS_REG_IE                          0x0024UL
@@ -427,6 +431,13 @@ B2LUfsWriteLe32(_Out_writes_bytes_(4) UCHAR *Buffer, _In_ ULONG Value)
     Buffer[1] = (UCHAR)(Value >> 8);
     Buffer[2] = (UCHAR)(Value >> 16);
     Buffer[3] = (UCHAR)(Value >> 24);
+}
+
+static VOID
+B2LUfsWriteLe64(_Out_writes_bytes_(8) UCHAR *Buffer, _In_ ULONGLONG Value)
+{
+    B2LUfsWriteLe32(Buffer, (ULONG)Value);
+    B2LUfsWriteLe32(Buffer + 4UL, (ULONG)(Value >> 32));
 }
 
 static ULONG
@@ -2117,6 +2128,190 @@ B2LUfsBuildProtectiveMbr(
     Mbr[511] = 0xAAU;
 }
 
+static BOOLEAN
+B2LUfsGptEntryNameIsCache(
+    _In_reads_bytes_(EntrySize) const UCHAR *Entry,
+    _In_ ULONG EntrySize)
+{
+    static const UCHAR CacheName[] = {'C', 'A', 'C', 'H', 'E'};
+    ULONG Index;
+    UCHAR Value;
+
+    if (EntrySize < B2LUFS_GPT_ENTRY_NAME_OFFSET +
+                    (B2LUFS_GPT_ENTRY_NAME_CODE_UNITS * 2UL)) {
+        return FALSE;
+    }
+    for (Index = 0; Index < (ULONG)sizeof(CacheName); ++Index) {
+        Value = Entry[B2LUFS_GPT_ENTRY_NAME_OFFSET + (Index * 2UL)];
+        if (Value >= 'a' && Value <= 'z') {
+            Value = (UCHAR)(Value - ('a' - 'A'));
+        }
+        if (Value != CacheName[Index] ||
+            Entry[B2LUFS_GPT_ENTRY_NAME_OFFSET + (Index * 2UL) + 1UL] != 0) {
+            return FALSE;
+        }
+    }
+    return Entry[B2LUFS_GPT_ENTRY_NAME_OFFSET +
+                 (ULONG)sizeof(CacheName) * 2UL] == 0 &&
+           Entry[B2LUFS_GPT_ENTRY_NAME_OFFSET +
+                 (ULONG)sizeof(CacheName) * 2UL + 1UL] == 0;
+}
+
+static VOID
+B2LUfsBuildWindowsGptSnapshot(
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _In_ ULONG EntryBytes,
+    _In_ ULONG EntryBlocks)
+{
+    static const UCHAR BasicDataGuid[16] = {
+        0xA2U, 0xA0U, 0xD0U, 0xEBU, 0xE5U, 0xB9U, 0x33U, 0x44U,
+        0x87U, 0xC0U, 0x68U, 0xB6U, 0xB7U, 0x26U, 0x99U, 0xC7U
+    };
+    UCHAR *Entry;
+    ULONG Index;
+
+    Adapter->MediaWindowsGptSnapshotValid = FALSE;
+    Adapter->MediaWindowsCacheEntryFound = FALSE;
+    Adapter->MediaWindowsCacheEntryIndex = MAXULONG;
+    Adapter->MediaWindowsGptEntriesCrc = 0;
+    if (Adapter->CapacityBlockLength != B2LUFS_WINDOWS_GPT_BLOCK_BYTES ||
+        Adapter->MediaProbeGptHeaderSize != B2LUFS_GPT_HEADER_MIN_BYTES ||
+        Adapter->MediaProbeGptEntrySize != 128UL ||
+        EntryBlocks == 0 ||
+        EntryBlocks * Adapter->CapacityBlockLength >
+            B2LUFS_WINDOWS_GPT_ENTRIES_BYTES) {
+        return;
+    }
+
+    B2LUfsCopyMemory(
+        Adapter->MediaWindowsGptEntries,
+        Adapter->IoBounceVirtual,
+        EntryBlocks * Adapter->CapacityBlockLength);
+    for (Index = 0; Index < Adapter->MediaProbeGptEntryCount; ++Index) {
+        Entry = Adapter->MediaWindowsGptEntries +
+                (Index * Adapter->MediaProbeGptEntrySize);
+        if (!B2LUfsGptEntryNameIsCache(
+                Entry, Adapter->MediaProbeGptEntrySize)) {
+            continue;
+        }
+
+        /*
+         * Preserve Samsung's on-media GPT. Only the immutable Windows view
+         * exposes CACHE as Microsoft Basic Data and clears its GPT flags;
+         * CACHE data-sector writes still travel to the real UFS LBA range.
+         */
+        B2LUfsCopyMemory(
+            Entry + B2LUFS_GPT_ENTRY_TYPE_OFFSET,
+            BasicDataGuid,
+            sizeof(BasicDataGuid));
+        B2LUfsZeroMemory(
+            Entry + B2LUFS_GPT_ENTRY_ATTRIBUTES_OFFSET,
+            sizeof(ULONGLONG));
+        Adapter->MediaWindowsCacheEntryFound = TRUE;
+        Adapter->MediaWindowsCacheEntryIndex = Index;
+        break;
+    }
+
+    Adapter->MediaWindowsGptEntriesCrc = B2LUfsCrc32(
+        Adapter->MediaWindowsGptEntries, EntryBytes);
+    B2LUfsWriteLe32(
+        Adapter->MediaWindowsGptHeader + 88UL,
+        Adapter->MediaWindowsGptEntriesCrc);
+    B2LUfsWriteLe32(
+        Adapter->MediaWindowsGptHeader + 16UL,
+        B2LUfsGptHeaderCrc32(
+            Adapter->MediaWindowsGptHeader,
+            Adapter->MediaProbeGptHeaderSize));
+    B2LUfsZeroMemory(
+        Adapter->MediaWindowsGptHeader + Adapter->MediaProbeGptHeaderSize,
+        Adapter->CapacityBlockLength - Adapter->MediaProbeGptHeaderSize);
+    Adapter->MediaWindowsGptEntryBlocks = EntryBlocks;
+    Adapter->MediaWindowsGptSnapshotValid = TRUE;
+}
+
+static BOOLEAN
+B2LUfsWindowsGptBlockIsCached(
+    _In_ const B2LUFS_ADAPTER *Adapter,
+    _In_ ULONGLONG Lba)
+{
+    ULONGLONG BackupEntriesLba;
+
+    if (!Adapter->MediaWindowsGptSnapshotValid) {
+        return FALSE;
+    }
+    BackupEntriesLba = Adapter->CapacityLastLba -
+                       Adapter->MediaWindowsGptEntryBlocks;
+    return Lba == 0 || Lba == 1 || Lba == Adapter->CapacityLastLba ||
+           (Lba >= Adapter->MediaWindowsGptEntryLba &&
+            Lba < Adapter->MediaWindowsGptEntryLba +
+                  Adapter->MediaWindowsGptEntryBlocks) ||
+           (Lba >= BackupEntriesLba &&
+            Lba < BackupEntriesLba + Adapter->MediaWindowsGptEntryBlocks);
+}
+
+static BOOLEAN
+B2LUfsCopyWindowsGptBlock(
+    _In_ const B2LUFS_ADAPTER *Adapter,
+    _In_ ULONGLONG Lba,
+    _Out_writes_bytes_(B2LUFS_WINDOWS_GPT_BLOCK_BYTES) UCHAR *Output)
+{
+    ULONGLONG BackupEntriesLba;
+    ULONG Index;
+
+    if (!B2LUfsWindowsGptBlockIsCached(Adapter, Lba)) {
+        return FALSE;
+    }
+    if (Lba == 0) {
+        B2LUfsBuildProtectiveMbr(
+            Output, Adapter->CapacityBlockLength,
+            Adapter->CapacityLastLba);
+        return TRUE;
+    }
+    if (Lba == 1) {
+        B2LUfsCopyMemory(
+            Output, Adapter->MediaWindowsGptHeader,
+            Adapter->CapacityBlockLength);
+        return TRUE;
+    }
+
+    BackupEntriesLba = Adapter->CapacityLastLba -
+                       Adapter->MediaWindowsGptEntryBlocks;
+    if (Lba >= Adapter->MediaWindowsGptEntryLba &&
+        Lba < Adapter->MediaWindowsGptEntryLba +
+              Adapter->MediaWindowsGptEntryBlocks) {
+        Index = (ULONG)(Lba - Adapter->MediaWindowsGptEntryLba);
+        B2LUfsCopyMemory(
+            Output,
+            Adapter->MediaWindowsGptEntries +
+                (Index * Adapter->CapacityBlockLength),
+            Adapter->CapacityBlockLength);
+        return TRUE;
+    }
+    if (Lba >= BackupEntriesLba &&
+        Lba < BackupEntriesLba + Adapter->MediaWindowsGptEntryBlocks) {
+        Index = (ULONG)(Lba - BackupEntriesLba);
+        B2LUfsCopyMemory(
+            Output,
+            Adapter->MediaWindowsGptEntries +
+                (Index * Adapter->CapacityBlockLength),
+            Adapter->CapacityBlockLength);
+        return TRUE;
+    }
+
+    /* Derive the backup header from the same canonical primary snapshot. */
+    B2LUfsCopyMemory(
+        Output, Adapter->MediaWindowsGptHeader,
+        Adapter->CapacityBlockLength);
+    B2LUfsWriteLe64(Output + 24UL, Adapter->CapacityLastLba);
+    B2LUfsWriteLe64(Output + 32UL, 1ULL);
+    B2LUfsWriteLe64(Output + 72UL, BackupEntriesLba);
+    B2LUfsWriteLe32(Output + 16UL, 0);
+    B2LUfsWriteLe32(
+        Output + 16UL,
+        B2LUfsGptHeaderCrc32(Output, Adapter->MediaProbeGptHeaderSize));
+    return TRUE;
+}
+
 static VOID
 B2LUfsNormalizeWindowsGptRead(
     _In_ const B2LUFS_ADAPTER *Adapter,
@@ -2127,7 +2322,8 @@ B2LUfsNormalizeWindowsGptRead(
     UCHAR *Bytes;
     ULONGLONG StartLba;
     ULONG BlockLength;
-    ULONG GptOffset;
+    ULONG BlockCount;
+    ULONG Index;
 
     if (!Adapter->MediaProbeGptHeaderValid ||
         !Adapter->MediaProbeGptEntriesValid || Buffer == NULL ||
@@ -2141,28 +2337,13 @@ B2LUfsNormalizeWindowsGptRead(
     }
     Bytes = (UCHAR *)Buffer;
 
-    /*
-     * Samsung's media remains untouched. Present partmgr with a fully
-     * canonical 4Kn PMBR even if firmware tolerated nonzero reserved bytes.
-     */
-    if (StartLba == 0) {
-        B2LUfsBuildProtectiveMbr(
-            Bytes, BlockLength, Adapter->CapacityLastLba);
-    }
-
-    /*
-     * UEFI also requires the unused part of the GPT header logical block to
-     * be zero. A request may contain LBA 0 and 1 together or start at LBA 1.
-     * HeaderSize itself and its CRC-covered bytes are never changed.
-     */
-    if (StartLba <= 1ULL &&
-        ReturnedLength >= (ULONG)((2ULL - StartLba) * BlockLength) &&
-        Adapter->MediaProbeGptHeaderSize >= B2LUFS_GPT_HEADER_MIN_BYTES &&
-        Adapter->MediaProbeGptHeaderSize <= BlockLength) {
-        GptOffset = (ULONG)((1ULL - StartLba) * BlockLength);
-        B2LUfsZeroMemory(
-            Bytes + GptOffset + Adapter->MediaProbeGptHeaderSize,
-            BlockLength - Adapter->MediaProbeGptHeaderSize);
+    /* Overlay every complete metadata block from one CRC-consistent view. */
+    BlockCount = ReturnedLength / BlockLength;
+    for (Index = 0; Index < BlockCount; ++Index) {
+        (void)B2LUfsCopyWindowsGptBlock(
+            Adapter,
+            StartLba + Index,
+            Bytes + (Index * BlockLength));
     }
 }
 
@@ -2204,10 +2385,20 @@ B2LUfsProbeMediaHeaders(
     Adapter->MediaProbeGptEntriesBytes = 0;
     Adapter->MediaProbeGptEntriesCrc = 0;
     Adapter->MediaProbeGptEntriesCrcCalculated = 0;
+    Adapter->MediaWindowsGptSnapshotValid = FALSE;
+    Adapter->MediaWindowsCacheEntryFound = FALSE;
+    Adapter->MediaWindowsGptEntryLba = 0;
+    Adapter->MediaWindowsGptEntryBlocks = 0;
+    Adapter->MediaWindowsGptEntriesCrc = 0;
+    Adapter->MediaWindowsCacheEntryIndex = MAXULONG;
     B2LUfsZeroMemory(Adapter->MediaProbeLba0,
                      sizeof(Adapter->MediaProbeLba0));
     B2LUfsZeroMemory(Adapter->MediaProbeLba1,
                      sizeof(Adapter->MediaProbeLba1));
+    B2LUfsZeroMemory(Adapter->MediaWindowsGptHeader,
+                     sizeof(Adapter->MediaWindowsGptHeader));
+    B2LUfsZeroMemory(Adapter->MediaWindowsGptEntries,
+                     sizeof(Adapter->MediaWindowsGptEntries));
 
     if (!Adapter->CapacityValid || Adapter->IoBounceVirtual == NULL) {
         return;
@@ -2284,6 +2475,10 @@ B2LUfsProbeMediaHeaders(
         Adapter->MediaProbeGptHeaderCrc) {
         return;
     }
+    if (BlockLength == B2LUFS_WINDOWS_GPT_BLOCK_BYTES) {
+        B2LUfsCopyMemory(
+            Adapter->MediaWindowsGptHeader, Media, BlockLength);
+    }
 
     FirstUsableLba = B2LUfsReadLe64(Media + 40UL);
     LastUsableLba = B2LUfsReadLe64(Media + 48UL);
@@ -2301,6 +2496,7 @@ B2LUfsProbeMediaHeaders(
         EntryCount > MAXULONG / EntrySize) {
         return;
     }
+    Adapter->MediaWindowsGptEntryLba = (ULONG)EntryLba;
     EntryBytes = EntryCount * EntrySize;
     if (EntryBytes > Adapter->IoBounceLength ||
         EntryBytes > MAXULONG - (BlockLength - 1UL)) {
@@ -2330,9 +2526,13 @@ B2LUfsProbeMediaHeaders(
     Adapter->MediaProbeGptEntriesValid =
         Adapter->MediaProbeGptEntriesCrcCalculated ==
         Adapter->MediaProbeGptEntriesCrc;
+    if (Adapter->MediaProbeGptEntriesValid) {
+        B2LUfsBuildWindowsGptSnapshot(
+            Adapter, EntryBytes, EntryBlocks);
+    }
     /* Always give Windows the same canonical 4Kn PMBR projection. */
     Adapter->MediaNormalizeProtectiveMbr =
-        Adapter->MediaProbeGptEntriesValid;
+        Adapter->MediaWindowsGptSnapshotValid;
 }
 
 /*
@@ -2526,6 +2726,78 @@ LogAndFallback:
             &Trace);
     }
     return FALSE;
+}
+
+/*
+ * partmgr reads GPT metadata through ordinary SCSI READ SRBs. The validated
+ * primary header and entry array are immutable during this WinPE session,
+ * so all-metadata requests can be completed in HwBuildIo exactly like the
+ * cached READ CAPACITY response. This avoids presenting a PMBR from one UFS
+ * command and the GPT header/entries from later independent commands.
+ */
+BOOLEAN
+B2LUfsTryCompleteCachedGptRead(
+    _In_ PVOID DeviceExtension,
+    _Inout_ B2LUFS_ADAPTER *Adapter,
+    _Inout_ PSCSI_REQUEST_BLOCK Srb)
+{
+    PVOID SystemAddress;
+    UCHAR *Output;
+    ULONGLONG StartLba;
+    ULONGLONG RequestedBytes;
+    ULONG BlockCount;
+    ULONG Index;
+    ULONG Status;
+
+    if (!Adapter->MediaWindowsGptSnapshotValid ||
+        !B2LUfsIsBlockRead(Srb->Cdb[0])) {
+        return FALSE;
+    }
+    BlockCount = B2LUfsCdbBlockCount(Srb->Cdb);
+    StartLba = B2LUfsCdbStartLba(Srb->Cdb);
+    RequestedBytes = (ULONGLONG)BlockCount *
+                     Adapter->CapacityBlockLength;
+    if (BlockCount == 0 || RequestedBytes != Srb->DataTransferLength ||
+        RequestedBytes > MAXULONG ||
+        StartLba > Adapter->CapacityLastLba) {
+        return FALSE;
+    }
+    if ((ULONGLONG)BlockCount - 1ULL >
+        Adapter->CapacityLastLba - StartLba) {
+        return FALSE;
+    }
+    for (Index = 0; Index < BlockCount; ++Index) {
+        if (!B2LUfsWindowsGptBlockIsCached(Adapter, StartLba + Index)) {
+            return FALSE;
+        }
+    }
+
+    SystemAddress = NULL;
+    Status = StorPortGetSystemAddress(
+        DeviceExtension, Srb, &SystemAddress);
+    if ((Status != STOR_STATUS_SUCCESS || SystemAddress == NULL) &&
+        Srb->DataBuffer != NULL) {
+        SystemAddress = Srb->DataBuffer;
+        Status = STOR_STATUS_SUCCESS;
+    }
+    if (Status != STOR_STATUS_SUCCESS || SystemAddress == NULL) {
+        return FALSE;
+    }
+
+    Output = (UCHAR *)SystemAddress;
+    for (Index = 0; Index < BlockCount; ++Index) {
+        if (!B2LUfsCopyWindowsGptBlock(
+                Adapter,
+                StartLba + Index,
+                Output + (Index * Adapter->CapacityBlockLength))) {
+            return FALSE;
+        }
+    }
+    KeMemoryBarrier();
+    Srb->DataTransferLength = (ULONG)RequestedBytes;
+    Srb->ScsiStatus = B2LUFS_SCSI_STATUS_GOOD;
+    B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
+    return TRUE;
 }
 
 VOID
