@@ -1540,6 +1540,8 @@ B2LUfsSubmitScsi(
     B2LUFS_UPIU *CommandUpiu;
     B2LUFS_UPIU *ResponseUpiu;
     B2LUFS_PRDT *Prdt;
+    BOOLEAN CompletionSeen;
+    ULONG Doorbell;
     ULONG InterruptStatus;
     ULONG Attempts;
     ULONG Direction;
@@ -1637,31 +1639,65 @@ B2LUfsSubmitScsi(
     B2LUfsCopyMemory(&CommandUpiu->TaskSpecificFields[4], Cdb, CdbLength);
 
     KeMemoryBarrier();
-    if ((B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR) &
-         B2LUFS_UTRL_SLOT_0) != 0) {
+    Doorbell = B2LUfsReadHci(
+        DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR);
+    if ((Doorbell & B2LUFS_UTRL_SLOT_0) != 0) {
         return B2LUfsTransferBusy;
     }
 
     B2LUfsWriteVs(DeviceExtension, Adapter, B2LUFS_VS_UTRL_NEXUS_TYPE,
                    B2LUfsSlotMask(Adapter->TransferSlotCount));
+
+    /*
+     * IS is write-one-to-clear and is independent of IE.  A polled request's
+     * doorbell can become zero between the previous loop's IS and DBR reads;
+     * that leaves its completion asserted after the request has returned.
+     * Exynos will then not reliably signal the next use of the same UTR slot.
+     * Acknowledge any late status only after proving that slot 0 is idle and
+     * before ringing it again.  Fatal state is never hidden from the caller.
+     */
+    InterruptStatus = B2LUfsReadHci(
+        DeviceExtension, Adapter, B2LUFS_REG_IS);
+    Adapter->LastInterruptStatus = InterruptStatus;
+    if (InterruptStatus != 0) {
+        B2LUfsWriteHci(
+            DeviceExtension, Adapter, B2LUFS_REG_IS, InterruptStatus);
+    }
+    if ((InterruptStatus & B2LUFS_FATAL_INTERRUPT_MASK) != 0) {
+        return B2LUfsTransferFatal;
+    }
+
+    KeMemoryBarrier();
     B2LUfsWriteHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR,
                     B2LUFS_UTRL_SLOT_0);
+    KeMemoryBarrier();
 
+    CompletionSeen = FALSE;
     for (Attempts = 0; Attempts < B2LUFS_COMMAND_TIMEOUT_US; ++Attempts) {
-        InterruptStatus = B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_IS);
-        Adapter->LastInterruptStatus = InterruptStatus;
+        InterruptStatus = B2LUfsReadHci(
+            DeviceExtension, Adapter, B2LUFS_REG_IS);
+        Adapter->LastInterruptStatus |= InterruptStatus;
+        if (InterruptStatus != 0) {
+            /* UFSHCI IS is W1C; consume each sampled event immediately. */
+            B2LUfsWriteHci(
+                DeviceExtension, Adapter, B2LUFS_REG_IS, InterruptStatus);
+        }
         if ((InterruptStatus & B2LUFS_FATAL_INTERRUPT_MASK) != 0) {
-            B2LUfsWriteHci(DeviceExtension, Adapter, B2LUFS_REG_IS, InterruptStatus);
             return B2LUfsTransferFatal;
         }
+        if ((InterruptStatus & B2LUFS_UTP_TRANSFER_REQ_COMPL) != 0) {
+            CompletionSeen = TRUE;
+        }
 
-        if ((B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR) &
-             B2LUFS_UTRL_SLOT_0) == 0) {
+        Doorbell = B2LUfsReadHci(
+            DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR);
+        if (CompletionSeen && (Doorbell & B2LUFS_UTRL_SLOT_0) == 0) {
+            /*
+             * A fresh UTP completion event and a released slot are both
+             * required.  The event was acknowledged above before response
+             * memory is inspected, matching the polled UFS host flow.
+             */
             KeMemoryBarrier();
-            if (InterruptStatus != 0) {
-                B2LUfsWriteHci(DeviceExtension, Adapter, B2LUFS_REG_IS,
-                                InterruptStatus);
-            }
             if ((Utrd->Dw2 & 0x0FUL) != B2LUFS_OCS_SUCCESS) {
                 Adapter->LastUtrdOcs = Utrd->Dw2 & 0x0FUL;
                 return B2LUfsTransferOcs;

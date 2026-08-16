@@ -162,10 +162,10 @@ Microsoft StorAHCI örneğindeki gibi, `HwBuildIo` sırasında hazır olan siste
 adresi ve tanı amaçlı DMA SGL pointer'ı isteğe özel `SrbExtension` içine
 alınır. Kilitli `HwStartIo` normal aktarımı ortak DMA bounce tamponuyla yapar.
 Exynos vendor yazmacındaki `PRDT_ENTRY_SIZE=12`, 4 KiB veri birimini seçer.
-UFSHCI daha büyük bir DBC'ye izin verse de cihaz testi, tek 16 KiB ortak-DMA
-girdisinin tamamlanmadığını; 4 KiB girdilerin ise güvenilir olduğunu gösterdi.
-Bu nedenle B2LUFS, en çok 128 KiB'lik normal isteği tek SCSI komutu olarak
-korurken ortak DMA alanını en çok 32 adet 4 KiB PRDT girdisine böler.
+UFSHCI daha büyük bir DBC'ye izin verse de bu Exynos yapılandırması için
+aktarımı vendor veri biriminde tanımlamak daha güvenlidir. Bu nedenle B2LUFS,
+en çok 128 KiB'lik normal isteği tek SCSI komutu olarak korurken ortak DMA
+alanını en çok 32 adet 4 KiB PRDT girdisine böler.
 Tek aktif UTRD'yi doğru yansıtmak için `MaxNumberOfIO`, `MaxIOsPerLun` ve
 başlangıç kuyruk derinliği 1'dir; bunlar zorunlu tagged/multiple-request
 yetenek bayraklarını kapatmak için kullanılmaz.
@@ -341,6 +341,16 @@ doğrulama bunu dört 4 KiB PRDT girdisiyle tek `READ(10)` olarak okur. Bu salt
 okunur tanı komutu zaman aşımına uğrarsa UTRL doorbell'i sonraki StorPort
 taramasını sürekli BUSY bırakmasın diye yalnız sürücünün UTP kuyruğu durdurulup
 yeniden başlatılır; HCE, UniPro/PHY ve medya içeriğine dokunulmaz.
+
+UFSHCI `IS` yazmacı `IE=0` iken de durum biriktirir ve bitleri write-one-to-
+clear'dır. Eski poll döngüsü önce `IS`, sonra `UTRLDBR` okuyordu; komut bu iki
+okuma arasında tamamlanırsa fonksiyon başarıyla dönerken UTR completion biti
+sonraki slot-0 kullanımına sarkabiliyordu. B2LUFS artık kapı zilini çalmadan
+önce boş slotun gecikmiş durumunu onaylar. Her yeni komutta taze
+`UTP_TRANSFER_REQ_COMPL` olayını W1C ile tüketir ve hem bu olay görülmeden hem
+de doorbell düşmeden yanıt belleğini kabul etmez. Böylece LBA 0, LBA 1, GPT
+giriş dizisi ve ardından StorPort SRB'leri aynı tek UTR slotunu art arda
+güvenle kullanır.
 
 Ölçülen ilk HCI durumu: `CAP=1303FF1F`, `VER=00000300`, `HCE=1`,
 `1US_TO_CNT=000000A6`. CAP alanında NUTRS `[4:0]` ve NUTMRS `[18:16]`
