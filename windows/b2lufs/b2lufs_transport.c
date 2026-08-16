@@ -902,8 +902,15 @@ B2LUfsFillDeviceCapabilities(
     Capabilities->NoDisplayInUI = FALSE;
     /* Do not claim an enabled volatile cache before MODE SENSE confirms it. */
     Capabilities->DefaultWriteCacheEnabled = FALSE;
-    Capabilities->Address = 0;
-    Capabilities->UINumber = MAXULONG;
+    /*
+     * Windows ARM64 UFS platforms expose fixed media as UFS0.DEV0 with
+     * ACPI _ADR 8.  Report the same bus address so PnP can associate this
+     * StorPort disk PDO with that ACPI companion node.  This is independent
+     * of the SCSI BTL address, which remains Path/Target/LUN 0/0/0.
+     */
+    Capabilities->Address = 8;
+    /* Fixed embedded UFS LUN 0 has a known, stable UI/location number. */
+    Capabilities->UINumber = 0;
 }
 
 VOID

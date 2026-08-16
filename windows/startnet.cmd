@@ -84,7 +84,9 @@ exit /b 0
 :B2LUfsSummary
 set "B2L_LUN_KEY=HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\SMSN9820\0\Device Parameters\B2LUFS"
 echo [B2LUFS ozet: Result/Scsi=0; GPT header/entries=1 beklenir]
-pnputil /enum-devices /instanceid "ACPI\SMSN9820\0" /drivers /services
+pnputil /enum-devices /instanceid "ACPI\SMSN9820\0" /drivers /services /properties
+echo [Disk PDO LocationPaths ve kimlik]
+pnputil /enum-devices /class DiskDrive /connected /properties
 reg query "%B2L_LUN_KEY%" /v SchemaVersion 2>nul
 reg query "%B2L_LUN_KEY%" /v HciStatus 2>nul
 reg query "%B2L_LUN_KEY%" /v ReadCapacityResult 2>nul

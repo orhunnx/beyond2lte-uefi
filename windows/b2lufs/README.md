@@ -189,6 +189,15 @@ sözleşmesini uygular: `HwFindAdapter` başında
 `FIBRE` olarak etiketler. `StorQueryCapabilities` için tam
 `STOR_DEVICE_CAPABILITIES_EX` cevabı verilir. Böylece StorPort disk PDO'sunu
 normal PnP sözleşmesi ile kurar; PnP isteği UFS'e komut göndermez.
+Sabit gömülü LUN 0'ın capabilities cevabı `Address=8` ve `UINumber=0`
+taşır; SCSI BTL adresi yine `0/0/0` kalır. UFS0 ACPI hostunun altındaki
+`DEV0`, `_ADR=8` ve `_RMV=0` ile StorPort'un disk PDO'sunu sabit dahili
+medyaya bağlar. Bu hiyerarşi Lumia 950'nin `SDC1.EMMC` ve Surface Duo'nun
+`UFS0.DEV0` tanımlarıyla aynıdır. Windows'un salt-okunur
+`DEVPKEY_Device_LocationPaths` özelliğini işletim sistemi üretir; INF ve
+miniport bu özelliği doğrudan yazmaz. `startnet.cmd`, HBA ve DiskDrive PDO
+özelliklerini `pnputil /properties` ile göstererek DiskPart'ın biçimlendirilmiş satırından bağımsız
+olarak Windows'un ürettiği ham LocationPaths değerini görünür kılar.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
 `InIoSpace` parametresi için terslenir. Kısmi/uyuşmayan kaynak dizisi hemen

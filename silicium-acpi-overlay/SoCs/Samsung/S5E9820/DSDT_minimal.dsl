@@ -206,6 +206,24 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
                     0x00000119
                 }
             })
+
+            // Windows on ARM referans platformlarinda sabit dahili medya,
+            // host denetleyicinin ACPI child'i olarak ve adres 8 ile tanitilir:
+            // Lumia 950 SDC1.EMMC ile Surface Duo UFS0.DEV0 ayni deseni
+            // kullanir. Miniportun STOR_DEVICE_CAPABILITIES_EX.Address alani
+            // da 8 donerek bus PDO'sunu bu ACPI companion dugumune esler.
+            Device (DEV0)
+            {
+                Method (_ADR, 0, NotSerialized)
+                {
+                    Return (0x08)
+                }
+
+                Method (_RMV, 0, NotSerialized)
+                {
+                    Return (Zero)
+                }
+            }
         }
 
         // Device (UFS0)
