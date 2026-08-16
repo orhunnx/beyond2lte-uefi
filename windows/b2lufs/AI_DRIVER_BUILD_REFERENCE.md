@@ -80,6 +80,7 @@ başlığıdır:
 |---|---|
 | `windows/b2lufs/b2lufs.inf.in` | ARM64 PnP sürücü paketinin INF şablonu |
 | `windows/b2lufs/build-b2lufs.ps1` | Windows MSVC/WDK ile yalnız `b2lufs.sys` derlemesi |
+| `windows/b2lufs/b2lgptdump.c` | WinPE'de PhysicalDrive0 GPT bölgelerini salt-okunur döken freestanding ARM64 araç |
 | `windows/b2lufs/test_resources.c` | WDK gerektirmeyen kaynak-bağlama birim testi |
 | `windows/b2lufs/README.md` | Tasarım ve çalışma davranışının geliştirici notları |
 | `windows/b2lufs/AI_DRIVER_BUILD_REFERENCE.md` | Bu dosya; kaynak ve build zinciri referansı |
@@ -121,7 +122,7 @@ başlığıdır:
 | `openssl` | WSL | Test sertifikası ve geçici PFX üretir |
 | `osslsigncode` | WSL | SYS PE dosyasına Authenticode imzası ekler |
 | `sha256sum` | WSL | Paket, WIM ve Odin artefakt bütünlüğünü ölçer |
-| `wimlib-imagex` | WSL | INF/SYS/CAT/manifest/startnet'i `boot.wim`e ekler ve geri okur |
+| `wimlib-imagex` | WSL | INF/SYS/CAT/manifest/startnet/GPT dump aracını `boot.wim`e ekler ve geri okur |
 | `dosfstools` / `mkfs.vfat` | WSL | SYSTEM/CACHE FAT volume imajlarını biçimlendirir |
 | `mtools` (`mmd`, `mcopy`, `mdir`) | WSL | Loop mount olmadan FAT imaj içeriğini düzenler ve listeler |
 | `img2simg` | WSL | Ham SYSTEM/CACHE'i Android sparse imaja dönüştürür |
@@ -129,7 +130,7 @@ başlığıdır:
 | `dd`, `od` | WSL | Ham imaj oluşturur ve BPB/sparse alanlarını doğrular |
 | `iasl` | WSL | ACPI DSL tablolarını AML'ye derler |
 | `python3` | WSL | Mu-Silicium build'i ve repo içi ACPI/UEFI yardımcılarını çalıştırır |
-| `clang` | macOS/Linux/WSL | Yalnız saf `test_resources.c` host testinde kullanılabilir; SYS derleyicisi değildir |
+| `clang` / `lld-link` / `llvm-dlltool` | WSL | Freestanding ARM64 `b2lgptdump.exe` ve host testleri; SYS derleyicisi değildir |
 
 ## 3. Ana sürücü dosyaları
 
@@ -661,17 +662,18 @@ B2L_SKIP_MSVC_BUILD=1 bash tools_b2lufs.sh
 Betik aşağıdaki işleri yapar:
 
 1. WDK/SDK ve Visual Studio araç yollarını doğrular.
-2. `B2L_SKIP_MSVC_BUILD=1` ise mevcut SYS'nin kaynaklardan eski olmadığını
+2. `B2L_SKIP_MSVC_BUILD=1` ise mevcut SYS'nin sürücü kaynaklarından eski olmadığını
    kontrol eder.
-3. SYS'yi test sertifikasıyla Authenticode imzalar.
-4. INF şablonunu `out/b2lufs/b2lufs.inf` olarak kopyalar.
-5. Inf2Cat ile INF+SYS katalogu üretir.
-6. PEM anahtar/sertifikadan geçici PFX oluşturur.
-7. CAT dosyasını SignTool ile imzalar.
-8. CAT imzasını ve SYS-katalog eşleşmesini doğrular.
-9. INF/SYS/CAT SHA-256 manifesti üretir.
-10. Paket ve `startnet.cmd` dosyasını `esp/sources/boot.wim` içine ekler.
-11. WIM'den geri extract ederek bütün hash'leri tekrar doğrular.
+3. WSL clang/lld ile salt-okunur ARM64 `b2lgptdump.exe` üretir.
+4. SYS'yi test sertifikasıyla Authenticode imzalar.
+5. INF şablonunu `out/b2lufs/b2lufs.inf` olarak kopyalar.
+6. Inf2Cat ile INF+SYS katalogu üretir.
+7. PEM anahtar/sertifikadan geçici PFX oluşturur.
+8. CAT dosyasını SignTool ile imzalar.
+9. CAT imzasını ve SYS-katalog eşleşmesini doğrular.
+10. INF/SYS/CAT/GPTDUMP SHA-256 manifesti üretir.
+11. Paket, GPT dump aracı ve `startnet.cmd` dosyasını `boot.wim` içine ekler.
+12. WIM'den geri extract ederek bütün hash'leri tekrar doğrular.
 
 Betik `set -euo pipefail` kullanır:
 
@@ -776,6 +778,7 @@ B2LUFS_PACKAGE=<paket-kimliği>
 B2LUFS_INF_SHA256=<hash>
 B2LUFS_SYS_SHA256=<hash>
 B2LUFS_CAT_SHA256=<hash>
+B2LUFS_GPTDUMP_SHA256=<hash>
 ```
 
 Manifest Windows sürücü imzasının yerine geçmez. Amacı farklı paketleme
@@ -791,6 +794,7 @@ ekler:
 /Windows/B2LUFS/b2lufs.sys
 /Windows/B2LUFS/b2lufs.cat
 /Windows/B2LUFS/manifest.txt
+/Windows/System32/b2lgptdump.exe
 /Windows/System32/startnet.cmd
 ```
 
@@ -825,7 +829,10 @@ Ana bölümleri:
 - `pnputil /add-driver ... /install` ile INF paketini ekleme ve bağlama.
 - `pnputil /scan-devices` ile PnP yeniden tarama.
 - Kurulum sonrası disk/partition/volume envanteri.
+- PhysicalDrive0 üzerinden PMBR, primary header/entries ve backup header ham
+  okuması; sonuçların X: RAM diskine yazılması.
 - Aygıt property ve registry telemetri özeti.
+- Snapshot neden/self-check telemetrisi ve StorPort Operational EVTX aktarımı.
 - Tanımlı CACHE volume için güvenlik kontrollü bağlama ve dosya yaz/geri-oku
   yardımcı akışı.
 

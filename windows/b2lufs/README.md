@@ -123,13 +123,17 @@ keşfi ve normal blok I/O'su fiziksel UFS kullanıcı-LUN'ına gider.
 ## WinPE'de ham okuma izi
 
 `HwStartIo` çağrısı içinde konsola veya dosya sistemine doğrudan yazmak güvenli
-değildir. Bunun yerine miniport, bütün SCSI SRB'leri için StorPort Operational
-ETW kanalına bir `BLS2` ikili tanı kaydı bırakır. Kayıt özgün/dönen aktarım
+değildir. Bunun yerine miniport, bütün donanım SCSI SRB'leri için StorPort
+Operational ETW kanalına bir `BLS2` ikili tanı kaydı bırakır. Kayıt özgün/dönen aktarım
 uzunluğunu, SGL/PRDT girdi sayılarını ve ilk fiziksel parçayı da taşır.
 `PrdtBuildStatus` alanı `0=denenmedi`, `1=başarılı`, `2=DMA eşlemesi yok`,
 `3=PRDT dolu`, `4=SGL kısa`, `5=geçersiz adres/uzunluk` olarak yorumlanır.
-Sadeleştirilmiş `startnet.cmd` bütün Operational günlüğünü ekrana dökmez;
-gerektiğinde `wevtutil` ile elle okunabilir. Kaydın son 64
+Snapshot'tan tamamlanan GPT okumaları ayrıca `BLG1` kaydı üretir. Bu kayıtta
+sayaç, başlangıç LBA'sı, blok sayısı, eşleme kaynağı ve kopya tamamlandıktan
+sonra StorPort sistem adresinden geri okunan ilk 64 bayt bulunur. Böylece
+CPU snapshot içeriği ile partmgr'a teslim edilen son tampon ayrılır.
+`startnet.cmd`, Operational günlüğünü `X:\B2LUFS-StorPort.evtx` dosyasına
+aktarır ve son kayıtları konsola döker. `BLS2` kaydının son 64
 baytı, başarılı bir `INQUIRY`, kapasite veya `READ` isteğinden dönen ham
 örnektir. UFS bir `CHECK CONDITION` döndürürse aynı alan medya yerine UFS
 RESPONSE UPIU'dan kopyalanan sense baytlarını taşır ve SRB
@@ -145,8 +149,8 @@ iptal yazısı göndermez. İlk SRB `TIMEOUT` ile tamamlanır, yeni komutlar hı
 biçimde `NO_DEVICE` döner ve WinPE/PnP akışı ekranda takılı kalmaz. Bu koruma,
 tek-slotlu, senkron taşımanın kilitlenmesini önler.
 
-`startnet.cmd` yalnız `ReportLunsEntryCount` özetini basar; tam anlık görüntü
-`Device Parameters\B2LUFS` altında kalır. `ReportLunsRaw` değeri standart yanıtın tamamıdır: ilk dört
+`startnet.cmd`, snapshot kurma ve self-check sonucunu da özetler; tam anlık
+görüntü `Device Parameters\B2LUFS` altında kalır. `ReportLunsRaw` değeri standart yanıtın tamamıdır: ilk dört
 bayt big-endian liste uzunluğudur, sekizinci bayttan sonra her sekiz bayt bir
 LUN adresidir. Aynı kayıt altında görünen `Lun00Id`, `Lun01Id`, ... değerleri
 bu adreslerin etiketlenmiş kopyalarıdır. Bu liste yalnız donanımın bildirdiği
@@ -283,6 +287,19 @@ sonucunu gösterir. Fotoğrafta şu üç kanıt birlikte aranır:
    `MediaProbeGptHeaderValid=1` ve `MediaProbeGptEntriesValid=1` olmalıdır.
    Ayrıca `MediaProbeProtectiveMbrValid=1` veya, yalnız PMBR kusurluysa,
    `MediaProtectiveMbrNormalized=1` görülmelidir.
+5. `MediaWindowsGptSnapshotValid=1`,
+   `MediaWindowsGptSnapshotReason=1`, `MediaWindowsGptSelfCheckValid=1` ve
+   `MediaWindowsGptSelfCheckReason=1` beklenir. Snapshot nedenleri
+   `0=denenmedi`, `1=geçerli`, `2=blok boyutu`, `3=header boyutu`,
+   `4=entry boyutu`, `5=entry blok sayısı`, `6=entry alanı fazla`,
+   `7=self-check başarısız` biçimindedir. Self-check nedenleri kaynak
+   başlığındaki `B2LUFS_GPT_SELF_CHECK_*` sabitleriyle ayrıntılandırılır.
+
+WIM'deki `b2lgptdump.exe`, `\\.\PhysicalDrive0` üzerinden salt-okunur olarak
+PMBR, primary header, 16 KiB entry dizisi ve backup header'ı okur. Sonuçlar
+sırasıyla `X:\B2LGPT-PMBR.BIN`, `X:\B2LGPT-PRIMARY.BIN`,
+`X:\B2LGPT-ENTRIES.BIN` ve `X:\B2LGPT-BACKUP.BIN` dosyalarına yazılır;
+ilk 64 baytlar aynı boot'ta konsola basılır.
 
 StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
 ve `BLT1`, ardından `BLC3 Outcome=5, CompletionPhase=2`, normal `BLS2`

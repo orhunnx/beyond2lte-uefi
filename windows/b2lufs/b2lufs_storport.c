@@ -92,6 +92,9 @@ static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRIES_BYTES[] = "MediaProbeGptEntriesBytes";
 static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRIES_CRC[] = "MediaProbeGptEntriesCrc";
 static UCHAR B2LUFS_REG_MEDIA_GPT_ENTRIES_CRC_CALC[] = "MediaProbeGptEntriesCrcCalculated";
 static UCHAR B2LUFS_REG_WINDOWS_GPT_VALID[] = "MediaWindowsGptSnapshotValid";
+static UCHAR B2LUFS_REG_WINDOWS_GPT_REASON[] = "MediaWindowsGptSnapshotReason";
+static UCHAR B2LUFS_REG_WINDOWS_GPT_SELF_CHECK_VALID[] = "MediaWindowsGptSelfCheckValid";
+static UCHAR B2LUFS_REG_WINDOWS_GPT_SELF_CHECK_REASON[] = "MediaWindowsGptSelfCheckReason";
 static UCHAR B2LUFS_REG_WINDOWS_GPT_ENTRIES_CRC[] = "MediaWindowsGptEntriesCrc";
 static UCHAR B2LUFS_REG_WINDOWS_CACHE_FOUND[] = "MediaWindowsCacheEntryFound";
 static UCHAR B2LUFS_REG_WINDOWS_CACHE_INDEX[] = "MediaWindowsCacheEntryIndex";
@@ -456,7 +459,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 21;
+    ULONG SchemaVersion = 22;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -474,6 +477,8 @@ B2LUfsPublishLunSnapshot(
         Adapter->MediaNormalizeProtectiveMbr ? 1UL : 0UL;
     ULONG MediaWindowsGptValid =
         Adapter->MediaWindowsGptSnapshotValid ? 1UL : 0UL;
+    ULONG MediaWindowsGptSelfCheckValid =
+        Adapter->MediaWindowsGptSelfCheckValid ? 1UL : 0UL;
     ULONG MediaWindowsCacheFound =
         Adapter->MediaWindowsCacheEntryFound ? 1UL : 0UL;
     ULONG Index;
@@ -718,6 +723,20 @@ B2LUfsPublishLunSnapshot(
     (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_WINDOWS_GPT_VALID,
         REG_DWORD, &MediaWindowsGptValid, sizeof(MediaWindowsGptValid));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_WINDOWS_GPT_REASON,
+        REG_DWORD, &Adapter->MediaWindowsGptSnapshotReason,
+        sizeof(Adapter->MediaWindowsGptSnapshotReason));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY,
+        B2LUFS_REG_WINDOWS_GPT_SELF_CHECK_VALID,
+        REG_DWORD, &MediaWindowsGptSelfCheckValid,
+        sizeof(MediaWindowsGptSelfCheckValid));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY,
+        B2LUFS_REG_WINDOWS_GPT_SELF_CHECK_REASON,
+        REG_DWORD, &Adapter->MediaWindowsGptSelfCheckReason,
+        sizeof(Adapter->MediaWindowsGptSelfCheckReason));
     (void)StorPortRegistryWriteAdapterKey(
         DeviceExtension, B2LUFS_REG_SUBKEY,
         B2LUFS_REG_WINDOWS_GPT_ENTRIES_CRC,

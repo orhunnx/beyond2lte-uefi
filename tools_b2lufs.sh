@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #
-# B2LUFS — WDK basliklariyla ARM64 UFS StorPort
-# miniportunu derle,
+# B2LUFS — WDK basliklariyla ARM64 UFS StorPort miniportunu paketle,
 # mevcut b2lfb test sertifikasi ile imzala ve yalniz WinPE WIM'ine koy.
 #
 # Bu tur LUN 0 icin normal okuma/yazma disk surucusudur. ACPI'nin verdigi alti MMIO
@@ -12,10 +11,11 @@
 # WSL'de, Windows'taki WDK + Visual Studio Build Tools gorunurken calistir:
 #   bash tools_b2lufs.sh
 #
-# Gerekenler: osslsigncode, openssl, wimlib-imagex;
+# Gerekenler: clang, lld, llvm, osslsigncode, openssl, wimlib-imagex;
 # Windows tarafinda WDK (Inf2Cat dahil) ve MSVC C++ Build Tools (ARM64 hedefi).
-# WDK ile uyumlu derleme, WSL clang'i degil Windows PowerShell'in baslattigi
-# yerel MSVC cl.exe/link.exe araclariyla yapilir.
+# Yalniz b2lufs.sys, Windows PowerShell'in baslattigi yerel MSVC cl.exe/link.exe
+# araclariyla derlenir. Salt-okunur WinPE GPT dump yardimcisi WSL clang/lld ile
+# uretilir; surucu INF/CAT paketinin parcasi degildir.
 
 set -euo pipefail
 
@@ -29,7 +29,7 @@ KITS="${B2L_WDK_ROOT:-$WINROOT/Program Files (x86)/Windows Kits/10}"
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die() { printf '\nHATA: %s\n' "$*" >&2; exit 1; }
 
-for tool in powershell.exe osslsigncode openssl wimlib-imagex sha256sum wslpath; do
+for tool in powershell.exe clang lld-link llvm-dlltool osslsigncode openssl wimlib-imagex sha256sum wslpath; do
   command -v "$tool" >/dev/null || die "$tool yok"
 done
 
@@ -174,7 +174,8 @@ if [ "${B2L_SKIP_MSVC_BUILD:-0}" = "1" ]; then
   # paketlemek isteniyorsa B2L_ALLOW_STALE_SYS=1 ile acikca soylenir.
   #
   YENI_KAYNAK="$(find "$SRC" -maxdepth 1 -newer "$OUT/b2lufs.sys" \
-                   \( -name '*.c' -o -name '*.h' -o -name '*.in' -o -name '*.ps1' \) \
+                   \( -name 'b2lufs_*.c' -o -name 'b2lufs_*.h' -o \
+                      -name 'b2lufs.inf.in' -o -name 'build-b2lufs.ps1' \) \
                    -printf '%f\n' 2>/dev/null || true)"
   if [ -n "$YENI_KAYNAK" ] && [ "${B2L_ALLOW_STALE_SYS:-0}" != "1" ]; then
     echo
@@ -205,6 +206,32 @@ else
 fi
 say "Baglandi (MSVC link.exe; StorPort + ntoskrnl, ARM64)"
 file "$OUT/b2lufs.sys" | sed 's/^/  /'
+
+# Bu arac PhysicalDrive0'i yalniz GENERIC_READ ile acar ve dort GPT bolgesini
+# X: RAM diskine kopyalar. Windows depolama yigini ustunden donen baytlari,
+# miniportun BLG1 post-copy iziyle ayni boot'ta karsilastirmak icindir.
+say "B2LGPTDUMP derleniyor (WSL clang/lld ARM64, salt-okunur)"
+cat > "$OUT/kernel32-gptdump.def" <<'DEF'
+LIBRARY kernel32.dll
+EXPORTS
+CreateFileW
+ReadFile
+WriteFile
+SetFilePointerEx
+DeviceIoControl
+GetStdHandle
+CloseHandle
+ExitProcess
+DEF
+llvm-dlltool -m arm64 -d "$OUT/kernel32-gptdump.def" \
+  -l "$OUT/kernel32-gptdump.lib"
+clang -target aarch64-windows-msvc -ffreestanding -fno-stack-protector \
+  -mno-stack-arg-probe -O1 -Wall -Wextra -Werror \
+  -c "$SRC/b2lgptdump.c" -o "$OUT/b2lgptdump.obj"
+lld-link /subsystem:console /entry:mainCRTStartup /machine:arm64 \
+  /nodefaultlib /out:"$OUT/b2lgptdump.exe" \
+  "$OUT/b2lgptdump.obj" "$OUT/kernel32-gptdump.lib"
+file "$OUT/b2lgptdump.exe" | sed 's/^/  /'
 
 # b2lfb ile AYNI sertifika: cihazda zaten guvenilen zinciri degistirmeyiz.
 CERT="$HERE/windows/b2lfb/b2l-test.pem"
@@ -286,10 +313,11 @@ rm -f "$PFX"
 # paketleme asamasinda kesin bir hata haline getirir.
 MANIFEST="$OUT/b2lufs-manifest.txt"
 {
-  echo "B2LUFS_PACKAGE=storport-startio-cached-media"
+  echo "B2LUFS_PACKAGE=storport-cached-gpt-selfcheck-rawdump"
   echo "B2LUFS_INF_SHA256=$(sha256sum "$OUT/b2lufs.inf" | awk '{print $1}')"
   echo "B2LUFS_SYS_SHA256=$(sha256sum "$OUT/b2lufs.sys" | awk '{print $1}')"
   echo "B2LUFS_CAT_SHA256=$(sha256sum "$OUT/b2lufs.cat" | awk '{print $1}')"
+  echo "B2LUFS_GPTDUMP_SHA256=$(sha256sum "$OUT/b2lgptdump.exe" | awk '{print $1}')"
 } > "$MANIFEST"
 
 say "B2LUFS paketi boot.wim'e ekleniyor"
@@ -305,6 +333,12 @@ wimlib-imagex update "$WIM" 1 \
 wimlib-imagex update "$WIM" 1 \
   --command="add '$MANIFEST' /Windows/B2LUFS/manifest.txt" >/dev/null
 echo "  /Windows/B2LUFS/manifest.txt"
+
+wimlib-imagex update "$WIM" 1 \
+  --command="delete --force /Windows/System32/b2lgptdump.exe" >/dev/null 2>&1 || true
+wimlib-imagex update "$WIM" 1 \
+  --command="add '$OUT/b2lgptdump.exe' /Windows/System32/b2lgptdump.exe" >/dev/null
+echo "  /Windows/System32/b2lgptdump.exe"
 
 # tools_b2lfb.sh'nin sarmaladigi diagnostik komutu kaybolmasin: bu script
 # startnet'i de kaynakla birebir yeniler. Bu sayede calisma sirasi hatasi
@@ -331,6 +365,12 @@ wimlib-imagex extract "$WIM" 1 /Windows/B2LUFS/manifest.txt \
   "$(sha256sum "$CHECK/manifest.txt" | awk '{print $1}')" ] || \
   die "B2LUFS manifest WIM geri okuma hash'i farkli; flaslama"
 echo "  dogrulandi: B2LUFS manifest $(grep '^B2LUFS_SYS_SHA256=' "$MANIFEST" | cut -c1-34)"
+wimlib-imagex extract "$WIM" 1 /Windows/System32/b2lgptdump.exe \
+  --dest-dir="$CHECK" --no-acls >/dev/null
+[ "$(sha256sum "$OUT/b2lgptdump.exe" | awk '{print $1}')" = \
+  "$(sha256sum "$CHECK/b2lgptdump.exe" | awk '{print $1}')" ] || \
+  die "b2lgptdump.exe WIM geri okuma hash'i farkli; flaslama"
+echo "  dogrulandi: b2lgptdump.exe ARM64 ham-okuma araci"
 wimlib-imagex extract "$WIM" 1 /Windows/System32/startnet.cmd \
   --dest-dir="$CHECK" --no-acls >/dev/null
 [ "$(sha256sum "$SNTMP" | awk '{print $1}')" = "$(sha256sum "$CHECK/startnet.cmd" | awk '{print $1}')" ] || \

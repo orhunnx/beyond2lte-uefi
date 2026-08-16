@@ -16,6 +16,33 @@
 #define B2LUFS_WINDOWS_GPT_BLOCK_BYTES       4096UL
 #define B2LUFS_WINDOWS_GPT_ENTRIES_BYTES    16384UL
 
+/* MediaWindowsGptSnapshotReason registry values. */
+#define B2LUFS_GPT_SNAPSHOT_NOT_ATTEMPTED       0UL
+#define B2LUFS_GPT_SNAPSHOT_VALID               1UL
+#define B2LUFS_GPT_SNAPSHOT_BAD_BLOCK_LENGTH    2UL
+#define B2LUFS_GPT_SNAPSHOT_BAD_HEADER_SIZE     3UL
+#define B2LUFS_GPT_SNAPSHOT_BAD_ENTRY_SIZE      4UL
+#define B2LUFS_GPT_SNAPSHOT_NO_ENTRY_BLOCKS     5UL
+#define B2LUFS_GPT_SNAPSHOT_ENTRIES_TOO_LARGE   6UL
+#define B2LUFS_GPT_SNAPSHOT_SELF_CHECK_FAILED   7UL
+
+/* MediaWindowsGptSelfCheckReason registry values. */
+#define B2LUFS_GPT_SELF_CHECK_NOT_ATTEMPTED     0UL
+#define B2LUFS_GPT_SELF_CHECK_VALID             1UL
+#define B2LUFS_GPT_SELF_CHECK_NO_SCRATCH        2UL
+#define B2LUFS_GPT_SELF_CHECK_PMBR              3UL
+#define B2LUFS_GPT_SELF_CHECK_PRIMARY_HEADER    4UL
+#define B2LUFS_GPT_SELF_CHECK_PRIMARY_LBAS      5UL
+#define B2LUFS_GPT_SELF_CHECK_USABLE_RANGE      6UL
+#define B2LUFS_GPT_SELF_CHECK_PRIMARY_LAYOUT    7UL
+#define B2LUFS_GPT_SELF_CHECK_PRIMARY_ENTRIES   8UL
+#define B2LUFS_GPT_SELF_CHECK_PRIMARY_CRC       9UL
+#define B2LUFS_GPT_SELF_CHECK_BACKUP_ENTRIES   10UL
+#define B2LUFS_GPT_SELF_CHECK_BACKUP_HEADER    11UL
+#define B2LUFS_GPT_SELF_CHECK_BACKUP_LBAS      12UL
+#define B2LUFS_GPT_SELF_CHECK_BACKUP_LAYOUT    13UL
+#define B2LUFS_GPT_SELF_CHECK_BACKUP_CRC       14UL
+
 /*
  * Microsoft'in StorAHCI ornegindeki gibi, StorPort'un HwBuildIo sirasinda
  * hazirladigi istege ozel adresleri SrbExtension'da tut. Sistem adresi ortak
@@ -109,6 +136,9 @@ typedef struct B2LUFS_ADAPTER {
     UCHAR MediaProbeLba1[64];
     BOOLEAN MediaWindowsGptSnapshotValid;
     BOOLEAN MediaWindowsCacheEntryFound;
+    BOOLEAN MediaWindowsGptSelfCheckValid;
+    ULONG MediaWindowsGptSnapshotReason;
+    ULONG MediaWindowsGptSelfCheckReason;
     ULONG MediaWindowsGptEntryLba;
     ULONG MediaWindowsGptEntryBlocks;
     ULONG MediaWindowsGptEntriesCrc;
@@ -160,6 +190,9 @@ typedef struct B2LUFS_ADAPTER {
     /* Bounded CMD telemetry; write payloads are never copied to ETW. */
     ULONG TraceSequence;
     ULONG TraceBudget;
+    /* Bounded BLG1 telemetry for cached GPT completions in HwStartIo. */
+    ULONG CachedGptTraceSequence;
+    ULONG CachedGptTraceBudget;
     /* PnP/BTL8 lifecycle telemetry; it never contains UFS media data. */
     ULONG PnpTraceSequence;
     ULONG PnpTraceBudget;

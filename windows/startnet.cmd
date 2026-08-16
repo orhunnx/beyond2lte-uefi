@@ -45,6 +45,13 @@ echo [Disk ve GPT]
 diskpart /s "%DPPOSTSCRIPT%"
 
 echo.
+if exist "%SystemRoot%\System32\b2lgptdump.exe" (
+  "%SystemRoot%\System32\b2lgptdump.exe"
+) else (
+  echo B2LGPT ham-okuma araci WIM'de yok.
+)
+
+echo.
 call :B2LUfsSummary
 
 echo.
@@ -52,6 +59,8 @@ echo [CACHE: W: baglama ve yaz/geri-oku]
 call :B2LUfsMountCache
 
 :Finish
+echo.
+call :B2LUfsExportTrace
 echo.
 echo === Tani sonu ===
 echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
@@ -72,7 +81,7 @@ if not exist "%SystemRoot%\System32\pnputil.exe" (
   echo HATA: PnPUtil yok.
   exit /b 1
 )
-rem Ayrintili BLS2 kayitlari ekrana dokulmez; gerekirse sonradan okunabilsin.
+rem BLT1/BLS2/BLG1 sonunda hem konsola dokulur hem X: RAM diskine aktarilir.
 if exist "%SystemRoot%\System32\wevtutil.exe" wevtutil sl "Microsoft-Windows-Storage-Storport/Operational" /e:true >nul 2>&1
 pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install
 if errorlevel 1 exit /b 1
@@ -111,6 +120,9 @@ reg query "%B2L_LUN_KEY%" /v MediaProbeGptHeaderCrcCalculated 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesCrc 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaProbeGptEntriesCrcCalculated 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaWindowsGptSnapshotValid 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaWindowsGptSnapshotReason 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaWindowsGptSelfCheckValid 2>nul
+reg query "%B2L_LUN_KEY%" /v MediaWindowsGptSelfCheckReason 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaWindowsGptEntriesCrc 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaWindowsCacheEntryFound 2>nul
 reg query "%B2L_LUN_KEY%" /v MediaWindowsCacheEntryIndex 2>nul
@@ -182,4 +194,20 @@ if errorlevel 1 (
   exit /b 1
 )
 echo CACHE basarili: W:\B2LUFS-WRITE-OK.TXT yazildi ve geri okundu.
+exit /b 0
+
+:B2LUfsExportTrace
+set "B2L_STORPORT_LOG=Microsoft-Windows-Storage-Storport/Operational"
+if not exist "%SystemRoot%\System32\wevtutil.exe" (
+  echo StorPort ETW: wevtutil yok.
+  exit /b 1
+)
+echo [StorPort ETW: BLT1/BLS2/BLG1 kayitlari]
+wevtutil epl "%B2L_STORPORT_LOG%" "%SystemDrive%\B2LUFS-StorPort.evtx" /ow:true >nul 2>&1
+if errorlevel 1 (
+  echo StorPort Operational kanali disari aktarilamadi.
+) else (
+  echo X:\B2LUFS-StorPort.evtx yazildi.
+)
+wevtutil qe "%B2L_STORPORT_LOG%" /rd:true /f:text /c:96 2>nul
 exit /b 0
