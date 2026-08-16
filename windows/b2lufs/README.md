@@ -365,10 +365,14 @@ BusChange öncesinde aynı ortak-DMA yoluyla LBA 0 ve LBA 1 için birer gerçek
 `READ(10)` yapılır. `MediaProbeMbrSignature=1`, LBA 0 sonundaki `55 AA`yı;
 `MediaProbeGptSignature=1`, LBA 1 başındaki `EFI PART` imzasını doğrular. GPT
 başlık CRC'si ve Windows'un desteklediği en çok 128 girişlik partition-array
-CRC'si de doğrulanır. Geçerli GPT'ye rağmen Samsung LBA0'ında Windows'un
-zorunlu tuttuğu diski kapsayan tek `0xEE` girdisi yoksa sürücü medyaya yazmaz;
-yalnız disk-class READ yanıtındaki PMBR'yi standart görünüme getirir ve
-`MediaProtectiveMbrNormalized=1` yayımlar. Normal blok tamponlarına CPU erişimi
+CRC'si de doğrulanır. PMBR denetimi yalnız `0xEE` kaydına bakmaz: disk imzası
+ve rezerv word, kullanılmayan üç MBR kaydı ve 4Kn LBA0'ın `512..4095` rezerv
+alanı da UEFI 2.10 gereği sıfır olmalıdır. Geçerli GPT doğrulandıktan sonra
+sürücü medyaya yazmadan, disk-class READ yanıtındaki LBA0'ı tam 4096 bayt
+kanonik PMBR olarak sunar. LBA1'de de CRC kapsamı dışındaki
+`HeaderSize..4095` rezerv alanını sıfırlar ve
+`MediaProtectiveMbrNormalized=1` yayımlar. Gerçek GPT başlığı, entry-array,
+partition LBA'ları ve içerikleri değiştirilmez. Normal blok tamponlarına CPU erişimi
 Microsoft'un program-controlled I/O sözleşmesine göre doğrudan
 `StorPortGetSystemAddress` ile alınır. Ham GPT içeriği önbellekten Windows'a
 sunulmaz; disk sınıfının kullanacağı normal blok yolu erkenden sınanır. Normal

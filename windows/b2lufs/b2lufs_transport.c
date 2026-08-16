@@ -2027,43 +2027,71 @@ B2LUfsRecoverProbeQueue(
 
 static BOOLEAN
 B2LUfsProtectiveMbrIsValid(
-    _In_reads_bytes_(512) const UCHAR *Mbr,
+    _In_reads_bytes_(BlockLength) const UCHAR *Mbr,
+    _In_ ULONG BlockLength,
     _In_ ULONGLONG LastLba)
 {
     ULONG Index;
+    ULONG ByteIndex;
     const UCHAR *Entry;
     ULONG ExpectedSectors;
 
-    if (Mbr[510] != 0x55U || Mbr[511] != 0xAAU) {
+    if (BlockLength < 512UL || Mbr[510] != 0x55U || Mbr[511] != 0xAAU) {
         return FALSE;
+    }
+    /* UEFI 2.10: disk signature and the following reserved word are zero. */
+    for (ByteIndex = 440UL; ByteIndex < 446UL; ++ByteIndex) {
+        if (Mbr[ByteIndex] != 0) {
+            return FALSE;
+        }
     }
     ExpectedSectors = LastLba > MAXULONG ? MAXULONG : (ULONG)LastLba;
     for (Index = 0; Index < B2LUFS_MBR_PARTITION_COUNT; ++Index) {
         Entry = Mbr + B2LUFS_MBR_PARTITION_TABLE_OFFSET +
                 (Index * B2LUFS_MBR_PARTITION_ENTRY_BYTES);
-        if (Entry[B2LUFS_MBR_PARTITION_TYPE_OFFSET] ==
-                B2LUFS_MBR_PROTECTIVE_TYPE &&
-            B2LUfsReadLe32(Entry + B2LUFS_MBR_PARTITION_START_LBA_OFFSET) ==
-                1UL &&
-            B2LUfsReadLe32(Entry + B2LUFS_MBR_PARTITION_SECTORS_OFFSET) ==
-                ExpectedSectors) {
-            return TRUE;
+        if (Index == 0) {
+            if (Entry[0] != 0 || Entry[1] != 0 || Entry[2] != 2U ||
+                Entry[3] != 0 ||
+                Entry[B2LUFS_MBR_PARTITION_TYPE_OFFSET] !=
+                    B2LUFS_MBR_PROTECTIVE_TYPE ||
+                Entry[5] != 0xFFU || Entry[6] != 0xFFU ||
+                Entry[7] != 0xFFU ||
+                B2LUfsReadLe32(
+                    Entry + B2LUFS_MBR_PARTITION_START_LBA_OFFSET) != 1UL ||
+                B2LUfsReadLe32(
+                    Entry + B2LUFS_MBR_PARTITION_SECTORS_OFFSET) !=
+                    ExpectedSectors) {
+                return FALSE;
+            }
+        } else {
+            for (ByteIndex = 0; ByteIndex <
+                 B2LUFS_MBR_PARTITION_ENTRY_BYTES; ++ByteIndex) {
+                if (Entry[ByteIndex] != 0) {
+                    return FALSE;
+                }
+            }
         }
     }
-    return FALSE;
+    /* On a 4Kn disk every byte after the 512-byte PMBR is reserved and zero. */
+    for (ByteIndex = 512UL; ByteIndex < BlockLength; ++ByteIndex) {
+        if (Mbr[ByteIndex] != 0) {
+            return FALSE;
+        }
+    }
+    return TRUE;
 }
 
 static VOID
 B2LUfsBuildProtectiveMbr(
-    _Inout_updates_bytes_(512) UCHAR *Mbr,
+    _Out_writes_bytes_(BlockLength) UCHAR *Mbr,
+    _In_ ULONG BlockLength,
     _In_ ULONGLONG LastLba)
 {
     UCHAR *Entry;
     ULONG Sectors;
 
-    B2LUfsZeroMemory(
-        Mbr + B2LUFS_MBR_PARTITION_TABLE_OFFSET,
-        B2LUFS_MBR_PARTITION_ENTRY_BYTES * B2LUFS_MBR_PARTITION_COUNT);
+    /* Produce the exact UEFI PMBR, including the 4Kn reserved tail. */
+    B2LUfsZeroMemory(Mbr, BlockLength);
     Entry = Mbr + B2LUFS_MBR_PARTITION_TABLE_OFFSET;
     /* Conventional CHS sentinels; Windows uses the following LBA fields. */
     Entry[1] = 0x00U;
@@ -2089,20 +2117,46 @@ B2LUfsNormalizeWindowsGptRead(
     _Inout_updates_bytes_(ReturnedLength) PVOID Buffer,
     _In_ ULONG ReturnedLength)
 {
-    if (!Adapter->MediaNormalizeProtectiveMbr ||
-        Buffer == NULL || !B2LUfsIsBlockRead(Cdb[0]) ||
-        B2LUfsCdbStartLba(Cdb) != 0 ||
-        ReturnedLength < Adapter->CapacityBlockLength ||
-        Adapter->CapacityBlockLength < 512UL) {
+    UCHAR *Bytes;
+    ULONGLONG StartLba;
+    ULONG BlockLength;
+    ULONG GptOffset;
+
+    if (!Adapter->MediaProbeGptHeaderValid ||
+        !Adapter->MediaProbeGptEntriesValid || Buffer == NULL ||
+        !B2LUfsIsBlockRead(Cdb[0])) {
         return;
+    }
+    StartLba = B2LUfsCdbStartLba(Cdb);
+    BlockLength = Adapter->CapacityBlockLength;
+    if (BlockLength < 512UL || ReturnedLength < BlockLength) {
+        return;
+    }
+    Bytes = (UCHAR *)Buffer;
+
+    /*
+     * Samsung's media remains untouched. Present partmgr with a fully
+     * canonical 4Kn PMBR even if firmware tolerated nonzero reserved bytes.
+     */
+    if (StartLba == 0) {
+        B2LUfsBuildProtectiveMbr(
+            Bytes, BlockLength, Adapter->CapacityLastLba);
     }
 
     /*
-     * Samsung's media remains untouched.  Only a standards-valid GPT whose
-     * sole incompatibility is its PMBR is presented to partmgr with the one
-     * 0xEE entry required by Windows.  Subsequent writes still reach UFS.
+     * UEFI also requires the unused part of the GPT header logical block to
+     * be zero. A request may contain LBA 0 and 1 together or start at LBA 1.
+     * HeaderSize itself and its CRC-covered bytes are never changed.
      */
-    B2LUfsBuildProtectiveMbr((UCHAR *)Buffer, Adapter->CapacityLastLba);
+    if (StartLba <= 1ULL &&
+        ReturnedLength >= (ULONG)((2ULL - StartLba) * BlockLength) &&
+        Adapter->MediaProbeGptHeaderSize >= B2LUFS_GPT_HEADER_MIN_BYTES &&
+        Adapter->MediaProbeGptHeaderSize <= BlockLength) {
+        GptOffset = (ULONG)((1ULL - StartLba) * BlockLength);
+        B2LUfsZeroMemory(
+            Bytes + GptOffset + Adapter->MediaProbeGptHeaderSize,
+            BlockLength - Adapter->MediaProbeGptHeaderSize);
+    }
 }
 
 VOID
@@ -2173,7 +2227,8 @@ B2LUfsProbeMediaHeaders(
     Adapter->MediaProbeMbrSignature =
         Media[510] == 0x55U && Media[511] == 0xAAU;
     Adapter->MediaProbeProtectiveMbrValid =
-        B2LUfsProtectiveMbrIsValid(Media, Adapter->CapacityLastLba);
+        B2LUfsProtectiveMbrIsValid(
+            Media, BlockLength, Adapter->CapacityLastLba);
 
     Result = B2LUfsProbeRead10(
         DeviceExtension, Adapter, 1, 1, &ScsiStatus, &ReturnedLength);
@@ -2268,9 +2323,9 @@ B2LUfsProbeMediaHeaders(
     Adapter->MediaProbeGptEntriesValid =
         Adapter->MediaProbeGptEntriesCrcCalculated ==
         Adapter->MediaProbeGptEntriesCrc;
+    /* Always give Windows the same canonical 4Kn PMBR projection. */
     Adapter->MediaNormalizeProtectiveMbr =
-        Adapter->MediaProbeGptEntriesValid &&
-        !Adapter->MediaProbeProtectiveMbrValid;
+        Adapter->MediaProbeGptEntriesValid;
 }
 
 /*
