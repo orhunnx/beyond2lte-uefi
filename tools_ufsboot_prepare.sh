@@ -83,8 +83,9 @@ ensure_hive_child_key() {
 
   # hivexregedit hedef anahtari olusturabilir, ancak eksik bir ara ebeveyni
   # olusturamaz. Yeni Windows 11 WinPE hive'larinda CriticalDeviceDatabase
-  # bulunmadigi icin onu merge'den once acikca ekle.
-  printf 'cd \\%s\nadd %s\n' "$parent" "$child" \
+  # bulunmadigi icin onu merge'den once acikca ekle. hivexsh -w tek basina
+  # yeterli degildir; commit olmazsa add kabuk kapanirken geri alinir.
+  printf 'cd \\%s\nadd %s\ncommit\n' "$parent" "$child" \
     | hivexsh -w "$hive" >/dev/null
 
   children="$(printf 'cd \\%s\nls\n' "$parent" \
