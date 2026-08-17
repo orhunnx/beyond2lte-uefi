@@ -37,7 +37,7 @@ fi
   exit 1
 }
 
-for tool in 7z clang cmd.exe cmp file hivexget hivexregedit hivexsh img2simg \
+for tool in 7z base64 clang cmd.exe cmp file hivexget hivexregedit hivexsh img2simg \
   lld-link llvm-dlltool mcopy mdir mkfs.vfat mkntfs mmd ntfsls openssl \
   osslsigncode powershell.exe readlink sed sha1sum sha256sum stat tar tr \
   wimlib-imagex wslpath; do
@@ -57,10 +57,20 @@ if [[ ! -s "$SYS" ]]; then
 fi
 
 prepare_disk_bcd() {
-  local expected_size actual_size ready_text
+  local expected_size actual_size ready_text desktop_b64
 
-  WIN_DESKTOP_WIN="$(powershell.exe -NoProfile -NonInteractive -Command \
-    '[Environment]::GetFolderPath("Desktop")' 2>/dev/null | tr -d '\r' || true)"
+  # Windows PowerShell 5.1 konsol ciktisini OEM kod sayfasinda verebilir;
+  # Masaustu gibi Turkce yollar WSL borusunda Masa�st� olarak bozulur. Yolu
+  # PowerShell tarafinda UTF-8 baytlarina, sonra ASCII Base64'e cevir. WSL
+  # yalniz ASCII tasir ve asil Unicode yolu burada geri acar.
+  desktop_b64="$(powershell.exe -NoProfile -NonInteractive -Command \
+    '[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([Environment]::GetFolderPath("Desktop")))' \
+    2>/dev/null | tr -d '\r\n' || true)"
+  if [[ -z "$desktop_b64" || ! "$desktop_b64" =~ ^[A-Za-z0-9+/]+={0,2}$ ]]; then
+    echo "HATA: Windows Masaustu yolu PowerShell'den okunamadi." >&2
+    return 1
+  fi
+  WIN_DESKTOP_WIN="$(printf '%s' "$desktop_b64" | base64 --decode 2>/dev/null || true)"
   WIN_DESKTOP_WSL="$(wslpath -u "$WIN_DESKTOP_WIN" 2>/dev/null || true)"
   if [[ -z "$WIN_DESKTOP_WIN" || ! -d "$WIN_DESKTOP_WSL" || ! -w "$WIN_DESKTOP_WSL" ]]; then
     echo "HATA: Windows Masaustu dizini WSL'den kullanilamiyor: ${WIN_DESKTOP_WIN:-OKUNAMADI}" >&2

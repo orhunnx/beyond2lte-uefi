@@ -76,6 +76,8 @@ Yönetici Komut İstemi'nde ekranda gösterilen klasöre geçip
 `B2L_BCD_DISK_OLUSTUR.cmd` çalıştırılır. Batch'in başarılı işareti, `disk`
 varyantı, dosya boyutu ve BCD'nin `regf` başlığı doğrulandıktan sonra akış
 devam eder. Böylece `bcdedit` hatasının tamamı açık CMD penceresinde kalır.
+PowerShell'in OEM konsol kodlaması `Masaüstü` gibi yolları bozmasın diye bilinen
+Masaüstü yolu UTF-8 Base64 olarak WSL'ye taşınır ve orada geri açılır.
 Test-imzalı B2LUFS için `testsigning=Yes` zorunludur. İmzasız sürücü
 kullanılmadığından `nointegritychecks` yazılmaz; bu ayar Secure Boot açık
 derleme bilgisayarlarında BCDEdit tarafından reddedilebilir.

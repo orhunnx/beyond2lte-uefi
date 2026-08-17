@@ -60,7 +60,8 @@ if grep -Fq 'for cs in ControlSet001 ControlSet002' "$PREPARE"; then
   exit 1
 fi
 
-grep -Fq "'[Environment]::GetFolderPath(\"Desktop\")'" "$ORCHESTRATOR"
+grep -Fq '[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([Environment]::GetFolderPath("Desktop")))' "$ORCHESTRATOR"
+grep -Fq 'base64 --decode' "$ORCHESTRATOR"
 grep -Fq 'B2L-UFS-BCD' "$ORCHESTRATOR"
 grep -Fq 'B2L_BCD_STAGE_VERSION=1' "$ORCHESTRATOR"
 grep -Fq 'B2L_BCD_VARIANT=disk' "$ORCHESTRATOR"
@@ -108,5 +109,12 @@ grep -Fq 'disk-boot CACHE imajina sources/ sizmis' "$CACHE_ESP"
 grep -Fq 'ACPI\BYND9820' "$UFS_INF"
 grep -Fq 'Name (_CID, "BYND9820")' "$UFS_DSDT"
 grep -Fq 'CriticalDeviceDatabase\ACPI#BYND9820' "$REG"
+
+unicode_desktop_b64='QzpcVXNlcnNcb3JodW5cT25lRHJpdmVcTWFzYcO8c3TDvA=='
+unicode_desktop="$(printf '%s' "$unicode_desktop_b64" | base64 --decode)"
+[[ "$unicode_desktop" == 'C:\Users\orhun\OneDrive\Masaüstü' ]] || {
+  echo "HATA: Unicode Windows Masaustu yolu UTF-8 olarak geri acilamadi." >&2
+  exit 1
+}
 
 echo "UFS boot script regresyon testleri BASARILI."

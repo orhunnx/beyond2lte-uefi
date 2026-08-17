@@ -58,6 +58,9 @@ başarısız `bcdedit` komutu kapanmayan CMD penceresinde görünür.
 Test-imzalı B2LUFS için zorunlu BCD ayarı `testsigning=Yes` olarak kalır.
 `nointegritychecks` gerekli değildir ve Secure Boot açık derleme bilgisayarında
 BCDEdit tarafından reddedilebildiği için artık BCD üretimini engellemez.
+Windows PowerShell 5.1'in OEM konsol kodlaması Türkçe Masaüstü yollarını WSL'ye
+aktarırken bozabildiğinden, bilinen klasör yolu PowerShell'de UTF-8 Base64'e
+çevrilip WSL'de geri açılır; `Masaüstü` dahil Unicode yollar kayıpsız korunur.
 
 ## 17 Ağustos 2026 — Windows UFS okuma/yazma kilometre taşı
 
