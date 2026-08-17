@@ -71,9 +71,11 @@ check_hive_value() {
 
 verify() {
   extract_for_check
-  local image_sys="$WORK/check/Windows/System32/drivers/b2lufs.sys"
-  local hive="$WORK/check/Windows/System32/config/SYSTEM"
-  local marker="$WORK/check/Windows/B2LUFS/boot-critical.txt"
+  # wimlib tekil dosya cikarmalarinda WIM icindeki ust dizinleri korumaz;
+  # dosyalari dogrudan --dest-dir altina kendi adlariyla yerlestirir.
+  local image_sys="$WORK/check/b2lufs.sys"
+  local hive="$WORK/check/SYSTEM"
+  local marker="$WORK/check/boot-critical.txt"
   local expected actual
   expected="$(sha256sum "$SYS" | awk '{print $1}')"
   actual="$(sha256sum "$image_sys" | awk '{print $1}')"
@@ -108,7 +110,7 @@ echo "==> WIM SYSTEM hive cikariliyor"
 mkdir -p "$WORK/edit"
 wimlib-imagex extract "$WIM" 1 /Windows/System32/config/SYSTEM \
   --dest-dir="$WORK/edit" --no-acls >/dev/null
-HIVE="$WORK/edit/Windows/System32/config/SYSTEM"
+HIVE="$WORK/edit/SYSTEM"
 
 echo "==> B2LUFS boot-critical servis ve CriticalDeviceDatabase kayitlari ekleniyor"
 hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$HIVE" "$REG"
