@@ -108,8 +108,7 @@ static UCHAR B2LUFS_REG_MEDIA_LBA1[] = "MediaProbeLba1";
 typedef enum B2LUFS_FIND_FAILURE {
     B2LUfsFindFailureRangeCount = 1,
     B2LUfsFindFailureMap = 2,
-    B2LUfsFindFailureResourceContract = 3,
-    B2LUfsFindFailureTimer = 4
+    B2LUfsFindFailureResourceContract = 3
 } B2LUFS_FIND_FAILURE;
 
 typedef struct B2LUFS_FIND_FAILURE_DATA {
@@ -428,29 +427,13 @@ B2LUfsFindAdapter(
     }
 
     /*
-     * Unlike RequestTimerCall's implicit timer, this object has observable
-     * creation and scheduling results.  Microsoft recommends allocating an
-     * explicit StorPort timer in HwFindAdapter so its resources are known to
-     * be available before adapter initialization completes.
+     * The timer is only an optional runtime re-scan fallback. Boot media
+     * readiness must never depend on it: Microsoft requires a boot drive to
+     * be accessible before HwStorInitialize returns.
      */
     if (!Adapter->DumpMode && Adapter->BusScanTimer == NULL) {
         Adapter->BusScanTimerInitializeStatus =
             StorPortInitializeTimer(DeviceExtension, &Adapter->BusScanTimer);
-    }
-    if (!Adapter->DumpMode &&
-        (Adapter->BusScanTimerInitializeStatus != STOR_STATUS_SUCCESS ||
-         Adapter->BusScanTimer == NULL)) {
-        B2LUfsLogFindFailure(
-            DeviceExtension,
-            DumpMode,
-            B2LUfsFindFailureTimer,
-            MAXULONG,
-            ConfigInfo,
-            0,
-            0);
-        B2LUfsReleaseGivenResources(DeviceExtension, Given);
-        B2LUfsZeroMemory(&Adapter->Resources, sizeof(Adapter->Resources));
-        return SP_RETURN_ERROR;
     }
     Adapter->Signature = B2LUFS_ADAPTER_SIGNATURE;
     Adapter->AdapterRemoved = FALSE;
@@ -466,7 +449,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 25;
+    ULONG SchemaVersion = 26;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -793,30 +776,10 @@ B2LUfsPassiveInitialize(_In_ PVOID DeviceExtension)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
 
-    /* Time-consuming polled discovery belongs at PASSIVE_LEVEL, not DIRQL. */
-    B2LUfsProbeLun0Capacity(DeviceExtension, Adapter);
-    B2LUfsProbeLuns(DeviceExtension, Adapter);
-    B2LUfsProbeMediaHeaders(DeviceExtension, Adapter);
-
     /*
-     * The first automatic StorPort scan can overlap this PASSIVE callback.
-     * Until now it could create disk.sys/partmgr before the normalized GPT
-     * snapshot existed. partmgr then cached the protective 0xEE entry as one
-     * 119-GB MBR partition even though later PhysicalDrive reads returned a
-     * valid GPT. Publish every snapshot field before opening enumeration.
-     */
-    KeMemoryBarrier();
-    Adapter->EnumerationReady =
-        Adapter->CapacityValid &&
-        Adapter->MediaWindowsGptSnapshotValid &&
-        Adapter->MediaWindowsGptSelfCheckValid;
-    KeMemoryBarrier();
-
-    /*
-     * This callback runs after HwInitialize, but it is still part of the
-     * StorPort initialization sequence.  Defer the actual bus change until
-     * StorPort has completed its adapter-control capability query and made
-     * the demand-started adapter available for normal SRB processing.
+     * Boot-critical capacity/GPT discovery completed synchronously before
+     * HwInitialize returned. This callback is deliberately nonessential:
+     * it only schedules a redundant runtime re-scan and publishes telemetry.
      */
     if (Adapter->BusScanTimer != NULL &&
         Adapter->BusScanTimerInitializeStatus == STOR_STATUS_SUCCESS) {
@@ -863,7 +826,7 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
 
-    /* Normal discovery stays closed throughout transport takeover. */
+    /* Normal discovery stays closed throughout transport takeover/probing. */
     if (!Adapter->DumpMode) {
         Adapter->EnumerationReady = FALSE;
     }
@@ -878,9 +841,39 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
         return TRUE;
     }
 
-    /* The diagnostic registry key is written only from PASSIVE_LEVEL. */
-    return StorPortEnablePassiveInitialization(
+    /*
+     * BOOT-DRIVE CONTRACT
+     * -------------------
+     * Microsoft requires a StorPort miniport that owns the boot drive to
+     * make that drive accessible before HwStorInitialize returns. The old
+     * path performed these probes later from PASSIVE_LEVEL, rejected the
+     * initial discovery SRBs as NO_DEVICE, then waited 500 ms for a rescan.
+     * That works after RAM-WinPE is already running, but the kernel cannot
+     * mount the UFS SYSTEM volume while booting from that same device.
+     *
+     * All commands below are bounded, polled, nonpageable UTP operations over
+     * common DMA allocated in FindAdapter. No registry or pageable API is
+     * used at DIRQL. Publish the immutable capacity/GPT view atomically before
+     * StorPort is allowed to issue its first discovery request.
+     */
+    B2LUfsProbeLun0Capacity(DeviceExtension, Adapter);
+    B2LUfsProbeLuns(DeviceExtension, Adapter);
+    B2LUfsProbeMediaHeaders(DeviceExtension, Adapter);
+    KeMemoryBarrier();
+    Adapter->EnumerationReady =
+        Adapter->CapacityValid &&
+        Adapter->MediaWindowsGptSnapshotValid &&
+        Adapter->MediaWindowsGptSelfCheckValid &&
+        Adapter->MediaWindowsSystemEntryFound;
+    KeMemoryBarrier();
+    if (!Adapter->EnumerationReady) {
+        return FALSE;
+    }
+
+    /* Registry/timer diagnostics are optional and never gate boot I/O. */
+    (void)StorPortEnablePassiveInitialization(
         DeviceExtension, B2LUfsPassiveInitialize);
+    return TRUE;
 }
 
 static HW_STARTIO B2LUfsStartIo;

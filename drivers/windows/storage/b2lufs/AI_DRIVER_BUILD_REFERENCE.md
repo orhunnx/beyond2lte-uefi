@@ -375,7 +375,8 @@ PnP tarafından sağlanan `PORT_CONFIGURATION_INFORMATION` ve
 4. Adapter ve SRB extension yapılarını hazırlar.
 5. Klasik SRB/BTL8, tek bus, target ve queue sınırlarını ayarlar.
 6. Common DMA taşıma alanını ayırır.
-7. Gecikmeli bus scan için StorPort timer nesnesini oluşturur.
+7. İsteğe bağlı çalışma-zamanı yeniden taraması için StorPort timer nesnesi
+   oluşturmaya çalışır; timer yokluğu boot başlangıcını engellemez.
 
 Kaynak eşlemesi başarısızsa o ana kadar alınmış StorPort mapping'leri geri
 bırakılır.
@@ -383,23 +384,22 @@ bırakılır.
 #### `B2LUfsInitialize` ve passive init
 
 `HwInitialize` bağlamındaki `B2LUfsInitialize()` taşıma katmanını başlatır.
-Başlangıçta PASSIVE_LEVEL gereken prob ve registry işleri
-`StorPortEnablePassiveInitialization` ile `B2LUfsPassiveInitialize()` içine
-aktarılır.
-
-Passive init sırası:
+Boot diskini yöneten StorPort miniportu aygıtı bu callback dönmeden erişilebilir
+yapmak zorundadır. Bu nedenle bounded/polled ve nonpageable common-DMA probları
+aynı callback içinde çalışır:
 
 1. LUN 0 kapasite probu.
 2. REPORT LUNS probu.
-3. Medya/GPT header probu.
-4. Kapasite, Windows GPT snapshot ve snapshot self-check geçerliyse normal
-   LUN keşif kapısının açılması.
-5. StorPort timer'ın bus scan bildirimi için planlanması.
-6. Registry telemetrisinin yayımlanması.
+3. Medya/GPT header ve entry probu.
+4. Windows GPT snapshot self-check'i ve SYSTEM eşleşmesi.
+5. Bütün boot-medya koşulları geçerliyse `EnumerationReady=1`.
 
-Kapı açılmadan gelen normal SCSI keşif istekleri aygıt yok durumuyla
-tamamlanır; dump stack bu kapıdan muaftır. Timer callback'i yalnız kapı
-açıldıktan sonra `BusChangeDetected` bildirimi üretir. Timer, remove yaşam
+`B2LUfsPassiveInitialize()` medya I/O'su yapmaz. Yalnız registry telemetrisini
+yayımlar ve mevcutsa timer'ı isteğe bağlı bus scan bildirimi için planlar.
+`StorPortEnablePassiveInitialization` veya timer başarısı boot I/O'yu
+belirlemez. Savunma kapısı hazır olmayan normal SCSI isteklerini aygıt yok
+durumuyla tamamlar; normal boot yolunda bu durum `HwInitialize` başarılı
+döndükten sonra oluşamaz. Dump stack kapıdan muaftır. Timer, remove yaşam
 döngüsünde iptal edilip bırakılır.
 
 #### `B2LUfsBuildIo`

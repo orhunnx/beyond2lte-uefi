@@ -1909,3 +1909,37 @@ korunmuştur. `ScsiUnitUsage` paging/hibernation/dump bildirimlerini kabul eder;
 ilan edilmeyen `ScsiUnitPower` yerine gelen `SRB_FUNCTION_POWER` ise gerçek
 UTRL stop/restart işini takip eden adapter-control callback'lerine bırakarak
 başarıyla tamamlanır.
+
+---
+
+## 15. B2LUFS 0.0.7.0 — boot aygıtı HwInitialize dönmeden hazır
+
+18 Ağustos disk-boot turunda DriverStore kurulumu, boot-critical SYSTEM hive,
+SYS hash'i, NTFS 4Kn geometrisi ve SYSTEM/CACHE paketi tamamen doğrulandığı
+halde yine `INACCESSIBLE_BOOT_DEVICE` görüldü. Aynı miniport RAM-WinPE içinde
+Disk 0, GPT, CACHE yazma ve geri okumayı daha önce geçti. Bu karşılaştırma
+paketleme ve veri taşımasını değil, boot ile runtime arasındaki yaşam döngüsü
+farkını izole etti.
+
+`0.0.2.7` döneminde disk PDO'sunu geri getiren 500 ms timer çözümü runtime için
+doğru, boot diski için yanlıştı. Eski `HwInitialize` taşıma katmanını başlatıp
+`EnumerationReady=0` ile dönüyor; kapasite/GPT problarını PASSIVE callback'e
+bırakıyor; o aralıkta gelen ilk keşif SRB'lerini `NO_DEVICE` ile kapatıyordu.
+Timer daha sonra `BusChangeDetected` gönderince RAM-WinPE diski bulabiliyordu.
+Fakat Microsoft'un boot-drive miniport kısıtı, boot aygıtının
+`HwStorInitialize` dönmeden erişilebilir olmasını zorunlu tutar. Kernel SYSTEM
+volume'unu timer/PASSIVE zincirinden önce istediği için bu tasarım doğrudan
+`INACCESSIBLE_BOOT_DEVICE` üretiyordu.
+
+`0.0.7.0` şu sırayı `HwInitialize` içinde tamamlar:
+
+1. Canlı firmware UFS linkini tek UTRD/common-DMA yoluna devral.
+2. READ CAPACITY ve REPORT LUNS problarını tamamla.
+3. PMBR, GPT header/entries, CRC ve Windows snapshot self-check'ini tamamla.
+4. `SYSTEM` GPT adının Basic Data görünümüne çevrildiğini doğrula.
+5. Ancak bütün koşullar geçerliyse `EnumerationReady=1` yapıp TRUE dön.
+
+PASSIVE callback artık medya komutu göndermez; yalnız registry telemetrisi ve
+varsa isteğe bağlı 500 ms yedek tarama üretir. Timer oluşturulamaması veya
+PASSIVE callback'in etkinleştirilememesi boot I/O'yu başarısız yapmaz. Kaynak
+sırası `tests/test_ufsboot_scripts.sh` içinde regresyon kapısıyla korunur.

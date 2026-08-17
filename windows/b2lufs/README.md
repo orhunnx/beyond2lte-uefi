@@ -208,34 +208,30 @@ olarak Windows'un ürettiği ham LocationPaths değerini görünür kılar.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
 `InIoSpace` parametresi için terslenir. Kısmi/uyuşmayan kaynak dizisi hemen
-geri bırakılır. `HwInitialize`, canlı HCE ve boş UTRL scheduler'ını
-doğrulayıp tek DMA slotunu bağlar; başlangıç kapasite/LUN
-probları `PASSIVE_LEVEL` callback'ine bırakılır. Microsoft'un
+geri bırakılır. `HwInitialize`, canlı HCE ve boş UTRL scheduler'ını doğrulayıp
+tek DMA slotunu bağlar. Ardından kapasite, REPORT LUNS ve GPT snapshot
+problarını aynı eşzamanlı, polled common-DMA yolunda tamamlar. Microsoft'un
 [StorPort yaşam döngüsü](https://learn.microsoft.com/en-us/windows-hardware/drivers/storage/life-cycle-of-a-storport-driver)
 `HwFindAdapter -> HwInitialize -> HwAdapterControl(QuerySupported) -> I/O`
-sırasındadır. Bu nedenle başlangıç callback'leri içinden doğrudan bus taraması
-istenmez. `HwFindAdapter`, sonucu denetlenebilen açık bir StorPort timer
-nesnesini `StorPortInitializeTimer` ile oluşturur. PASSIVE probundan sonra
-`StorPortRequestTimer` bunu 500 ms'ye kurar; timer çalışınca bus 0 için tek
-`BusChangeDetected` gönderilir. Operational kanaldaki `BLT1`
-kaydı timer'ın gerçekten çalıştığını, içindeki `TransportReady=1` ise UFS
-taşımasının tarama öncesinde hazır olduğunu gösterir. Normal çalışma
-yığınında otomatik ilk LUN taraması, kapasite ile Windows GPT snapshot ve
-self-check sonuçları hazır olana kadar `SRB_STATUS_NO_DEVICE` ile kapalı
-tutulur. PASSIVE probu bütün snapshot alanlarını yayımladıktan sonra
-`EnumerationReady=1` olur; gecikmeli `BusChangeDetected` böylece disk PDO'yu
-ilk başarılı okumadan itibaren tek ve CRC-tutarlı GPT görünümüyle oluşturur.
-`EnumerationGateRejectCount`, bu başlangıç penceresinde reddedilen keşif
-isteklerini sayar. Bildirim PDO oluşturma sözleşmesinin yerine geçmez.
-StorPort, ilan edilmiş
-BTL8 yolunda `HwBuildIo`/`HwUnitControl` sözleşmesi üzerinden LUN 0 için
-standart PnP ve ardından SCSI keşfini yürütür. Timer'ın oluşturma ve planlama
-durumları `BusScanTimerInitializeStatus`/`BusScanTimerRequestStatus` olarak
-tanıya yazılır; PnP remove sırasında bekleyen istek iptal edilip nesne
-`StorPortFreeTimer` ile bırakılır. StorAHCI örneğiyle aynı şekilde dump
-stack'te timer/PASSIVE tanı yolu kurulmaz. Zorunlu adapter-control çağrıları
-Microsoft'un istediği gibi daima `ScsiAdapterControlSuccess` döndürür; gerçek
-taşıma durumu ayrıca `TransportReady` ile korunur.
+sırasındadır. Boot diskini yöneten miniport için ek kısıt, boot aygıtının
+`HwInitialize` dönmeden erişilebilir olmasıdır. Bu yüzden kapasite, GPT
+self-check ve `SYSTEM` eşleşmesi tamamlanmadan initialization başarılı dönmez;
+ilk otomatik LUN taraması doğrudan `EnumerationReady=1` görür.
+
+`HwFindAdapter`, yalnız çalışma-zamanı yedek taraması için açık bir StorPort
+timer nesnesi oluşturmaya çalışır. Timer yokluğu adapter başlangıcını başarısız
+yapmaz. PASSIVE callback medya komutu göndermez; yalnız registry telemetrisi
+yayımlar ve timer kullanılabiliyorsa 500 ms sonra bus 0 için isteğe bağlı
+`BusChangeDetected` gönderir. Operational kanaldaki `BLT1` bu yedek taramayı
+tanılar, fakat boot erişiminin ön koşulu değildir. StorPort, ilan edilmiş BTL8
+yolunda `HwBuildIo`/`HwUnitControl` sözleşmesi üzerinden LUN 0 için standart
+PnP ve ardından SCSI keşfini yürütür. Timer'ın oluşturma ve planlama durumları
+`BusScanTimerInitializeStatus`/`BusScanTimerRequestStatus` olarak tanıya
+yazılır; PnP remove sırasında bekleyen istek iptal edilip nesne
+`StorPortFreeTimer` ile bırakılır. Dump stack'te timer/PASSIVE tanı yolu
+kurulmaz. Zorunlu adapter-control çağrıları Microsoft'un istediği gibi daima
+`ScsiAdapterControlSuccess` döndürür; gerçek taşıma durumu ayrıca
+`TransportReady` ile korunur.
 
 `ScatterGather`, `Master`, `NeedPhysicalAddresses`, `TaggedQueuing`,
 `AutoRequestSense` ve `MultipleRequestPerLu` alanları StorPort tarafından
@@ -313,12 +309,12 @@ ilk 64 baytlar aynı boot'ta konsola basılır. Dört okuma da başarılıysa ar
 isteği medyadaki GPT baytlarını değiştirmez. Araç WIM'de manuel tanı için
 bulunur; sade otomatik CACHE yazma testi tarafından çağrılmaz.
 
-StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
-ve `BLT1`, ardından `BLC3 Outcome=5, CompletionPhase=2`, normal `BLS2`
-INQUIRY/READ CAPACITY kayıtları beklenir.
-`BLT1` var fakat `BLS2` yoksa timer/adapter yaşam döngüsü tamamlanmış olmasına
-rağmen StorPort tarama üretmemiştir; `BLT1` de yoksa sorun timer'ın
-planlanmasından önceki miniport başlatma aşamasındadır.
+StorPort Operational çıktısında normal `BLS2` INQUIRY/READ CAPACITY kayıtları
+timer'dan bağımsız oluşmalıdır. İsteğe bağlı 500 ms yeniden taraması çalışırsa
+ayrıca `B2LUFS deferred bus scan timer fired` ve `BLT1` görülür; `BLT1`
+boot-medya hazırlığının kanıtı veya ön koşulu değildir. Registry yayımlandıysa
+`EnumerationReady=1`, `ReadCapacityValid=1`, GPT snapshot/self-check ve
+`MediaWindowsSystemEntryFound=1` aynı başlangıç sonucunu doğrular.
 
 `Code 10`/`FAILED_START`, HCE/link durumunun firmware'den canlı devralınamadığını
 veya transfer-list scheduler'ın boş olmadığını gösterir. İmza veya `pnputil`

@@ -32,6 +32,13 @@ gösterir: `SYSTEM` içeriği NTFS, `CACHE` içeriği FAT16'dır. Aksi halde win
 NTFS'ten çekirdeği okuyabilse bile kernel `SYSTEM` volume'unu tanımayıp
 `INACCESSIBLE_BOOT_DEVICE` ile durabilir.
 
+B2LUFS boot-start miniportu ayrıca kapasiteyi ve bu Windows GPT görünümünü
+`HwStorInitialize` dönmeden eşzamanlı olarak hazırlar. RAM-WinPE'de çalışan
+eski yol aynı işi PASSIVE callback ve 500 ms gecikmeli bus taramasına
+bırakıyordu; bu sırada ilk keşif istekleri `NO_DEVICE` dönüyordu. Normal
+çalışma ortamı diski sonradan bulabilir, fakat kernel aynı diskten açılırken
+kök volume'u bekleyemez. `0.0.7.0` ile PASSIVE/timer yolu yalnız tanıdır.
+
 ## Güvenlik sınırı
 
 Üretilen Odin paketi yalnız şu iki dosyayı içerir:
@@ -144,10 +151,10 @@ Windows'ta Odin ile:
 
 - Windows açılırsa boot-critical UFS zinciri çalışmıştır.
 - `INACCESSIBLE_BOOT_DEVICE` görülürse EFI/BCD aşaması geçilmiş, fakat boot
-  sırasında B2LUFS depolama zinciri kurulmamıştır. Eski pakette INF yalnız
-  `Windows\B2LUFS` altında bulunuyor, resmi offline DriverStore kurulumu
-  yapılmıyordu; yeni DISM kapısı bu bilinen eksikliği giderir. Aynı kod yeni
-  paketle tekrarlanırsa artık sürücünün çok daha erken yükleme/PnP davranışı
+  sırasında B2LUFS depolama zinciri kurulmamıştır. `0.0.7.0` öncesinde bu
+  sonuç gecikmeli PASSIVE/timer keşif yoluyla yeniden üretildi; güncel sürüm
+  boot aygıtını `HwInitialize` içinde hazırlar. Aynı kod yeni paketle
+  tekrarlanırsa artık sürücünün HBA devralma veya eşzamanlı medya probu
   ayrı bir tanı girdisidir.
 - Boot manager veya winload hatası, ekrandaki kodla BCD/dosya katmanına ayrılır.
 

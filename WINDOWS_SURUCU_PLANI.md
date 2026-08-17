@@ -15,17 +15,25 @@ görülen `INACCESSIBLE_BOOT_DEVICE` bu nedenle yeni bir Exynos taşıma sürüc
 yazmayı gerektiren kanıt değildir: EFI/BCD aşaması ve UFS veri yolu geçmiş,
 çekirdek açılış volume'unu devralma aşamasında kalmıştır.
 
-DriverStore kurulumu cihazda uygulandıktan sonra stop code değişmedi. İkinci
-fark sürücünün GPT görünümünde bulundu: runtime testinde kullanılan `CACHE`
-Microsoft Basic Data'ya çevriliyor, Windows'un bulunduğu `SYSTEM` ise
-Samsung/Android türünde kalıyordu. Windows yalnız Basic Data GPT bölümlerini
-normal volume olarak yayımladığı için winload'un NTFS'i okuyup çekirdeğe
-geçmesi, kernelin aynı boot volume'u yeniden bulacağını garanti etmiyordu.
+DriverStore ve SYSTEM Basic Data düzeltmeleri cihazda uygulandıktan sonra stop
+code değişmedi. Paketleme çıktısı aynı SYS'in üç katmanda da bulunduğunu
+kanıtladı. Kalan mimari fark, miniportun boot aygıtını başlangıçta gizlemesiydi:
+normal RAM-WinPE'de kapasite/GPT probları PASSIVE callback'te bitiyor ve 500 ms
+timer'ın bus taraması diski sonradan oluşturuyordu. Diskten boot ederken kernel
+kök volume'u bu callback/timer zincirinden önce istediği için ilk keşif
+SRB'leri `NO_DEVICE` ile dönüyordu.
+
+Microsoft'un boot-drive StorPort kısıtı boot aygıtının `HwStorInitialize`
+dönmeden erişilebilir olmasını zorunlu tutar. Güncel `0.0.7.0` bu nedenle
+kapasite, LUN ve GPT snapshot problarını eşzamanlı `HwInitialize` yoluna taşır;
+SYSTEM eşleşmesi dahil bütün boot-medya koşulları hazır olmadan TRUE dönmez.
+PASSIVE/timer yalnız telemetri ve yedek yeniden taramadır, boot için ön koşul
+değildir.
 
 Güncel sürücü ham telefon GPT'sine yazmadan, salt ve CRC-tutarlı Windows
 snapshot'ında hem `SYSTEM` hem `CACHE` girdilerini Basic Data yapıp attribute
 alanlarını temizler. SYSTEM imajı NTFS, CACHE imajı FAT16 olarak üretilir;
-SYSTEM BPB imzası ve 4Kn geometrisi ayrıca geri okunur. `SchemaVersion=25`
+SYSTEM BPB imzası ve 4Kn geometrisi ayrıca geri okunur. `SchemaVersion=26`
 iki girdinin bulunma durumunu ve indexini ayrı telemetri olarak yayımlar.
 
 Disk-boot akışı ayrıca INF/SYS/CAT paketini Windows DISM ile çevrimdışı

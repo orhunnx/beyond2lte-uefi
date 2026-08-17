@@ -2110,9 +2110,9 @@ B2LUfsRecoverProbeQueue(
     _In_ B2LUFS_TRANSFER_RESULT Result)
 {
     /*
-     * A timed-out polled command leaves UTRLDBR set.  If that diagnostic
-     * request is allowed to escape into the deferred BusChange, every normal
-     * StorPort SRB sees slot 0 busy and the disk PDO disappears.  Reset only
+     * A timed-out polled command leaves UTRLDBR set. If initialization were
+     * allowed to continue, every normal StorPort SRB would see slot 0 busy
+     * and the boot disk PDO would disappear. Reset only
      * the driver-owned UTP list; B2LUfsResetTransport deliberately preserves
      * HCE, UniPro, PHY and all media contents.
      */
@@ -2647,6 +2647,7 @@ B2LUfsProbeMediaHeaders(
     Adapter->MediaProbeGptEntriesCrcCalculated = 0;
     Adapter->MediaWindowsGptSnapshotValid = FALSE;
     Adapter->MediaWindowsCacheEntryFound = FALSE;
+    Adapter->MediaWindowsSystemEntryFound = FALSE;
     Adapter->MediaWindowsGptSelfCheckValid = FALSE;
     Adapter->MediaWindowsGptSnapshotReason =
         B2LUFS_GPT_SNAPSHOT_NOT_ATTEMPTED;
@@ -2656,6 +2657,7 @@ B2LUfsProbeMediaHeaders(
     Adapter->MediaWindowsGptEntryBlocks = 0;
     Adapter->MediaWindowsGptEntriesCrc = 0;
     Adapter->MediaWindowsCacheEntryIndex = MAXULONG;
+    Adapter->MediaWindowsSystemEntryIndex = MAXULONG;
     B2LUfsZeroMemory(Adapter->MediaProbeLba0,
                      sizeof(Adapter->MediaProbeLba0));
     B2LUfsZeroMemory(Adapter->MediaProbeLba1,
@@ -3187,11 +3189,11 @@ B2LUfsExecuteScsi(
     }
 
     /*
-     * Fail the overlapping initial StorPort scan as "not present" until the
-     * PASSIVE probe has atomically published the canonical GPT snapshot.
-     * The delayed BusChangeDetected notification performs the first
-     * successful enumeration.  This prevents disk.sys/partmgr from caching
-     * the raw protective MBR before normalized GPT reads are available.
+     * Defensive invariant: successful normal initialization publishes the
+     * capacity/GPT/SYSTEM snapshot before HwInitialize returns, so StorPort's
+     * first request cannot reach this branch. Refuse I/O if a later lifecycle
+     * regression ever exposes an uninitialized adapter rather than returning
+     * a raw Samsung GPT view to disk.sys/partmgr.
      */
     if (!Adapter->DumpMode && !Adapter->EnumerationReady) {
         Adapter->EnumerationGateRejectCount++;

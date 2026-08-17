@@ -1,6 +1,6 @@
 # beyond2lte UEFI — durum
 
-**Son güncelleme:** 17 Ağustos 2026 — SYSTEM Windows GPT görünümü Basic Data yapıldı.
+**Son güncelleme:** 18 Ağustos 2026 — boot medyası HwInitialize içinde eşzamanlı hazırlanıyor.
 
 ## Çalışan / çalışmayan
 
@@ -12,9 +12,43 @@
 | **Dahili depolama (UFS)** | **✅** | 5 LUN, DiskIO protokolü kurulu — `S5E9820Pkg/Library/PlatformUfsLib` yazıldı |
 | **Windows UFS (`b2lufs`)** | **✅** | Disk 0: 119 GB; 31 GPT bölüm ve CACHE FAT32 okuma/yazma doğrulandı |
 | USB | ❌ | Henüz sürücü yok |
-| Windows boot | 🟡 | SYSTEM artık Windows görünümünde Basic Data + NTFS; yeni SYS ile cihaz doğrulaması bekleniyor |
+| Windows boot | 🟡 | Boot aygıtı artık HwInitialize dönmeden hazır; B2LUFS 0.0.7.0 cihaz doğrulaması bekleniyor |
+
+## 18 Ağustos 2026 — gerçek boot farkı: gecikmeli StorPort keşfi
+
+DriverStore, boot-critical hive ve SYSTEM Basic Data düzeltmelerini içeren
+`0.0.6.0` paketi cihazda yine `INACCESSIBLE_BOOT_DEVICE` verdi. Paketleme
+çıktısı aynı SYS hash'inin DriverStore, `System32\drivers` ve NTFS SYSTEM
+imajına taşındığını doğruladığı için dağıtım/GPT tahminleri kapatıldı. Normal
+RAM-WinPE'de aynı miniportun Disk 0 üzerinde okuyup yazabilmesiyle diskten boot
+arasındaki gerçek kod-yolu farkı sürücünün kendi keşif kapısıydı.
+
+Eski `B2LUfsInitialize`, `EnumerationReady=0` ile dönüyor; ilk StorPort keşif
+SRB'lerini `SRB_STATUS_NO_DEVICE` yapıyor; kapasite, GPT snapshot ve SYSTEM
+eşleşmesini daha sonraki PASSIVE callback'te kurup 500 ms timer sonrasında
+`BusChangeDetected` gönderiyordu. Bu, işletim sistemi RAM diskten zaten
+çalışırken başarılıdır. Ancak Microsoft boot diskini yöneten miniportun boot
+aygıtını `HwStorInitialize` dönmeden erişilebilir yapmasını zorunlu tutar.
+Kernel kök volume'u ararken B2LUFS diski bilinçli olarak gizlediği için aynı
+runtime sürücüsü çalışmasına rağmen disk-boot `INACCESSIBLE_BOOT_DEVICE` ile
+duruyordu.
+
+`0.0.7.0` kapasite, REPORT LUNS ve CRC/self-check'li Windows GPT snapshot
+problarını başlangıçtaki tek-slot, polled common-DMA yoluyla doğrudan
+`HwInitialize` içinde tamamlar. `CapacityValid`, snapshot, self-check ve
+`MediaWindowsSystemEntryFound` hazır değilse initialization açıkça başarısız
+olur; hepsi hazırsa ilk keşif isteğinden önce `EnumerationReady=1` yayımlanır.
+PASSIVE callback artık yalnız registry telemetrisi ve isteğe bağlı yedek bus
+taramasıdır; callback/timer başarısı boot I/O'yu belirlemez. Şema sürümü 26'ya
+çıktı ve yaşam döngüsü kaynak-sırası regresyon testiyle korunuyor. Gerçek
+cihazda yeni sürüm henüz doğrulanmadı.
 
 ## 17 Ağustos 2026 — INACCESSIBLE_BOOT_DEVICE: SYSTEM GPT türü düzeltmesi
+
+Bu değişiklik Windows volume görünümündeki gerçek bir uyumsuzluğu kaldırdı;
+ancak `0.0.6.0` cihaz sonucu stop code'u değiştirmediği için disk-boot'un kök
+nedeninin GPT türü olmadığı sonradan doğrulandı. Asıl boot/runtime farkı
+yukarıdaki gecikmeli StorPort keşfiydi.
 
 Offline DriverStore kurulumu cihazda başarıyla uygulandığı halde çekirdek yine
 `INACCESSIBLE_BOOT_DEVICE` verdi. Bu, paketleme açığının gerçek olduğunu fakat

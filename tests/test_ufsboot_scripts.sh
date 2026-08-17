@@ -13,6 +13,7 @@ WINBOOT="$ROOT/tools_winboot.sh"
 CACHE_ESP="$ROOT/cache_esp.sh"
 UFS_INF="$ROOT/windows/b2lufs/b2lufs.inf.in"
 UFS_DSDT="$ROOT/silicium-acpi-overlay/SoCs/Samsung/S5E9820/DSDT_minimal.dsl"
+UFS_STORPORT="$ROOT/windows/b2lufs/b2lufs_storport.c"
 
 for script in \
   "$ROOT/tools_ufsboot.sh" \
@@ -149,6 +150,51 @@ grep -Fq 'disk-boot CACHE imajina sources/ sizmis' "$CACHE_ESP"
 grep -Fq 'ACPI\BYND9820' "$UFS_INF"
 grep -Fq 'Name (_CID, "BYND9820")' "$UFS_DSDT"
 grep -Fq 'CriticalDeviceDatabase\ACPI#BYND9820' "$REG"
+
+# Microsoft boot-drive StorPort sözleşmesi: boot aygıtı HwStorInitialize
+# dönmeden erişilebilir olmalıdır. Kapasite/GPT problarını PASSIVE callback'e
+# bırakmak ilk taramayı NO_DEVICE ile kapatır ve INACCESSIBLE_BOOT_DEVICE
+# üretir. PASSIVE yol yalnız telemetri ve isteğe bağlı yeniden tarama içindir.
+initialize_function="$(awk '
+  /^B2LUfsInitialize\(/ { in_function=1 }
+  in_function { print }
+  in_function && /^}/ { exit }
+' "$UFS_STORPORT")"
+passive_function="$(awk '
+  /^B2LUfsPassiveInitialize\(/ { in_function=1 }
+  in_function { print }
+  in_function && /^}/ { exit }
+' "$UFS_STORPORT")"
+for synchronous_probe in \
+  B2LUfsProbeLun0Capacity \
+  B2LUfsProbeLuns \
+  B2LUfsProbeMediaHeaders; do
+  grep -Fq "$synchronous_probe(DeviceExtension, Adapter);" \
+    <<<"$initialize_function" || {
+    echo "HATA: boot-kritik $synchronous_probe HwInitialize icinde degil." >&2
+    exit 1
+  }
+  if grep -Fq "$synchronous_probe(DeviceExtension, Adapter);" \
+      <<<"$passive_function"; then
+    echo "HATA: boot-kritik $synchronous_probe hala PASSIVE init'e bagli." >&2
+    exit 1
+  fi
+done
+grep -Fq 'if (!Adapter->EnumerationReady)' <<<"$initialize_function"
+grep -Fq 'Adapter->MediaWindowsSystemEntryFound;' <<<"$initialize_function"
+grep -Fq '(void)StorPortEnablePassiveInitialization(' <<<"$initialize_function"
+transport_start_line="$(grep -n 'B2LUfsStartTransport' <<<"$initialize_function" | head -n1 | cut -d: -f1)"
+capacity_probe_line="$(grep -n 'B2LUfsProbeLun0Capacity' <<<"$initialize_function" | cut -d: -f1)"
+media_probe_line="$(grep -n 'B2LUfsProbeMediaHeaders' <<<"$initialize_function" | cut -d: -f1)"
+ready_gate_line="$(grep -n 'if (!Adapter->EnumerationReady)' <<<"$initialize_function" | cut -d: -f1)"
+passive_enable_line="$(grep -n 'StorPortEnablePassiveInitialization' <<<"$initialize_function" | cut -d: -f1)"
+[[ "$transport_start_line" -lt "$capacity_probe_line" &&
+   "$capacity_probe_line" -lt "$media_probe_line" &&
+   "$media_probe_line" -lt "$ready_gate_line" &&
+   "$ready_gate_line" -lt "$passive_enable_line" ]] || {
+  echo "HATA: HwInitialize boot-medya hazirlik sirasi bozuldu." >&2
+  exit 1
+}
 
 unicode_desktop_b64='QzpcVXNlcnNcb3JodW5cT25lRHJpdmVcTWFzYcO8c3TDvA=='
 unicode_desktop="$(printf '%s' "$unicode_desktop_b64" | base64 --decode)"

@@ -16,10 +16,12 @@ görünümündeki birincil ve yedek başlıklar `HeaderSize=92`ye
 kanonikleştirilir, `92..4095` rezerv alan sıfırlanır, entries- ve
 header-CRC 92 bayt üzerinden yeniden hesaplanır; self-check aynı kanonik
 değerleri doğrular (b2lufs_transport.c: 2332–2346, 2431, 2494/2530/2574/2601).
-Bu revizyondan sonraki disk-boot paketi `DriverVer 0.0.6.0`,
-`SchemaVersion 25` taşır. CACHE'e ek olarak SYSTEM girdisi de salt Windows
+Bu revizyondan sonraki disk-boot paketi `DriverVer 0.0.7.0`,
+`SchemaVersion 26` taşır. CACHE'e ek olarak SYSTEM girdisi de salt Windows
 görünümünde Basic Data yapılır ve `MediaWindowsSystemEntryFound/Index` ile
-raporlanır. Aşağıdaki bölümler önceki GPT tanı sürecinin kaydıdır.
+raporlanır. Boot medyası artık PASSIVE/timer sonrasını beklemeden
+`HwInitialize` içinde hazırlanır. Aşağıdaki bölümler önceki GPT tanı sürecinin
+kaydıdır.
 
 ## 1. `Location Path : UNAVAILABLE` — kapatıldı, düzeltilmeyecek
 
