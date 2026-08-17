@@ -32,10 +32,12 @@ for tool in wimlib-imagex hivexget sha256sum; do
   }
 done
 if (( ! CHECK_ONLY )); then
-  command -v hivexregedit >/dev/null || {
-    echo "HATA: hivexregedit yok. WSL: sudo apt install -y libwin-hivex-perl" >&2
-    exit 1
-  }
+  for tool in hivexregedit hivexsh; do
+    command -v "$tool" >/dev/null || {
+      echo "HATA: $tool yok. WSL: sudo apt install -y libhivex-bin libwin-hivex-perl" >&2
+      exit 1
+    }
+  done
 fi
 
 [[ -s "$WIM" ]] || { echo "HATA: $WIM yok; once tools_winboot.sh calistir." >&2; exit 1; }
@@ -67,6 +69,30 @@ check_hive_value() {
     echo "HATA: hive dogrulamasi: $key/$value beklenen '$pattern', gelen '$got'" >&2
     return 1
   fi
+}
+
+ensure_hive_child_key() {
+  local hive="$1" parent="$2" child="$3"
+  local children
+
+  children="$(printf 'cd \\%s\nls\n' "$parent" \
+    | hivexsh "$hive" 2>/dev/null | tr -d '\r' || true)"
+  if grep -Fqx "$child" <<<"$children"; then
+    return 0
+  fi
+
+  # hivexregedit hedef anahtari olusturabilir, ancak eksik bir ara ebeveyni
+  # olusturamaz. Yeni Windows 11 WinPE hive'larinda CriticalDeviceDatabase
+  # bulunmadigi icin onu merge'den once acikca ekle.
+  printf 'cd \\%s\nadd %s\n' "$parent" "$child" \
+    | hivexsh -w "$hive" >/dev/null
+
+  children="$(printf 'cd \\%s\nls\n' "$parent" \
+    | hivexsh "$hive" 2>/dev/null | tr -d '\r' || true)"
+  grep -Fqx "$child" <<<"$children" || {
+    echo "HATA: hive anahtari olusturulamadi: $parent\\$child" >&2
+    return 1
+  }
 }
 
 verify() {
@@ -113,6 +139,9 @@ wimlib-imagex extract "$WIM" 1 /Windows/System32/config/SYSTEM \
 HIVE="$WORK/edit/SYSTEM"
 
 echo "==> B2LUFS boot-critical servis ve CriticalDeviceDatabase kayitlari ekleniyor"
+for cs in ControlSet001 ControlSet002; do
+  ensure_hive_child_key "$HIVE" "$cs\\Control" CriticalDeviceDatabase
+done
 hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$HIVE" "$REG"
 
 HASH="$(sha256sum "$SYS" | awk '{print $1}')"
