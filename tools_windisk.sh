@@ -51,6 +51,9 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WIM="$HERE/esp/sources/boot.wim"
+PIT="$HERE/BEYOND2LTE_EUR_OPEN.pit"
+# shellcheck source=tools_partition_geometry.sh
+source "$HERE/tools_partition_geometry.sh"
 OUT="$HERE/out"; mkdir -p "$OUT"
 GIB="${1:-4}"
 
@@ -64,6 +67,16 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 command -v wimlib-imagex >/dev/null || { echo "wimlib yok -> sudo apt install -y wimtools"; exit 1; }
 command -v mkntfs        >/dev/null || { echo "mkntfs yok -> sudo apt install -y ntfs-3g"; exit 1; }
 
+read -r SYSTEM_START_LBA SYSTEM_BLOCK_COUNT < <(
+  b2l_pit_partition_geometry "$PIT" SYSTEM
+)
+SYSTEM_IMAGE_BYTES=$((GIB * 1024 * 1024 * 1024))
+SYSTEM_IMAGE_BLOCKS="$(
+  b2l_validate_image_fits_partition \
+    "$SYSTEM_IMAGE_BYTES" "$SYSTEM_BLOCK_COUNT" SYSTEM
+)"
+echo "  SYSTEM PIT: baslangic LBA=$SYSTEM_START_LBA, bolum=$SYSTEM_BLOCK_COUNT blok, imaj=$SYSTEM_IMAGE_BLOCKS blok"
+
 say "B2LUFS boot-critical WIM onkosulu"
 bash "$HERE/tools_ufsboot_prepare.sh" --check
 
@@ -72,37 +85,37 @@ IMG="$OUT/system.img"
 say "NTFS imaji olusturuluyor (${GIB} GiB, 4096 bayt sektor)"
 rm -f "$IMG"
 dd if=/dev/zero of="$IMG" bs=1M count=$((GIB*1024)) status=none
+SYSTEM_CREATED_BLOCKS="$(
+  b2l_validate_image_fits_partition \
+    "$(stat -c%s "$IMG")" "$SYSTEM_BLOCK_COUNT" "SYSTEM (dd sonrasi)"
+)"
+[[ "$SYSTEM_CREATED_BLOCKS" == "$SYSTEM_IMAGE_BLOCKS" ]] || {
+  echo "HATA: SYSTEM imaj blok sayisi olusturma sirasinda degisti: beklenen=$SYSTEM_IMAGE_BLOCKS gercek=$SYSTEM_CREATED_BLOCKS" >&2
+  exit 1
+}
 #
 # -Q hizli bicimlendirme (kotu blok taramasi yok), -F dosyaya yazmayi zorla.
 # Sektor ve kume 4096: UFS mantiksal blok boyutuyla ayni olmali.
+# -p PIT'teki gercek bolum baslangicini NTFS BPB HiddenSectors alanina yazar.
+# -H/-S fiziksel UFS'te bulunmayan CHS icin Windows uyumlu LBA geometrisidir.
+# mkntfs bu uc alan olmadan uretilen birimin Windows'ta boot edemeyecegini
+# acikca bildirir; bu nedenle hicbir uyarisi filtrelenmez veya gizlenmez.
 #
-#
-# mkntfs "Windows will not be able to boot from this device" diye uyaracak.
-# ZARARSIZ: o uyari BPB'deki HiddenSectors ve CHS alanlarinin bos kalmasiyla
-# ilgili ve bunlar ESKI BIOS onyukleme kodu icin. UEFI'de bootmgr bolumu
-# UEFI blok G/C uzerinden aciyor ve kendi NTFS okuyucusuyla bolumun basindan
-# itibaren okuyor; o alanlara hic bakmiyor.
-#
-MKNTFS_LOG="$OUT/mkntfs-system.log"
-if ! mkntfs -Q -F -s 4096 -c 4096 -L WINPE "$IMG" >"$MKNTFS_LOG" 2>&1; then
-  cat "$MKNTFS_LOG" >&2
+if ! mkntfs -Q -F -s 4096 -c 4096 \
+    -H "$B2L_BPB_HEADS" \
+    -S "$B2L_BPB_SECTORS_PER_TRACK" \
+    -p "$SYSTEM_START_LBA" \
+    -L WINPE "$IMG"; then
   echo "HATA: NTFS imaji bicimlendirilemedi." >&2
   exit 1
 fi
-grep -vi "not a block device\|has been set to 0\|was not specified\|will not be able to boot\|forced anyway" "$MKNTFS_LOG" || true
-rm -f "$MKNTFS_LOG"
 NTFS_SIGNATURE="$(dd if="$IMG" bs=1 skip=3 count=8 status=none)"
-NTFS_SECTOR_BYTES="$(od -An -tu2 -j11 -N2 "$IMG" | tr -d ' ')"
-NTFS_SECTORS_PER_CLUSTER="$(od -An -tu1 -j13 -N1 "$IMG" | tr -d ' ')"
 [[ "$NTFS_SIGNATURE" == "NTFS    " ]] || {
   echo "HATA: SYSTEM imajinda NTFS BPB imzasi yok." >&2
   exit 1
 }
-[[ "$NTFS_SECTOR_BYTES" == "4096" && "$NTFS_SECTORS_PER_CLUSTER" == "1" ]] || {
-  echo "HATA: SYSTEM NTFS geometrisi 4096 bayt sektor/kume degil: sektor=$NTFS_SECTOR_BYTES kume-sektoru=$NTFS_SECTORS_PER_CLUSTER" >&2
-  exit 1
-}
-echo "  dogrulandi: SYSTEM NTFS, 4096 bayt sektor, 4096 bayt kume"
+b2l_validate_bpb_geometry "$IMG" "$SYSTEM_START_LBA" 1 "SYSTEM NTFS"
+echo "  SYSTEM NTFS boot geometrisi dogrulandi: 4096 bayt sektor/kume, hidden=$SYSTEM_START_LBA, CHS=$B2L_BPB_HEADS/$B2L_BPB_SECTORS_PER_TRACK"
 echo "  hazir: $(du -h "$IMG" | cut -f1)"
 
 say "boot.wim NTFS'e aciliyor"
@@ -121,6 +134,18 @@ if ! wimlib-imagex apply "$WIM" 1 "$IMG"; then
   exit 1
 fi
 
+# WIM uygulamasinin volume boot sektorunu degistirmedigini tekrar kanitla.
+b2l_validate_bpb_geometry "$IMG" "$SYSTEM_START_LBA" 1 "SYSTEM NTFS (WIM sonrasi)"
+SYSTEM_APPLIED_BLOCKS="$(
+  b2l_validate_image_fits_partition \
+    "$(stat -c%s "$IMG")" "$SYSTEM_BLOCK_COUNT" "SYSTEM (WIM sonrasi)"
+)"
+[[ "$SYSTEM_APPLIED_BLOCKS" == "$SYSTEM_IMAGE_BLOCKS" ]] || {
+  echo "HATA: WIM uygulamasi SYSTEM volume boyutunu degistirdi: beklenen=$SYSTEM_IMAGE_BLOCKS gercek=$SYSTEM_APPLIED_BLOCKS" >&2
+  exit 1
+}
+echo "  WIM sonrasi NTFS boot geometrisi ayni"
+
 #
 # ICERIK DOGRULAMA
 #
@@ -135,22 +160,22 @@ fi
 say "Icerik dogrulaniyor"
 if command -v ntfsls >/dev/null; then
   for d in /Windows/System32 /Windows/System32/config; do
-    N="$(ntfsls -p "$d" "$IMG" 2>/dev/null | wc -l)"
+    N="$(ntfsls -p "$d" "$IMG" | wc -l)"
     printf '  %-32s %s girdi\n' "$d" "$N"
   done
-  if ntfsls -p /Windows/System32/Boot "$IMG" 2>/dev/null | grep -qi '^winload\.efi$'; then
+  if ntfsls -p /Windows/System32/Boot "$IMG" | grep -qi '^winload\.efi$'; then
     echo "  + Windows/System32/Boot/winload.efi"
   else
     echo "  ! Windows/System32/Boot/winload.efi LISTEDE YOK"
     exit 1
   fi
-  if ntfsls -p /Windows/System32 "$IMG" 2>/dev/null | grep -qi '^ntoskrnl\.exe$'; then
+  if ntfsls -p /Windows/System32 "$IMG" | grep -qi '^ntoskrnl\.exe$'; then
     echo "  + Windows/System32/ntoskrnl.exe"
   else
     echo "  ! Windows/System32/ntoskrnl.exe LISTEDE YOK"
     exit 1
   fi
-  if ntfsls -p /Windows/System32/drivers "$IMG" 2>/dev/null | grep -qi '^b2lufs\.sys$'; then
+  if ntfsls -p /Windows/System32/drivers "$IMG" | grep -qi '^b2lufs\.sys$'; then
     echo "  + b2lufs.sys (boot-critical)"
   else
     echo "  HATA: b2lufs.sys SYSTEM imajinda yok."
@@ -198,7 +223,8 @@ yalniz bu iki bolumu iceren ufs-diskboot.tar dosyasini uretir.
 
 BEKLENEN OKUMA:
   Windows aciliyor            -> b2lufs BAGLI, depolama calisiyor
-  "Inaccessible boot device"  -> b2lufs baglanmiyor, ama ARTIK GORUNUR
+  "Inaccessible boot device"  -> kernel boot volume'u yeniden acamadi;
+                                  B2LUFS veya disk/volume/NTFS zinciri incelenir
   Baska bir 0xc0000... kodu   -> winload tam olarak neyi bulamadigini soyluyor
 
   Ucu de sessizlikten iyi.

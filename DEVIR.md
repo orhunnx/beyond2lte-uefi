@@ -1915,7 +1915,7 @@ başarıyla tamamlanır.
 ## 15. B2LUFS 0.0.7.0 — boot aygıtı HwInitialize dönmeden hazır
 
 18 Ağustos disk-boot turunda DriverStore kurulumu, boot-critical SYSTEM hive,
-SYS hash'i, NTFS 4Kn geometrisi ve SYSTEM/CACHE paketi tamamen doğrulandığı
+SYS hash'i, NTFS 4096 bayt sektör/küme alanları ve SYSTEM/CACHE paketi doğrulandığı
 halde yine `INACCESSIBLE_BOOT_DEVICE` görüldü. Aynı miniport RAM-WinPE içinde
 Disk 0, GPT, CACHE yazma ve geri okumayı daha önce geçti. Bu karşılaştırma
 paketleme ve veri taşımasını değil, boot ile runtime arasındaki yaşam döngüsü
@@ -1928,8 +1928,8 @@ bırakıyor; o aralıkta gelen ilk keşif SRB'lerini `NO_DEVICE` ile kapatıyord
 Timer daha sonra `BusChangeDetected` gönderince RAM-WinPE diski bulabiliyordu.
 Fakat Microsoft'un boot-drive miniport kısıtı, boot aygıtının
 `HwStorInitialize` dönmeden erişilebilir olmasını zorunlu tutar. Kernel SYSTEM
-volume'unu timer/PASSIVE zincirinden önce istediği için bu tasarım doğrudan
-`INACCESSIBLE_BOOT_DEVICE` üretiyordu.
+volume'unu timer/PASSIVE zincirinden önce istediği için bu tasarım geçerli bir
+`INACCESSIBLE_BOOT_DEVICE` adayıydı.
 
 `0.0.7.0` şu sırayı `HwInitialize` içinde tamamlar:
 
@@ -1943,3 +1943,38 @@ PASSIVE callback artık medya komutu göndermez; yalnız registry telemetrisi ve
 varsa isteğe bağlı 500 ms yedek tarama üretir. Timer oluşturulamaması veya
 PASSIVE callback'in etkinleştirilememesi boot I/O'yu başarısız yapmaz. Kaynak
 sırası `tests/test_ufsboot_scripts.sh` içinde regresyon kapısıyla korunur.
+
+Cihazda `0.0.7.0` ile stop code değişmedi. Bu yaşam döngüsü düzeltmesi
+korunmuştur, fakat tek kök neden olduğu çıkarımı cihaz tarafından
+çürütülmüştür. Sonraki tur aşağıdaki paketleme hatasını tek değişken olarak
+ölçecektir.
+
+---
+
+## 16. SYSTEM/CACHE dosya sistemi BPB'si stok PIT geometrisine bağlandı
+
+Disk-boot imaj üreticisinin "geometri doğrulaması" eksikti: yalnız BPB
+bytes-per-sector ve sectors-per-cluster alanları okunuyordu. `mkntfs` bölüm
+başlangıcı, kafa sayısı ve iz başına sektör verilmeden çalıştırılıyor; aracın
+"Windows will not be able to boot" uyarısı da özel bir `grep -vi` filtresiyle
+çıktıdan siliniyordu. Sonuç NTFS BPB'de `HiddenSectors=0`, `Heads=0` ve
+`SectorsPerTrack=0` idi.
+
+Stok PIT doğrudan ayrıştırıldığında gerekli fiziksel değerler şunlardır:
+
+| Bölüm | Başlangıç 4Kn LBA | Blok sayısı |
+|---|---:|---:|
+| SYSTEM | 83968 | 1459200 |
+| CACHE | 1983488 | 153600 |
+
+Ortak `tools_partition_geometry.sh` artık bu değerleri PIT girdisinin
+`BlockStart`/`BlockCount` alanlarından little-endian okur. `tools_windisk.sh`
+NTFS'i `-p <SYSTEM-LBA> -H 255 -S 63` ile; `cache_esp.sh` bütün SYSTEM/CACHE
+FAT varyantlarını `-h <partition-LBA> -g 255/63` ile biçimlendirir. İki araç
+da imajın bölüme sığmasını ve BPB'deki sektör/küme, hidden/start, heads ve
+sectors-per-track değerlerini içerik kopyasından sonra tekrar doğrular.
+Biçimlendirme çıktısı artık filtrelenmez veya `/dev/null`a gönderilmez.
+
+Bu değişiklik miniport SYS'ini değiştirmez. Bir sonraki cihaz paketi aynı
+`0.0.7.0` sürücüsünü kullanarak yalnız dosya sistemi boot geometrisinin
+etkisini ölçecektir.

@@ -123,7 +123,8 @@ başlığıdır:
 | `osslsigncode` | WSL | SYS PE dosyasına Authenticode imzası ekler |
 | `sha256sum` | WSL | Paket, WIM ve Odin artefakt bütünlüğünü ölçer |
 | `wimlib-imagex` | WSL | INF/SYS/CAT/manifest/startnet/GPT dump aracını `boot.wim`e ekler ve geri okur |
-| `dosfstools` / `mkfs.vfat` | WSL | SYSTEM/CACHE FAT volume imajlarını biçimlendirir |
+| `dosfstools` / `mkfs.vfat` | WSL | PIT başlangıç geometrisiyle SYSTEM/CACHE FAT volume imajlarını biçimlendirir |
+| `ntfs-3g` / `mkntfs` | WSL | Disk-boot SYSTEM NTFS volume'unu PIT başlangıç geometrisiyle biçimlendirir |
 | `mtools` (`mmd`, `mcopy`, `mdir`) | WSL | Loop mount olmadan FAT imaj içeriğini düzenler ve listeler |
 | `img2simg` | WSL | Ham SYSTEM/CACHE'i Android sparse imaja dönüştürür |
 | `tar` | WSL | Odin'in kabul ettiği ustar arşivlerini üretir |
@@ -880,7 +881,7 @@ Boş CACHE için:
 
 ```bash
 dd if=/dev/zero of=out/cache.img bs=1M count=600
-mkfs.vfat -F 32 -S 4096 -s 1 -n CACHE out/cache.img
+mkfs.vfat -F 32 -S 4096 -s 1 -h 1983488 -g 255/63 -n CACHE out/cache.img
 ```
 
 | Bayrak | Anlamı |
@@ -889,10 +890,14 @@ mkfs.vfat -F 32 -S 4096 -s 1 -n CACHE out/cache.img
 | `mkfs.vfat -F 32` | FAT32 seçer. |
 | `-S 4096` | FAT logical sector boyutunu UFS logical block boyutuyla 4096 yapar. |
 | `-s 1` | Küme başına bir sektör; küme boyutu 4096 bayt. |
+| `-h 1983488` | Stok PIT'teki CACHE başlangıç LBA'sını BPB HiddenSectors alanına yazar. |
+| `-g 255/63` | Windows uyumlu heads/sectors-per-track BPB geometrisini yazar. |
 | `-n CACHE` | Volume label. |
 
-Betik BPB içinden bytes-per-sector, sectors-per-cluster, label ve FAT32
-işaretini geri okuyup doğrular.
+Betik değeri sabit komuttan kopyalamaz; CACHE başlangıç/blok sayısını stok
+PIT'ten okur. BPB içinden bytes-per-sector, sectors-per-cluster,
+hidden/start LBA, heads, sectors-per-track, label ve FAT32 işaretini geri
+okuyup doğrular. Biçimlendirme çıktısı gizlenmez.
 
 ### 8.2 Mtools ve sparse araçları
 

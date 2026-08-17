@@ -17,7 +17,7 @@ yazmayı gerektiren kanıt değildir: EFI/BCD aşaması ve UFS veri yolu geçmi�
 
 DriverStore ve SYSTEM Basic Data düzeltmeleri cihazda uygulandıktan sonra stop
 code değişmedi. Paketleme çıktısı aynı SYS'in üç katmanda da bulunduğunu
-kanıtladı. Kalan mimari fark, miniportun boot aygıtını başlangıçta gizlemesiydi:
+kanıtladı. Bir sonraki mimari fark, miniportun boot aygıtını başlangıçta gizlemesiydi:
 normal RAM-WinPE'de kapasite/GPT probları PASSIVE callback'te bitiyor ve 500 ms
 timer'ın bus taraması diski sonradan oluşturuyordu. Diskten boot ederken kernel
 kök volume'u bu callback/timer zincirinden önce istediği için ilk keşif
@@ -30,10 +30,22 @@ SYSTEM eşleşmesi dahil bütün boot-medya koşulları hazır olmadan TRUE dön
 PASSIVE/timer yalnız telemetri ve yedek yeniden taramadır, boot için ön koşul
 değildir.
 
+`0.0.7.0` cihazda yine aynı `INACCESSIBLE_BOOT_DEVICE` sonucunu verdi. Bu,
+yukarıdaki yaşam döngüsü düzeltmesini geçersiz kılmaz; fakat tek kök neden
+olduğu çıkarımını geçersiz kılar. Paketleme tekrar incelendiğinde NTFS-3G'nin
+Windows boot için zorunlu saydığı bölüm başlangıcı ve CHS alanlarının sıfır
+bırakıldığı, üstelik aracın boot edilemez uyarısının script tarafından
+gizlendiği bulundu. Stok PIT'te SYSTEM başlangıcı 83968, CACHE başlangıcı
+1983488 4Kn LBA'dır. Güncel imaj üreticileri bu değerleri BPB'ye yazar,
+255/63 uyumluluk geometrisini ekler, PIT kapasitesini ve bütün alanları içerik
+kopyasından sonra tekrar doğrular. Bu paketleme düzeltmesi cihazda henüz
+doğrulanmamıştır; miniporta bu turda yeni bir değişiklik yapılmamıştır.
+
 Güncel sürücü ham telefon GPT'sine yazmadan, salt ve CRC-tutarlı Windows
 snapshot'ında hem `SYSTEM` hem `CACHE` girdilerini Basic Data yapıp attribute
 alanlarını temizler. SYSTEM imajı NTFS, CACHE imajı FAT16 olarak üretilir;
-SYSTEM BPB imzası ve 4Kn geometrisi ayrıca geri okunur. `SchemaVersion=26`
+iki BPB'nin imzası, 4Kn sektör/küme alanları, PIT hidden/start LBA'sı ve 255/63
+geometrisi ayrıca geri okunur. `SchemaVersion=26`
 iki girdinin bulunma durumunu ve indexini ayrı telemetri olarak yayımlar.
 
 Disk-boot akışı ayrıca INF/SYS/CAT paketini Windows DISM ile çevrimdışı

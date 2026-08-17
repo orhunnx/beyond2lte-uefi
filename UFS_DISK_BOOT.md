@@ -37,7 +37,25 @@ B2LUFS boot-start miniportu ayrıca kapasiteyi ve bu Windows GPT görünümünü
 eski yol aynı işi PASSIVE callback ve 500 ms gecikmeli bus taramasına
 bırakıyordu; bu sırada ilk keşif istekleri `NO_DEVICE` dönüyordu. Normal
 çalışma ortamı diski sonradan bulabilir, fakat kernel aynı diskten açılırken
-kök volume'u bekleyemez. `0.0.7.0` ile PASSIVE/timer yolu yalnız tanıdır.
+kök volume'u bekleyemez. `0.0.7.0` ile PASSIVE/timer yolu yalnız tanıdır;
+ancak bu sürümün cihazda aynı 0x7B'yi vermesi, gecikmeli keşfin tek kök neden
+olmadığını kanıtladı.
+
+Disk imajlarının dosya sistemi önyükleme geometrisi de kalıcı PIT ile aynı
+olmalıdır. Stok PIT'e göre SYSTEM başlangıcı 83968, CACHE başlangıcı 1983488
+ve UFS mantıksal sektör boyutu 4096 bayttır. Önceki üretici her iki volume'u
+ham dosyada LBA 0'dan biçimlendirip gerçek bölüm başlangıcını BPB'ye yazmıyordu;
+NTFS için `Heads` ve `SectorsPerTrack` da sıfır kalıyordu. NTFS-3G'nin kendi
+[`mkntfs` belgesi](https://manpages.debian.org/trixie/ntfs-3g/mkntfs.8.en.html)
+`--partition-start`, `--heads` ve `--sectors-per-track` değerlerinin Windows
+boot için doğru olmasını zorunlu tutar. Güncel akış bu değerleri stok PIT'ten
+okur, NTFS ve FAT BPB'lerine yazar ve imaj içeriği tamamlandıktan sonra tekrar
+okuyarak doğrular. [`mkfs.fat` belgesindeki](https://manpages.debian.org/trixie/dosfstools/mkfs.fat.8.en.html)
+`-h` alanı da bölümün disk başlangıcına göre sektör ofsetidir; `-g` iki CHS
+değerini FAT boot sektörüne yazar. CACHE UEFI yolunda DOS VBR kodu
+çalıştırılmaz: önyüklenebilirlik FAT volume içindeki `BOOTAA64.EFI`,
+`bootmgfw.efi`, BCD ve firmware'in bölüm Block I/O yolundan gelir. BPB yine
+fiziksel bölümle tutarlı tutulur. Uyarılar filtrelenmez.
 
 ## Güvenlik sınırı
 
@@ -117,11 +135,13 @@ kurulum modeli de paketin yalnız `System32\drivers` altına kopyalanmasını de
 6. NTFS `system.img` ve FAT16 `cache.img` üretir.
 7. Yalnız bu iki imajı `out/ufs-diskboot.tar` içine koyar.
 
-Üretim sırasında `system.img` için NTFS BPB imzası, 4096 bayt sektör ve
-4096 bayt küme geri okunarak doğrulanır. `cache.img` ise FAT16 olarak
-oluşturulur. Araç, SYS yoksa veya kaynaklardan eskiyse pahalı ISO/BCD/DISM
-adımlarından önce durur ve gerekli PowerShell komutunu gösterir. WSL tarafında
-MSVC derlemesi yapılmaz.
+Üretim sırasında `system.img` için NTFS BPB imzası; 4096 bayt sektör/küme;
+SYSTEM hidden/start LBA `83968`; 255 heads ve 63 sectors-per-track geri
+okunarak doğrulanır. `cache.img` FAT16 oluşturulur ve CACHE hidden/start LBA
+`1983488` ile aynı CHS alanları doğrulanır. Her imajın 4096 baytlık blok sayısı
+PIT bölüm kapasitesini aşarsa paketleme durur. Araç, SYS yoksa veya
+kaynaklardan eskiyse pahalı ISO/BCD/DISM adımlarından önce durur ve gerekli
+PowerShell komutunu gösterir. WSL tarafında MSVC derlemesi yapılmaz.
 
 ## 3. Paketi doğrulama ve flaşlama
 
@@ -150,12 +170,12 @@ Windows'ta Odin ile:
 ## Beklenen sonuç ve geri dönüş
 
 - Windows açılırsa boot-critical UFS zinciri çalışmıştır.
-- `INACCESSIBLE_BOOT_DEVICE` görülürse EFI/BCD aşaması geçilmiş, fakat boot
-  sırasında B2LUFS depolama zinciri kurulmamıştır. `0.0.7.0` öncesinde bu
-  sonuç gecikmeli PASSIVE/timer keşif yoluyla yeniden üretildi; güncel sürüm
-  boot aygıtını `HwInitialize` içinde hazırlar. Aynı kod yeni paketle
-  tekrarlanırsa artık sürücünün HBA devralma veya eşzamanlı medya probu
-  ayrı bir tanı girdisidir.
+- `INACCESSIBLE_BOOT_DEVICE` görülürse EFI/BCD ve winload aşaması geçilmiş,
+  fakat kernel boot volume'u yeniden açamamıştır. Bunun nedeni yalnız miniport
+  değildir; disk/partition/volume/NTFS zinciri veya BPB geometrisi de olabilir.
+  Güncel paket `0.0.7.0` eşzamanlı medya hazırlığını ve PIT uyumlu BPB'yi
+  birlikte taşır. Aynı kod bu paketle tekrarlanırsa HBA/StorPort tarafı yeniden
+  ayrı bir tanı girdisi olur.
 - Boot manager veya winload hatası, ekrandaki kodla BCD/dosya katmanına ayrılır.
 
 Geri dönüşte Download Mode üzerinden stock SYSTEM ve CACHE imajlarını ya da tam

@@ -1,6 +1,6 @@
 # beyond2lte UEFI — durum
 
-**Son güncelleme:** 18 Ağustos 2026 — boot medyası HwInitialize içinde eşzamanlı hazırlanıyor.
+**Son güncelleme:** 18 Ağustos 2026 — SYSTEM/CACHE BPB geometrisi stok PIT ile eşleştirildi.
 
 ## Çalışan / çalışmayan
 
@@ -12,9 +12,39 @@
 | **Dahili depolama (UFS)** | **✅** | 5 LUN, DiskIO protokolü kurulu — `S5E9820Pkg/Library/PlatformUfsLib` yazıldı |
 | **Windows UFS (`b2lufs`)** | **✅** | Disk 0: 119 GB; 31 GPT bölüm ve CACHE FAT32 okuma/yazma doğrulandı |
 | USB | ❌ | Henüz sürücü yok |
-| Windows boot | 🟡 | Boot aygıtı artık HwInitialize dönmeden hazır; B2LUFS 0.0.7.0 cihaz doğrulaması bekleniyor |
+| Windows boot | 🟡 | 0.0.7.0 aynı 0x7B'yi verdi; yanlış NTFS/FAT bölüm başlangıç geometrisi düzeltildi, cihaz doğrulaması bekleniyor |
 
-## 18 Ağustos 2026 — gerçek boot farkı: gecikmeli StorPort keşfi
+## 18 Ağustos 2026 — 0x7B için bulunan paketleme hatası: BPB bölüm başlangıcı sıfırdı
+
+`0.0.7.0` cihazda yine `INACCESSIBLE_BOOT_DEVICE` verdi. Böylece gecikmeli
+StorPort keşfinin gerçek bir boot uyumsuzluğu olduğu, fakat aynı stop code'un
+tek kök nedeni olmadığı kanıtlandı. Yeni turda miniporta başka bir tahmini
+yama eklenmedi; disk imajının üretimi, NTFS-3G'nin kendi uyarısıyla birlikte
+yeniden incelendi.
+
+`tools_windisk.sh`, `mkntfs`'i bölüm başlangıcı, kafa sayısı ve iz başına
+sektör vermeden çağırıyordu. Araç açıkça Windows'un bu aygıttan boot
+edemeyeceğini yazdığı halde script bu satırı ve ilgili bütün geometri
+uyarılarını filtreliyordu. Üretilen NTFS BPB'sinde `HiddenSectors=0`,
+`Heads=0`, `SectorsPerTrack=0` kalıyordu. Oysa stok
+`BEYOND2LTE_EUR_OPEN.pit` içinde SYSTEM 83968'inci, CACHE 1983488'inci 4096
+baytlık UFS LBA'da başlıyor. Boot manager ve winload UEFI'nin bölüm Block I/O
+yoluyla dosyaları okuyabilse de kernel disk/partition/volume zinciri boot
+volume'u fiziksel diskte yeniden açar; BPB'nin kendisini LBA 0'da göstermesi
+bu aşamadaki 0x7B ile doğrudan uyumludur.
+
+Yeni ortak `tools_partition_geometry.sh` yardımcısı SYSTEM ve CACHE
+başlangıç/blok sayılarını sabit bir tahminden değil stok PIT'ten okur. NTFS
+`mkntfs -p 83968 -H 255 -S 63`, FAT ise ilgili bölüm için
+`mkfs.vfat -h <LBA> -g 255/63` ile oluşturulur. İmajın PIT bölümüne sığması;
+BPB'deki 4096 bayt
+sektör, küme, hidden/start LBA, heads ve sectors-per-track alanları hem
+biçimlendirmeden hem içerik kopyasından sonra geri okunur. Hiçbir mkntfs veya
+mkfs.vfat çıktısı artık gizlenmez. Regresyon testi PIT'ten SYSTEM için
+`83968/1459200`, CACHE için `1983488/153600` değerlerini ve iki üreticinin
+zorunlu geometri bayraklarını denetler.
+
+## 18 Ağustos 2026 — denenen boot farkı: gecikmeli StorPort keşfi
 
 DriverStore, boot-critical hive ve SYSTEM Basic Data düzeltmelerini içeren
 `0.0.6.0` paketi cihazda yine `INACCESSIBLE_BOOT_DEVICE` verdi. Paketleme
@@ -40,15 +70,18 @@ problarını başlangıçtaki tek-slot, polled common-DMA yoluyla doğrudan
 olur; hepsi hazırsa ilk keşif isteğinden önce `EnumerationReady=1` yayımlanır.
 PASSIVE callback artık yalnız registry telemetrisi ve isteğe bağlı yedek bus
 taramasıdır; callback/timer başarısı boot I/O'yu belirlemez. Şema sürümü 26'ya
-çıktı ve yaşam döngüsü kaynak-sırası regresyon testiyle korunuyor. Gerçek
-cihazda yeni sürüm henüz doğrulanmadı.
+çıktı ve yaşam döngüsü kaynak-sırası regresyon testiyle korunuyor. Cihazda
+`0.0.7.0` ile stop code değişmedi; dolayısıyla bu düzeltme korunmakla birlikte
+tek kök neden olduğu iddiası kapanmıştır. Üstteki BPB paketleme hatası bir
+sonraki fiziksel testin tek değişkenidir.
 
 ## 17 Ağustos 2026 — INACCESSIBLE_BOOT_DEVICE: SYSTEM GPT türü düzeltmesi
 
 Bu değişiklik Windows volume görünümündeki gerçek bir uyumsuzluğu kaldırdı;
 ancak `0.0.6.0` cihaz sonucu stop code'u değiştirmediği için disk-boot'un kök
-nedeninin GPT türü olmadığı sonradan doğrulandı. Asıl boot/runtime farkı
-yukarıdaki gecikmeli StorPort keşfiydi.
+nedeninin GPT türü olmadığı sonradan doğrulandı. Sonraki gecikmeli StorPort
+keşfi düzeltmesi de `0.0.7.0` ile aynı stop code'u verdi; ikisi de geçerli
+uyumluluk düzeltmesidir ama tek kök neden değildir.
 
 Offline DriverStore kurulumu cihazda başarıyla uygulandığı halde çekirdek yine
 `INACCESSIBLE_BOOT_DEVICE` verdi. Bu, paketleme açığının gerçek olduğunu fakat

@@ -9,6 +9,19 @@ Telefonun açılmasına gerek yok — PIT tüm bölümleri tanımlıyor.
 > Aşağıdaki bütün boyutlar buna göre düzeltildi; önceki sürümde hepsi 8 kat
 > küçüktü.
 
+Disk-boot imajlarının BPB alanları için gerekli stok PIT geometrisi:
+
+| Bölüm | Başlangıç LBA (4 KiB) | Blok sayısı | Başlangıç baytı |
+|---|---:|---:|---:|
+| `SYSTEM` | 83968 | 1459200 | 343.932.928 |
+| `CACHE` | 1983488 | 153600 | 8.124.366.848 |
+
+`system.img` ve `cache.img` bağımsız volume imajları olarak LBA 0'da
+oluşturulsa da Odin bunları yukarıdaki fiziksel bölüm başlangıçlarına yazar.
+Bu nedenle NTFS/FAT BPB `HiddenSectors` alanı sıfır değil ilgili başlangıç
+LBA'sı olmalıdır. Üretim araçları bu değerleri doğrudan PIT'ten okur; tablo
+yalnız insan tarafından karşılaştırma içindir.
+
 | Bölüm | Blok | Boyut | Odin dosyası |
 |---|---:|---:|---|
 | `BOOTLOADER` | 1024 | 4.0 MB | sboot.bin |

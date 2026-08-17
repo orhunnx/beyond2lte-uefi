@@ -11,6 +11,8 @@ DISM_INSTALLER="$ROOT/windows/B2L_UFS_WIM_SURUCU_EKLE.cmd"
 WINDISK="$ROOT/tools_windisk.sh"
 WINBOOT="$ROOT/tools_winboot.sh"
 CACHE_ESP="$ROOT/cache_esp.sh"
+PARTITION_GEOMETRY="$ROOT/tools_partition_geometry.sh"
+PIT="$ROOT/BEYOND2LTE_EUR_OPEN.pit"
 UFS_INF="$ROOT/windows/b2lufs/b2lufs.inf.in"
 UFS_DSDT="$ROOT/silicium-acpi-overlay/SoCs/Samsung/S5E9820/DSDT_minimal.dsl"
 UFS_STORPORT="$ROOT/windows/b2lufs/b2lufs_storport.c"
@@ -140,10 +142,70 @@ grep -Fq "WIM DriverStore'unda b2lufs.\$package_ext yok" "$PREPARE"
 
 # UFS disk-boot zinciri: boot-critical WIM -> NTFS SYSTEM ve yalniz EFI/BCD
 # tasiyan CACHE. Bu kapilar gevserse paket uretilse bile cihaz UFS'ten acilmaz.
+[[ -s "$PARTITION_GEOMETRY" ]] || {
+  echo "HATA: PIT/BPB geometri yardimcisi yok." >&2
+  exit 1
+}
+# shellcheck source=../tools_partition_geometry.sh
+source "$PARTITION_GEOMETRY"
+read -r system_start_lba system_block_count < <(
+  b2l_pit_partition_geometry "$PIT" SYSTEM
+)
+read -r cache_start_lba cache_block_count < <(
+  b2l_pit_partition_geometry "$PIT" CACHE
+)
+[[ "$system_start_lba" == 83968 && "$system_block_count" == 1459200 ]] || {
+  echo "HATA: PIT SYSTEM geometrisi yanlis: $system_start_lba $system_block_count" >&2
+  exit 1
+}
+[[ "$cache_start_lba" == 1983488 && "$cache_block_count" == 153600 ]] || {
+  echo "HATA: PIT CACHE geometrisi yanlis: $cache_start_lba $cache_block_count" >&2
+  exit 1
+}
+bpb_fixture="$(mktemp)"
+dd if=/dev/zero of="$bpb_fixture" bs=64 count=1 2>/dev/null
+printf '\x00\x10' | dd of="$bpb_fixture" bs=1 seek=11 conv=notrunc 2>/dev/null
+printf '\x01' | dd of="$bpb_fixture" bs=1 seek=13 conv=notrunc 2>/dev/null
+printf '\x3f\x00' | dd of="$bpb_fixture" bs=1 seek=24 conv=notrunc 2>/dev/null
+printf '\xff\x00' | dd of="$bpb_fixture" bs=1 seek=26 conv=notrunc 2>/dev/null
+printf '\x00\x48\x01\x00' | dd of="$bpb_fixture" bs=1 seek=28 conv=notrunc 2>/dev/null
+b2l_validate_bpb_geometry "$bpb_fixture" 83968 1 "test SYSTEM" || {
+  rm -f "$bpb_fixture"
+  echo "HATA: dogru BPB geometrisi reddedildi." >&2
+  exit 1
+}
+if b2l_validate_bpb_geometry "$bpb_fixture" 1983488 1 "test yanlis CACHE" \
+    >/dev/null 2>&1; then
+  rm -f "$bpb_fixture"
+  echo "HATA: yanlis BPB baslangic LBA'si kabul edildi." >&2
+  exit 1
+fi
+rm -f "$bpb_fixture"
 grep -Fq 'bash "$HERE/tools_ufsboot_prepare.sh" --check' "$WINDISK"
 grep -Fq 'SYSTEM imajinda NTFS BPB imzasi yok' "$WINDISK"
-grep -Fq 'SYSTEM NTFS, 4096 bayt sektor, 4096 bayt kume' "$WINDISK"
+grep -Fq 'b2l_pit_partition_geometry "$PIT" SYSTEM' "$WINDISK"
+grep -Fq -- '-H "$B2L_BPB_HEADS"' "$WINDISK"
+grep -Fq -- '-S "$B2L_BPB_SECTORS_PER_TRACK"' "$WINDISK"
+grep -Fq -- '-p "$SYSTEM_START_LBA"' "$WINDISK"
+grep -Fq 'b2l_validate_bpb_geometry "$IMG" "$SYSTEM_START_LBA"' "$WINDISK"
+grep -Fq 'SYSTEM NTFS boot geometrisi dogrulandi' "$WINDISK"
 grep -Fq 'b2lufs.sys (boot-critical)' "$WINDISK"
+grep -Fq 'b2l_pit_partition_geometry "$PIT" "$PARTITION_NAME"' "$CACHE_ESP"
+grep -Fq -- '-g "$B2L_BPB_HEADS/$B2L_BPB_SECTORS_PER_TRACK"' "$CACHE_ESP"
+grep -Fq -- '-h "$PARTITION_START_LBA"' "$CACHE_ESP"
+grep -Fq 'b2l_validate_bpb_geometry "$IMG" "$PARTITION_START_LBA"' "$CACHE_ESP"
+if grep -Fq 'grep -vi "not a block device' "$WINDISK"; then
+  echo "HATA: mkntfs boot uyarilarini gizleyen filtre geri gelmis." >&2
+  exit 1
+fi
+if grep -Eq 'ntfsls .*2>/dev/null' "$WINDISK"; then
+  echo "HATA: NTFS icerik dogrulama hatalarini gizleyen yonlendirme geri gelmis." >&2
+  exit 1
+fi
+if grep -Eq 'mkfs\.vfat .*([12]?> */dev/null|&> */dev/null)' "$CACHE_ESP"; then
+  echo "HATA: mkfs.vfat ciktisini gizleyen yonlendirme geri gelmis." >&2
+  exit 1
+fi
 grep -Fq 'rm -f "$ESP/sources/boot.wim" "$ESP/boot/boot.sdi"' "$WINBOOT"
 grep -Fq '::/EFI/Microsoft/Boot/BCD' "$CACHE_ESP"
 grep -Fq 'disk-boot CACHE imajina sources/ sizmis' "$CACHE_ESP"
