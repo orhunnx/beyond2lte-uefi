@@ -1,6 +1,6 @@
 # beyond2lte UEFI — durum
 
-**Son güncelleme:** 17 Ağustos 2026 — Windows UFS okuma/yazma doğrulandı.
+**Son güncelleme:** 17 Ağustos 2026 — UFS diskten Windows önyükleme paketi hazırlandı.
 
 ## Çalışan / çalışmayan
 
@@ -12,7 +12,24 @@
 | **Dahili depolama (UFS)** | **✅** | 5 LUN, DiskIO protokolü kurulu — `S5E9820Pkg/Library/PlatformUfsLib` yazıldı |
 | **Windows UFS (`b2lufs`)** | **✅** | Disk 0: 119 GB; 31 GPT bölüm ve CACHE FAT32 okuma/yazma doğrulandı |
 | USB | ❌ | Henüz sürücü yok |
-| Windows boot | 🟡 | Depolama engeli kalktı; kalıcı diskten boot akışı ayrıca kurulacak |
+| Windows boot | 🟡 | Boot-critical B2LUFS, NTFS SYSTEM ve CACHE ESP üretim akışı hazır; cihazda diskten boot doğrulaması bekleniyor |
+
+## 17 Ağustos 2026 — UFS diskten boot hazırlığı
+
+Kalıcı önyükleme için geri döndürülebilir SYSTEM+CACHE paketi eklendi:
+
+- `b2lufs.sys`, offline SYSTEM hive'ında `Start=0`, `SCSI Miniport` ve
+  `CriticalDeviceDatabase` eşlemesiyle boot-critical kuruluyor.
+- WinPE, RAM disk yerine 4 GiB varsayılan boyutlu NTFS `system.img` içine
+  açılıyor; boyut 2..5 GiB arasında seçilebiliyor.
+- CACHE'in tamamı 600 MiB FAT16 ESP olarak hazırlanıyor; EFI yükleyici ve disk
+  BCD'si buradan başlıyor.
+- `out/ufs-diskboot.tar` yalnız `system.img` ve `cache.img` içeriyor. Stock
+  bootloader, recovery ve bölüm tablosu paketin kapsamı dışında.
+
+Tek komutlu WSL üretimi, zorunlu PowerShell SYS derlemesi ve geri dönüş adımları
+`UFS_DISK_BOOT.md` içinde. Bu kilometre taşı araç zincirinin tamamlandığını
+gösterir; gerçek cihazda diskten Windows açılışı henüz doğrulanmış değildir.
 
 ## 17 Ağustos 2026 — Windows UFS okuma/yazma kilometre taşı
 

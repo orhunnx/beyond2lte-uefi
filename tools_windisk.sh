@@ -2,7 +2,7 @@
 #
 # WinPE'yi RAM diskten degil GERCEK BIR BOLUMDEN acmak icin NTFS imaji uretir.
 #
-#   bash tools_windisk.sh [boyut_GiB]      varsayilan 3
+#   bash tools_windisk.sh [boyut_GiB]      varsayilan 4, izin verilen 2..5
 #
 # ---------------------------------------------------------------------------
 # NEDEN - FIKIR KULLANICIDAN GELDI VE HAKLIYDI
@@ -13,11 +13,11 @@
 # Bunu once elemistim ("diskten acmak diskin zaten calismasini gerektirir"),
 # ama itiraz dogru: BASARISIZLIGIN KENDISI SINYAL.
 #
-# RAM diskten acarken storufs'un baglanip baglanmamasi hicbir seyi
+# RAM diskten acarken b2lufs'un baglanip baglanmamasi hicbir seyi
 # degistirmiyor - Windows yine aciliyor, sadece depolama gormuyor ve bize
 # bunu soyleyemiyor. Otuz turdur bu sessizlikle bogusuyoruz.
 #
-# Diskten acarken storufs baglanmazsa winload ACILIS BIRIMINI BULAMAZ ve
+# Diskten acarken b2lufs baglanmazsa winload ACILIS BIRIMINI BULAMAZ ve
 # EKRANA HATA BASAR. Bunun calistigini biliyoruz: ws2ifsl.sys denemesinde
 # "0xc0000428 / digital signature couldn't be verified" ekranini gordük.
 # winload'un hata yolu saglam; sorun ona ulasacak bir hata olmamasiydi.
@@ -27,8 +27,9 @@
 # ---------------------------------------------------------------------------
 # BOLUM VE BICIM
 # ---------------------------------------------------------------------------
-# Hedef SYSTEM (5.57 GB). Odin hedefi tar icindeki dosya adiyla belirlendigi
-# icin dosya "system.img" olmak zorunda.
+# Hedef SYSTEM bolumu. Imaj boyutu cihazdaki bolume sigmasi icin 2..5 GiB
+# araligiyla sinirlidir; varsayilan 4 GiB'dir. Odin hedefi tar icindeki dosya
+# adiyla belirlendigi icin dosya "system.img" olmak zorunda.
 #
 # NTFS sektor ve kume boyutu 4096: UFS'in mantiksal blok boyutu 4096 ve
 # bootmgr blok G/C uzerinden okuyacak. Uyumsuz sektor boyutu okumayi
@@ -43,7 +44,7 @@
 # Windows makinesinde:  windows\bcd_olustur.cmd disk
 #
 # O varyant ramdisk yerine "locate=" kullaniyor: bootmgr birimleri kendisi
-# tarayip \Windows\System32\winload.efi'yi buluyor. Boylece GPT bolum
+# tarayip \Windows\System32\Boot\winload.efi'yi buluyor. Boylece GPT bolum
 # GUID'ini elle yazmak zorunda kalmiyoruz - hangi bolume yazarsak yazalim
 # calisiyor.
 #
@@ -51,13 +52,20 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WIM="$HERE/esp/sources/boot.wim"
 OUT="$HERE/out"; mkdir -p "$OUT"
-GIB="${1:-3}"
+GIB="${1:-4}"
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
 [ -s "$WIM" ] || { echo "esp/sources/boot.wim yok. Once tools_winboot.sh calistir."; exit 1; }
+[[ "$GIB" =~ ^[0-9]+$ ]] && (( GIB >= 2 && GIB <= 5 )) || {
+  echo "HATA: boyut_GiB 2..5 arasinda tam sayi olmali (gelen: $GIB)."
+  exit 2
+}
 command -v wimlib-imagex >/dev/null || { echo "wimlib yok -> sudo apt install -y wimtools"; exit 1; }
 command -v mkntfs        >/dev/null || { echo "mkntfs yok -> sudo apt install -y ntfs-3g"; exit 1; }
+
+say "B2LUFS boot-critical WIM onkosulu"
+bash "$HERE/tools_ufsboot_prepare.sh" --check
 
 IMG="$OUT/system.img"
 
@@ -111,13 +119,24 @@ if command -v ntfsls >/dev/null; then
     N="$(ntfsls -p "$d" "$IMG" 2>/dev/null | wc -l)"
     printf '  %-32s %s girdi\n' "$d" "$N"
   done
-  for f in winload.efi ntoskrnl.exe; do
-    if ntfsls -p /Windows/System32 "$IMG" 2>/dev/null | grep -qi "^$f$"; then
-      echo "  + $f"
-    else
-      echo "  ! $f LISTEDE YOK"
-    fi
-  done
+  if ntfsls -p /Windows/System32/Boot "$IMG" 2>/dev/null | grep -qi '^winload\.efi$'; then
+    echo "  + Windows/System32/Boot/winload.efi"
+  else
+    echo "  ! Windows/System32/Boot/winload.efi LISTEDE YOK"
+    exit 1
+  fi
+  if ntfsls -p /Windows/System32 "$IMG" 2>/dev/null | grep -qi '^ntoskrnl\.exe$'; then
+    echo "  + Windows/System32/ntoskrnl.exe"
+  else
+    echo "  ! Windows/System32/ntoskrnl.exe LISTEDE YOK"
+    exit 1
+  fi
+  if ntfsls -p /Windows/System32/drivers "$IMG" 2>/dev/null | grep -qi '^b2lufs\.sys$'; then
+    echo "  + b2lufs.sys (boot-critical)"
+  else
+    echo "  HATA: b2lufs.sys SYSTEM imajinda yok."
+    exit 1
+  fi
 else
   echo "  ntfsls yok, dogrulama atlandi -> sudo apt install -y ntfs-3g"
   echo "  wimlib'in kendi raporu gecerli: yukarida 'Done applying WIM image'"
@@ -150,17 +169,17 @@ done
 
 cat <<'SON'
 
-SIRA:
-  1) Windows'ta:  windows\bcd_olustur.cmd disk
-     BCD'yi masaustunden kopyala:  cp .../Desktop/BCD windows/BCD
-  2) ESP'yi guncelle (bootmgfw + yeni BCD, RAM diski yok):
-        bash tools_winboot.sh <ISO> --disk
-        bash cache_esp.sh --win
-  3) Iki tar'i da flasla: system-esp.tar ve cache-esp.tar
+Bu arac alt seviye SYSTEM imaj ureticisidir.
+Tam ve guvenli disk-boot akisi icin su orkestrasyonu kullan:
+
+  bash tools_ufsboot.sh /mnt/c/.../Windows_ARM64.iso
+
+Orkestrasyon boot-critical WIM, disk BCD'si, SYSTEM+CACHE imajlari ve
+yalniz bu iki bolumu iceren ufs-diskboot.tar dosyasini uretir.
 
 BEKLENEN OKUMA:
-  Windows aciliyor            -> storufs BAGLI, depolama calisiyor
-  "Inaccessible boot device"  -> storufs baglanmiyor, ama ARTIK GORUNUR
+  Windows aciliyor            -> b2lufs BAGLI, depolama calisiyor
+  "Inaccessible boot device"  -> b2lufs baglanmiyor, ama ARTIK GORUNUR
   Baska bir 0xc0000... kodu   -> winload tam olarak neyi bulamadigini soyluyor
 
   Ucu de sessizlikten iyi.

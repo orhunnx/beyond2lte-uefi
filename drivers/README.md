@@ -67,6 +67,7 @@ Tablodaki `...`, `mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg`
 | `b2lufs_resources.c` | ACPI/StorPort kaynaklarını doğrular ve MMIO aralıklarını bağlar. |
 | `b2lufs_hw.h` | Exynos/UFS register, bit alanı ve donanım sabitleri. |
 | `b2lufs.inf.in` | ARM64 PnP sürücü paketi şablonu. |
+| `b2lufs-boot.reg` | Offline Windows SYSTEM hive'ına boot-start servis ve CriticalDeviceDatabase eşlemesini ekler. |
 | `build-b2lufs.ps1` | Windows üzerinde MSVC ve WDK kullanarak yalnız `b2lufs.sys` üretir. |
 | `b2lgptdump.c` | WinPE'de PhysicalDrive GPT bölgelerini salt okunur çapraz doğrular. |
 | `test_resources.c` | Kaynak bağlama mantığının host tarafı birim testi. |
@@ -89,6 +90,9 @@ B2L_SKIP_MSVC_BUILD=1 bash tools_b2lufs.sh
 
 Üretilen dosyalar `out/b2lufs/` altında kalır. `drivers/` içindeki kopyalar
 derleme girdisi veya çıktı dizini değildir.
+
+Kalıcı UFS disk önyükleme zinciri ve SYSTEM/CACHE üretim komutları için
+[`UFS_DISK_BOOT.md`](../UFS_DISK_BOOT.md) belgesine bakın.
 
 ## İlerleme kaydı
 

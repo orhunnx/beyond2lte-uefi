@@ -493,6 +493,11 @@ if [ -s "$OWNBCD" ] && [ "$(head -c4 "$OWNBCD")" = "regf" ]; then
   cp "$OWNBCD" "$ESP/EFI/Microsoft/Boot/BCD"
   echo "  BCD: KENDI URETTIGIMIZ ($(stat -c%s "$OWNBCD") bayt, tani acik)"
 else
+  if [ "$DISK_MODU" = 1 ]; then
+    echo "HATA: disk modu icin windows/BCD yok veya gecerli bir registry hive degil." >&2
+    echo "Once: bash tools_ufsboot.sh /mnt/c/.../Windows_ARM64.iso" >&2
+    exit 1
+  fi
   cp "$BCD" "$ESP/EFI/Microsoft/Boot/BCD"
   echo "  BCD: ISO'nunki (tani kapali - windows/bcd_olustur.cmd calistir)"
 fi
@@ -542,7 +547,7 @@ fi
 #
 # Dogru sira: once tools_winboot.sh, EN SON tools_b2lfb.sh.
 #
-if [ -s "$(dirname "$ESP")/out/b2lfb/b2lfb.sys" ]; then
+if [ "$DISK_MODU" = 0 ] && [ -s "$(dirname "$ESP")/out/b2lfb/b2lfb.sys" ]; then
   if ! wimlib-imagex dir "$ESP/sources/boot.wim" 1 2>/dev/null | grep -qi 'b2lfb\.sys'; then
     echo
     echo "  ###############################################################"
@@ -556,10 +561,21 @@ if [ -s "$(dirname "$ESP")/out/b2lfb/b2lfb.sys" ]; then
 fi
 
 say "Sonuc"
-find "$ESP/EFI/Microsoft" "$ESP/boot" "$ESP/sources" -type f 2>/dev/null -exec ls -lh {} \; | awk '{print "  "$5"\t"$9}'
+SONUC_YOLLARI=()
+for yol in "$ESP/EFI/Microsoft" "$ESP/boot" "$ESP/sources"; do
+  [ -e "$yol" ] && SONUC_YOLLARI+=("$yol")
+done
+if [ ${#SONUC_YOLLARI[@]} -gt 0 ]; then
+  find "${SONUC_YOLLARI[@]}" -type f -exec ls -lh {} \; | awk '{print "  "$5"\t"$9}'
+fi
 echo
 echo "Toplam: $(du -sh "$ESP" | cut -f1)  (CACHE bolumu 600 MB, imaj 75 MB)"
 echo
 echo "Sonra:"
-echo "  bash cache_esp.sh --win"
-echo "  cache'i flasla, ac, startup.nsh Windows Boot Manager'i baslatacak"
+if [ "$DISK_MODU" = 1 ]; then
+  echo "  bash cache_esp.sh --win --disk --baseline"
+  echo "  SYSTEM + CACHE'i birlikte flasla; bootmgfw NTFS SYSTEM'deki Windows'u acar"
+else
+  echo "  bash cache_esp.sh --win"
+  echo "  cache'i flasla, ac, startup.nsh Windows Boot Manager'i baslatacak"
+fi

@@ -6,7 +6,7 @@
 #   out/cache.img       ham imaj   -> recovery + adb dd yolu
 #   out/cache-esp.tar   sparse tar -> Odin, AP slotu
 #
-#   bash cache_esp.sh [--win] [--baseline|--psci-hvc|--bos] [iceri-konacak-dosya.efi]
+#   bash cache_esp.sh [--win] [--disk] [--baseline|--psci-hvc|--bos] [iceri-konacak-dosya.efi]
 #
 # Argüman verilmezse Mu-Silicium build'indeki Shell.efi aranir.
 #
@@ -58,6 +58,7 @@ BIGPART=0
 BOSALT=0
 BASELINE=0
 PSCI_HVC=0
+DISK_BOOT=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
@@ -67,10 +68,23 @@ for a in "$@"; do
     --bos)    BOSALT=1 ;;
     --baseline) BASELINE=1 ;;
     --psci-hvc) PSCI_HVC=1 ;;
+    --disk)   DISK_BOOT=1 ;;
     *)        ARGS+=("$a") ;;
   esac
 done
 if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
+
+if [ "$DISK_BOOT" = 1 ]; then
+  if [ "$WINONLY" = 0 ] || [ "$BASELINE" = 0 ]; then
+    echo "--disk yalniz temiz Windows disk-boot ESP'si icindir."
+    echo "Dogru komut: bash cache_esp.sh --win --disk --baseline"
+    exit 1
+  fi
+  if [ "$BIGPART" = 1 ] || [ "$BOSALT" = 1 ] || [ "$PSCI_HVC" = 1 ] || [ "$LINUXOK" = 1 ]; then
+    echo "--disk; --system, --bos, --psci-hvc veya --linux ile birlikte kullanilmaz."
+    exit 1
+  fi
+fi
 
 #
 # --baseline: Windows'un kendisi disinda B2L tani kodu calistirmayan ESP.
@@ -352,7 +366,7 @@ verify_winpe_b2lufs_package() {
   echo "  SYS SHA256: ${ExpectedSys:0:16}"
 }
 
-if [ "$WINONLY" = 1 ]; then
+if [ "$WINONLY" = 1 ] && [ "$DISK_BOOT" = 0 ]; then
   verify_winpe_b2lufs_package
 fi
 
@@ -379,6 +393,11 @@ if [ -f "$NSH" ]; then
   say "startup.nsh: $(stat -c%s "$NSH") bayt  sha1=$(sha1sum "$NSH" | cut -c1-12)"
 fi
 
+if [ "$DISK_BOOT" = 1 ] && ! command -v mcopy >/dev/null; then
+  echo "HATA: disk-boot CACHE imaji icin mtools zorunlu. WSL: sudo apt install -y mtools"
+  exit 1
+fi
+
 if command -v mcopy >/dev/null; then
   export MTOOLS_SKIP_CHECK=1
   mmd   -i "$IMG" ::/EFI ::/EFI/BOOT
@@ -394,6 +413,10 @@ if command -v mcopy >/dev/null; then
     [ "$b" = "startup.nsh" ] && continue
     [ "$b" = "startup-baseline.nsh" ] && continue
     [ -e "$f" ] || continue
+    if [ "$DISK_BOOT" = 1 ] && [ "$b" != "EFI" ]; then
+      echo "  - $b (atlandi: disk-boot ESP yalniz EFI agacini tasir)"
+      continue
+    fi
     if [ "$BASELINE" = 1 ]; then
       case "$b" in
         B2LGOSTR.EFI|EBSTEST.EFI)
@@ -428,8 +451,18 @@ if command -v mcopy >/dev/null; then
     echo "  Windows icin:  bash cache_esp.sh --win"
     echo "  esp/ toplami: $(du -sh "$PROJ/esp" | cut -f1) / imaj ${LIMIT_MB} MB"
   fi
-  # Windows icin boot.wim gerekiyor; sessizce eksik kalmasin.
-  if mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
+  # RAM-disk turunda boot.wim, disk-boot turunda ise yalniz BCD gerekir.
+  if [ "$DISK_BOOT" = 1 ]; then
+    if ! mdir -i "$IMG" ::/EFI/Microsoft/Boot/BCD >/dev/null 2>&1; then
+      echo "HATA: disk-boot CACHE imajinda EFI/Microsoft/Boot/BCD yok."
+      exit 1
+    fi
+    if mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
+      echo "HATA: disk-boot CACHE imajina sources/ sizmis; boot.wim burada olmamali."
+      exit 1
+    fi
+    echo "--- disk-boot BCD: VAR; boot.wim: YOK (beklenen)"
+  elif mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
     echo "--- sources/ (WinPE):"
     mdir -i "$IMG" ::/sources | sed 's/^/  /'
   else
@@ -441,6 +474,7 @@ if command -v mcopy >/dev/null; then
   mdir -i "$IMG" ::/
   mdir -i "$IMG" ::/EFI/BOOT
 else
+  [ "$DISK_BOOT" = 0 ] || { echo "HATA: disk-boot modu loop-mount yoluna dusmez."; exit 1; }
   echo "mtools yok -> sudo apt install -y mtools   (loop mount'a dusuluyor)"
   T=$(mktemp -d); sudo mount -o loop "$IMG" "$T"
   sudo mkdir -p "$T/EFI/BOOT"; sudo cp "$APP" "$T/EFI/BOOT/BOOTAA64.EFI"

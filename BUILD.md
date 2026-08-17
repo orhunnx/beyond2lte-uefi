@@ -3,6 +3,11 @@
 Bu adımlar Mu-Silicium'un gerçek `build_uefi.py` script'ine göre doğrulandı.
 İş bölümü ORTAM.md'ye uygun: **derleme WSL'de, flash Windows'ta** (WSL'de USB yok).
 
+Windows'u dahili UFS üzerindeki SYSTEM bölümünden başlatmak için ayrı akış
+[`UFS_DISK_BOOT.md`](UFS_DISK_BOOT.md) belgesindedir. O akışta yalnız
+`b2lufs.sys` PowerShell/MSVC+WDK ile derlenir; WIM, BCD, SYSTEM/CACHE imajı ve
+Odin paketi WSL'de hazırlanır.
+
 ---
 
 ## 1. WSL — kaynağı al

@@ -102,10 +102,14 @@ echo.
 echo === WinPE BCD uretiliyor
 echo.
 
-net session >nul 2>&1
-if errorlevel 1 (
-  echo HATA: Yonetici olarak calistir.
-  pause & exit /b 1
+set "OTOMATIK=0"
+if not "%~2"=="" set "OTOMATIK=1"
+if "%OTOMATIK%"=="0" (
+  net session >nul 2>&1
+  if errorlevel 1 (
+    echo HATA: Yonetici olarak calistir.
+    pause & exit /b 1
+  )
 )
 
 set "VAR=%~1"
@@ -113,6 +117,7 @@ if "%VAR%"=="" set "VAR=tani"
 echo   varyant: %VAR%
 
 set "BCD=%USERPROFILE%\Desktop\BCD"
+if not "%~2"=="" set "BCD=%~2"
 if exist "%BCD%" del /f /q "%BCD%"
 
 bcdedit /createstore "%BCD%" || goto :hata
@@ -161,7 +166,7 @@ echo   osloader GUID: %G%
 :: RAM DISK MI, GERCEK BOLUM MU
 ::
 :: "disk" varyanti WinPE'yi RAM diskten degil NTFS bir bolumden aciyor.
-:: Fikir kullanicidan geldi ve haklıydı: RAM diskte storufs'un baglanip
+:: Fikir kullanicidan geldi ve hakliydi: RAM diskte b2lufs'un baglanip
 :: baglanmamasi hicbir seyi degistirmiyor, o yuzden sessiz. Diskten acarken
 :: baglanmazsa winload ACILIS BIRIMINI BULAMAZ ve EKRANA HATA BASAR.
 ::
@@ -188,8 +193,8 @@ if /i "%VAR%"=="menu"    set "MENUMOD=1"
 if /i "%VAR%"=="menuram" set "MENUMOD=1"
 
 if defined DISKMOD (
-  bcdedit /store "%BCD%" /set %G% device   locate=\Windows\System32\winload.efi >nul || goto :hata
-  bcdedit /store "%BCD%" /set %G% osdevice locate=\Windows\System32\winload.efi >nul || goto :hata
+  bcdedit /store "%BCD%" /set %G% device   locate=\Windows\System32\Boot\winload.efi >nul || goto :hata
+  bcdedit /store "%BCD%" /set %G% osdevice locate=\Windows\System32\Boot\winload.efi >nul || goto :hata
   echo   AYAR: gercek bolumden acilis ^(locate^), RAM disk YOK
 ) else (
   bcdedit /store "%BCD%" /set %G% device   ramdisk=[boot]\sources\boot.wim,{ramdiskoptions} >nul || goto :hata
@@ -379,11 +384,13 @@ echo Simdi WSL'de:
 echo   cp "%BCD%" ~/beyond2lte-uefi/windows/BCD
 echo   cd ~/beyond2lte-uefi ^&^& bash tools_winboot.sh ^&^& bash cache_esp.sh --win
 echo.
+if "%OTOMATIK%"=="1" exit /b 0
 pause
 exit /b 0
 
 :hata
 echo.
 echo BCD uretimi basarisiz. Yukaridaki hataya bak.
+if "%OTOMATIK%"=="1" exit /b 1
 pause
 exit /b 1
