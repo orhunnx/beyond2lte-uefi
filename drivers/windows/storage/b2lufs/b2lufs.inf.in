@@ -1,0 +1,50 @@
+; B2LUFS LUN 0 StorPort INF şablonu. Yalnız test WinPE WIM'ine konur.
+; DSDT UFS0 için yalnız ACPI\BYND9820 compatible kimliği yayınlar;
+; PCI\CC_010901 kaldırılmıştır, böylece storufs ve b2lufs aynı HBA'ya yarışmaz.
+; tools_b2lufs.sh, INF+SYS hash'lerini kapsayan bu katalogu WDK Inf2Cat ile
+; uretir ve mevcut b2lfb test sertifikasi ile imzalar.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=SCSIAdapter
+ClassGuid={4d36e97b-e325-11ce-bfc1-08002be10318}
+Provider=%B2L%
+CatalogFile=b2lufs.cat
+DriverVer=08/16/2026,0.0.4.5
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[SourceDisksNames]
+1 = %B2LUfs.DiskName%,,,
+
+[SourceDisksFiles]
+b2lufs.sys = 1
+
+[Manufacturer]
+%B2L%=B2L,NTarm64
+
+[B2L.NTarm64]
+%B2LUfs.DeviceDesc%=B2LUfs_Install, ACPI\BYND9820
+
+[B2LUfs_Install.NT]
+CopyFiles=B2LUfs_CopyFiles
+
+[B2LUfs_CopyFiles]
+b2lufs.sys
+
+[B2LUfs_Install.NT.Services]
+AddService=b2lufs,0x00000002,B2LUfs_Service
+
+[B2LUfs_Service]
+DisplayName=%B2LUfs.ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\b2lufs.sys
+
+[Strings]
+B2L="beyond2lte"
+B2LUfs.DeviceDesc="Beyond2LTE Exynos 9820 UFS Host Controller"
+B2LUfs.ServiceDesc="Beyond2LTE Exynos 9820 UFS StorPort Miniport"
+B2LUfs.DiskName="Beyond2LTE B2LUFS test media"

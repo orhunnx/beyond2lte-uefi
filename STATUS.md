@@ -1,6 +1,6 @@
 # beyond2lte UEFI — durum
 
-**Son güncelleme:** 10 Ağustos 2026 — UEFI ilk kez açıldı.
+**Son güncelleme:** 17 Ağustos 2026 — Windows UFS okuma/yazma doğrulandı.
 
 ## Çalışan / çalışmayan
 
@@ -10,8 +10,23 @@
 | Display | ✅ | Framebuffer `0xCA000000` doğruymuş |
 | Yan tuşlar | ✅ | Ses +/−, güç — `KeypadDeviceLib` GPIO'ları doğru |
 | **Dahili depolama (UFS)** | **✅** | 5 LUN, DiskIO protokolü kurulu — `S5E9820Pkg/Library/PlatformUfsLib` yazıldı |
+| **Windows UFS (`b2lufs`)** | **✅** | Disk 0: 119 GB; 31 GPT bölüm ve CACHE FAT32 okuma/yazma doğrulandı |
 | USB | ❌ | Henüz sürücü yok |
-| OS boot | ❌ | Depolama olmadan mümkün değil |
+| Windows boot | 🟡 | Depolama engeli kalktı; kalıcı diskten boot akışı ayrıca kurulacak |
+
+## 17 Ağustos 2026 — Windows UFS okuma/yazma kilometre taşı
+
+Cihaz üzerinde aynı WinPE oturumunda şu zincir doğrulandı:
+
+- `b2lufs` StorPort miniportu dahili UFS'i 119 GB `Disk 0` olarak yayımladı.
+- Windows kanonik GPT görünümünü kabul etti ve 31 bölümü numaralandırdı.
+- 600 MB FAT32 CACHE bölümü çevrimiçi yapılıp `W:` harfiyle bağlandı.
+- `W:\B2LUFS-WRITE-OK.TXT` oluşturuldu ve içerik aynı aygıttan geri okundu.
+
+Canlı derleme kaynakları mevcut konumlarında kalır. Bunların bileşenlere göre
+ayrılmış ikinci kopyaları `drivers/` altındadır; build zinciri bu yedekleri
+kullanmaz. Dosya görevleri ve senkron komutları için `drivers/README.md`, kesin
+kaynak-hedef listesi için `drivers/MIRROR_MANIFEST.tsv` kullanılır.
 
 Karşılaştırma: upstream `beyond1lte` (S10) Status.md'de Display ✅ ve tuşlar ✅
 diyor ama "Inactive" işaretli. **beyond2lte artık ondan ileride** — çünkü onun
