@@ -37,10 +37,10 @@ fi
   exit 1
 }
 
-for tool in 7z clang cmd.exe file hivexget hivexregedit hivexsh img2simg \
+for tool in 7z clang cmd.exe cmp file hivexget hivexregedit hivexsh img2simg \
   lld-link llvm-dlltool mcopy mdir mkfs.vfat mkntfs mmd ntfsls openssl \
-  osslsigncode powershell.exe readlink sha1sum sha256sum tar wimlib-imagex \
-  wslpath; do
+  osslsigncode powershell.exe readlink sed sha1sum sha256sum stat tar tr \
+  wimlib-imagex wslpath; do
   command -v "$tool" >/dev/null || {
     echo "HATA: gerekli arac bulunamadi: $tool" >&2
     echo "WSL paketleri: sudo apt install -y p7zip-full clang lld llvm file osslsigncode openssl wimtools libhivex-bin libwin-hivex-perl ntfs-3g mtools dosfstools android-sdk-libsparse-utils" >&2
@@ -57,7 +57,12 @@ if [[ ! -s "$SYS" ]]; then
 fi
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+WIN_STAGE=""
+cleanup() {
+  rm -rf "$WORK"
+  [[ -z "$WIN_STAGE" ]] || rm -rf "$WIN_STAGE"
+}
+trap cleanup EXIT
 
 echo "==> 1/7 Windows ARM64 WinPE dosyalari hazirlaniyor"
 bash "$ROOT/tools_winboot.sh" "$ISO"
@@ -69,14 +74,38 @@ echo "==> 3/7 B2LUFS WIM'e boot-critical olarak yerlestiriliyor"
 bash "$ROOT/tools_ufsboot_prepare.sh"
 
 echo "==> 4/7 Disk boot BCD'si Windows bcdedit ile uretiliyor"
-BCD_SCRIPT_WIN="$(wslpath -w "$ROOT/windows/bcd_olustur.cmd")"
-BCD_OUT_WIN="$(wslpath -w "$ROOT/windows/BCD")"
-cmd.exe /d /s /c "\"$BCD_SCRIPT_WIN\" disk \"$BCD_OUT_WIN\""
-[[ -s "$ROOT/windows/BCD" ]] || { echo "HATA: windows/BCD uretilmedi." >&2; exit 1; }
-if [[ "$(head -c 4 "$ROOT/windows/BCD")" != "regf" ]]; then
-  echo "HATA: windows/BCD gecerli bir registry hive degil." >&2
+WIN_TEMP_WIN="$(cmd.exe /d /c 'echo %TEMP%' 2>/dev/null | tr -d '\r')"
+WIN_TEMP_WSL="$(wslpath -u "$WIN_TEMP_WIN" 2>/dev/null || true)"
+[[ -d "$WIN_TEMP_WSL" && -w "$WIN_TEMP_WSL" ]] || {
+  echo "HATA: Windows TEMP dizini WSL'den kullanilamiyor: ${WIN_TEMP_WIN:-OKUNAMADI}" >&2
+  exit 1
+}
+WIN_STAGE="$(mktemp -d "$WIN_TEMP_WSL/b2l-ufsboot.XXXXXX")"
+BCD_SCRIPT_STAGE="$WIN_STAGE/bcd_olustur.cmd"
+BCD_STAGE_OUT="$WIN_STAGE/BCD"
+sed 's/\r*$/\r/' "$ROOT/windows/bcd_olustur.cmd" >"$BCD_SCRIPT_STAGE"
+
+# cmd.exe UNC calisma dizinini desteklemez. Betik ve cikti Windows'un yerel
+# TEMP dizininde tutulur. CMD bu yerel dizinden baslatildigi icin komut ve
+# cikti yalniz dosya adiyla verilir; UNC ve /c tirnak kurallari devre disidir.
+if ! (
+  cd "$WIN_STAGE"
+  cmd.exe /d /c bcd_olustur.cmd disk BCD
+); then
+  echo "HATA: Windows bcdedit ile disk BCD'si uretilemedi." >&2
   exit 1
 fi
+[[ -s "$BCD_STAGE_OUT" ]] || { echo "HATA: taze BCD uretilmedi." >&2; exit 1; }
+if [[ "$(head -c 4 "$BCD_STAGE_OUT")" != "regf" ]]; then
+  echo "HATA: uretilen BCD gecerli bir registry hive degil." >&2
+  exit 1
+fi
+cp "$BCD_STAGE_OUT" "$ROOT/windows/BCD"
+cmp -s "$BCD_STAGE_OUT" "$ROOT/windows/BCD" || {
+  echo "HATA: dogrulanan BCD repoya kopyalanamadi." >&2
+  exit 1
+}
+echo "  BCD dogrulandi: regf, $(stat -c%s "$ROOT/windows/BCD") bayt"
 
 echo "==> 5/7 Windows SYSTEM imaji uretiliyor"
 bash "$ROOT/tools_windisk.sh" "$SYSTEM_GIB"

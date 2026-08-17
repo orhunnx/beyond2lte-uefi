@@ -40,6 +40,12 @@ hive dosyasına yazılması için açık bir `commit` zorunludur. Araç anahtar�
 yazdıktan sonra geri okuyup doğrular, ardından servis ve aygıt eşlemesini
 `hivexregedit --merge` ile ekler.
 
+WSL'den `bcd_olustur.cmd` doğrudan `\\wsl.localhost` UNC yoluyla çağrılmaz:
+`cmd.exe` UNC çalışma dizinini desteklemediği ve yolu komut adı olarak
+yorumlayabildiği için betik Windows `%TEMP%` altında CRLF olarak sahnelenir.
+BCD aynı yerel dizinde üretilir; taze çıktının `regf` başlığı doğrulandıktan
+sonra repodaki `windows/BCD` üzerine kopyalanıp bayt düzeyinde karşılaştırılır.
+
 ## 17 Ağustos 2026 — Windows UFS okuma/yazma kilometre taşı
 
 Cihaz üzerinde aynı WinPE oturumunda şu zincir doğrulandı:

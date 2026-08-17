@@ -69,6 +69,10 @@ Araç, kullanılan ISO'nun kanonik yolu, boyutu ve değişiklik zamanını kayde
 ISO değiştiğinde hazır `boot.wim` otomatik yenilenir; önceki ISO'nun WIM
 önbelleği yeni pakete karışmaz.
 
+BCD üretiminde Windows batch dosyası `\\wsl.localhost` üzerinden doğrudan
+çalıştırılmaz. Araç betiği ve taze BCD çıktısını Windows `%TEMP%` altında
+sahneler; yalnız `regf` doğrulamasını geçen çıktı repoya geri alınır.
+
 1. ISO'dan WinPE/boot dosyalarını çıkarır.
 2. Mevcut SYS'i WSL'de yeniden derlemeden imzalar ve kataloglar.
 3. SYS'i offline SYSTEM hive'ına boot-critical olarak kurup doğrular.

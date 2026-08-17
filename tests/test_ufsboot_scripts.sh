@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREPARE="$ROOT/tools_ufsboot_prepare.sh"
 REG="$ROOT/windows/b2lufs/b2lufs-boot.reg"
+ORCHESTRATOR="$ROOT/tools_ufsboot.sh"
 
 for script in \
   "$ROOT/tools_ufsboot.sh" \
@@ -49,6 +50,14 @@ grep -Fq "printf 'ls\\n' | hivexsh" "$PREPARE"
 grep -Fq "add %s\\ncommit\\n" "$PREPARE"
 if grep -Fq 'for cs in ControlSet001 ControlSet002' "$PREPARE"; then
   echo "HATA: sabit control-set varsayimi geri gelmis." >&2
+  exit 1
+fi
+
+grep -Fq 'WIN_STAGE="$(mktemp -d "$WIN_TEMP_WSL/b2l-ufsboot.XXXXXX")"' "$ORCHESTRATOR"
+grep -Fq 'cmd.exe /d /c bcd_olustur.cmd disk BCD' "$ORCHESTRATOR"
+grep -Fq 'cmp -s "$BCD_STAGE_OUT" "$ROOT/windows/BCD"' "$ORCHESTRATOR"
+if grep -Fq 'cmd.exe /d /s /c "\"$BCD_SCRIPT_WIN\"' "$ORCHESTRATOR"; then
+  echo "HATA: dogrudan UNC BCD betigi cagrisi geri gelmis." >&2
   exit 1
 fi
 
