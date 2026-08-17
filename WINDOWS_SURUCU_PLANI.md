@@ -12,10 +12,23 @@ Bu belgedeki sürücü planı artık yalnız bir tasarım değildir. `b2lufs` ay
 WinPE oturumunda dahili UFS'i 119 GB Disk 0 olarak yayımladı, 31 GPT bölümünü
 okudu ve CACHE üzerinde dosya yazıp geri okudu. Son disk-boot denemesinde
 görülen `INACCESSIBLE_BOOT_DEVICE` bu nedenle yeni bir Exynos taşıma sürücüsü
-yazmayı gerektiren kanıt değildir: EFI/BCD aşaması geçmiş, ancak boot-start
-paketi hedef Windows'un PnP sürücü deposuna tam kurulmamıştır.
+yazmayı gerektiren kanıt değildir: EFI/BCD aşaması ve UFS veri yolu geçmiş,
+çekirdek açılış volume'unu devralma aşamasında kalmıştır.
 
-Disk-boot akışı artık INF/SYS/CAT paketini Windows DISM ile çevrimdışı
+DriverStore kurulumu cihazda uygulandıktan sonra stop code değişmedi. İkinci
+fark sürücünün GPT görünümünde bulundu: runtime testinde kullanılan `CACHE`
+Microsoft Basic Data'ya çevriliyor, Windows'un bulunduğu `SYSTEM` ise
+Samsung/Android türünde kalıyordu. Windows yalnız Basic Data GPT bölümlerini
+normal volume olarak yayımladığı için winload'un NTFS'i okuyup çekirdeğe
+geçmesi, kernelin aynı boot volume'u yeniden bulacağını garanti etmiyordu.
+
+Güncel sürücü ham telefon GPT'sine yazmadan, salt ve CRC-tutarlı Windows
+snapshot'ında hem `SYSTEM` hem `CACHE` girdilerini Basic Data yapıp attribute
+alanlarını temizler. SYSTEM imajı NTFS, CACHE imajı FAT16 olarak üretilir;
+SYSTEM BPB imzası ve 4Kn geometrisi ayrıca geri okunur. `SchemaVersion=25`
+iki girdinin bulunma durumunu ve indexini ayrı telemetri olarak yayımlar.
+
+Disk-boot akışı ayrıca INF/SYS/CAT paketini Windows DISM ile çevrimdışı
 DriverStore/DriverDatabase'a kurar; sonra `Start=0` servis kaydı ve
 `CriticalDeviceDatabase\ACPI#BYND9820` eşlemesini uygular. WIM geri alındığında
 hem DriverStore paketinin üç dosyası hem de bütün mevcut control set'lerdeki

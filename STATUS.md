@@ -1,6 +1,6 @@
 # beyond2lte UEFI — durum
 
-**Son güncelleme:** 17 Ağustos 2026 — B2LUFS offline DriverStore kurulumu eklendi.
+**Son güncelleme:** 17 Ağustos 2026 — SYSTEM Windows GPT görünümü Basic Data yapıldı.
 
 ## Çalışan / çalışmayan
 
@@ -12,7 +12,29 @@
 | **Dahili depolama (UFS)** | **✅** | 5 LUN, DiskIO protokolü kurulu — `S5E9820Pkg/Library/PlatformUfsLib` yazıldı |
 | **Windows UFS (`b2lufs`)** | **✅** | Disk 0: 119 GB; 31 GPT bölüm ve CACHE FAT32 okuma/yazma doğrulandı |
 | USB | ❌ | Henüz sürücü yok |
-| Windows boot | 🟡 | Boot-critical B2LUFS, NTFS SYSTEM ve CACHE ESP üretim akışı hazır; cihazda diskten boot doğrulaması bekleniyor |
+| Windows boot | 🟡 | SYSTEM artık Windows görünümünde Basic Data + NTFS; yeni SYS ile cihaz doğrulaması bekleniyor |
+
+## 17 Ağustos 2026 — INACCESSIBLE_BOOT_DEVICE: SYSTEM GPT türü düzeltmesi
+
+Offline DriverStore kurulumu cihazda başarıyla uygulandığı halde çekirdek yine
+`INACCESSIBLE_BOOT_DEVICE` verdi. Bu, paketleme açığının gerçek olduğunu fakat
+tek kök neden olmadığını gösterdi. Sürücü kodundaki fark şuydu: daha önce
+WinPE'de yaz/geri-okuma ile doğrulanan 28 numaralı `CACHE` girdisi salt Windows
+GPT snapshot'ında Microsoft Basic Data'ya çevriliyor, diskten açılan 25
+numaralı `SYSTEM` ise Samsung/Android GPT türünde bırakılıyordu. Windows yalnız
+Basic Data türünü normal volume olarak yayımladığından winload NTFS'i tarayarak
+bulsa bile kernel boot volume'u yeniden açamayabilir. Aynı stop code'un
+DriverStore düzeltmesinden sonra sürmesiyle en güçlü kalan kod-yolu farkı budur.
+
+B2LUFS artık ham UFS GPT'sine yazmadan hem `SYSTEM` hem `CACHE` adını tam,
+büyük/küçük harf duyarsız UTF-16LE eşleşmeyle bulur; salt Windows görünümünde
+type GUID'lerini Basic Data yapar, attribute alanlarını temizler ve GPT
+CRC'lerini yeniden hesaplar. SYSTEM NTFS, CACHE FAT16 olarak kalır. Eşleştirme
+ve dönüşüm WDK gerektirmeyen birim testine bağlandı; registry şeması 25'e
+çıkarılıp `MediaWindowsSystemEntryFound/Index` telemetrisi eklendi. Araç ayrıca
+eski SYS'i pahalı BCD/ISO/DISM adımlarından önce reddeder ve SYSTEM NTFS BPB
+geometrisini geri okuyarak doğrular. Gerçek cihazda bu yeni SYS ile diskten
+açılış henüz doğrulanmadı.
 
 ## 17 Ağustos 2026 — INACCESSIBLE_BOOT_DEVICE ve DriverStore düzeltmesi
 

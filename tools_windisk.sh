@@ -91,6 +91,18 @@ if ! mkntfs -Q -F -s 4096 -c 4096 -L WINPE "$IMG" >"$MKNTFS_LOG" 2>&1; then
 fi
 grep -vi "not a block device\|has been set to 0\|was not specified\|will not be able to boot\|forced anyway" "$MKNTFS_LOG" || true
 rm -f "$MKNTFS_LOG"
+NTFS_SIGNATURE="$(dd if="$IMG" bs=1 skip=3 count=8 status=none)"
+NTFS_SECTOR_BYTES="$(od -An -tu2 -j11 -N2 "$IMG" | tr -d ' ')"
+NTFS_SECTORS_PER_CLUSTER="$(od -An -tu1 -j13 -N1 "$IMG" | tr -d ' ')"
+[[ "$NTFS_SIGNATURE" == "NTFS    " ]] || {
+  echo "HATA: SYSTEM imajinda NTFS BPB imzasi yok." >&2
+  exit 1
+}
+[[ "$NTFS_SECTOR_BYTES" == "4096" && "$NTFS_SECTORS_PER_CLUSTER" == "1" ]] || {
+  echo "HATA: SYSTEM NTFS geometrisi 4096 bayt sektor/kume degil: sektor=$NTFS_SECTOR_BYTES kume-sektoru=$NTFS_SECTORS_PER_CLUSTER" >&2
+  exit 1
+}
+echo "  dogrulandi: SYSTEM NTFS, 4096 bayt sektor, 4096 bayt kume"
 echo "  hazir: $(du -h "$IMG" | cut -f1)"
 
 say "boot.wim NTFS'e aciliyor"

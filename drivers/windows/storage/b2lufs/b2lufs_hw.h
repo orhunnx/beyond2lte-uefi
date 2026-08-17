@@ -31,6 +31,18 @@
 #define B2LUFS_1US_TO_CNT_MASK         UINT32_C(0x000003FF)
 #define B2LUFS_IA_TICK_SEL             UINT32_C(0x00010000)
 
+/*
+ * Windows'a sunulan salt GPT görünümündeki standart 128 baytlık entry
+ * alanları. Bu küçük sözleşme WDK'den bağımsız tutulur; boot volume türü
+ * dönüştürmesi host birim testinde de aynı kodla sınanır.
+ */
+#define B2LUFS_GPT_ENTRY_TYPE_OFFSET          UINT32_C(0)
+#define B2LUFS_GPT_ENTRY_TYPE_BYTES           UINT32_C(16)
+#define B2LUFS_GPT_ENTRY_ATTRIBUTES_OFFSET    UINT32_C(48)
+#define B2LUFS_GPT_ENTRY_ATTRIBUTES_BYTES     UINT32_C(8)
+#define B2LUFS_GPT_ENTRY_NAME_OFFSET          UINT32_C(56)
+#define B2LUFS_GPT_ENTRY_NAME_CODE_UNITS      UINT32_C(36)
+
 /* Standart UFSHCI alanları (HCI kaynağına göre ofset). */
 #define B2LUFS_REG_CAP                 UINT32_C(0x0000)
 #define B2LUFS_REG_VER                 UINT32_C(0x0008)
@@ -69,5 +81,20 @@ int B2LUfsBindResources(
     const B2LUFS_RESOURCE *Resources,
     uint32_t ResourceCount,
     B2LUFS_RESOURCES *Bound);
+
+/*
+ * GPT adını ASCII büyük/küçük harf duyarsız, tam UTF-16LE eşleşmeyle sınar.
+ * Eşleşirse yalnız Type GUID ve Attributes alanlarını Windows Basic Data
+ * görünümüne çevirir; medyadaki ham GPT bu fonksiyona hiçbir zaman verilmez.
+ */
+int B2LUfsGptEntryNameEqualsAscii(
+    const uint8_t *Entry,
+    uint32_t EntrySize,
+    const char *ExpectedName);
+
+int B2LUfsNormalizeWindowsDataPartition(
+    uint8_t *Entry,
+    uint32_t EntrySize,
+    const char *ExpectedName);
 
 #endif /* B2LUFS_HW_H */

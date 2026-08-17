@@ -167,10 +167,6 @@
 #define B2LUFS_GPT_HEADER_MIN_BYTES               92UL
 #define B2LUFS_GPT_REVISION_1_0            0x00010000UL
 #define B2LUFS_GPT_MAX_WINDOWS_ENTRIES           128UL
-#define B2LUFS_GPT_ENTRY_TYPE_OFFSET                0UL
-#define B2LUFS_GPT_ENTRY_ATTRIBUTES_OFFSET         48UL
-#define B2LUFS_GPT_ENTRY_NAME_OFFSET               56UL
-#define B2LUFS_GPT_ENTRY_NAME_CODE_UNITS           36UL
 
 /* UFSHCI offsets, all relative to the first (HCI) or second (VS) resource. */
 #define B2LUFS_REG_IE                          0x0024UL
@@ -2212,51 +2208,20 @@ B2LUfsBuildProtectiveMbr(
     Mbr[511] = 0xAAU;
 }
 
-static BOOLEAN
-B2LUfsGptEntryNameIsCache(
-    _In_reads_bytes_(EntrySize) const UCHAR *Entry,
-    _In_ ULONG EntrySize)
-{
-    static const UCHAR CacheName[] = {'C', 'A', 'C', 'H', 'E'};
-    ULONG Index;
-    UCHAR Value;
-
-    if (EntrySize < B2LUFS_GPT_ENTRY_NAME_OFFSET +
-                    (B2LUFS_GPT_ENTRY_NAME_CODE_UNITS * 2UL)) {
-        return FALSE;
-    }
-    for (Index = 0; Index < (ULONG)sizeof(CacheName); ++Index) {
-        Value = Entry[B2LUFS_GPT_ENTRY_NAME_OFFSET + (Index * 2UL)];
-        if (Value >= 'a' && Value <= 'z') {
-            Value = (UCHAR)(Value - ('a' - 'A'));
-        }
-        if (Value != CacheName[Index] ||
-            Entry[B2LUFS_GPT_ENTRY_NAME_OFFSET + (Index * 2UL) + 1UL] != 0) {
-            return FALSE;
-        }
-    }
-    return Entry[B2LUFS_GPT_ENTRY_NAME_OFFSET +
-                 (ULONG)sizeof(CacheName) * 2UL] == 0 &&
-           Entry[B2LUFS_GPT_ENTRY_NAME_OFFSET +
-                 (ULONG)sizeof(CacheName) * 2UL + 1UL] == 0;
-}
-
 static VOID
 B2LUfsBuildWindowsGptSnapshot(
     _Inout_ B2LUFS_ADAPTER *Adapter,
     _In_ ULONG EntryBytes,
     _In_ ULONG EntryBlocks)
 {
-    static const UCHAR BasicDataGuid[16] = {
-        0xA2U, 0xA0U, 0xD0U, 0xEBU, 0xE5U, 0xB9U, 0x33U, 0x44U,
-        0x87U, 0xC0U, 0x68U, 0xB6U, 0xB7U, 0x26U, 0x99U, 0xC7U
-    };
     UCHAR *Entry;
     ULONG Index;
 
     Adapter->MediaWindowsGptSnapshotValid = FALSE;
     Adapter->MediaWindowsCacheEntryFound = FALSE;
     Adapter->MediaWindowsCacheEntryIndex = MAXULONG;
+    Adapter->MediaWindowsSystemEntryFound = FALSE;
+    Adapter->MediaWindowsSystemEntryIndex = MAXULONG;
     Adapter->MediaWindowsGptEntriesCrc = 0;
     Adapter->MediaWindowsGptSnapshotReason =
         B2LUFS_GPT_SNAPSHOT_NOT_ATTEMPTED;
@@ -2305,26 +2270,24 @@ B2LUfsBuildWindowsGptSnapshot(
     for (Index = 0; Index < Adapter->MediaProbeGptEntryCount; ++Index) {
         Entry = Adapter->MediaWindowsGptEntries +
                 (Index * Adapter->MediaProbeGptEntrySize);
-        if (!B2LUfsGptEntryNameIsCache(
-                Entry, Adapter->MediaProbeGptEntrySize)) {
-            continue;
-        }
-
         /*
          * Preserve Samsung's on-media GPT. Only the immutable Windows view
-         * exposes CACHE as Microsoft Basic Data and clears its GPT flags;
-         * CACHE data-sector writes still travel to the real UFS LBA range.
+         * exposes the NTFS SYSTEM boot volume and FAT CACHE ESP as
+         * Microsoft Basic Data with clear GPT flags. Data-sector I/O still
+         * travels to each partition's real UFS LBA range.
          */
-        B2LUfsCopyMemory(
-            Entry + B2LUFS_GPT_ENTRY_TYPE_OFFSET,
-            BasicDataGuid,
-            sizeof(BasicDataGuid));
-        B2LUfsZeroMemory(
-            Entry + B2LUFS_GPT_ENTRY_ATTRIBUTES_OFFSET,
-            sizeof(ULONGLONG));
-        Adapter->MediaWindowsCacheEntryFound = TRUE;
-        Adapter->MediaWindowsCacheEntryIndex = Index;
-        break;
+        if (!Adapter->MediaWindowsSystemEntryFound &&
+            B2LUfsNormalizeWindowsDataPartition(
+                Entry, Adapter->MediaProbeGptEntrySize, "SYSTEM")) {
+            Adapter->MediaWindowsSystemEntryFound = TRUE;
+            Adapter->MediaWindowsSystemEntryIndex = Index;
+        }
+        if (!Adapter->MediaWindowsCacheEntryFound &&
+            B2LUfsNormalizeWindowsDataPartition(
+                Entry, Adapter->MediaProbeGptEntrySize, "CACHE")) {
+            Adapter->MediaWindowsCacheEntryFound = TRUE;
+            Adapter->MediaWindowsCacheEntryIndex = Index;
+        }
     }
 
     Adapter->MediaWindowsGptEntriesCrc = B2LUfsCrc32(

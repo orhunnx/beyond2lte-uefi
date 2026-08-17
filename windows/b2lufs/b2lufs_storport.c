@@ -100,6 +100,8 @@ static UCHAR B2LUFS_REG_WINDOWS_GPT_SELF_CHECK_REASON[] = "MediaWindowsGptSelfCh
 static UCHAR B2LUFS_REG_WINDOWS_GPT_ENTRIES_CRC[] = "MediaWindowsGptEntriesCrc";
 static UCHAR B2LUFS_REG_WINDOWS_CACHE_FOUND[] = "MediaWindowsCacheEntryFound";
 static UCHAR B2LUFS_REG_WINDOWS_CACHE_INDEX[] = "MediaWindowsCacheEntryIndex";
+static UCHAR B2LUFS_REG_WINDOWS_SYSTEM_FOUND[] = "MediaWindowsSystemEntryFound";
+static UCHAR B2LUFS_REG_WINDOWS_SYSTEM_INDEX[] = "MediaWindowsSystemEntryIndex";
 static UCHAR B2LUFS_REG_MEDIA_LBA0[] = "MediaProbeLba0";
 static UCHAR B2LUFS_REG_MEDIA_LBA1[] = "MediaProbeLba1";
 
@@ -464,7 +466,7 @@ B2LUfsPublishLunSnapshot(
     _In_ PVOID DeviceExtension,
     _In_ B2LUFS_ADAPTER *Adapter)
 {
-    ULONG SchemaVersion = 24;
+    ULONG SchemaVersion = 25;
     ULONG CapacityScsiStatus = Adapter->CapacityProbeScsiStatus;
     ULONG CapacityOpcode = Adapter->CapacityProbeOpcode;
     ULONG CapacityValid = Adapter->CapacityValid ? 1UL : 0UL;
@@ -487,6 +489,8 @@ B2LUfsPublishLunSnapshot(
         Adapter->MediaWindowsGptSelfCheckValid ? 1UL : 0UL;
     ULONG MediaWindowsCacheFound =
         Adapter->MediaWindowsCacheEntryFound ? 1UL : 0UL;
+    ULONG MediaWindowsSystemFound =
+        Adapter->MediaWindowsSystemEntryFound ? 1UL : 0UL;
     ULONG Index;
     UCHAR ValueName[] = "Lun00Id";
 
@@ -763,6 +767,14 @@ B2LUfsPublishLunSnapshot(
         DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_WINDOWS_CACHE_INDEX,
         REG_DWORD, &Adapter->MediaWindowsCacheEntryIndex,
         sizeof(Adapter->MediaWindowsCacheEntryIndex));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_WINDOWS_SYSTEM_FOUND,
+        REG_DWORD, &MediaWindowsSystemFound,
+        sizeof(MediaWindowsSystemFound));
+    (void)StorPortRegistryWriteAdapterKey(
+        DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_WINDOWS_SYSTEM_INDEX,
+        REG_DWORD, &Adapter->MediaWindowsSystemEntryIndex,
+        sizeof(Adapter->MediaWindowsSystemEntryIndex));
     if (Adapter->MediaProbeBytes != 0) {
         (void)StorPortRegistryWriteAdapterKey(
             DeviceExtension, B2LUFS_REG_SUBKEY, B2LUFS_REG_MEDIA_LBA0,

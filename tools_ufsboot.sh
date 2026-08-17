@@ -56,6 +56,25 @@ if [[ ! -s "$SYS" ]]; then
   exit 1
 fi
 
+# Kaynak değiştikten sonra eski SYS ile yapılan bir disk-boot turu, düzeltme
+# cihaza hiç gitmediği halde aynı stop code'u üretir. Bu kapıyı pahalı ISO,
+# DISM ve BCD adımlarından önce uygula; tools_b2lufs.sh de paketleme anında
+# aynı denetimi savunma amaçlı tekrarlar.
+STALE_SYS_SOURCES="$(find "$ROOT/windows/b2lufs" -maxdepth 1 -newer "$SYS" \
+  \( -name 'b2lufs_*.c' -o -name 'b2lufs_*.h' -o \
+     -name 'build-b2lufs.ps1' \) -print 2>/dev/null || true)"
+if [[ -n "$STALE_SYS_SOURCES" ]]; then
+  echo "HATA: $SYS, B2LUFS kaynaklarindan eski; disk-boot paketi uretilmedi." >&2
+  echo "Once guncel ARM64 SYS'i derleyin:" >&2
+  printf '  powershell.exe -NoProfile -ExecutionPolicy Bypass -File %q\n' \
+    "$(wslpath -w "$ROOT/windows/b2lufs/build-b2lufs.ps1")" >&2
+  echo "SYS'ten yeni kaynaklar:" >&2
+  while IFS= read -r stale_source; do
+    echo "  ${stale_source#"$ROOT/"}" >&2
+  done <<<"$STALE_SYS_SOURCES"
+  exit 1
+fi
+
 WORK="$(mktemp -d)"
 cleanup() {
   rm -rf "$WORK"

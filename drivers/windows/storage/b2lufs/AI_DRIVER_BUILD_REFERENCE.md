@@ -81,7 +81,7 @@ başlığıdır:
 | `windows/b2lufs/b2lufs.inf.in` | ARM64 PnP sürücü paketinin INF şablonu |
 | `windows/b2lufs/build-b2lufs.ps1` | Windows MSVC/WDK ile yalnız `b2lufs.sys` derlemesi |
 | `windows/b2lufs/b2lgptdump.c` | WinPE'de PhysicalDrive0 GPT bölgelerini salt-okunur döken ve başarılı doğrulamadan sonra Windows bölüm önbelleğini yenileyen freestanding ARM64 araç |
-| `windows/b2lufs/test_resources.c` | WDK gerektirmeyen kaynak-bağlama birim testi |
+| `windows/b2lufs/test_resources.c` | WDK gerektirmeyen kaynak-bağlama ve GPT normalizasyon birim testi |
 | `windows/b2lufs/README.md` | Tasarım ve çalışma davranışının geliştirici notları |
 | `windows/b2lufs/AI_DRIVER_BUILD_REFERENCE.md` | Bu dosya; kaynak ve build zinciri referansı |
 
@@ -482,7 +482,10 @@ eklenmez; böylece aynı HBA için başka bir miniportla eşleşme alanı açıl
 
 Bu test WDK veya Windows kernel ortamı gerektirmez. Kaynakların farklı sırada
 verilmesini, doğru base pointer'lara bağlanmasını ve hatalı memory/duplicate
-kaynakların reddedilmesini `assert()` ile doğrular.
+kaynakların reddedilmesini `assert()` ile doğrular. Ayrıca SYSTEM/CACHE GPT
+adlarının tam ve büyük/küçük harf duyarsız UTF-16LE eşleşmesini, Basic Data
+GUID dönüşümünü, attribute temizliğini ve kısmi/bozuk adların değiştirilmeden
+reddedilmesini sınar.
 
 Yerel çalıştırma örneği:
 
@@ -501,8 +504,8 @@ Bayraklar:
 - `-Werror`: uyarıları hata yapar.
 - `-o`: test executable çıktı yolu.
 
-Bu test yalnız saf kaynak bağlama işlevini kapsar; StorPort veya gerçek MMIO
-erişimi çalıştırmaz.
+Bu test yalnız saf kaynak/GPT yardımcılarını kapsar; StorPort, gerçek MMIO veya
+fiziksel UFS GPT erişimi çalıştırmaz.
 
 ## 4. Windows MSVC/WDK derlemesi
 

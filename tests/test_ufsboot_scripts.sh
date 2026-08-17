@@ -64,6 +64,8 @@ fi
 grep -Fq '[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([Environment]::GetFolderPath("Desktop")))' "$ORCHESTRATOR"
 grep -Fq 'base64 --decode' "$ORCHESTRATOR"
 grep -Fq 'B2L-UFS-BCD' "$ORCHESTRATOR"
+grep -Fq 'STALE_SYS_SOURCES=' "$ORCHESTRATOR"
+grep -Fq 'B2LUFS kaynaklarindan eski; disk-boot paketi uretilmedi' "$ORCHESTRATOR"
 grep -Fq 'B2L_BCD_STAGE_VERSION=1' "$ORCHESTRATOR"
 grep -Fq 'B2L_BCD_VARIANT=disk' "$ORCHESTRATOR"
 grep -Fq 'cmp -s "$BCD_MANUAL_OUT" "$ROOT/windows/BCD"' "$ORCHESTRATOR"
@@ -95,8 +97,13 @@ fi
 
 bcd_call_line="$(grep -n '^prepare_disk_bcd$' "$ORCHESTRATOR" | cut -d: -f1)"
 step_one_line="$(grep -n '^echo "==> 1/7' "$ORCHESTRATOR" | cut -d: -f1)"
+stale_gate_line="$(grep -n '^STALE_SYS_SOURCES=' "$ORCHESTRATOR" | cut -d: -f1)"
 [[ -n "$bcd_call_line" && -n "$step_one_line" && "$bcd_call_line" -lt "$step_one_line" ]] || {
   echo "HATA: manuel BCD kapisi pahali WIM adimlarindan once degil." >&2
+  exit 1
+}
+[[ -n "$stale_gate_line" && "$stale_gate_line" -lt "$bcd_call_line" ]] || {
+  echo "HATA: bayat SYS kapisi BCD/ISO adimlarindan once degil." >&2
   exit 1
 }
 
@@ -133,6 +140,8 @@ grep -Fq "WIM DriverStore'unda b2lufs.\$package_ext yok" "$PREPARE"
 # UFS disk-boot zinciri: boot-critical WIM -> NTFS SYSTEM ve yalniz EFI/BCD
 # tasiyan CACHE. Bu kapilar gevserse paket uretilse bile cihaz UFS'ten acilmaz.
 grep -Fq 'bash "$HERE/tools_ufsboot_prepare.sh" --check' "$WINDISK"
+grep -Fq 'SYSTEM imajinda NTFS BPB imzasi yok' "$WINDISK"
+grep -Fq 'SYSTEM NTFS, 4096 bayt sektor, 4096 bayt kume' "$WINDISK"
 grep -Fq 'b2lufs.sys (boot-critical)' "$WINDISK"
 grep -Fq 'rm -f "$ESP/sources/boot.wim" "$ESP/boot/boot.sdi"' "$WINBOOT"
 grep -Fq '::/EFI/Microsoft/Boot/BCD' "$CACHE_ESP"

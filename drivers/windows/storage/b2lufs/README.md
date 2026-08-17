@@ -384,8 +384,13 @@ Sürücü, CRC ile doğruladığı 4Kn GPT başlığını ve 16 KiB entry dizisi
 bir CPU snapshot'ında tutar. `partmgr` metadata `READ` istekleri kilitli
 `HwStartIo` içinde bu tutarlı snapshot'tan tamamlanır; bir istekte düzeltilmiş
 PMBR, başka bir istekte ham Samsung GPT dönmesi engellenir. Stok medyadaki
-`CACHE` girdisi bu salt Windows görünümünde Microsoft Basic Data GUID'i ve
-temiz GPT attribute alanı taşır; ham GPT'ye yazılmaz.
+`SYSTEM` ve `CACHE` girdileri bu salt Windows görünümünde Microsoft Basic Data
+GUID'i ve temiz GPT attribute alanı taşır; ham GPT'ye yazılmaz. Bu ayrım
+zorunludur: NTFS/FAT dosya sistemleri bölümlerin içinde bulunsa da Windows
+yalnız Basic Data türünü normal volume olarak tanır. Böylece 25 numaralı
+`SYSTEM` NTFS boot volume, 28 numaralı `CACHE` ise FAT volume olarak açılır.
+`MediaWindowsSystemEntryFound/Index` ve
+`MediaWindowsCacheEntryFound/Index` değerleri iki dönüşümü ayrı raporlar.
 
 Renegade/edk2-msm SM7125 karşılaştırmasında firmware tarafı UFS
 denetleyicisini `QCOM24A5`, MMIO/IRQ, `_CCA` ve `_ADR=8` alt aygıtıyla

@@ -25,6 +25,13 @@ UEFI'nin GPT'yi Windows'a ayrıca bildirmesi gerekmez. UEFI, CACHE ESP'den
 boot manager'ı yükler; Windows tarafında GPT ve blok I/O'yu boot-start StorPort
 miniportu sağlar.
 
+Telefonun kalıcı GPT tablosundaki `SYSTEM` ve `CACHE` tür GUID'leri Samsung'un
+Android türleridir. Paket bunları medyada değiştirmez. B2LUFS'un CRC-tutarlı,
+salt Windows GPT görünümü her iki girdiyi Microsoft Basic Data olarak
+gösterir: `SYSTEM` içeriği NTFS, `CACHE` içeriği FAT16'dır. Aksi halde winload
+NTFS'ten çekirdeği okuyabilse bile kernel `SYSTEM` volume'unu tanımayıp
+`INACCESSIBLE_BOOT_DEVICE` ile durabilir.
+
 ## Güvenlik sınırı
 
 Üretilen Odin paketi yalnız şu iki dosyayı içerir:
@@ -103,7 +110,10 @@ kurulum modeli de paketin yalnız `System32\drivers` altına kopyalanmasını de
 6. NTFS `system.img` ve FAT16 `cache.img` üretir.
 7. Yalnız bu iki imajı `out/ufs-diskboot.tar` içine koyar.
 
-Araç, SYS yoksa durur ve gerekli PowerShell komutunu gösterir. WSL tarafında
+Üretim sırasında `system.img` için NTFS BPB imzası, 4096 bayt sektör ve
+4096 bayt küme geri okunarak doğrulanır. `cache.img` ise FAT16 olarak
+oluşturulur. Araç, SYS yoksa veya kaynaklardan eskiyse pahalı ISO/BCD/DISM
+adımlarından önce durur ve gerekli PowerShell komutunu gösterir. WSL tarafında
 MSVC derlemesi yapılmaz.
 
 ## 3. Paketi doğrulama ve flaşlama

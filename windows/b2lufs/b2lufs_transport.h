@@ -141,6 +141,7 @@ typedef struct B2LUFS_ADAPTER {
     UCHAR MediaProbeLba1[64];
     BOOLEAN MediaWindowsGptSnapshotValid;
     BOOLEAN MediaWindowsCacheEntryFound;
+    BOOLEAN MediaWindowsSystemEntryFound;
     BOOLEAN MediaWindowsGptSelfCheckValid;
     ULONG MediaWindowsGptSnapshotReason;
     ULONG MediaWindowsGptSelfCheckReason;
@@ -148,6 +149,7 @@ typedef struct B2LUFS_ADAPTER {
     ULONG MediaWindowsGptEntryBlocks;
     ULONG MediaWindowsGptEntriesCrc;
     ULONG MediaWindowsCacheEntryIndex;
+    ULONG MediaWindowsSystemEntryIndex;
     UCHAR MediaWindowsGptHeader[B2LUFS_WINDOWS_GPT_BLOCK_BYTES];
     UCHAR MediaWindowsGptEntries[B2LUFS_WINDOWS_GPT_ENTRIES_BYTES];
 
