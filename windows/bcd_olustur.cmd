@@ -131,9 +131,9 @@ bcdedit /createstore "%BCD%" || goto :hata
 :: tamamen etkisiz kaldi. "sos On" acikken tek satir metin gormememizin
 :: sebebi bu olabilir.
 ::
-bcdedit /store "%BCD%" /create {globalsettings}     /d "Global" >nul 2>&1 || goto :hata
-bcdedit /store "%BCD%" /create {bootloadersettings} /d "Loader" >nul 2>&1 || goto :hata
-bcdedit /store "%BCD%" /set {bootloadersettings} inherit {globalsettings} >nul 2>&1 || goto :hata
+bcdedit /store "%BCD%" /create {globalsettings}     /d "Global" >nul || goto :hata
+bcdedit /store "%BCD%" /create {bootloadersettings} /d "Loader" >nul || goto :hata
+bcdedit /store "%BCD%" /set {bootloadersettings} inherit {globalsettings} >nul || goto :hata
 ::
 :: DOGRU OGE ADI "bootuxdisabled" - "bootux" DIYE BIR SEY YOK.
 ::
@@ -263,8 +263,12 @@ if /i "%VAR%"=="hatagoster" (
 ::
 bcdedit /store "%BCD%" /set %G% testsigning        Yes
 if errorlevel 1 goto :hata
-bcdedit /store "%BCD%" /set %G% nointegritychecks  Yes
-if errorlevel 1 goto :hata
+::
+:: nointegritychecks BILEREK YAZILMIYOR. Suruculerimiz imzasiz degil,
+:: kendi sertifikamizla TEST-IMZALI; gereken ayar testsigning'dir.
+:: nointegritychecks Secure Boot acik bir derleme bilgisayarinda BCDEdit
+:: tarafindan reddedilebilir ve hedef BCD baska bir cihaz icin olsa bile
+:: gereksiz yere butun uretimi durduruyordu.
 
 bcdedit /store "%BCD%" /set %G% quietboot          No
 if errorlevel 1 echo   ! BASARISIZ: quietboot          No

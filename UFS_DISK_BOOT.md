@@ -69,17 +69,21 @@ Araç, kullanılan ISO'nun kanonik yolu, boyutu ve değişiklik zamanını kayde
 ISO değiştiğinde hazır `boot.wim` otomatik yenilenir; önceki ISO'nun WIM
 önbelleği yeni pakete karışmaz.
 
-BCD üretiminde Windows batch dosyası `\\wsl.localhost` üzerinden doğrudan
-çalıştırılmaz. Araç betiği ve taze BCD çıktısını Windows `%TEMP%` altında
-sahneler. `bcdedit.exe` BCD değişikliklerinde yönetici yetkisi istediğinden
-yalnız bu alt süreç Windows `RunAs` mekanizmasıyla yükseltilir. Açılan UAC
-penceresinde **Evet** seçilmelidir. Yalnız `regf` doğrulamasını geçen çıktı
-repoya geri alınır.
+BCD üretiminde Windows batch dosyası `\\wsl.localhost` veya WSL içinden UAC
+zinciriyle çalıştırılmaz. Araç, gerçek Windows Masaüstü konumunda
+`B2L-UFS-BCD` klasörünü hazırlar ve pahalı WIM işlemlerinden önce bekler.
+Yönetici Komut İstemi'nde ekranda gösterilen klasöre geçip
+`B2L_BCD_DISK_OLUSTUR.cmd` çalıştırılır. Batch'in başarılı işareti, `disk`
+varyantı, dosya boyutu ve BCD'nin `regf` başlığı doğrulandıktan sonra akış
+devam eder. Böylece `bcdedit` hatasının tamamı açık CMD penceresinde kalır.
+Test-imzalı B2LUFS için `testsigning=Yes` zorunludur. İmzasız sürücü
+kullanılmadığından `nointegritychecks` yazılmaz; bu ayar Secure Boot açık
+derleme bilgisayarlarında BCDEdit tarafından reddedilebilir.
 
 1. ISO'dan WinPE/boot dosyalarını çıkarır.
 2. Mevcut SYS'i WSL'de yeniden derlemeden imzalar ve kataloglar.
 3. SYS'i offline SYSTEM hive'ına boot-critical olarak kurup doğrular.
-4. Disk BCD'sini Windows `bcdedit.exe` ile otomatik oluşturur.
+4. Masaüstünde yönetici CMD ile üretilmiş disk BCD'sini doğrular.
 5. NTFS `system.img` ve FAT16 `cache.img` üretir.
 6. Yalnız bu iki imajı `out/ufs-diskboot.tar` içine koyar.
 
@@ -129,6 +133,7 @@ yeniden bölümleme normal geri dönüşün parçası değildir.
 | `tools_ufsboot_prepare.sh` | WIM'e SYS ve offline boot-critical kayıtları ekler/doğrular. |
 | `windows/b2lufs/b2lufs-boot.reg` | Hive'da bulunan control set'ler için servis ve CriticalDeviceDatabase şablonu. |
 | `windows/bcd_olustur.cmd` | Diskteki `winload.efi` için BCD üretir. |
+| `windows/B2L_BCD_DISK_OLUSTUR.cmd` | Masaüstündeki yönetici CMD akışını ve başarı işaretini yönetir. |
 | `tools_windisk.sh` | WIM'i NTFS SYSTEM imajına uygular. |
 | `tools_winboot.sh --disk` | CACHE ESP için EFI dosyalarını ve disk BCD'sini sahneler. |
 | `cache_esp.sh --win --disk --baseline` | 600 MiB CACHE ESP imajını ve tar paketini üretir. |

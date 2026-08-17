@@ -56,11 +56,79 @@ if [[ ! -s "$SYS" ]]; then
   exit 1
 fi
 
+prepare_disk_bcd() {
+  local expected_size actual_size ready_text
+
+  WIN_DESKTOP_WIN="$(powershell.exe -NoProfile -NonInteractive -Command \
+    '[Environment]::GetFolderPath("Desktop")' 2>/dev/null | tr -d '\r' || true)"
+  WIN_DESKTOP_WSL="$(wslpath -u "$WIN_DESKTOP_WIN" 2>/dev/null || true)"
+  if [[ -z "$WIN_DESKTOP_WIN" || ! -d "$WIN_DESKTOP_WSL" || ! -w "$WIN_DESKTOP_WSL" ]]; then
+    echo "HATA: Windows Masaustu dizini WSL'den kullanilamiyor: ${WIN_DESKTOP_WIN:-OKUNAMADI}" >&2
+    return 1
+  fi
+
+  BCD_MANUAL_DIR="$WIN_DESKTOP_WSL/B2L-UFS-BCD"
+  BCD_MANUAL_DIR_WIN="$(wslpath -w "$BCD_MANUAL_DIR")"
+  BCD_MANUAL_OUT="$BCD_MANUAL_DIR/BCD.disk"
+  BCD_MANUAL_READY="$BCD_MANUAL_DIR/BCD.disk.ready"
+  mkdir -p "$BCD_MANUAL_DIR"
+  sed 's/\r*$/\r/' "$ROOT/windows/bcd_olustur.cmd" >"$BCD_MANUAL_DIR/bcd_olustur.cmd"
+  sed 's/\r*$/\r/' "$ROOT/windows/B2L_BCD_DISK_OLUSTUR.cmd" \
+    >"$BCD_MANUAL_DIR/B2L_BCD_DISK_OLUSTUR.cmd"
+
+  disk_bcd_ready() {
+    [[ -s "$BCD_MANUAL_OUT" && -s "$BCD_MANUAL_READY" ]] || return 1
+    ready_text="$(tr -d '\r' <"$BCD_MANUAL_READY")"
+    grep -Fxq 'B2L_BCD_STAGE_VERSION=1' <<<"$ready_text" || return 1
+    grep -Fxq 'B2L_BCD_VARIANT=disk' <<<"$ready_text" || return 1
+    [[ "$(head -c 4 "$BCD_MANUAL_OUT")" == "regf" ]] || return 1
+    expected_size="$(sed -n 's/^B2L_BCD_SIZE=//p' <<<"$ready_text")"
+    actual_size="$(stat -c%s "$BCD_MANUAL_OUT")"
+    [[ "$expected_size" =~ ^[0-9]+$ && "$expected_size" == "$actual_size" ]]
+  }
+
+  if ! disk_bcd_ready; then
+    echo
+    echo "==> Disk BCD'si Windows Masaustunde bir kez uretilmeli"
+    echo "  klasor : $BCD_MANUAL_DIR_WIN"
+    echo "  Yonetici Komut Istemi'nde:"
+    echo "    cd /d \"$BCD_MANUAL_DIR_WIN\""
+    echo "    B2L_BCD_DISK_OLUSTUR.cmd"
+    echo
+    if [[ -t 0 ]]; then
+      read -r -p "  Betik BASARILI dedikten sonra buraya donup ENTER'a basin... "
+    else
+      echo "HATA: Etkilesimli terminal yok; yukaridaki BCD betigini calistirip tekrar deneyin." >&2
+      return 1
+    fi
+  fi
+
+  if ! disk_bcd_ready; then
+    echo "HATA: Masaustunde dogrulanmis disk BCD'si bulunamadi." >&2
+    echo "Yonetici CMD'deki ilk bcdedit hatasini kontrol edin: $BCD_MANUAL_DIR_WIN" >&2
+    return 1
+  fi
+
+  cp "$BCD_MANUAL_OUT" "$ROOT/windows/BCD"
+  cmp -s "$BCD_MANUAL_OUT" "$ROOT/windows/BCD" || {
+    echo "HATA: dogrulanan disk BCD'si repoya kopyalanamadi." >&2
+    return 1
+  }
+  BCD_ACCEPTED_HASH="$(sha256sum "$ROOT/windows/BCD" | awk '{print $1}')"
+  {
+    echo 'B2L_BCD_VARIANT=disk'
+    echo "B2L_BCD_SHA256=$BCD_ACCEPTED_HASH"
+    echo "B2L_BCD_SIZE=$actual_size"
+    echo "B2L_BCD_SOURCE=$BCD_MANUAL_DIR_WIN\\BCD.disk"
+  } >"$OUT/disk-bcd-source.txt"
+  echo "  Disk BCD dogrulandi: regf, $actual_size bayt, SHA256=${BCD_ACCEPTED_HASH:0:16}"
+}
+
+prepare_disk_bcd
+
 WORK="$(mktemp -d)"
-WIN_STAGE=""
 cleanup() {
   rm -rf "$WORK"
-  [[ -z "$WIN_STAGE" ]] || rm -rf "$WIN_STAGE"
 }
 trap cleanup EXIT
 
@@ -73,43 +141,16 @@ B2L_SKIP_MSVC_BUILD=1 bash "$ROOT/tools_b2lufs.sh"
 echo "==> 3/7 B2LUFS WIM'e boot-critical olarak yerlestiriliyor"
 bash "$ROOT/tools_ufsboot_prepare.sh"
 
-echo "==> 4/7 Disk boot BCD'si Windows bcdedit ile uretiliyor"
-WIN_TEMP_WIN="$(cmd.exe /d /c 'echo %TEMP%' 2>/dev/null | tr -d '\r')"
-WIN_TEMP_WSL="$(wslpath -u "$WIN_TEMP_WIN" 2>/dev/null || true)"
-[[ -d "$WIN_TEMP_WSL" && -w "$WIN_TEMP_WSL" ]] || {
-  echo "HATA: Windows TEMP dizini WSL'den kullanilamiyor: ${WIN_TEMP_WIN:-OKUNAMADI}" >&2
+echo "==> 4/7 Onceden uretilen disk boot BCD'si dogrulaniyor"
+[[ -s "$ROOT/windows/BCD" && "$(head -c 4 "$ROOT/windows/BCD")" == "regf" ]] || {
+  echo "HATA: hazirlanan disk BCD'si kayboldu veya bozuldu." >&2
   exit 1
 }
-WIN_STAGE="$(mktemp -d "$WIN_TEMP_WSL/b2l-ufsboot.XXXXXX")"
-BCD_SCRIPT_STAGE="$WIN_STAGE/bcd_olustur.cmd"
-BCD_RUNNER_STAGE="$WIN_STAGE/run_bcd_elevated.ps1"
-BCD_STAGE_OUT="$WIN_STAGE/BCD"
-sed 's/\r*$/\r/' "$ROOT/windows/bcd_olustur.cmd" >"$BCD_SCRIPT_STAGE"
-cp "$ROOT/windows/run_bcd_elevated.ps1" "$BCD_RUNNER_STAGE"
-WIN_STAGE_WIN="$(wslpath -w "$WIN_STAGE")"
-BCD_RUNNER_WIN="$(wslpath -w "$BCD_RUNNER_STAGE")"
-
-# cmd.exe UNC calisma dizinini desteklemez. Betik ve cikti Windows'un yerel
-# TEMP dizininde tutulur. BCDEdit ayrica yonetici yetkisi istedigi icin yalniz
-# BCD alt sureci PowerShell Start-Process -Verb RunAs ile yukseltilir. UAC
-# reddedilirse veya batch hata verirse PowerShell cikis kodunu buraya tasir.
-if ! powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
-  -File "$BCD_RUNNER_WIN" "$WIN_STAGE_WIN"; then
-  echo "HATA: Windows bcdedit ile disk BCD'si uretilemedi." >&2
-  echo "UAC penceresinde Evet'i sectiginizden emin olun." >&2
-  exit 1
-fi
-[[ -s "$BCD_STAGE_OUT" ]] || { echo "HATA: taze BCD uretilmedi." >&2; exit 1; }
-if [[ "$(head -c 4 "$BCD_STAGE_OUT")" != "regf" ]]; then
-  echo "HATA: uretilen BCD gecerli bir registry hive degil." >&2
-  exit 1
-fi
-cp "$BCD_STAGE_OUT" "$ROOT/windows/BCD"
-cmp -s "$BCD_STAGE_OUT" "$ROOT/windows/BCD" || {
-  echo "HATA: dogrulanan BCD repoya kopyalanamadi." >&2
+[[ "$(sha256sum "$ROOT/windows/BCD" | awk '{print $1}')" == "$BCD_ACCEPTED_HASH" ]] || {
+  echo "HATA: disk BCD'si paketleme sirasinda degisti." >&2
   exit 1
 }
-echo "  BCD dogrulandi: regf, $(stat -c%s "$ROOT/windows/BCD") bayt"
+echo "  Disk BCD ayni: SHA256=${BCD_ACCEPTED_HASH:0:16}"
 
 echo "==> 5/7 Windows SYSTEM imaji uretiliyor"
 bash "$ROOT/tools_windisk.sh" "$SYSTEM_GIB"

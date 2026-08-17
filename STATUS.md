@@ -41,14 +41,23 @@ yazdıktan sonra geri okuyup doğrular, ardından servis ve aygıt eşlemesini
 `hivexregedit --merge` ile ekler.
 
 WSL'den `bcd_olustur.cmd` doğrudan `\\wsl.localhost` UNC yoluyla çağrılmaz:
-`cmd.exe` UNC çalışma dizinini desteklemediği ve yolu komut adı olarak
-yorumlayabildiği için betik Windows `%TEMP%` altında CRLF olarak sahnelenir.
-BCD aynı yerel dizinde üretilir; taze çıktının `regf` başlığı doğrulandıktan
-sonra repodaki `windows/BCD` üzerine kopyalanıp bayt düzeyinde karşılaştırılır.
+`cmd.exe` UNC çalışma dizinini desteklemediği için betikler gerçek Windows
+Masaüstündeki `B2L-UFS-BCD` klasörüne CRLF olarak sahnelenir. Yönetici CMD'de
+üretilen BCD'nin başarı işareti, `disk` varyantı, boyutu ve `regf` başlığı
+doğrulandıktan sonra dosya repodaki `windows/BCD` üzerine kopyalanıp bayt
+düzeyinde karşılaştırılır.
 `bcdedit.exe` BCD deposunu değiştirmek için yükseltilmiş yönetici belirteci
-istediğinden, otomatik çağrı bu tek alt süreci PowerShell
-`Start-Process -Verb RunAs` ile yükseltir ve bitmesini bekler. Kullanıcı UAC
-penceresinde **Evet** seçmelidir; ret veya alt süreç hatası paketlemeyi durdurur.
+ister. WSL içinden `Start-Process -Verb RunAs` ile yapılan çağrı UAC onaylansa
+bile yükseltilmiş CMD'nin gerçek hata çıktısını WSL'ye güvenilir taşımadı.
+Bu yol kaldırıldı. Orkestratör artık gerçek Windows Masaüstünde
+`B2L-UFS-BCD` klasörünü hazırlar; kullanıcı oradaki
+`B2L_BCD_DISK_OLUSTUR.cmd` dosyasını açık bir Yönetici CMD içinde çalıştırır.
+Akış daha WIM işlemlerine başlamadan `disk` başarı işaretini, boyutu ve `regf`
+başlığını doğrular. Böylece yanlış/eski BCD paketlenmez ve bir hata olursa ilk
+başarısız `bcdedit` komutu kapanmayan CMD penceresinde görünür.
+Test-imzalı B2LUFS için zorunlu BCD ayarı `testsigning=Yes` olarak kalır.
+`nointegritychecks` gerekli değildir ve Secure Boot açık derleme bilgisayarında
+BCDEdit tarafından reddedilebildiği için artık BCD üretimini engellemez.
 
 ## 17 Ağustos 2026 — Windows UFS okuma/yazma kilometre taşı
 

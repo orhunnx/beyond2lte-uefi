@@ -15,3 +15,7 @@ stockfirmware/
 # Gecici
 *.log
 BUILDLOG*.txt
+
+# Windows tarafinda uretilen yerel BCD artefaktlari
+windows/BCD
+out/disk-bcd-source.txt
