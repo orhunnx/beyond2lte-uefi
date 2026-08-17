@@ -31,12 +31,14 @@ Tek komutlu WSL üretimi, zorunlu PowerShell SYS derlemesi ve geri dönüş adı
 `UFS_DISK_BOOT.md` içinde. Bu kilometre taşı araç zincirinin tamamlandığını
 gösterir; gerçek cihazda diskten Windows açılışı henüz doğrulanmış değildir.
 
-Windows 11 25H2 WinPE SYSTEM hive'ında `CriticalDeviceDatabase` ara anahtarı
-hazır gelmediği için boot-critical kayıt birleştirmesi öncesinde iki control set
-altında oluşturuluyor. Bu işlem `hivexsh -w` ile yapıldığında `add` yalnız
-bellekte kalır; değişikliğin hive dosyasına yazılması için açık bir `commit`
-zorunludur. Araç anahtarı yazdıktan sonra geri okuyup doğrular, ardından servis
-ve aygıt eşlemesini `hivexregedit --merge` ile ekler.
+Güncel WinPE SYSTEM hive'ında `CriticalDeviceDatabase` ara anahtarı hazır
+gelmediği için boot-critical kayıt birleştirmesi öncesinde oluşturuluyor. Hive
+yalnız `ControlSet001` taşıyabildiğinden araç sabit iki set varsaymaz; kökte
+gerçekten bulunan `ControlSetNNN` anahtarlarını keşfedip yalnız onları düzenler.
+Bu işlem `hivexsh -w` ile yapıldığında `add` yalnız bellekte kalır; değişikliğin
+hive dosyasına yazılması için açık bir `commit` zorunludur. Araç anahtarı
+yazdıktan sonra geri okuyup doğrular, ardından servis ve aygıt eşlemesini
+`hivexregedit --merge` ile ekler.
 
 ## 17 Ağustos 2026 — Windows UFS okuma/yazma kilometre taşı
 

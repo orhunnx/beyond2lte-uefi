@@ -36,6 +36,10 @@ while IFS=$'\t' read -r source destination; do
   fi
 
   while IFS= read -r tracked_file; do
+    # Yerel tani notu canli derleme girdisi degildir ve drivers/ yedegine
+    # alinmayacagi drivers/README.md'de acikca belirtilir.
+    [[ "$tracked_file" == "windows/b2lufs/TANI_DISKPART.md" ]] && continue
+
     relative="${tracked_file#"$source"/}"
     backup_file="$destination_abs/$relative"
 

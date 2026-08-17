@@ -83,7 +83,14 @@ dd if=/dev/zero of="$IMG" bs=1M count=$((GIB*1024)) status=none
 # UEFI blok G/C uzerinden aciyor ve kendi NTFS okuyucusuyla bolumun basindan
 # itibaren okuyor; o alanlara hic bakmiyor.
 #
-mkntfs -Q -F -s 4096 -c 4096 -L WINPE "$IMG" 2>&1 | grep -vi "not a block device\|has been set to 0\|was not specified\|will not be able to boot\|forced anyway" || true
+MKNTFS_LOG="$OUT/mkntfs-system.log"
+if ! mkntfs -Q -F -s 4096 -c 4096 -L WINPE "$IMG" >"$MKNTFS_LOG" 2>&1; then
+  cat "$MKNTFS_LOG" >&2
+  echo "HATA: NTFS imaji bicimlendirilemedi." >&2
+  exit 1
+fi
+grep -vi "not a block device\|has been set to 0\|was not specified\|will not be able to boot\|forced anyway" "$MKNTFS_LOG" || true
+rm -f "$MKNTFS_LOG"
 echo "  hazir: $(du -h "$IMG" | cut -f1)"
 
 say "boot.wim NTFS'e aciliyor"

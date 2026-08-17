@@ -29,7 +29,7 @@ KITS="${B2L_WDK_ROOT:-$WINROOT/Program Files (x86)/Windows Kits/10}"
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die() { printf '\nHATA: %s\n' "$*" >&2; exit 1; }
 
-for tool in powershell.exe clang lld-link llvm-dlltool osslsigncode openssl wimlib-imagex sha256sum wslpath; do
+for tool in powershell.exe clang file lld-link llvm-dlltool osslsigncode openssl wimlib-imagex sha256sum wslpath; do
   command -v "$tool" >/dev/null || die "$tool yok"
 done
 

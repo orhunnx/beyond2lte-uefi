@@ -9,7 +9,7 @@ SYSTEM_GIB="${2:-4}"
 usage() {
   cat <<'EOF'
 Kullanim:
-  bash tools_ufsboot.sh /mnt/c/yol/Windows11_ARM64.iso [system-boyutu-GiB]
+  bash tools_ufsboot.sh /mnt/c/yol/Windows_ARM64.iso [system-boyutu-GiB]
 
 Bu arac b2lufs.sys DERLEMEZ. SYS once Windows PowerShell'de uretilmelidir.
 Geri kalan WIM, BCD, SYSTEM/CACHE ve Odin paketleme islemleri WSL'de yapilir.
@@ -37,11 +37,13 @@ fi
   exit 1
 }
 
-for tool in 7z cmd.exe hivexget hivexregedit img2simg mcopy mdir mkfs.vfat \
-  mkntfs ntfsls sha256sum tar wimlib-imagex wslpath; do
+for tool in 7z clang cmd.exe file hivexget hivexregedit hivexsh img2simg \
+  lld-link llvm-dlltool mcopy mdir mkfs.vfat mkntfs mmd ntfsls openssl \
+  osslsigncode powershell.exe readlink sha1sum sha256sum tar wimlib-imagex \
+  wslpath; do
   command -v "$tool" >/dev/null || {
     echo "HATA: gerekli arac bulunamadi: $tool" >&2
-    echo "WSL paketleri: sudo apt install -y p7zip-full wimtools libhivex-bin libwin-hivex-perl ntfs-3g mtools dosfstools android-sdk-libsparse-utils" >&2
+    echo "WSL paketleri: sudo apt install -y p7zip-full clang lld llvm file osslsigncode openssl wimtools libhivex-bin libwin-hivex-perl ntfs-3g mtools dosfstools android-sdk-libsparse-utils" >&2
     exit 1
   }
 done

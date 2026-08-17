@@ -450,18 +450,25 @@ if command -v mcopy >/dev/null; then
     echo "  DIKKAT: en az bir dosya imaja giremedi (buyuk ihtimalle yer yok)."
     echo "  Windows icin:  bash cache_esp.sh --win"
     echo "  esp/ toplami: $(du -sh "$PROJ/esp" | cut -f1) / imaj ${LIMIT_MB} MB"
+    exit 1
   fi
   # RAM-disk turunda boot.wim, disk-boot turunda ise yalniz BCD gerekir.
   if [ "$DISK_BOOT" = 1 ]; then
-    if ! mdir -i "$IMG" ::/EFI/Microsoft/Boot/BCD >/dev/null 2>&1; then
-      echo "HATA: disk-boot CACHE imajinda EFI/Microsoft/Boot/BCD yok."
-      exit 1
-    fi
+    for required in \
+      ::/EFI/BOOT/BOOTAA64.EFI \
+      ::/EFI/Microsoft/Boot/bootmgfw.efi \
+      ::/EFI/Microsoft/Boot/BCD \
+      ::/startup.nsh; do
+      if ! mdir -i "$IMG" "$required" >/dev/null 2>&1; then
+        echo "HATA: disk-boot CACHE imajinda zorunlu dosya yok: $required"
+        exit 1
+      fi
+    done
     if mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
       echo "HATA: disk-boot CACHE imajina sources/ sizmis; boot.wim burada olmamali."
       exit 1
     fi
-    echo "--- disk-boot BCD: VAR; boot.wim: YOK (beklenen)"
+    echo "--- disk-boot EFI/BCD/startup: VAR; boot.wim: YOK (beklenen)"
   elif mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
     echo "--- sources/ (WinPE):"
     mdir -i "$IMG" ::/sources | sed 's/^/  /'

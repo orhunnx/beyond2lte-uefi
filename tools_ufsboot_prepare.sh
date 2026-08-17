@@ -25,14 +25,14 @@ elif [[ $# -ne 0 ]]; then
   exit 2
 fi
 
-for tool in wimlib-imagex hivexget sha256sum; do
+for tool in wimlib-imagex hivexget hivexsh sha256sum; do
   command -v "$tool" >/dev/null || {
     echo "HATA: $tool yok. WSL: sudo apt install -y wimtools libhivex-bin" >&2
     exit 1
   }
 done
 if (( ! CHECK_ONLY )); then
-  for tool in hivexregedit hivexsh; do
+  for tool in hivexregedit sed; do
     command -v "$tool" >/dev/null || {
       echo "HATA: $tool yok. WSL: sudo apt install -y libhivex-bin libwin-hivex-perl" >&2
       exit 1
@@ -45,6 +45,27 @@ fi
   echo "HATA: $SYS yok. Surucuyu yalniz PowerShell'de derle:" >&2
   echo 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\orhun\beyond2lte-uefi\windows\b2lufs\build-b2lufs.ps1"' >&2
   exit 1
+}
+
+list_control_sets() {
+  local hive="$1"
+
+  # Hive kokundeki gercek control set'leri kullan. WinPE surumune gore
+  # yalniz ControlSet001 bulunabilir; var olmayan bir ControlSet002'yi
+  # olusturmak secilebilir, eksik ve gecersiz bir control set uretir.
+  printf 'ls\n' | hivexsh "$hive" 2>/dev/null \
+    | tr -d '\r' | grep -E '^ControlSet[0-9]{3}$' | sort -u
+}
+
+get_control_sets() {
+  local hive="$1" destination_name="$2"
+  local -n destination="$destination_name"
+
+  mapfile -t destination < <(list_control_sets "$hive")
+  if (( ${#destination[@]} == 0 )); then
+    echo "HATA: SYSTEM hive icinde ControlSetNNN bulunamadi." >&2
+    return 1
+  fi
 }
 [[ -s "$REG" ]] || { echo "HATA: $REG yok." >&2; exit 1; }
 
@@ -77,7 +98,7 @@ ensure_hive_child_key() {
 
   children="$(printf 'cd \\%s\nls\n' "$parent" \
     | hivexsh "$hive" 2>/dev/null | tr -d '\r' || true)"
-  if grep -Fqx "$child" <<<"$children"; then
+  if grep -Fiqx "$child" <<<"$children"; then
     return 0
   fi
 
@@ -90,7 +111,7 @@ ensure_hive_child_key() {
 
   children="$(printf 'cd \\%s\nls\n' "$parent" \
     | hivexsh "$hive" 2>/dev/null | tr -d '\r' || true)"
-  grep -Fqx "$child" <<<"$children" || {
+  grep -Fiqx "$child" <<<"$children" || {
     echo "HATA: hive anahtari olusturulamadi: $parent\\$child" >&2
     return 1
   }
@@ -104,6 +125,7 @@ verify() {
   local hive="$WORK/check/SYSTEM"
   local marker="$WORK/check/boot-critical.txt"
   local expected actual
+  local -a control_sets
   expected="$(sha256sum "$SYS" | awk '{print $1}')"
   actual="$(sha256sum "$image_sys" | awk '{print $1}')"
   [[ "$expected" == "$actual" ]] || {
@@ -115,8 +137,9 @@ verify() {
     return 1
   }
 
+  get_control_sets "$hive" control_sets
   local cs
-  for cs in ControlSet001 ControlSet002; do
+  for cs in "${control_sets[@]}"; do
     check_hive_value "$hive" "$cs\\Services\\b2lufs" Type '0x1|dword:00000001|^1$'
     check_hive_value "$hive" "$cs\\Services\\b2lufs" Start '0x0|dword:00000000|^0$'
     check_hive_value "$hive" "$cs\\Services\\b2lufs" ErrorControl '0x1|dword:00000001|^1$'
@@ -125,7 +148,7 @@ verify() {
     check_hive_value "$hive" "$cs\\Control\\CriticalDeviceDatabase\\ACPI#BYND9820" Service 'b2lufs'
     check_hive_value "$hive" "$cs\\Control\\CriticalDeviceDatabase\\ACPI#BYND9820" ClassGUID '4d36e97b-e325-11ce-bfc1-08002be10318'
   done
-  echo "B2LUFS boot-critical WIM dogrulamasi BASARILI: $expected"
+  echo "B2LUFS boot-critical WIM dogrulamasi BASARILI: $expected (${control_sets[*]})"
 }
 
 if (( CHECK_ONLY )); then
@@ -140,14 +163,25 @@ wimlib-imagex extract "$WIM" 1 /Windows/System32/config/SYSTEM \
 HIVE="$WORK/edit/SYSTEM"
 
 echo "==> B2LUFS boot-critical servis ve CriticalDeviceDatabase kayitlari ekleniyor"
-for cs in ControlSet001 ControlSet002; do
+declare -a CONTROL_SETS
+get_control_sets "$HIVE" CONTROL_SETS
+mapfile -t TEMPLATE_SETS < <(grep -oE 'ControlSet[0-9]{3}' "$REG" | sort -u)
+if (( ${#TEMPLATE_SETS[@]} != 1 )) || [[ "${TEMPLATE_SETS[0]:-}" != "ControlSet001" ]]; then
+  echo "HATA: b2lufs-boot.reg tek ControlSet001 sablonu olmali." >&2
+  exit 1
+fi
+echo "  control set: ${CONTROL_SETS[*]}"
+for cs in "${CONTROL_SETS[@]}"; do
   ensure_hive_child_key "$HIVE" "$cs\\Control" CriticalDeviceDatabase
+  SET_REG="$WORK/$cs.reg"
+  sed "s/ControlSet001/$cs/g" "$REG" >"$SET_REG"
+  hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$HIVE" "$SET_REG"
 done
-hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' "$HIVE" "$REG"
 
 HASH="$(sha256sum "$SYS" | awk '{print $1}')"
 MARKER="$WORK/boot-critical.txt"
-printf 'B2LUFS_BOOT_CRITICAL=1\nB2LUFS_SYS_SHA256=%s\n' "$HASH" >"$MARKER"
+printf 'B2LUFS_BOOT_CRITICAL=1\nB2LUFS_SYS_SHA256=%s\nB2LUFS_CONTROL_SETS=%s\n' \
+  "$HASH" "${CONTROL_SETS[*]}" >"$MARKER"
 
 CMDS="$WORK/wim-update.txt"
 printf '%s\n' \

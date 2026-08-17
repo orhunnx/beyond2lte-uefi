@@ -131,9 +131,9 @@ bcdedit /createstore "%BCD%" || goto :hata
 :: tamamen etkisiz kaldi. "sos On" acikken tek satir metin gormememizin
 :: sebebi bu olabilir.
 ::
-bcdedit /store "%BCD%" /create {globalsettings}     /d "Global" >nul 2>&1
-bcdedit /store "%BCD%" /create {bootloadersettings} /d "Loader" >nul 2>&1
-bcdedit /store "%BCD%" /set {bootloadersettings} inherit {globalsettings} >nul 2>&1
+bcdedit /store "%BCD%" /create {globalsettings}     /d "Global" >nul 2>&1 || goto :hata
+bcdedit /store "%BCD%" /create {bootloadersettings} /d "Loader" >nul 2>&1 || goto :hata
+bcdedit /store "%BCD%" /set {bootloadersettings} inherit {globalsettings} >nul 2>&1 || goto :hata
 ::
 :: DOGRU OGE ADI "bootuxdisabled" - "bootux" DIYE BIR SEY YOK.
 ::
@@ -149,7 +149,7 @@ bcdedit /store "%BCD%" /set {bootloadersettings} inherit {globalsettings} >nul 2
 :: bitirebilir.
 ::
 bcdedit /store "%BCD%" /set {globalsettings} bootuxdisabled on
-if errorlevel 1 echo   ! BASARISIZ: bootuxdisabled on
+if errorlevel 1 goto :hata
 
 :: --- ramdisk tanimi -------------------------------------------------------
 :: boot.sdi'yi burasi isaret ediyor. "boot" = bootmgr'in yuklendigi birim.
@@ -203,11 +203,11 @@ if defined DISKMOD (
 bcdedit /store "%BCD%" /set %G% path       \windows\system32\boot\winload.efi >nul || goto :hata
 bcdedit /store "%BCD%" /set %G% systemroot \windows >nul || goto :hata
 bcdedit /store "%BCD%" /set %G% detecthal  Yes
-if errorlevel 1 echo   ! BASARISIZ: detecthal  Yes
+if errorlevel 1 goto :hata
 bcdedit /store "%BCD%" /set %G% winpe      Yes
-if errorlevel 1 echo   ! BASARISIZ: winpe      Yes
+if errorlevel 1 goto :hata
 bcdedit /store "%BCD%" /set %G% inherit {bootloadersettings}
-if errorlevel 1 echo   ! BASARISIZ: inherit {bootloadersettings}
+if errorlevel 1 goto :hata
 
 :: --- SOS: CEKIRDEGIN KENDI ACILIS METNI ---------------------------------
 ::
@@ -262,9 +262,9 @@ if /i "%VAR%"=="hatagoster" (
 :: ayni hatayi tekrar etmek demekti.
 ::
 bcdedit /store "%BCD%" /set %G% testsigning        Yes
-if errorlevel 1 echo   ! BASARISIZ: testsigning        Yes
+if errorlevel 1 goto :hata
 bcdedit /store "%BCD%" /set %G% nointegritychecks  Yes
-if errorlevel 1 echo   ! BASARISIZ: nointegritychecks  Yes
+if errorlevel 1 goto :hata
 
 bcdedit /store "%BCD%" /set %G% quietboot          No
 if errorlevel 1 echo   ! BASARISIZ: quietboot          No
@@ -348,11 +348,11 @@ if /i "%VAR%"=="guvenli1g" (
 )
 
 :: --- boot manager ---------------------------------------------------------
-bcdedit /store "%BCD%" /create {bootmgr} /d "beyond2lte" >nul
+bcdedit /store "%BCD%" /create {bootmgr} /d "beyond2lte" >nul || goto :hata
 bcdedit /store "%BCD%" /set {bootmgr} device boot
-if errorlevel 1 echo   ! BASARISIZ: device boot
+if errorlevel 1 goto :hata
 bcdedit /store "%BCD%" /set {bootmgr} default %G%
-if errorlevel 1 echo   ! BASARISIZ: default %G%
+if errorlevel 1 goto :hata
 ::
 :: MENU VARYANTI: bootmgfw'i winload'u cagirmadan ONCE durdurup bekletiyoruz.
 ::
@@ -372,11 +372,11 @@ if defined MENUMOD (
   bcdedit /store "%BCD%" /set {bootmgr} timeout 0
   if errorlevel 1 echo   ! BASARISIZ: timeout 0
 )
-bcdedit /store "%BCD%" /displayorder %G% /addlast  >nul
+bcdedit /store "%BCD%" /displayorder %G% /addlast  >nul || goto :hata
 
 echo.
 echo === Sonuc  (BU CIKTIYI PAYLAS - hangi ayarin gercekten yazildigini gosterir)
-bcdedit /store "%BCD%" /enum all
+bcdedit /store "%BCD%" /enum all || goto :hata
 echo.
 echo Dosya: %BCD%
 echo.

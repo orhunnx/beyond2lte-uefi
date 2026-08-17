@@ -59,11 +59,15 @@ Windows ARM64 ISO yolunu vererek paketi üretin:
 
 ```bash
 cd ~/beyond2lte-uefi
-bash tools_ufsboot.sh /mnt/c/Users/orhun/Downloads/Windows11_ARM64.iso 4
+bash tools_ufsboot.sh /mnt/c/Users/orhun/Downloads/Windows_ARM64.iso 4
 ```
 
 Son argüman SYSTEM imajının GiB cinsinden boyutudur; `2..5` aralığında olmalı,
 verilmezse `4` kullanılır. Orkestrasyon sırasıyla:
+
+Araç, kullanılan ISO'nun kanonik yolu, boyutu ve değişiklik zamanını kaydeder.
+ISO değiştiğinde hazır `boot.wim` otomatik yenilenir; önceki ISO'nun WIM
+önbelleği yeni pakete karışmaz.
 
 1. ISO'dan WinPE/boot dosyalarını çıkarır.
 2. Mevcut SYS'i WSL'de yeniden derlemeden imzalar ve kataloglar.
@@ -116,7 +120,7 @@ yeniden bölümleme normal geri dönüşün parçası değildir.
 |---|---|
 | `tools_ufsboot.sh` | Tüm WSL paketleme akışını doğru sırayla çalıştırır. |
 | `tools_ufsboot_prepare.sh` | WIM'e SYS ve offline boot-critical kayıtları ekler/doğrular. |
-| `windows/b2lufs/b2lufs-boot.reg` | İki control set için servis ve CriticalDeviceDatabase verisi. |
+| `windows/b2lufs/b2lufs-boot.reg` | Hive'da bulunan control set'ler için servis ve CriticalDeviceDatabase şablonu. |
 | `windows/bcd_olustur.cmd` | Diskteki `winload.efi` için BCD üretir. |
 | `tools_windisk.sh` | WIM'i NTFS SYSTEM imajına uygular. |
 | `tools_winboot.sh --disk` | CACHE ESP için EFI dosyalarını ve disk BCD'sini sahneler. |

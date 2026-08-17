@@ -2,7 +2,7 @@
 #
 # Windows Boot Manager'i ISO'dan cikarip ESP'ye hazirlar.
 #
-#   bash tools_winboot.sh [/yol/Win11_..._Arm64.iso]
+#   bash tools_winboot.sh [/yol/Windows_..._ARM64.iso]
 #
 # AMAC: Windows'un ilk denemesi, HICBIR SEY SILMEDEN.
 #
@@ -55,7 +55,19 @@ fi
 [ -f "$ISO" ] || { echo "ISO bulunamadi. Yolu argüman olarak ver."; exit 1; }
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
-command -v 7z >/dev/null || { echo "7z yok -> sudo apt install -y p7zip-full"; exit 1; }
+for tool in 7z readlink sha256sum stat; do
+  command -v "$tool" >/dev/null || { echo "$tool yok; gerekli WSL araclarini kur."; exit 1; }
+done
+
+# Hazir boot.wim yalniz ayni ISO'dan geldiyse yeniden kullanilabilir. Aksi
+# halde farkli bir ISO verildiginde onceki WIM sessizce paketlenir. Tam ISO
+# hash'i cok pahali oldugu icin kanonik yol, boyut ve mtime birlikte kaynak
+# kimligi olarak kullanilir.
+ISO_REAL="$(readlink -f "$ISO")"
+ISO_SOURCE="$(printf '%s\n%s\n%s\n' "$ISO_REAL" "$(stat -c%s "$ISO")" \
+  "$(stat -c%Y "$ISO")" | sha256sum | awk '{print $1}')"
+WIM_SOURCE_FILE="$HERE/out/boot-wim-source.txt"
+CURRENT_WIM_SOURCE="$(sed -n 's/^SOURCE_ID=//p' "$WIM_SOURCE_FILE" 2>/dev/null || true)"
 
 say "ISO: $ISO"
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
@@ -154,11 +166,15 @@ fi
 #   Zorla yeniden uretmek icin:  bash tools_winboot.sh --wim-yenile
 #
 WIM_PATH="$(find_in_iso '(^|[/\\])sources[/\\]boot\.wim$')"
-if [ "$FORCE_WIM" = 0 ] && [ -s "$ESP/sources/boot.wim" ] \
+if [ "$FORCE_WIM" = 0 ] && [ "$CURRENT_WIM_SOURCE" = "$ISO_SOURCE" ] \
+   && [ -s "$ESP/sources/boot.wim" ] \
    && wimlib-imagex info "$ESP/sources/boot.wim" 2>/dev/null | grep -qi '^Boot Index: *1'; then
   say "boot.wim hazir, atlaniyor ($(du -h "$ESP/sources/boot.wim" | cut -f1), Boot Index 1)"
   echo "  yeniden uretmek icin: bash tools_winboot.sh --wim-yenile"
 elif [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
+  if [ -s "$ESP/sources/boot.wim" ] && [ "$CURRENT_WIM_SOURCE" != "$ISO_SOURCE" ]; then
+    say "ISO degisti; boot.wim onbellegi yenileniyor"
+  fi
   say "boot.wim isleniyor (sadece WinPE indeksi)"
   7z e -o"$W" "$ISO" "$WIM_PATH" >/dev/null
   SRCWIM="$W/$(basename "$WIM_PATH")"
@@ -254,6 +270,15 @@ elif [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
     echo "    wimlib-imagex export <kaynak> 1 <hedef> --compress=LZX --rebuild"
     echo "  ya da daha buyuk bir bolum (SYSTEM 5.57 GB)."
   fi
+
+  mkdir -p "$(dirname "$WIM_SOURCE_FILE")"
+  {
+    echo "SOURCE_ID=$ISO_SOURCE"
+    echo "ISO=$ISO_REAL"
+    echo "ISO_SIZE=$(stat -c%s "$ISO")"
+    echo "ISO_MTIME=$(stat -c%Y "$ISO")"
+    echo "WIM_PATH=$WIM_PATH"
+  } >"$WIM_SOURCE_FILE"
 else
   echo "  (boot.wim atlandi: ISO'da yok ya da wimlib-imagex kurulu degil)"
 fi
@@ -472,6 +497,7 @@ HSH
     echo "  butunluk: TAMAM"
   else
     echo "  butunluk: BASARISIZ - WIM bozuk!"
+    exit 1
   fi
 fi
 
