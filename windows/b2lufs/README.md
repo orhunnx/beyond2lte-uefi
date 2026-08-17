@@ -293,6 +293,16 @@ aracıyla doğrulanır; böylece yerelleştirilmiş `vol` metninde `findstr` kay
 yanlış negatif oluşmaz. Otomatik akış GPT, tam PnP envanteri, registry veya
 ETW tanı dökümü üretmez.
 
+### Cihaz üstü doğrulama
+
+17 Ağustos 2026 tarihinde beyond2lte/Exynos 9820 üzerinde
+`storport-cache-online-write-report` paketiyle doğrulandı. WinPE, CACHE
+bölümünü `Disk 0 / Partition 28` olarak çevrimiçi yaptı, `W:` harfini atadı ve
+FAT32 `CACHE` volume etiketini doğruladı. Ardından
+`W:\B2LUFS-WRITE-OK.TXT` dosyasına `B2LUFS CACHE WRITE OK` yazıldı ve aynı
+içerik geri okundu. Böylece Windows dosya sistemi üzerinden UFS blok okuma ve
+yazma zinciri gerçek cihazda başarıyla tamamlandı.
+
 WIM'deki `b2lgptdump.exe`, `\\.\PhysicalDrive0` üzerinden salt-okunur olarak
 PMBR, primary header, 16 KiB entry dizisi ve backup header'ı okur. Sonuçlar
 sırasıyla `X:\B2LGPT-PMBR.BIN`, `X:\B2LGPT-PRIMARY.BIN`,
