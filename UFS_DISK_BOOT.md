@@ -71,7 +71,10 @@ ISO değiştiğinde hazır `boot.wim` otomatik yenilenir; önceki ISO'nun WIM
 
 BCD üretiminde Windows batch dosyası `\\wsl.localhost` üzerinden doğrudan
 çalıştırılmaz. Araç betiği ve taze BCD çıktısını Windows `%TEMP%` altında
-sahneler; yalnız `regf` doğrulamasını geçen çıktı repoya geri alınır.
+sahneler. `bcdedit.exe` BCD değişikliklerinde yönetici yetkisi istediğinden
+yalnız bu alt süreç Windows `RunAs` mekanizmasıyla yükseltilir. Açılan UAC
+penceresinde **Evet** seçilmelidir. Yalnız `regf` doğrulamasını geçen çıktı
+repoya geri alınır.
 
 1. ISO'dan WinPE/boot dosyalarını çıkarır.
 2. Mevcut SYS'i WSL'de yeniden derlemeden imzalar ve kataloglar.

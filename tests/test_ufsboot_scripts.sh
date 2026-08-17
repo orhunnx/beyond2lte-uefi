@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREPARE="$ROOT/tools_ufsboot_prepare.sh"
 REG="$ROOT/windows/b2lufs/b2lufs-boot.reg"
 ORCHESTRATOR="$ROOT/tools_ufsboot.sh"
+BCD_RUNNER="$ROOT/windows/run_bcd_elevated.ps1"
 
 for script in \
   "$ROOT/tools_ufsboot.sh" \
@@ -54,11 +55,21 @@ if grep -Fq 'for cs in ControlSet001 ControlSet002' "$PREPARE"; then
 fi
 
 grep -Fq 'WIN_STAGE="$(mktemp -d "$WIN_TEMP_WSL/b2l-ufsboot.XXXXXX")"' "$ORCHESTRATOR"
-grep -Fq 'cmd.exe /d /c bcd_olustur.cmd disk BCD' "$ORCHESTRATOR"
+grep -Fq 'cp "$ROOT/windows/run_bcd_elevated.ps1" "$BCD_RUNNER_STAGE"' "$ORCHESTRATOR"
+grep -Fq -- '-File "$BCD_RUNNER_WIN" "$WIN_STAGE_WIN"' "$ORCHESTRATOR"
 grep -Fq 'cmp -s "$BCD_STAGE_OUT" "$ROOT/windows/BCD"' "$ORCHESTRATOR"
 if grep -Fq 'cmd.exe /d /s /c "\"$BCD_SCRIPT_WIN\"' "$ORCHESTRATOR"; then
   echo "HATA: dogrudan UNC BCD betigi cagrisi geri gelmis." >&2
   exit 1
 fi
+if grep -Fq 'cmd.exe /d /c bcd_olustur.cmd' "$ORCHESTRATOR"; then
+  echo "HATA: BCD betigi yonetici yetkisi olmadan cagriliyor." >&2
+  exit 1
+fi
+grep -Fq -- '-Verb RunAs' "$BCD_RUNNER"
+grep -Fq -- '-WorkingDirectory $StageDirectory' "$BCD_RUNNER"
+grep -Fq -- '-Wait' "$BCD_RUNNER"
+grep -Fq -- '-PassThru' "$BCD_RUNNER"
+grep -Fq 'exit $Process.ExitCode' "$BCD_RUNNER"
 
 echo "UFS boot script regresyon testleri BASARILI."

@@ -45,6 +45,10 @@ WSL'den `bcd_olustur.cmd` doğrudan `\\wsl.localhost` UNC yoluyla çağrılmaz:
 yorumlayabildiği için betik Windows `%TEMP%` altında CRLF olarak sahnelenir.
 BCD aynı yerel dizinde üretilir; taze çıktının `regf` başlığı doğrulandıktan
 sonra repodaki `windows/BCD` üzerine kopyalanıp bayt düzeyinde karşılaştırılır.
+`bcdedit.exe` BCD deposunu değiştirmek için yükseltilmiş yönetici belirteci
+istediğinden, otomatik çağrı bu tek alt süreci PowerShell
+`Start-Process -Verb RunAs` ile yükseltir ve bitmesini bekler. Kullanıcı UAC
+penceresinde **Evet** seçmelidir; ret veya alt süreç hatası paketlemeyi durdurur.
 
 ## 17 Ağustos 2026 — Windows UFS okuma/yazma kilometre taşı
 

@@ -82,17 +82,21 @@ WIN_TEMP_WSL="$(wslpath -u "$WIN_TEMP_WIN" 2>/dev/null || true)"
 }
 WIN_STAGE="$(mktemp -d "$WIN_TEMP_WSL/b2l-ufsboot.XXXXXX")"
 BCD_SCRIPT_STAGE="$WIN_STAGE/bcd_olustur.cmd"
+BCD_RUNNER_STAGE="$WIN_STAGE/run_bcd_elevated.ps1"
 BCD_STAGE_OUT="$WIN_STAGE/BCD"
 sed 's/\r*$/\r/' "$ROOT/windows/bcd_olustur.cmd" >"$BCD_SCRIPT_STAGE"
+cp "$ROOT/windows/run_bcd_elevated.ps1" "$BCD_RUNNER_STAGE"
+WIN_STAGE_WIN="$(wslpath -w "$WIN_STAGE")"
+BCD_RUNNER_WIN="$(wslpath -w "$BCD_RUNNER_STAGE")"
 
 # cmd.exe UNC calisma dizinini desteklemez. Betik ve cikti Windows'un yerel
-# TEMP dizininde tutulur. CMD bu yerel dizinden baslatildigi icin komut ve
-# cikti yalniz dosya adiyla verilir; UNC ve /c tirnak kurallari devre disidir.
-if ! (
-  cd "$WIN_STAGE"
-  cmd.exe /d /c bcd_olustur.cmd disk BCD
-); then
+# TEMP dizininde tutulur. BCDEdit ayrica yonetici yetkisi istedigi icin yalniz
+# BCD alt sureci PowerShell Start-Process -Verb RunAs ile yukseltilir. UAC
+# reddedilirse veya batch hata verirse PowerShell cikis kodunu buraya tasir.
+if ! powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+  -File "$BCD_RUNNER_WIN" "$WIN_STAGE_WIN"; then
   echo "HATA: Windows bcdedit ile disk BCD'si uretilemedi." >&2
+  echo "UAC penceresinde Evet'i sectiginizden emin olun." >&2
   exit 1
 fi
 [[ -s "$BCD_STAGE_OUT" ]] || { echo "HATA: taze BCD uretilmedi." >&2; exit 1; }
