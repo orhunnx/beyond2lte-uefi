@@ -104,7 +104,9 @@ step_one_line="$(grep -n '^echo "==> 1/7' "$ORCHESTRATOR" | cut -d: -f1)"
 # offline DriverStore/DriverDatabase'a kurulmasi, hive duzenlemesinden once
 # bitmis ve servis edilen WIM geri okunduktan sonra dogrulanmis olmalidir.
 grep -Fq '[Environment]::GetFolderPath("LocalApplicationData")' "$ORCHESTRATOR"
+grep -Fq 'B2L_DISM_STAGE_VERSION=2' "$ORCHESTRATOR"
 grep -Fq 'B2L_DISM_REQUEST_ID=' "$ORCHESTRATOR"
+grep -Fq 'sha256sum "$DISM_STAGE_WSL/B2L_UFS_WIM_SURUCU_EKLE.cmd"' "$ORCHESTRATOR"
 grep -Fq 'Onceki B2LUFS DriverStore paketi bulundu' "$ORCHESTRATOR"
 grep -Fq 'bash "$ROOT/tools_winboot.sh" "$ISO" --wim-yenile' "$ORCHESTRATOR"
 grep -Fq 'wimlib-imagex verify "$DISM_STAGE_WSL/boot.wim"' "$ORCHESTRATOR"
@@ -114,7 +116,11 @@ grep -Fq 'fltmc >nul 2>&1' "$DISM_INSTALLER"
 grep -Fq 'dism.exe /Mount-Image' "$DISM_INSTALLER"
 grep -Fq 'dism.exe /Image:"%MOUNT%" /Add-Driver /Driver:"%INF%" /ForceUnsigned' "$DISM_INSTALLER"
 grep -Fq 'dism.exe /Unmount-Image /MountDir:"%MOUNT%" /Commit' "$DISM_INSTALLER"
-grep -Fq 'for /r "%MOUNT%\Windows\System32\DriverStore\FileRepository"' "$DISM_INSTALLER"
+grep -Fq "where.exe /r \"%REPOSITORY%\" b2lufs.inf 2^>nul" "$DISM_INSTALLER"
+if grep -Fq 'for /r "%MOUNT%\Windows\System32\DriverStore\FileRepository"' "$DISM_INSTALLER"; then
+  echo "HATA: var olmayan hayali INF yolunu secebilen sabit FOR /R geri gelmis." >&2
+  exit 1
+fi
 
 dism_call_line="$(grep -n '^install_b2lufs_driverstore$' "$ORCHESTRATOR" | cut -d: -f1)"
 prepare_call_line="$(grep -n 'bash "$ROOT/tools_ufsboot_prepare.sh"' "$ORCHESTRATOR" | cut -d: -f1)"

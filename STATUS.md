@@ -33,6 +33,14 @@ Ardından mevcut `Start=0`, `SCSI Miniport` ve `CriticalDeviceDatabase`
 kayıtları uygulanıp yeniden kontrol ediliyor. Gerçek cihazda yeni paketin
 diskten açılması henüz doğrulanmadı.
 
+İlk DISM yardımcı betiği denemesinde DISM paketi başarıyla kurduktan sonra
+`b2lufs.sys bulunamadı` biçiminde yanlış negatif oluştu. Sebep DriverStore
+değil, batch doğrulamasındaki `FOR /R ... IN (b2lufs.inf)` kullanımıydı:
+sabit dosya adı her alt dizinde bir aday yol ürettiği için değişken gerçek INF
+yerine son hayali yola kayıyordu. Arama artık yalnız gerçekten var olan tam
+yolları döndüren `where.exe /r` ile yapılıyor. Hatalı tur WIM'i `/Discard` ile
+kapattığı için servis edilen imaja yarım değişiklik bırakmadı.
+
 ## 17 Ağustos 2026 — UFS diskten boot hazırlığı
 
 Kalıcı önyükleme için geri döndürülebilir SYSTEM+CACHE paketi eklendi:

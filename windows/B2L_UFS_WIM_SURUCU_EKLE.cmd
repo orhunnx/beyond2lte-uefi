@@ -16,6 +16,7 @@ set "INF=%STAGE%b2lufs.inf"
 set "MOUNT=%STAGE%mount"
 set "REQUEST=%STAGE%request.txt"
 set "READY=%STAGE%ready.txt"
+set "REPOSITORY=%MOUNT%\Windows\System32\DriverStore\FileRepository"
 set "MOUNTED=0"
 set "B2L_INF="
 set "B2L_DIR="
@@ -44,12 +45,13 @@ set "MOUNTED=1"
 dism.exe /Image:"%MOUNT%" /Add-Driver /Driver:"%INF%" /ForceUnsigned
 if errorlevel 1 goto :hata
 
-for /r "%MOUNT%\Windows\System32\DriverStore\FileRepository" %%F in (b2lufs.inf) do set "B2L_INF=%%~fF"
+for /f "delims=" %%F in ('where.exe /r "%REPOSITORY%" b2lufs.inf 2^>nul') do set "B2L_INF=%%~fF"
 if not defined B2L_INF (
   echo HATA: DISM basarili dondu ama b2lufs.inf DriverStore'da bulunamadi.
   goto :hata
 )
 for %%F in ("%B2L_INF%") do set "B2L_DIR=%%~dpF"
+echo   DriverStore paketi: %B2L_DIR%
 if not exist "%B2L_DIR%b2lufs.sys" (
   echo HATA: DriverStore paketinde b2lufs.sys bulunamadi.
   goto :hata

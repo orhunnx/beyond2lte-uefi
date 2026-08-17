@@ -192,9 +192,11 @@ install_b2lufs_driverstore() {
     "$(sha256sum "$DISM_STAGE_WSL/boot.wim")" \
     "$(sha256sum "$DISM_STAGE_WSL/b2lufs.inf")" \
     "$(sha256sum "$DISM_STAGE_WSL/b2lufs.sys")" \
-    "$(sha256sum "$DISM_STAGE_WSL/b2lufs.cat")" | sha256sum | awk '{print $1}')"
+    "$(sha256sum "$DISM_STAGE_WSL/b2lufs.cat")" \
+    "$(sha256sum "$DISM_STAGE_WSL/B2L_UFS_WIM_SURUCU_EKLE.cmd")" \
+    | sha256sum | awk '{print $1}')"
   {
-    echo 'B2L_DISM_STAGE_VERSION=1'
+    echo 'B2L_DISM_STAGE_VERSION=2'
     echo "B2L_DISM_REQUEST_ID=$request_id"
   } >"$DISM_STAGE_WSL/request.txt"
 
@@ -217,7 +219,7 @@ install_b2lufs_driverstore() {
     return 1
   }
   ready_text="$(tr -d '\r' <"$DISM_STAGE_WSL/ready.txt")"
-  grep -Fxq 'B2L_DISM_STAGE_VERSION=1' <<<"$ready_text" || {
+  grep -Fxq 'B2L_DISM_STAGE_VERSION=2' <<<"$ready_text" || {
     echo "HATA: DISM basari isareti surumu gecersiz." >&2
     return 1
   }
