@@ -12,8 +12,8 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'EOF'
 Kullanim: bash tools_ufsboot_prepare.sh [--check]
 
-  (bayraksiz)  boot.wim icine b2lufs.sys ve boot-critical servis kayitlarini ekler
-  --check      mevcut boot.wim icindeki SYS ve offline SYSTEM hive kayitlarini dogrular
+  (bayraksiz)  DISM ile DriverStore'a kurulmus B2LUFS'u boot-critical yapar
+  --check      DriverStore, SYS ve offline SYSTEM hive kayitlarini dogrular
 
 Bu arac SYS derlemez. b2lufs.sys yalniz Windows PowerShell'de derlenir.
 EOF
@@ -124,7 +124,7 @@ verify() {
   local image_sys="$WORK/check/b2lufs.sys"
   local hive="$WORK/check/SYSTEM"
   local marker="$WORK/check/boot-critical.txt"
-  local expected actual
+  local expected actual driverstore_listing package_ext
   local -a control_sets
   expected="$(sha256sum "$SYS" | awk '{print $1}')"
   actual="$(sha256sum "$image_sys" | awk '{print $1}')"
@@ -136,6 +136,16 @@ verify() {
     echo "HATA: boot-critical isareti SYS karmasiyla eslesmiyor." >&2
     return 1
   }
+
+  driverstore_listing="$(wimlib-imagex dir "$WIM" 1 2>/dev/null \
+    | tr '[:upper:]' '[:lower:]')"
+  for package_ext in inf sys cat; do
+    grep -Eq "/windows/system32/driverstore/filerepository/b2lufs\.inf_[^/]+/b2lufs\.$package_ext$" \
+      <<<"$driverstore_listing" || {
+      echo "HATA: WIM DriverStore'unda b2lufs.$package_ext yok; once DISM kurulumu gerekli." >&2
+      return 1
+    }
+  done
 
   get_control_sets "$hive" control_sets
   local cs

@@ -7,6 +7,7 @@ REG="$ROOT/windows/b2lufs/b2lufs-boot.reg"
 ORCHESTRATOR="$ROOT/tools_ufsboot.sh"
 BCD_LAUNCHER="$ROOT/windows/B2L_BCD_DISK_OLUSTUR.cmd"
 BCD_BUILDER="$ROOT/windows/bcd_olustur.cmd"
+DISM_INSTALLER="$ROOT/windows/B2L_UFS_WIM_SURUCU_EKLE.cmd"
 WINDISK="$ROOT/tools_windisk.sh"
 WINBOOT="$ROOT/tools_winboot.sh"
 CACHE_ESP="$ROOT/cache_esp.sh"
@@ -98,6 +99,30 @@ step_one_line="$(grep -n '^echo "==> 1/7' "$ORCHESTRATOR" | cut -d: -f1)"
   echo "HATA: manuel BCD kapisi pahali WIM adimlarindan once degil." >&2
   exit 1
 }
+
+# Boot-start servis kaydi tek basina yeterli degildir. PnP paketinin DISM ile
+# offline DriverStore/DriverDatabase'a kurulmasi, hive duzenlemesinden once
+# bitmis ve servis edilen WIM geri okunduktan sonra dogrulanmis olmalidir.
+grep -Fq '[Environment]::GetFolderPath("LocalApplicationData")' "$ORCHESTRATOR"
+grep -Fq 'B2L_DISM_REQUEST_ID=' "$ORCHESTRATOR"
+grep -Fq 'Onceki B2LUFS DriverStore paketi bulundu' "$ORCHESTRATOR"
+grep -Fq 'bash "$ROOT/tools_winboot.sh" "$ISO" --wim-yenile' "$ORCHESTRATOR"
+grep -Fq 'wimlib-imagex verify "$DISM_STAGE_WSL/boot.wim"' "$ORCHESTRATOR"
+grep -Fq 'driverstore/filerepository/b2lufs\.inf_' "$ORCHESTRATOR"
+grep -Fq 'cmp -s "$DISM_STAGE_WSL/$package_file" "$WORK/driverstore-check/$package_file"' "$ORCHESTRATOR"
+grep -Fq 'fltmc >nul 2>&1' "$DISM_INSTALLER"
+grep -Fq 'dism.exe /Mount-Image' "$DISM_INSTALLER"
+grep -Fq 'dism.exe /Image:"%MOUNT%" /Add-Driver /Driver:"%INF%" /ForceUnsigned' "$DISM_INSTALLER"
+grep -Fq 'dism.exe /Unmount-Image /MountDir:"%MOUNT%" /Commit' "$DISM_INSTALLER"
+grep -Fq 'for /r "%MOUNT%\Windows\System32\DriverStore\FileRepository"' "$DISM_INSTALLER"
+
+dism_call_line="$(grep -n '^install_b2lufs_driverstore$' "$ORCHESTRATOR" | cut -d: -f1)"
+prepare_call_line="$(grep -n 'bash "$ROOT/tools_ufsboot_prepare.sh"' "$ORCHESTRATOR" | cut -d: -f1)"
+[[ -n "$dism_call_line" && -n "$prepare_call_line" && "$dism_call_line" -lt "$prepare_call_line" ]] || {
+  echo "HATA: DISM DriverStore kurulumu boot-critical hive adimindan once degil." >&2
+  exit 1
+}
+grep -Fq "WIM DriverStore'unda b2lufs.\$package_ext yok" "$PREPARE"
 
 # UFS disk-boot zinciri: boot-critical WIM -> NTFS SYSTEM ve yalniz EFI/BCD
 # tasiyan CACHE. Bu kapilar gevserse paket uretilse bile cihaz UFS'ten acilmaz.

@@ -1,6 +1,6 @@
 # beyond2lte UEFI — durum
 
-**Son güncelleme:** 17 Ağustos 2026 — UFS diskten Windows önyükleme paketi hazırlandı.
+**Son güncelleme:** 17 Ağustos 2026 — B2LUFS offline DriverStore kurulumu eklendi.
 
 ## Çalışan / çalışmayan
 
@@ -13,6 +13,25 @@
 | **Windows UFS (`b2lufs`)** | **✅** | Disk 0: 119 GB; 31 GPT bölüm ve CACHE FAT32 okuma/yazma doğrulandı |
 | USB | ❌ | Henüz sürücü yok |
 | Windows boot | 🟡 | Boot-critical B2LUFS, NTFS SYSTEM ve CACHE ESP üretim akışı hazır; cihazda diskten boot doğrulaması bekleniyor |
+
+## 17 Ağustos 2026 — INACCESSIBLE_BOOT_DEVICE ve DriverStore düzeltmesi
+
+İlk gerçek disk-boot paketinde boot manager ve `winload.efi` çalıştı, ardından
+Windows `INACCESSIBLE_BOOT_DEVICE` ile durdu. Bu sonuç EFI/BCD yolunun geçtiğini,
+çekirdeğin ise UFS diskini devralamadığını gösteriyor. UFS planındaki donanım
+zinciri aynı sürücüyle daha önce WinPE'de Disk 0, GPT ve CACHE yaz/geri-okuma
+testlerini geçtiğinden miniport taşıması yeniden yazılmadı.
+
+Paketleme açığı şuydu: INF/SYS/CAT, çalışma anındaki `pnputil` için
+`Windows\B2LUFS` altına ekleniyor ve SYS elle `System32\drivers` altına
+kopyalanıyordu; fakat sürücü paketi offline Windows DriverStore/DriverDatabase
+yapısına kurulmamıştı. `tools_ufsboot.sh` artık paketi Windows tarafında
+yönetici DISM `/Add-Driver /ForceUnsigned` ile `boot.wim`e kurduruyor. İstek
+kimliği ve WIM boyutu eski/yanlış başarı işaretini engelliyor; WSL tarafı WIM
+bütünlüğünü ve DriverStore'daki INF/SYS/CAT üçlüsünü geri okuyarak doğruluyor.
+Ardından mevcut `Start=0`, `SCSI Miniport` ve `CriticalDeviceDatabase`
+kayıtları uygulanıp yeniden kontrol ediliyor. Gerçek cihazda yeni paketin
+diskten açılması henüz doğrulanmadı.
 
 ## 17 Ağustos 2026 — UFS diskten boot hazırlığı
 

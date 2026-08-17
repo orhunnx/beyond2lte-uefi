@@ -6,6 +6,23 @@ ekleyemez miyiz?"*
 Cevap: evet, ve `storufs.sys` kapısı yapısal olarak kapandığına göre (bkz.
 STATUS.md, "_CCA=0 sonuç vermedi") **tek gerçek çözüm bu.** Ama sıra önemli.
 
+## Güncel durum — taşıma kanıtlandı, disk-boot kurulumu düzeltiliyor
+
+Bu belgedeki sürücü planı artık yalnız bir tasarım değildir. `b2lufs` aynı
+WinPE oturumunda dahili UFS'i 119 GB Disk 0 olarak yayımladı, 31 GPT bölümünü
+okudu ve CACHE üzerinde dosya yazıp geri okudu. Son disk-boot denemesinde
+görülen `INACCESSIBLE_BOOT_DEVICE` bu nedenle yeni bir Exynos taşıma sürücüsü
+yazmayı gerektiren kanıt değildir: EFI/BCD aşaması geçmiş, ancak boot-start
+paketi hedef Windows'un PnP sürücü deposuna tam kurulmamıştır.
+
+Disk-boot akışı artık INF/SYS/CAT paketini Windows DISM ile çevrimdışı
+DriverStore/DriverDatabase'a kurar; sonra `Start=0` servis kaydı ve
+`CriticalDeviceDatabase\ACPI#BYND9820` eşlemesini uygular. WIM geri alındığında
+hem DriverStore paketinin üç dosyası hem de bütün mevcut control set'lerdeki
+boot-critical kayıtlar doğrulanmadan SYSTEM/CACHE paketi üretilmez. Böylece
+Faz 3'te doğrulanmış miniport mantığı korunur ve sorun doğru dağıtım katmanında
+çözülür.
+
 ## Neden yapılabilir
 
 Kalibrasyon mantığı elimizde ve **cihazda çalıştığı doğrulandı**:

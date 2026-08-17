@@ -16,6 +16,7 @@ Samsung sboot
   -> SYSTEM (NTFS, varsayılan 4 GiB)
        Windows/System32/Boot/winload.efi
        Windows/System32/drivers/b2lufs.sys
+       Windows/System32/DriverStore/FileRepository/b2lufs.inf_*/
        offline SYSTEM hive: boot-start b2lufs
   -> StorPort -> B2LUFS -> Exynos 9820 UFS
 ```
@@ -82,12 +83,25 @@ Test-imzalı B2LUFS için `testsigning=Yes` zorunludur. İmzasız sürücü
 kullanılmadığından `nointegritychecks` yazılmaz; bu ayar Secure Boot açık
 derleme bilgisayarlarında BCDEdit tarafından reddedilebilir.
 
+Sürücü paketi üretildikten sonra araç ikinci kez bekler. Bu kez ekranda
+gösterilen `%LocalAppData%\B2L-UFS-DISM` klasörüne Yönetici Komut İstemi'nde
+geçip `B2L_UFS_WIM_SURUCU_EKLE.cmd` çalıştırılır. Yardımcı betik `boot.wim`i
+Windows DISM ile bağlar ve test-imzalı `b2lufs.inf` paketini `/Add-Driver
+/ForceUnsigned` ile çevrimdışı imajın DriverStore ve DriverDatabase yapısına
+kurar. Başarı işareti yalnız DISM commit'i tamamlandıktan sonra yazılır; WSL
+tarafı istek kimliğini, WIM boyutunu, WIM bütünlüğünü ve DriverStore'daki
+INF/SYS/CAT dosyalarını yeniden doğrular. Microsoft'un çevrimdışı sürücü
+kurulum modeli de paketin yalnız `System32\drivers` altına kopyalanmasını değil,
+[DISM ile DriverStore'a eklenmesini](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/add-and-remove-drivers-to-an-offline-windows-image?view=windows-11)
+öngörür.
+
 1. ISO'dan WinPE/boot dosyalarını çıkarır.
 2. Mevcut SYS'i WSL'de yeniden derlemeden imzalar ve kataloglar.
-3. SYS'i offline SYSTEM hive'ına boot-critical olarak kurup doğrular.
-4. Masaüstünde yönetici CMD ile üretilmiş disk BCD'sini doğrular.
-5. NTFS `system.img` ve FAT16 `cache.img` üretir.
-6. Yalnız bu iki imajı `out/ufs-diskboot.tar` içine koyar.
+3. INF/SYS/CAT paketini yönetici DISM ile offline DriverStore'a kurar.
+4. SYS'i offline SYSTEM hive'ında boot-critical yapıp iki katmanı doğrular.
+5. Masaüstünde yönetici CMD ile üretilmiş disk BCD'sini doğrular.
+6. NTFS `system.img` ve FAT16 `cache.img` üretir.
+7. Yalnız bu iki imajı `out/ufs-diskboot.tar` içine koyar.
 
 Araç, SYS yoksa durur ve gerekli PowerShell komutunu gösterir. WSL tarafında
 MSVC derlemesi yapılmaz.
@@ -120,7 +134,11 @@ Windows'ta Odin ile:
 
 - Windows açılırsa boot-critical UFS zinciri çalışmıştır.
 - `INACCESSIBLE_BOOT_DEVICE` görülürse EFI/BCD aşaması geçilmiş, fakat boot
-  sırasında B2LUFS depolama zinciri kurulmamıştır; hata kodu yeni tanı girdisidir.
+  sırasında B2LUFS depolama zinciri kurulmamıştır. Eski pakette INF yalnız
+  `Windows\B2LUFS` altında bulunuyor, resmi offline DriverStore kurulumu
+  yapılmıyordu; yeni DISM kapısı bu bilinen eksikliği giderir. Aynı kod yeni
+  paketle tekrarlanırsa artık sürücünün çok daha erken yükleme/PnP davranışı
+  ayrı bir tanı girdisidir.
 - Boot manager veya winload hatası, ekrandaki kodla BCD/dosya katmanına ayrılır.
 
 Geri dönüşte Download Mode üzerinden stock SYSTEM ve CACHE imajlarını ya da tam
@@ -132,6 +150,7 @@ yeniden bölümleme normal geri dönüşün parçası değildir.
 | Araç | Görevi |
 |---|---|
 | `tools_ufsboot.sh` | Tüm WSL paketleme akışını doğru sırayla çalıştırır. |
+| `windows/B2L_UFS_WIM_SURUCU_EKLE.cmd` | Yönetici DISM ile INF/SYS/CAT paketini offline DriverStore'a kurar. |
 | `tools_ufsboot_prepare.sh` | WIM'e SYS ve offline boot-critical kayıtları ekler/doğrular. |
 | `windows/b2lufs/b2lufs-boot.reg` | Hive'da bulunan control set'ler için servis ve CriticalDeviceDatabase şablonu. |
 | `windows/bcd_olustur.cmd` | Diskteki `winload.efi` için BCD üretir. |

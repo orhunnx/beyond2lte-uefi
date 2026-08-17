@@ -56,6 +56,12 @@ if [[ ! -s "$SYS" ]]; then
   exit 1
 fi
 
+WORK="$(mktemp -d)"
+cleanup() {
+  rm -rf "$WORK"
+}
+trap cleanup EXIT
+
 prepare_disk_bcd() {
   local expected_size actual_size ready_text desktop_b64
 
@@ -136,17 +142,156 @@ prepare_disk_bcd() {
 
 prepare_disk_bcd
 
-WORK="$(mktemp -d)"
-cleanup() {
-  rm -rf "$WORK"
+ensure_clean_driverstore_base() {
+  local existing_listing
+
+  existing_listing="$(wimlib-imagex dir "$ROOT/esp/sources/boot.wim" 1 2>/dev/null \
+    | tr '[:upper:]' '[:lower:]' || true)"
+  if grep -Eq '/windows/system32/driverstore/filerepository/b2lufs\.inf_' \
+    <<<"$existing_listing"; then
+    echo
+    echo "==> Onceki B2LUFS DriverStore paketi bulundu; WIM temiz ISO tabanindan yenileniyor"
+    bash "$ROOT/tools_winboot.sh" "$ISO" --wim-yenile
+  fi
 }
-trap cleanup EXIT
+
+install_b2lufs_driverstore() {
+  local appdata_b64 request_id ready_text expected_size actual_size
+  local driverstore_listing driverstore_listing_lower
+  local package_file driverstore_dir current_package
+  local -a driverstore_dirs
+
+  appdata_b64="$(powershell.exe -NoProfile -NonInteractive -Command \
+    '[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([Environment]::GetFolderPath("LocalApplicationData")))' \
+    2>/dev/null | tr -d '\r\n' || true)"
+  if [[ -z "$appdata_b64" || ! "$appdata_b64" =~ ^[A-Za-z0-9+/]+={0,2}$ ]]; then
+    echo "HATA: Windows LocalAppData yolu PowerShell'den okunamadi." >&2
+    return 1
+  fi
+  DISM_STAGE_WIN="$(printf '%s' "$appdata_b64" | base64 --decode 2>/dev/null || true)\\B2L-UFS-DISM"
+  DISM_STAGE_WSL="$(wslpath -u "$DISM_STAGE_WIN" 2>/dev/null || true)"
+  if [[ -z "$DISM_STAGE_WSL" ]]; then
+    echo "HATA: Windows DISM sahne yolu WSL'ye cevrilemedi: $DISM_STAGE_WIN" >&2
+    return 1
+  fi
+
+  mkdir -p "$DISM_STAGE_WSL"
+  rm -f "$DISM_STAGE_WSL/ready.txt"
+  cp "$ROOT/esp/sources/boot.wim" "$DISM_STAGE_WSL/boot.wim"
+  for package_file in b2lufs.inf b2lufs.sys b2lufs.cat; do
+    [[ -s "$OUT/b2lufs/$package_file" ]] || {
+      echo "HATA: DISM icin B2LUFS paket dosyasi yok: $OUT/b2lufs/$package_file" >&2
+      return 1
+    }
+    cp "$OUT/b2lufs/$package_file" "$DISM_STAGE_WSL/$package_file"
+  done
+  sed 's/\r*$/\r/' "$ROOT/windows/B2L_UFS_WIM_SURUCU_EKLE.cmd" \
+    >"$DISM_STAGE_WSL/B2L_UFS_WIM_SURUCU_EKLE.cmd"
+
+  request_id="$(printf '%s\n' \
+    "$(sha256sum "$DISM_STAGE_WSL/boot.wim")" \
+    "$(sha256sum "$DISM_STAGE_WSL/b2lufs.inf")" \
+    "$(sha256sum "$DISM_STAGE_WSL/b2lufs.sys")" \
+    "$(sha256sum "$DISM_STAGE_WSL/b2lufs.cat")" | sha256sum | awk '{print $1}')"
+  {
+    echo 'B2L_DISM_STAGE_VERSION=1'
+    echo "B2L_DISM_REQUEST_ID=$request_id"
+  } >"$DISM_STAGE_WSL/request.txt"
+
+  echo
+  echo "==> B2LUFS Windows DISM ile offline DriverStore'a kurulacak"
+  echo "  klasor : $DISM_STAGE_WIN"
+  echo "  Yonetici Komut Istemi'nde:"
+  echo "    cd /d \"$DISM_STAGE_WIN\""
+  echo "    B2L_UFS_WIM_SURUCU_EKLE.cmd"
+  echo
+  if [[ -t 0 ]]; then
+    read -r -p "  Betik BASARILI dedikten sonra buraya donup ENTER'a basin... "
+  else
+    echo "HATA: Etkilesimli terminal yok; DISM betigini calistirip tekrar deneyin." >&2
+    return 1
+  fi
+
+  [[ -s "$DISM_STAGE_WSL/ready.txt" && -s "$DISM_STAGE_WSL/boot.wim" ]] || {
+    echo "HATA: DISM basari isareti veya servis edilmis boot.wim bulunamadi." >&2
+    return 1
+  }
+  ready_text="$(tr -d '\r' <"$DISM_STAGE_WSL/ready.txt")"
+  grep -Fxq 'B2L_DISM_STAGE_VERSION=1' <<<"$ready_text" || {
+    echo "HATA: DISM basari isareti surumu gecersiz." >&2
+    return 1
+  }
+  grep -Fxq "B2L_DISM_REQUEST_ID=$request_id" <<<"$ready_text" || {
+    echo "HATA: DISM sonucu bu WIM/surucu paketi icin uretilmemis." >&2
+    return 1
+  }
+  expected_size="$(sed -n 's/^B2L_DISM_WIM_SIZE=//p' <<<"$ready_text")"
+  actual_size="$(stat -c%s "$DISM_STAGE_WSL/boot.wim")"
+  [[ "$expected_size" =~ ^[0-9]+$ && "$expected_size" == "$actual_size" ]] || {
+    echo "HATA: DISM sonrasi WIM boyutu basari isaretiyle eslesmiyor." >&2
+    return 1
+  }
+  wimlib-imagex verify "$DISM_STAGE_WSL/boot.wim" >/dev/null || {
+    echo "HATA: DISM sonrasi boot.wim butunluk dogrulamasindan gecemedi." >&2
+    return 1
+  }
+  driverstore_listing="$(wimlib-imagex dir "$DISM_STAGE_WSL/boot.wim" 1 2>/dev/null)"
+  driverstore_listing_lower="$(tr '[:upper:]' '[:lower:]' <<<"$driverstore_listing")"
+  for package_file in inf sys cat; do
+    grep -Eq "/windows/system32/driverstore/filerepository/b2lufs\.inf_[^/]+/b2lufs\.$package_file$" \
+      <<<"$driverstore_listing_lower" || {
+      echo "HATA: servis edilmis WIM DriverStore'unda b2lufs.$package_file yok." >&2
+      return 1
+    }
+  done
+
+  mapfile -t driverstore_dirs < <(
+    awk 'tolower($0) ~ /^\/windows\/system32\/driverstore\/filerepository\/b2lufs\.inf_[^/]+\/b2lufs\.inf$/ {
+      sub(/\/[^/]+$/, ""); print
+    }' <<<"$driverstore_listing"
+  )
+  current_package=0
+  for driverstore_dir in "${driverstore_dirs[@]}"; do
+    rm -rf "$WORK/driverstore-check"
+    mkdir -p "$WORK/driverstore-check"
+    if ! wimlib-imagex extract "$DISM_STAGE_WSL/boot.wim" 1 \
+      "$driverstore_dir/b2lufs.inf" \
+      "$driverstore_dir/b2lufs.sys" \
+      "$driverstore_dir/b2lufs.cat" \
+      --dest-dir="$WORK/driverstore-check" --no-acls >/dev/null 2>&1; then
+      continue
+    fi
+    current_package=1
+    for package_file in b2lufs.inf b2lufs.sys b2lufs.cat; do
+      cmp -s "$DISM_STAGE_WSL/$package_file" "$WORK/driverstore-check/$package_file" || {
+        current_package=0
+        break
+      }
+    done
+    (( current_package )) && break
+  done
+  (( current_package )) || {
+    echo "HATA: DriverStore'daki B2LUFS paketi bu derlemenin INF/SYS/CAT dosyalariyla eslesmiyor." >&2
+    echo "boot.wim'i --wim-yenile ile temizleyip DISM adimini yeniden calistirin." >&2
+    return 1
+  }
+
+  cp "$DISM_STAGE_WSL/boot.wim" "$ROOT/esp/sources/boot.wim"
+  cmp -s "$DISM_STAGE_WSL/boot.wim" "$ROOT/esp/sources/boot.wim" || {
+    echo "HATA: DISM ile servis edilmis WIM repoya geri kopyalanamadi." >&2
+    return 1
+  }
+  echo "  DriverStore dogrulandi: B2LUFS INF/SYS/CAT offline imaja kuruldu"
+}
 
 echo "==> 1/7 Windows ARM64 WinPE dosyalari hazirlaniyor"
 bash "$ROOT/tools_winboot.sh" "$ISO"
+ensure_clean_driverstore_base
 
 echo "==> 2/7 Var olan PowerShell SYS ile B2LUFS paketi uretiliyor"
 B2L_SKIP_MSVC_BUILD=1 bash "$ROOT/tools_b2lufs.sh"
+
+install_b2lufs_driverstore
 
 echo "==> 3/7 B2LUFS WIM'e boot-critical olarak yerlestiriliyor"
 bash "$ROOT/tools_ufsboot_prepare.sh"

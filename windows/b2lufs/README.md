@@ -363,6 +363,15 @@ imzasına güvenmek doğru değildir. `CopyFiles` bölümü için INF'de açık 
 `SourceDisksFiles` eşlemesi vardır; bu, Inf2Cat'in SYS dosyasını imzalanacak
 paketin parçası olarak doğrulamasını sağlar.
 
+RAM-disk WinPE'deki çalışma anı testi için paketin `Windows\B2LUFS` altından
+`pnputil` ile kurulması yeterliydi. UFS'teki SYSTEM'den doğrudan boot ederken
+ise çekirdek aynı diske erişmeden bu komut çalışamaz. Bu yüzden
+`tools_ufsboot.sh`, INF/SYS/CAT üçlüsünü önce Windows DISM ile offline
+`boot.wim` DriverStore/DriverDatabase yapısına kurdurur; ardından
+`tools_ufsboot_prepare.sh` servis başlangıcını ve ACPI kritik aygıt eşlemesini
+doğrular. Sadece SYS'i `System32\drivers` altına kopyalayan bir imaj geçerli
+disk-boot artefaktı sayılmaz.
+
 Paketlenmiş WIM'de ayrıca `\Windows\B2LUFS\manifest.txt` bulunur. Bu dosya
 INF/SYS/CAT SHA-256 değerlerini taşır. `cache_esp.sh --win --system`,
 `out/b2lufs/b2lufs.sys` bulunduğunda bu manifestteki SYS hash'ini WIM'i geri
