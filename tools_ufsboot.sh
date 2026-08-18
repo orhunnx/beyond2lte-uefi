@@ -14,7 +14,7 @@ Kullanim:
 
 Bu arac b2lufs.sys DERLEMEZ. SYS once Windows PowerShell'de uretilmelidir.
 Geri kalan WIM, BCD, SYSTEM/CACHE ve Odin paketleme islemleri WSL'de yapilir.
---debug, 0xCF050000 sicak-reset ucus kaydini ikinci UEFI acilisinda gosterir.
+--debug, 0xCF050000 ucus kaydini 0x7B aninda framebuffer'da gosterir.
 EOF
 }
 
@@ -57,11 +57,10 @@ if (( DEBUG_MODE )); then
   fi
 fi
 
-# Ucus kaydi yalniz yazilim sicak reset sonrasinda geri alinabilir. Debug
-# paketinde 0x7B ekranda kalmasin; Windows otomatik yeniden baslatip ayni
-# DRAM'i koruyarak B2LGoster'a donsun. Normal turda eski AutoReboot=0
-# davranisi aynen korunur.
-export B2L_BUGCHECK_AUTOREBOOT="$DEBUG_MODE"
+# Cihaz Windows bugcheck'inden yazilimsal reset atamiyor. Debug miniportu son
+# ucus kayitlarini bugcheck callback'inde dogrudan framebuffer'a cizer; panelin
+# fotograflanabilmesi icin hem normal hem debug paket AutoReboot=0 kullanir.
+export B2L_BUGCHECK_AUTOREBOOT=0
 
 for tool in 7z base64 clang cmd.exe cmp file hivexget hivexregedit hivexsh img2simg \
   lld-link llvm-dlltool mcopy mdir mkfs.vfat mkntfs mmd ntfsls openssl \
@@ -395,6 +394,7 @@ echo "Odin: AP alanina bu TAR'i sec; Re-Partition KAPALI kalsin."
 echo "Yalniz SYSTEM ve CACHE yazilir; boot/recovery/stock bolumlerine dokunulmaz."
 echo "Ilk cihaz testi ve geri donus adimlari: UFS_DISK_BOOT.md"
 if (( DEBUG_MODE )); then
-  echo "TANI: ilk B2LGoster ekraninda tusa bas; 0x7B'den sonra gucu kesmeden sicak yeniden baslat."
-  echo "Ikinci B2LUFS UCUS KAYDI ekraninin fotografini cek."
+  echo "TANI: ilk B2LGoster ekraninda tusa bas; B2LUFS kaydi ARMED olur."
+  echo "0x7B'de ustteki B2LUFS BUGCHECK FLIGHT panelinin fotografini cek."
+  echo "Panel SEQ/EVT/A0..A4 alanlarini gosterir; yeniden baslatma gerekmez."
 fi

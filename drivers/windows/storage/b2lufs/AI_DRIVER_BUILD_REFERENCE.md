@@ -69,10 +69,10 @@ başlığıdır:
 | Dosya | SYS içindeki rolü |
 |---|---|
 | `windows/b2lufs/b2lufs_hw.h` | İşletim sisteminden bağımsız Exynos 9820 MMIO/kaynak sözleşmesi |
-| `windows/b2lufs/b2lufs_flight.h` | Firmware-reserved sıcak-reset uçuş kaydının sabit ikili ABI'si |
+| `windows/b2lufs/b2lufs_flight.h` | Firmware-reserved erken-boot uçuş kaydının sabit ikili ABI'si |
 | `windows/b2lufs/b2lufs_transport.h` | StorPort taşıma katmanının veri yapıları ve dış fonksiyonları |
 | `windows/b2lufs/b2lufs_resources.c` | ACPI/StorPort kaynaklarını taban adresine göre doğrulayıp bağlama |
-| `windows/b2lufs/b2lufs_flight.c` | ARMED kapısı, non-cached eşleme, best-effort tanı kapısı ve commit'li olay yazıcısı |
+| `windows/b2lufs/b2lufs_flight.c` | ARMED kapısı, commit'li olay yazıcısı ve reset gerektirmeyen HIGH_LEVEL bugcheck framebuffer paneli |
 | `windows/b2lufs/b2lufs_transport.c` | UFSHCI, UTP, UPIU, PRDT, SCSI, DMA ve GPT veri yolu |
 | `windows/b2lufs/b2lufs_storport.c` | StorPort callback'leri, DriverEntry, PnP ve registry telemetrisi |
 
@@ -482,6 +482,13 @@ katalog paketinin bir üyesi olarak hash'lemesini sağlar.
 
 INF yalnız vendor compatible kimliğine bağlanır. Genel PCI/UFS class kimliği
 eklenmez; böylece aynı HBA için başka bir miniportla eşleşme alanı açılmaz.
+
+`0.0.9.0` yalnız ARMED debug turunda `KeRegisterBugCheckCallback` kaydeder.
+Framebuffer `DriverEntry` içinde önceden `MmMapIoSpace` ile resident tutulur;
+HIGH_LEVEL callback içinde haritalama, ayırma, kilit, StorPort veya dosya I/O
+çağrısı yoktur. Callback yalnız sabit flight ABI'sini doğrulayıp önceden
+eşlenmiş BGRA belleğe `SEQ/EVT/A0..A4` gliflerini yazar. Bu ayrım
+`tests/test_ufsboot_scripts.sh` tarafından kaynak sözleşmesi olarak korunur.
 
 ### 3.7 `test_resources.c`
 

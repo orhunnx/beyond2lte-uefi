@@ -6,7 +6,7 @@ aygıtına bağlanan bir **fiziksel StorPort miniportu**dur.
 Kaynak dosyalarının görevleri, MSVC/WDK bayrakları ve imza–WIM–Odin araç
 zinciri için: [`AI_DRIVER_BUILD_REFERENCE.md`](AI_DRIVER_BUILD_REFERENCE.md).
 
-## Disk-boot sıcak-reset uçuş kaydı
+## Disk-boot uçuş kaydı ve bugcheck paneli
 
 `INACCESSIBLE_BOOT_DEVICE`, SYSTEM volume bağlanmadan oluştuğu için normal
 registry/ETW/dosya tanısı geri alınamaz. `b2lufs_flight.c/.h`, yalnız UEFI
@@ -26,9 +26,12 @@ alanı `0xFF` (`?`) olarak ayrılmıştır; tanı kodu SYS'e çözümlenemeyen
 CRT/kernel atomik importu eklemez.
 
 `tools_ufsboot.sh --debug`, güncel B2LGoster'ı CACHE ESP'ye ekler ve bugcheck
-sonrası DRAM korunarak firmware'e dönülebilmesi için WinPE `AutoReboot=1`
-değerini yazıp doğrular. UEFI ekranı son altı geçerli olayı gösterir; ham 64 KiB
-görüntü `tools_b2lufs_flight_decode.py` ile tamamen çözülebilir.
+ekranının cihaz restart edemediği ölçüldüğü için WinPE `AutoReboot=0` değerini
+yazıp doğrular. ARMED turda DriverEntry framebuffer'ı önceden eşler ve resident
+bugcheck callback'ini kaydeder. Callback HIGH_LEVEL'da yalnız sabit belleği
+okuyup yazar; son altı geçerli `SEQ/EVT/A0..A4` kaydını mavi ekranın üstüne
+çizer. Normal paket bu eşlemeyi ve callback'i kurmaz. Ham 64 KiB görüntü
+`tools_b2lufs_flight_decode.py` ile tamamen çözülebilir.
 
 ## LUN 0 okuma/yazma ve GPT erişimi
 

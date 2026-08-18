@@ -1855,7 +1855,7 @@ Mac'te çalışır, sonra WSL'de `git pull`.
 | `0xCF041080` | | SEH/PSCI durum sözcükleri |
 | `0xCF041100` | | önceki açılışın SEH kopyası |
 | `0xCF041300` | | GIC susturma kaydı |
-| `0xCF050000` | 64 KB | **B2LUFS sıcak-reset uçuş kaydı** (`Reserv`, yalnız `ARMED` ise yazılır) |
+| `0xCF050000` | 64 KB | **B2LUFS erken-boot uçuş kaydı** (`Reserv`, yalnız `ARMED` ise yazılır) |
 | `0x10101000` | 4 KB | GICD (dağıtıcı) |
 | `0x15860404` | 4 B | PMU `RST_STAT` |
 
@@ -1989,3 +1989,37 @@ Biçimlendirme çıktısı artık filtrelenmez veya `/dev/null`a gönderilmez.
 Bu değişiklik miniport SYS'ini değiştirmez. Bir sonraki cihaz paketi aynı
 `0.0.7.0` sürücüsünü kullanarak yalnız dosya sistemi boot geometrisinin
 etkisini ölçecektir.
+
+---
+
+## 17. B2LUFS 0.0.9.0 — yeniden başlatma gerektirmeyen bugcheck uçuş paneli
+
+18 Ağustos cihaz fotoğrafları eski tanı varsayımını doğrudan çürüttü.
+`B2LGoster` kaydı ARMED yapıp Windows'u başlatıyor ve çekirdek yine
+`INACCESSIBLE_BOOT_DEVICE` üretiyor; fakat beyond2lte Windows'un istediği
+yazılım resetini tamamlayamadığı için ikinci UEFI açılışı hiç oluşmuyor.
+Dolayısıyla 0xCF050000 uçuş kaydı RAM'de doğru olsa bile onu yeniden açılışta
+göstermek bu cihaz için kullanılabilir bir geri-alma kanalı değildir.
+
+`0.0.9.0` sürücüsü tanı modunda şu yolu kullanır:
+
+1. B2LGoster'ın `B2UA` ile ARMED yaptığı 0xCF050000/64 KiB alanını devralır.
+2. DriverEntry sırasında 0xCA000000 framebuffer'ını eşler ve
+   `KeRegisterBugCheckCallback` kaydını oluşturur.
+3. Erken StorPort olaylarını aynı commit-korumalı halkaya yazmaya devam eder.
+4. Bugcheck callback'i son altı geçerli kaydı ekranın üstündeki
+   `B2LUFS BUGCHECK FLIGHT` paneline `SEQ/EVT/A0..A4` olarak çizer.
+5. `AutoReboot=0` olduğu için panel fotoğraflanana kadar cihaz BSOD üzerinde
+   kalır; ikinci UEFI açılışı veya çalışan reset yolu gerekmez.
+
+Callback `HIGH_LEVEL` sınırına göre tasarlanmıştır: fiziksel eşleme ve callback
+kaydı DriverEntry'de yapılır; callback içinde yalnız resident kod/veri okunur
+ve önceden eşlenmiş framebuffer'a dword yazılır. Bellek ayırma, kilit,
+Interlocked, yeni eşleme ve pageable yardımcı yoktur. Normal (`--debug`
+olmayan) pakette uçuş alanı ARMED olmadığından bu yol tamamen etkisizdir.
+
+Header `Flags` bitleri tanıyı ayırır: `0x1` framebuffer eşlendi, `0x2` callback
+kaydedildi, `0x4` callback çalıştı. Ham RAM alınabilirse
+`tools_b2lufs_flight_decode.py` bu değeri başlıkta da gösterir. Bundan sonraki
+cihaz turunda mavi ekranın üst panelinin fotoğrafı alınacak; son `EVT` ve
+`A0..A4` değerleri `UFS_DISK_BOOT.md` tablosuyla yorumlanacaktır.

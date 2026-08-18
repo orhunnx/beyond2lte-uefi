@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decode a 64 KiB B2LUFS warm-reset flight-recorder image."""
+"""Decode a 64 KiB B2LUFS early-boot flight-recorder image."""
 
 from __future__ import annotations
 
@@ -153,7 +153,8 @@ def main() -> int:
     state = "ARMED" if header.armed else "RECORDED"
     print(
         f"B2LUFS flight v{header.version} state={state} "
-        f"boot={header.boot_id} writes={header.write_index}"
+        f"boot={header.boot_id} writes={header.write_index} "
+        f"flags=0x{header.flags:08X}"
     )
     for record in records[-max(0, args.last) :]:
         arguments = " ".join(f"{value:08X}" for value in record.arguments)

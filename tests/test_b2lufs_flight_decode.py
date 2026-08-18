@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""B2LUFS sicak-reset ucus kaydi ABI/decoder regresyon testi."""
+"""B2LUFS erken-boot ucus kaydi ABI/decoder regresyon testi."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def main() -> None:
         capacity,
         2,
         7,
-        0,
+        7,
     )
     image[decoder.HEADER_SIZE : decoder.HEADER_SIZE + decoder.RECORD_SIZE] = (
         make_record(1, 0x0001, 0, 0xCF050000)
@@ -63,6 +63,7 @@ def main() -> None:
 
     header, records = decoder.decode_bytes(bytes(image))
     assert header.boot_id == 7
+    assert header.flags == 7
     assert [record.sequence for record in records] == [1, 2]
     assert records[-1].event_name == "INIT_OK"
     assert records[-1].irql == decoder.IRQL_UNKNOWN

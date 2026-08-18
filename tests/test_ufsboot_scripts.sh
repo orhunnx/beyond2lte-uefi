@@ -287,10 +287,10 @@ passive_enable_line="$(grep -n 'StorPortEnablePassiveInitialization' <<<"$initia
 
 # INACCESSIBLE_BOOT_DEVICE, dosya sistemi baglanmadan once oldugu icin ETW,
 # registry veya X: uzerindeki kayitlar bu turda geri alinamaz. B2LUFS erken
-# yasam dongusunu firmware'in ayirdigi, sicak reset boyunca kalan RAM'e yazar;
-# sonraki UEFI acilisi ayni ABI'yi buyuk puntolu ekranda yorumlar.
+# yasam dongusunu firmware'in ayirdigi RAM'e yazar ve reset calismayan cihazda
+# bugcheck callback'i son kayitlari dogrudan framebuffer'a basar.
 [[ -s "$UFS_FLIGHT" && -s "$UFS_FLIGHT_HEADER" ]] || {
-  echo "HATA: B2LUFS sicak-reset ucus kaydi kaynaklari yok." >&2
+  echo "HATA: B2LUFS erken-boot ucus kaydi kaynaklari yok." >&2
   exit 1
 }
 grep -Fq '#define B2LUFS_FLIGHT_PHYSICAL_BASE' "$UFS_FLIGHT_HEADER"
@@ -299,6 +299,29 @@ grep -Fq '#define B2LUFS_FLIGHT_BYTES' "$UFS_FLIGHT_HEADER"
 grep -Fq 'UINT32_C(0x00010000)' "$UFS_FLIGHT_HEADER"
 grep -Fq 'B2LUfsFlightInitialize' "$UFS_FLIGHT"
 grep -Fq 'MmMapIoSpace' "$UFS_FLIGHT"
+if ! grep -Fq 'B2LUfsFlightBugCheckCallback' "$UFS_FLIGHT" ||
+   ! grep -Fq 'KeRegisterBugCheckCallback' "$UFS_FLIGHT" ||
+   ! grep -Fq 'B2LUfsFlightDrawPanel' "$UFS_FLIGHT" ||
+   ! grep -Fq 'B2LUFS_FLIGHT_FLAG_CALLBACK_REGISTERED' "$UFS_FLIGHT_HEADER" ||
+   ! grep -Fq 'B2LUFS_FLIGHT_FLAG_CALLBACK_FIRED' "$UFS_FLIGHT_HEADER"; then
+  echo "HATA: reset gerektirmeyen B2LUFS bugcheck ekrani eksik." >&2
+  exit 1
+fi
+bugcheck_callback="$(sed -n '/^B2LUfsFlightBugCheckCallback(/,/^}/p' "$UFS_FLIGHT")"
+if grep -Eq 'MmMapIoSpace|MmUnmapIoSpace|ExAllocate|KeAcquire|Interlocked' \
+     <<<"$bugcheck_callback"; then
+  echo "HATA: B2LUFS bugcheck callback HIGH_LEVEL-disinda islem kullaniyor." >&2
+  exit 1
+fi
+bugcheck_draw_path="$(sed -n '/^B2LUfsFlightGlyph(/,/^B2LUfsFlightScreenInitialize(/p' "$UFS_FLIGHT")"
+if grep -Eq 'MmMapIoSpace|MmUnmapIoSpace|ExAllocate|KeAcquire|Interlocked' \
+     <<<"$bugcheck_draw_path"; then
+  echo "HATA: B2LUFS bugcheck cizim zinciri HIGH_LEVEL-disinda islem kullaniyor." >&2
+  exit 1
+fi
+grep -Fq 'UINT64_C(0xCA000000)' "$UFS_FLIGHT"
+grep -Fq '#define B2LUFS_FLIGHT_FB_WIDTH        1440U' "$UFS_FLIGHT"
+grep -Fq '#define B2LUFS_FLIGHT_FB_HEIGHT       3040U' "$UFS_FLIGHT"
 if ! grep -Fq 'B2LUfsFlightBusy' "$UFS_FLIGHT" ||
    ! grep -Fq 'B2LUFS_FLIGHT_IRQL_UNKNOWN' "$UFS_FLIGHT"; then
   echo "HATA: ARM64 flight recorder best-effort tani kapisi eksik." >&2
@@ -326,13 +349,13 @@ grep -Fq 'CacheMaintenanceLib' "$UFS_GOSTER_INF"
 }
 grep -Fq -- '--debug' "$ORCHESTRATOR"
 grep -Fq -- '--ufs-debug' "$ORCHESTRATOR"
-grep -Fq 'export B2L_BUGCHECK_AUTOREBOOT="$DEBUG_MODE"' "$ORCHESTRATOR"
+grep -Fq 'export B2L_BUGCHECK_AUTOREBOOT=0' "$ORCHESTRATOR"
 grep -Fq 'BUGCHECK_AUTOREBOOT="${B2L_BUGCHECK_AUTOREBOOT:-0}"' "$WINBOOT"
-grep -Fq 'DOGRULANDI: bugcheck sicak yeniden baslatacak' "$WINBOOT"
+grep -Fq 'DOGRULANDI: bugcheck olursa cihaz ekranda kalacak' "$WINBOOT"
 grep -Fq -- '--ufs-debug' "$CACHE_ESP"
 grep -Fq 'B2LGOSTR.EFI' "$UFS_DEBUG_STARTUP"
 grep -Fq 'bootmgfw.efi' "$UFS_DEBUG_STARTUP"
-grep -Fq 'DriverVer=08/18/2026,0.0.8.0' "$UFS_INF"
+grep -Fq 'DriverVer=08/18/2026,0.0.9.0' "$UFS_INF"
 
 python3 "$ROOT/tests/test_b2lufs_flight_decode.py"
 

@@ -1,6 +1,6 @@
 # beyond2lte UEFI — durum
 
-**Son güncelleme:** 18 Ağustos 2026 — 0x7B için sıcak-reset B2LUFS uçuş kaydı eklendi.
+**Son güncelleme:** 18 Ağustos 2026 — 0x7B uçuş kaydı restart gerektirmeden crash ekranına taşındı.
 
 ## Çalışan / çalışmayan
 
@@ -12,9 +12,9 @@
 | **Dahili depolama (UFS)** | **✅** | 5 LUN, DiskIO protokolü kurulu — `S5E9820Pkg/Library/PlatformUfsLib` yazıldı |
 | **Windows UFS (`b2lufs`)** | **✅** | Disk 0: 119 GB; 31 GPT bölüm ve CACHE FAT32 okuma/yazma doğrulandı |
 | USB | ❌ | Henüz sürücü yok |
-| Windows boot | 🟡 | DriverStore/GPT/init/BPB/BCD düzeltmeleriyle hâlâ 0x7B; 0.0.8.0 erken StorPort uçuş kaydı cihaz ölçümüne hazır |
+| Windows boot | 🟡 | DriverStore/GPT/init/BPB/BCD düzeltmeleriyle hâlâ 0x7B; 0.0.9.0 crash-anı StorPort paneli cihaz ölçümüne hazır |
 
-## 18 Ağustos 2026 — 0x7B için sıcak-reset B2LUFS uçuş kaydı
+## 18 Ağustos 2026 — 0x7B için reset gerektirmeyen B2LUFS uçuş paneli
 
 Düzeltilmiş `device/osdevice` BCD'si de cihazda aynı
 `INACCESSIBLE_BOOT_DEVICE` sonucunu verdi. Böylece aşağıdaki varsayımlar cihaz
@@ -23,7 +23,7 @@ GPT türü, PASSIVE callback'e bırakılmış ilk keşif, PIT/BPB başlangıç g
 ve BCD OS-device locator'ı. Bu uyumluluk düzeltmelerinin hiçbiri geri alınmadı.
 
 Kök volume bağlanmadan dosya, registry, ETW ve crash dump geri alınamadığı için
-`0.0.8.0` erken miniport yaşam döngüsünü `0xCF050000` tabanlı 64 KiB ikili
+`0.0.9.0` erken miniport yaşam döngüsünü `0xCF050000` tabanlı 64 KiB ikili
 halka kayda yazıyor. Alan firmware bellek haritasında
 `EfiReservedMemoryType`; bilinen `B2L EL2` ve `B2L RT Log` alanlarından sonra
 başlıyor. `DriverEntry`, FindAdapter kaynakları, common DMA, HCE/HCS/UTRL
@@ -38,19 +38,25 @@ kullanılmaz: Microsoft'un yasakladığı bu desen yerine cached sürücü deği
 slotu çakışır ve commit denetimi karışık kaydı atar; kapı UFS işlemini korumaz.
 Sabit record ABI'sindeki IRQL baytı `0xFF` (`?`) tutulur. Böylece WDK 28000'in
 inline etmeyip dış sembol bıraktığı `KeGetCurrentIrql` ve tüm Interlocked
-çeşitleri ham `/kernel /Zl` bağlantısından çıkarılmıştır. Debug turunda
-`AutoReboot=1` yazılıp geri okunur; 0x7B otomatik sıcak resetinden sonra
-`B2LGoster SURUM 33` son altı geçerli olayı ve son olayın argümanlarını büyük
-yazıyla gösterir. Paket komutu:
+çeşitleri ham `/kernel /Zl` bağlantısından çıkarılmıştır.
+
+Yeni cihaz fotoğrafı önemli bir platform sınırını kapattı: Windows
+`INACCESSIBLE_BOOT_DEVICE` ekranında kalıyor ve `AutoReboot=1` cihazı UEFI'ye
+döndüremiyor. Bu nedenle debug paket artık `AutoReboot=0` kullanır. ARMED
+DriverEntry, daha önce B2LFB ile doğrulanan `0xCA000000` framebuffer'ını eşler
+ve resident `KeRegisterBugCheckCallback` kaydı kurar. HIGH_LEVEL callback
+hiçbir kernel DDI, tahsis, haritalama veya kilit kullanmadan son altı geçerli
+`SEQ/EVT/A0..A4` kaydını mavi ekranın üstüne çizer. İkinci açılış ve DRAM
+koruyan restart artık ölçümün önkoşulu değildir. Paket komutu:
 
 ```bash
 bash yap.sh
 bash tools_ufsboot.sh --debug '/mnt/c/yol/Windows_ARM64.iso' 4
 ```
 
-Bu tur artık yeni bir düzeltme tahmin etmiyor; sonraki cihaz fotoğrafı sürücünün
-hiç yüklenmemesi, initialization kapısı, ilk SRB, cached GPT cevabı veya gerçek
-UFS komut timeout'u arasında kanıtlı ayrım yapacak.
+Bu tur artık yeni bir düzeltme tahmin etmiyor; sonraki `B2LUFS BUGCHECK FLIGHT`
+fotoğrafı initialization kapısı, ilk SRB, cached GPT cevabı veya gerçek UFS
+komut timeout'u arasında kanıtlı ayrım yapacak.
 
 ## 18 Ağustos 2026 — 0x7B için bulunan BCD hatası: `osdevice` yükleyici dosyasına bağlıydı
 
@@ -120,7 +126,7 @@ zorunlu geometri bayraklarını denetler.
 Bu geometriyi içeren paket daha sonra cihazda flaşlandı ve aynı 0x7B görüldü.
 Dolayısıyla alanlar doğru kalmalıdır, fakat artık kök neden olarak
 değerlendirilmemektedir. Düzeltilmiş BCD de aynı sonucu verdikten sonra güncel
-tek değişken üstteki sıcak-reset uçuş kaydıdır.
+tek ölçüm kanalı üstteki reset gerektirmeyen bugcheck uçuş panelidir.
 
 ## 18 Ağustos 2026 — denenen boot farkı: gecikmeli StorPort keşfi
 

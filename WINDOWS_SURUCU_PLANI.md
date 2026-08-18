@@ -58,14 +58,17 @@ Eski masaüstü BCD sonucu betik hash'ine bağlı istek kimliği olmadan kabul
 edilmez; disk-boot WIM'i de her tur ISO'dan temiz çıkarılır. Bu düzeltme de
 cihazda aynı 0x7B sonucunu verdi ve tek kök neden olmadığı kanıtlandı.
 
-Güncel `0.0.8.0` yeni bir taşıma davranışı tahmin etmek yerine miniportun en
-erken boot yaşam döngüsünü sıcak-reset uçuş kaydına alır. `0xCF050000` tabanlı
-64 KiB alan UEFI tarafından `ARMED` yapılır; DriverEntry, kaynak/DMA, HCI
-devri, capacity/LUN/GPT başlangıç probları, StorPort SRB'leri ve her gerçek UFS
-komutunun begin/done sonucu commit'li kayıtlardır. Debug WIM'i
-`AutoReboot=1` ile hazırlanır; 0x7B sonrasındaki yazılım sıcak resetinde
-B2LGoster kaydı okur. Böylece bir sonraki tur varsayım değil, son tamamlanan
-callback/CDB/OCS/interrupt status üzerinden ilerler.
+Güncel `0.0.9.0` yeni bir taşıma davranışı tahmin etmek yerine miniportun en
+erken boot yaşam döngüsünü uçuş kaydına alır. `0xCF050000` tabanlı 64 KiB alan
+UEFI tarafından `ARMED` yapılır; DriverEntry, kaynak/DMA, HCI devri,
+capacity/LUN/GPT başlangıç probları, StorPort SRB'leri ve her gerçek UFS
+komutunun begin/done sonucu commit'li kayıtlardır. Cihaz fotoğrafı,
+`AutoReboot=1` olsa bile 0x7B sonrasında Windows reset yolunun ilerlemediğini
+kanıtladı. Bu nedenle debug WIM artık `AutoReboot=0` kullanır; önceden
+haritalanan framebuffer'a kayıtlı bugcheck callback'i son altı
+`SEQ/EVT/A0..A4` satırını doğrudan çizer. Böylece bir sonraki tur restart veya
+ikinci UEFI açılışına değil, crash ekranındaki son tamamlanan
+callback/CDB/OCS/interrupt status'a dayanır.
 
 Disk-boot akışı ayrıca INF/SYS/CAT paketini Windows DISM ile çevrimdışı
 DriverStore/DriverDatabase'a kurar; sonra `Start=0` servis kaydı ve
@@ -210,16 +213,18 @@ uygulanan güncel adresi **`0xCF050000`**'dır; `0xCF000000..0xCF03FFFF` EL2 ve
   sayacı 0x403'ten 0x404'e geçti
 - B2LGoster aynı sabit ABI'yi yorumlayıp son kayıtları büyük yazıyla gösterir
 
-Yani sürücü çöküş anında oraya yazar, cihaz sıfırlanır, sonraki açılışta
-Shell logu ekrana basar. **Çöküş anındaki kaydı çöküşten sonra okumak** —
-framebuffer'ın yapamayacağı şey, ve yirmi satır kod.
+Genel durumda sürücü çöküş anında oraya yazar, cihaz sıfırlanır, sonraki
+açılışta Shell logu ekrana basar. Disk-boot 0x7B deneyi bu varsayımın platforma
+özgü istisnasını gösterdi: Windows bugcheck ekranında kalıyor ve reset isteği
+cihazı UEFI'ye döndüremiyor. `0.0.9.0` aynı commit'li halkayı bugcheck anında
+doğrudan framebuffer'a çizerek bu turda ikinci açılış gereksinimini kaldırır.
 
 İkisi birlikte tam bir hata ayıklama düzeni kuruyor:
 
 | Kanal | Ne için |
 |---|---|
 | Framebuffer | Canlı durum, ilerleme |
-| Ayrılmış RAM | Ölüm sonrası; çöküşün son satırları |
+| Ayrılmış RAM | Commit'li son olaylar; reset varsa sonraki UEFI, yoksa bugcheck panelinin kaynağı |
 
 #### "DRAM cihaz kapanıp açılınca silinmez mi?"
 

@@ -27,7 +27,7 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | **Linux (ACPI, DTB yok)** | ✅ 8 CPU açılıyor, initramfs'e kadar |
 | Windows Boot Manager | ✅ çalışıyor, ekran çiziyor, ESP'den okuyor |
 | Windows çekirdeği (`ntoskrnl`) | ✅ başlıyor |
-| Windows UFS disk-boot | 🟡 `INACCESSIBLE_BOOT_DEVICE`; yanlış BCD `osdevice` düzeltildi, cihaz testi bekleniyor |
+| Windows UFS disk-boot | 🟡 `INACCESSIBLE_BOOT_DEVICE`; `b2lufs` 0.0.9.0 bugcheck uçuş paneliyle kök neden ölçülüyor |
 
 Ayrıntı: [`STATUS.md`](STATUS.md)
 

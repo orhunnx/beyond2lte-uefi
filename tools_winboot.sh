@@ -46,9 +46,10 @@ for a in "$@"; do
 done
 if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
 
-# Normal tani turunda mavi ekran ekranda kalir. UFS sicak-reset ucus kaydi
-# turunda ise bugcheck'ten sonra gucu kesmeden firmware'e donmemiz gerekir;
-# tools_ufsboot.sh --debug bu degeri 1 olarak aktarir.
+# beyond2lte bugcheck sonrasi yazilim resetini tamamlayamiyor. Disk-boot tani
+# turu bu nedenle mavi ekrani yerinde tutar ve B2LUFS uçuş kaydini bugcheck
+# callback'inden dogrudan framebuffer'a basar. Degisken yalniz ayri platform
+# deneyleri icin 1 degerini desteklemeye devam eder.
 BUGCHECK_AUTOREBOOT="${B2L_BUGCHECK_AUTOREBOOT:-0}"
 case "$BUGCHECK_AUTOREBOOT" in
   0|1) ;;
@@ -322,7 +323,7 @@ if [ -s "$ESP/sources/boot.wim" ] && command -v wimlib-imagex >/dev/null; then
   # SYSTEM hive'inda; disari cikarip degistirip geri koyabiliyoruz.
   #
   #   AutoReboot        = 0  -> cokunce sifirlama, ekranda kal
-  #   AutoReboot        = 1  -> ucus kaydi icin yazilim sicak reset yap
+  #   AutoReboot        = 1  -> yalniz platform reset yolu calisiyorsa yeniden baslat
   #   DisplayParameters = 1  -> stop kodunun parametrelerini de goster
   #
   # Bunlar olmadan her tur "yeniden basladi" demekten oteye gidemiyoruz.

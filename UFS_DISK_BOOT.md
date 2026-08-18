@@ -52,10 +52,12 @@ kök volume'u bekleyemez. `0.0.7.0` ile PASSIVE/timer yolu yalnız tanıdır;
 ancak bu sürümün cihazda aynı 0x7B'yi vermesi, gecikmeli keşfin tek kök neden
 olmadığını kanıtladı.
 
-`0.0.8.0`, tahmini başka bir boot davranışı değiştirmek yerine erken StorPort
-yaşam döngüsünü sıcak-reset boyunca kalan 64 KiB'lik ikili uçuş kaydına yazar.
-Bu kayıt yalnız UEFI uygulaması alanı açıkça `ARMED` yaptığında etkinleşir;
-normal paketlerde eşleme hemen bırakılır ve kayıt yolu pasif kalır.
+`0.0.9.0`, tahmini başka bir boot davranışı değiştirmek yerine erken StorPort
+yaşam döngüsünü 64 KiB'lik ikili uçuş kaydına yazar. Kayıt yalnız UEFI
+uygulaması alanı açıkça `ARMED` yaptığında etkinleşir; normal paketlerde eşleme
+hemen bırakılır ve kayıt yolu pasif kalır. Debug durumda aynı sürücü önceden
+framebuffer'ı eşler ve bugcheck callback'i kaydeder; son kayıtları 0x7B anında
+ekrana çizdiği için cihaz resetine ihtiyaç duymaz.
 
 Disk imajlarının dosya sistemi önyükleme geometrisi de kalıcı PIT ile aynı
 olmalıdır. Stok PIT'e göre SYSTEM başlangıcı 83968, CACHE başlangıcı 1983488
@@ -75,7 +77,7 @@ fiziksel bölümle tutarlı tutulur. Uyarılar filtrelenmez. Bu alanları içere
 paket cihazda aynı 0x7B'yi verdiği için geometri artık kök neden sayılmıyor;
 doğru disk tanımı olarak korunuyor.
 
-## 0x7B sıcak-reset uçuş kaydı
+## 0x7B reset gerektirmeyen uçuş kaydı
 
 Kök volume bağlanamadığı için bu hata anında registry, ETW, dosya veya crash
 dump çıktısına güvenilemez. Debug paketi bu nedenle `0xCF050000..0xCF05FFFF`
@@ -99,7 +101,7 @@ okuyucusu tarafından geçerli sayılmaz.
 Tanı paketi sırası:
 
 ```bash
-# 1. Windows PowerShell'de güncel 0.0.8.0 SYS'i derle.
+# 1. Windows PowerShell'de güncel 0.0.9.0 SYS'i derle.
 # 2. WSL'de güncel B2LGoster uygulamasını üret.
 bash yap.sh
 
@@ -109,27 +111,39 @@ bash tools_ufsboot.sh --debug '/mnt/c/yol/Windows_ARM64.iso' 4
 
 `--debug`, CACHE'e `B2LGOSTR.EFI` ve özel `startup.nsh` koyar. İlk UEFI
 ekranını fotoğraflayıp bir tuşa basınca kayıt `ARMED` olur ve Windows başlar.
-Bu mod WinPE `CrashControl\AutoReboot=1` değerini ayrıca yazıp geri okur;
-0x7B sonrası güç kesmeden yazılım sıcak reset yapar. Sonraki UEFI açılışında
-`B2LUFS UCUS KAYDI` ekranının fotoğrafı alınır. **Bu arada Odin, download mode,
-güç kapatma veya cold boot yapılmamalıdır; bunlar DRAM kaydını kaybettirir.**
+Fotoğrafla doğrulanan platform sınırı nedeniyle Windows 0x7B sonrasında cihazı
+restart edemiyor. Bu mod bu yüzden WinPE `CrashControl\AutoReboot=0` değerini
+yazıp geri okur. B2LUFS DriverEntry'de `0xCA000000` framebuffer eşlemesini ve
+`KeRegisterBugCheckCallback` kaydını yalnız ARMED tur için hazırlar. Callback
+HIGH_LEVEL'da hiçbir bellek ayırma, haritalama veya kilit işlemi yapmadan son
+altı geçerli kaydı mavi ekranın üstündeki `B2LUFS BUGCHECK FLIGHT` paneline
+yazar. Panelin fotoğrafı doğrudan sonuçtur; ikinci UEFI açılışı gerekmez.
+
+Panel sütunları `SEQ`, `EVT` ve `A0..A4` alanlarıdır. `EVT` aşağıdaki olayın
+16-bit sayısal kodudur (`020F=INITOK`, `0310=SUBMIT`, `0311=DONE` gibi).
+Callback kaydı veya framebuffer eşlemesi başarısızsa panel görünmez; bu iki
+durum header `Flags` alanında ayrı bitlerle tutulur. Normal, ARMED olmayan
+paket framebuffer'ı eşlemez ve callback kaydetmez.
 
 Ekrandaki son olay temel ayrımı verir:
 
 | Son olay | Anlam |
 |---|---|
 | `ARMED AMA SURUCU YAZMADI` | B2LUFS `DriverEntry` çalışmadı veya sabit alan eşlenemedi |
-| `FINDRET` | ACPI/StorPort kaynak ya da common-DMA aşamasında kaldı; A0 dönüş kodudur |
-| `TRANSP` | HCE/HCS/UTRL devralma sonucu; A0 taşıma aşama kodudur |
-| `CAP`, `LUNS`, `MEDIA`, `INITFAIL` | Boot öncesi eşzamanlı medya doğrulamasının hangi kapıda kaldığını gösterir |
-| `INITOK` | Miniport boot aygıtını StorPort'a hazır ilan etti |
-| `STARTIO` | StorPort en az bir gerçek SRB gönderdi; A0 SRB function'dır |
-| `SUBMIT` ama `DONE` yok | Son UFS komutu tamamlanmadan kaldı; A0 CDB opcode'dur |
-| `DONE` | Son donanım komutu tamamlandı; A1 sonuç, A3 OCS, A4 interrupt status'tur |
-| `CCAP` / `CGPT` | Cached capacity/GPT cevabı Windows depolama yığınına verildi |
+| `0001 ENTRY` / `0002 STORRET` | DriverEntry başladı / `StorPortInitialize` döndü |
+| `010F FINDRET` | ACPI/StorPort kaynak ya da common-DMA aşamasında kaldı; A0 dönüş kodudur |
+| `0201 TRANSP` | HCE/HCS/UTRL devralma sonucu; A0 taşıma aşama kodudur |
+| `0202 CAP`, `0203 LUNS`, `0204 MEDIA`, `0210 INITFAIL` | Boot öncesi eşzamanlı medya doğrulamasının hangi kapıda kaldığını gösterir |
+| `020F INITOK` | Miniport boot aygıtını StorPort'a hazır ilan etti |
+| `0300 STARTIO` | StorPort en az bir gerçek SRB gönderdi; A0 SRB function'dır |
+| `0310 SUBMIT` ama `0311 DONE` yok | Son UFS komutu tamamlanmadan kaldı; A0 CDB opcode'dur |
+| `0311 DONE` | Son donanım komutu tamamlandı; A1 sonuç, A3 OCS, A4 interrupt status'tur |
+| `0301 CCAP` / `0302 CGPT` | Cached capacity/GPT cevabı Windows depolama yığınına verildi |
 
-UEFI ekranı son altı geçerli kaydı ve son kaydın A1..A4 alanlarını gösterir.
-64 KiB ham görüntü başka bir yolla alınırsa tüm halka şu araçla çözülür:
+Crash paneli son altı geçerli kaydın bütün A0..A4 alanlarını gösterir. Daha
+sonra bir yazılım reset yolu sağlanırsa UEFI ekranı aynı kayıtları adlarıyla
+yorumlamaya devam eder. 64 KiB ham görüntü başka bir yolla alınırsa tüm halka
+şu araçla çözülür:
 
 ```bash
 python3 tools_b2lufs_flight_decode.py b2lufs-flight.bin --last 128
@@ -258,8 +272,9 @@ Windows'ta Odin ile:
 - `INACCESSIBLE_BOOT_DEVICE` görülürse EFI/BCD ve winload aşaması geçilmiş,
   fakat kernel boot volume'u yeniden açamamıştır. Bunun nedeni yalnız miniport
   değildir; disk/partition/volume/NTFS zinciri de olabilir. Güncel paket
-  `0.0.8.0` eşzamanlı medya hazırlığını, PIT uyumlu BPB'yi, düzeltilmiş BCD
-  OS-aygıt tanımını ve isteğe bağlı sıcak-reset uçuş kaydını birlikte taşır.
+  `0.0.9.0` eşzamanlı medya hazırlığını, PIT uyumlu BPB'yi, düzeltilmiş BCD
+  OS-aygıt tanımını ve reset gerektirmeyen bugcheck uçuş panelini birlikte
+  taşır.
 - Boot manager veya winload hatası, ekrandaki kodla BCD/dosya katmanına ayrılır.
 
 Geri dönüşte Download Mode üzerinden stock SYSTEM ve CACHE imajlarını ya da tam
@@ -279,7 +294,7 @@ yeniden bölümleme normal geri dönüşün parçası değildir.
 | `tools_windisk.sh` | WIM'i NTFS SYSTEM imajına uygular. |
 | `tools_winboot.sh --disk` | CACHE ESP için EFI dosyalarını ve disk BCD'sini sahneler. |
 | `cache_esp.sh --win --disk --baseline` | 600 MiB CACHE ESP imajını ve tar paketini üretir. |
-| `cache_esp.sh --win --disk --ufs-debug` | Uçuş kaydı okuyuculu CACHE ESP imajını üretir. |
+| `cache_esp.sh --win --disk --ufs-debug` | Uçuş kaydını ARMED yapan CACHE ESP imajını üretir. |
 | `tools_b2lufs_flight_decode.py` | Ham 64 KiB uçuş kaydını doğrular ve çözer. |
 
 Sürücü kaynaklarının bağımsız ikinci kopyası `drivers/windows/storage/b2lufs`

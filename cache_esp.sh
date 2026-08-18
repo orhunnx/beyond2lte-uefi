@@ -147,7 +147,7 @@ if [ "$UFS_DEBUG" = 1 ]; then
     echo "HATA: esp/B2LGOSTR.EFI kaynaklardan eski. Once: bash yap.sh"
     exit 1
   fi
-  say "MOD: Windows UFS disk-boot sicak-reset ucus kaydi"
+  say "MOD: Windows UFS disk-boot bugcheck ucus paneli"
 fi
 if [ "$PSCI_HVC" = 1 ]; then
   [ -s "$PROJ/esp/B2LGOSTR.EFI" ] || {
