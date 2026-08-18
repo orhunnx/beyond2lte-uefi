@@ -69,8 +69,12 @@ grep -Fq 'base64 --decode' "$ORCHESTRATOR"
 grep -Fq 'B2L-UFS-BCD' "$ORCHESTRATOR"
 grep -Fq 'STALE_SYS_SOURCES=' "$ORCHESTRATOR"
 grep -Fq 'B2LUFS kaynaklarindan eski; disk-boot paketi uretilmedi' "$ORCHESTRATOR"
-grep -Fq 'B2L_BCD_STAGE_VERSION=1' "$ORCHESTRATOR"
+grep -Fq 'B2L_BCD_STAGE_VERSION=2' "$ORCHESTRATOR"
 grep -Fq 'B2L_BCD_VARIANT=disk' "$ORCHESTRATOR"
+grep -Fq 'B2L_BCD_REQUEST_ID=' "$ORCHESTRATOR"
+grep -Fq 'echo "B2L_BCD_REQUEST_ID=$request_id"' "$ORCHESTRATOR"
+grep -Fq 'sha256sum "$BCD_MANUAL_DIR/bcd_olustur.cmd"' "$ORCHESTRATOR"
+grep -Fq 'sha256sum "$BCD_MANUAL_DIR/B2L_BCD_DISK_OLUSTUR.cmd"' "$ORCHESTRATOR"
 grep -Fq 'cmp -s "$BCD_MANUAL_OUT" "$ROOT/windows/BCD"' "$ORCHESTRATOR"
 if grep -Fq 'cmd.exe /d /s /c "\"$BCD_SCRIPT_WIN\"' "$ORCHESTRATOR"; then
   echo "HATA: dogrudan UNC BCD betigi cagrisi geri gelmis." >&2
@@ -86,9 +90,18 @@ if grep -Fq 'run_bcd_elevated.ps1' "$ORCHESTRATOR"; then
 fi
 grep -Fq 'fltmc >nul 2>&1' "$BCD_LAUNCHER"
 grep -Fq 'call "%~dp0bcd_olustur.cmd" disk "%BCD%"' "$BCD_LAUNCHER"
-grep -Fq 'B2L_BCD_STAGE_VERSION=1' "$BCD_LAUNCHER"
+grep -Fq 'B2L_BCD_STAGE_VERSION=2' "$BCD_LAUNCHER"
 grep -Fq 'B2L_BCD_VARIANT=disk' "$BCD_LAUNCHER"
+grep -Fq 'B2L_BCD_REQUEST_ID=' "$BCD_LAUNCHER"
+grep -Fq 'if not defined DEVICE_OK' "$BCD_LAUNCHER"
+grep -Fq 'if not defined OSDEVICE_OK' "$BCD_LAUNCHER"
 grep -Fq 'testsigning        Yes' "$BCD_BUILDER"
+grep -Fq 'device   locate=\Windows\System32\Boot\winload.efi' "$BCD_BUILDER"
+grep -Fq 'osdevice locate=\Windows' "$BCD_BUILDER"
+if grep -Fq 'osdevice locate=\Windows\System32\Boot\winload.efi' "$BCD_BUILDER"; then
+  echo "HATA: osdevice yine yukleyici dosyasini sistem koku saniyor." >&2
+  exit 1
+fi
 if grep -Eq '^bcdedit .*nointegritychecks' "$BCD_BUILDER"; then
   echo "HATA: Secure Boot'un reddedebildigi gereksiz nointegritychecks geri gelmis." >&2
   exit 1
@@ -117,8 +130,15 @@ grep -Fq '[Environment]::GetFolderPath("LocalApplicationData")' "$ORCHESTRATOR"
 grep -Fq 'B2L_DISM_STAGE_VERSION=2' "$ORCHESTRATOR"
 grep -Fq 'B2L_DISM_REQUEST_ID=' "$ORCHESTRATOR"
 grep -Fq 'sha256sum "$DISM_STAGE_WSL/B2L_UFS_WIM_SURUCU_EKLE.cmd"' "$ORCHESTRATOR"
-grep -Fq 'Onceki B2LUFS DriverStore paketi bulundu' "$ORCHESTRATOR"
-grep -Fq 'bash "$ROOT/tools_winboot.sh" "$ISO" --wim-yenile' "$ORCHESTRATOR"
+fresh_wim_call_line="$(grep -n '^bash "$ROOT/tools_winboot.sh" "$ISO" --wim-yenile$' "$ORCHESTRATOR" | cut -d: -f1)"
+[[ -n "$fresh_wim_call_line" && "$fresh_wim_call_line" -gt "$step_one_line" ]] || {
+  echo "HATA: UFS disk-boot her tur temiz ISO WIM tabanindan baslamiyor." >&2
+  exit 1
+}
+if grep -Fq 'ensure_clean_driverstore_base' "$ORCHESTRATOR"; then
+  echo "HATA: temiz WIM hala onceki B2LUFS paketinin gorulmesine bagli." >&2
+  exit 1
+fi
 grep -Fq 'wimlib-imagex verify "$DISM_STAGE_WSL/boot.wim"' "$ORCHESTRATOR"
 grep -Fq 'driverstore/filerepository/b2lufs\.inf_' "$ORCHESTRATOR"
 grep -Fq 'cmp -s "$DISM_STAGE_WSL/$package_file" "$WORK/driverstore-check/$package_file"' "$ORCHESTRATOR"

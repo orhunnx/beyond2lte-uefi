@@ -174,8 +174,12 @@ echo   osloader GUID: %G%
 :: "0xc0000428 / digital signature couldn't be verified" ekranini gorduk.
 ::
 :: "locate=" KULLANIYORUZ, "partition=" DEGIL: bootmgr birimleri kendisi
-:: tarayip verilen yolu buluyor. Boylece GPT bolum GUID'ini elle yazmak
-:: zorunda kalmiyoruz ve hangi boluma yazarsak yazalim calisiyor.
+:: tarayip verilen yolu buluyor. device yukleyici uygulamasini, osdevice ise
+:: sistem kokunu bulmalidir. Ikisini de winload.efi'ye baglamak bootmgr'in
+:: yukleyiciyi calistirmasina yeter, fakat kernel'e yanlis OS-device locate
+:: tanimi tasir ve boot volume yeniden acilirken 0x7B uretebilir.
+:: Boylece GPT bolum GUID'ini elle yazmak zorunda kalmiyoruz ve hangi boluma
+:: yazarsak yazalim calisiyor.
 ::
 set "DISKMOD="
 if /i "%VAR%"=="disk" set "DISKMOD=1"
@@ -194,7 +198,7 @@ if /i "%VAR%"=="menuram" set "MENUMOD=1"
 
 if defined DISKMOD (
   bcdedit /store "%BCD%" /set %G% device   locate=\Windows\System32\Boot\winload.efi >nul || goto :hata
-  bcdedit /store "%BCD%" /set %G% osdevice locate=\Windows\System32\Boot\winload.efi >nul || goto :hata
+  bcdedit /store "%BCD%" /set %G% osdevice locate=\Windows >nul || goto :hata
   echo   AYAR: gercek bolumden acilis ^(locate^), RAM disk YOK
 ) else (
   bcdedit /store "%BCD%" /set %G% device   ramdisk=[boot]\sources\boot.wim,{ramdiskoptions} >nul || goto :hata

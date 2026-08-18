@@ -48,6 +48,16 @@ iki BPB'nin imzası, 4Kn sektör/küme alanları, PIT hidden/start LBA'sı ve 25
 geometrisi ayrıca geri okunur. `SchemaVersion=26`
 iki girdinin bulunma durumunu ve indexini ayrı telemetri olarak yayımlar.
 
+PIT-uyumlu BPB paketi de cihazda aynı 0x7B'yi verdi. Baştan sona denetimde
+disk BCD'sinin `device` ve `osdevice` öğelerini aynı `winload.efi` locator'ına
+bağladığı bulundu. İlki boot uygulaması için doğrudur; ikincisi Windows sistem
+kökünü göstermelidir. Güncel BCD bu nedenle
+`device=locate:\Windows\System32\Boot\winload.efi` ve
+`osdevice=locate:\Windows` üretir, ardından ikisini BCD deposundan geri okur.
+Eski masaüstü BCD sonucu betik hash'ine bağlı istek kimliği olmadan kabul
+edilmez; disk-boot WIM'i de her tur ISO'dan temiz çıkarılır. Bu düzeltme
+cihazda henüz doğrulanmamıştır.
+
 Disk-boot akışı ayrıca INF/SYS/CAT paketini Windows DISM ile çevrimdışı
 DriverStore/DriverDatabase'a kurar; sonra `Start=0` servis kaydı ve
 `CriticalDeviceDatabase\ACPI#BYND9820` eşlemesini uygular. WIM geri alındığında

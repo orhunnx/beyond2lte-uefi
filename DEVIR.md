@@ -8,6 +8,16 @@ dosyadan anlayabilmesi.
 Belgedeki her "elendi" ifadesi bir **ölçüme** dayanıyor. Tahminle elenen
 hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 
+> **18 Ağustos 2026 güncel notu:** Bu belgenin aşağıdaki tarihsel RAM-WinPE
+> anlatımından sonra B2LUFS, Disk 0/GPT/CACHE okuma-yazma testini geçti ve
+> SYSTEM+CACHE disk-boot akışı kuruldu. `0.0.7.0`, DriverStore, SYSTEM Basic
+> Data ve PIT-uyumlu BPB paketleri cihazda ayrı ayrı aynı 0x7B'yi verdi.
+> Son tam depo denetiminde disk BCD'sinde `osdevice` öğesinin yanlışlıkla
+> `winload.efi` dosyasına bağlandığı bulundu; artık `osdevice=locate:\Windows`
+> üretiliyor. Eski BCD başarı kaydı betik hash'i olmadan kabul edilmiyor ve
+> WIM her tur temiz ISO tabanından kuruluyor. Ayrıntı için `STATUS.md` ve
+> `UFS_DISK_BOOT.md` esas alınmalıdır.
+
 ---
 
 ## 1. Hedef ve donanım

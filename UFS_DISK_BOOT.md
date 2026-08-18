@@ -4,6 +4,17 @@ Bu akış, cihaz üzerinde doğrulanmış `b2lufs` okuma/yazma desteğini kullan
 WinPE'yi RAM disk yerine dahili UFS'teki SYSTEM bölümünden başlatır. Araç zinciri
 hazırdır; gerçek cihazda diskten açılış henüz doğrulanmamıştır.
 
+Son cihaz denemesinde PIT-uyumlu NTFS/FAT BPB'leri de aynı
+`INACCESSIBLE_BOOT_DEVICE` sonucunu verdi. Güncel turdaki tek davranış
+değişikliği BCD düzeltmesidir: `device`, `winload.efi` uygulamasını arar;
+`osdevice` ise aynı dosyayı değil `\Windows` sistem kökünü arar. Windows'un
+önyükleme uygulaması ve işletim sistemi aygıtı tanımlarını ayıran bu sözleşme
+üretilen BCD yeniden açılarak doğrulanır. Microsoft'un
+[UEFI BCD ayarları](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/bcd-system-store-settings-for-uefi?view=windows-11)
+belgesi `device` ile `osdevice` görevlerini ayrı tanımlar; güncel
+[0x7B giderme kılavuzu](https://learn.microsoft.com/en-us/troubleshoot/windows-client/performance/stop-error-7b-or-inaccessible-boot-device-troubleshooting)
+da ilk kontroller arasında bu iki öğenin doğru bölümü göstermesini ister.
+
 ## Yerleşim
 
 ```text
@@ -55,7 +66,9 @@ okuyarak doğrular. [`mkfs.fat` belgesindeki](https://manpages.debian.org/trixie
 değerini FAT boot sektörüne yazar. CACHE UEFI yolunda DOS VBR kodu
 çalıştırılmaz: önyüklenebilirlik FAT volume içindeki `BOOTAA64.EFI`,
 `bootmgfw.efi`, BCD ve firmware'in bölüm Block I/O yolundan gelir. BPB yine
-fiziksel bölümle tutarlı tutulur. Uyarılar filtrelenmez.
+fiziksel bölümle tutarlı tutulur. Uyarılar filtrelenmez. Bu alanları içeren
+paket cihazda aynı 0x7B'yi verdiği için geometri artık kök neden sayılmıyor;
+doğru disk tanımı olarak korunuyor.
 
 ## Güvenlik sınırı
 
@@ -99,8 +112,10 @@ Son argüman SYSTEM imajının GiB cinsinden boyutudur; `2..5` aralığında olm
 verilmezse `4` kullanılır. Orkestrasyon sırasıyla:
 
 Araç, kullanılan ISO'nun kanonik yolu, boyutu ve değişiklik zamanını kaydeder.
-ISO değiştiğinde hazır `boot.wim` otomatik yenilenir; önceki ISO'nun WIM
-önbelleği yeni pakete karışmaz.
+Disk-boot üretimi her çalıştırmada `boot.wim`i ISO'dan zorla yeniler. Bunun
+amacı yalnız önceki B2LUFS paketini değil, tanı araçlarının offline SYSTEM
+hive'ında bırakabildiği Start/ErrorControl değişikliklerini de kesin olarak
+dışarıda tutmaktır.
 
 BCD üretiminde Windows batch dosyası `\\wsl.localhost` veya WSL içinden UAC
 zinciriyle çalıştırılmaz. Araç, gerçek Windows Masaüstü konumunda
@@ -111,7 +126,12 @@ varyantı, dosya boyutu ve BCD'nin `regf` başlığı doğrulandıktan sonra ak�
 devam eder. Böylece `bcdedit` hatasının tamamı açık CMD penceresinde kalır.
 PowerShell'in OEM konsol kodlaması `Masaüstü` gibi yolları bozmasın diye bilinen
 Masaüstü yolu UTF-8 Base64 olarak WSL'ye taşınır ve orada geri açılır.
-Test-imzalı B2LUFS için `testsigning=Yes` zorunludur. İmzasız sürücü
+Masaüstündeki eski başarı dosyası tek başına yeterli değildir: sahnelenen BCD
+üretici ve başlatıcı betiklerinin ortak istek kimliği yeni `ready` kaydında
+aynı olmalıdır. Üretilen depo ayrıca geri açılır; `device` için
+`locate=\Windows\System32\Boot\winload.efi`, `osdevice` için
+`locate=\Windows` okunmadan akış ilerlemez. Test-imzalı B2LUFS için
+`testsigning=Yes` zorunludur. İmzasız sürücü
 kullanılmadığından `nointegritychecks` yazılmaz; bu ayar Secure Boot açık
 derleme bilgisayarlarında BCDEdit tarafından reddedilebilir.
 
@@ -172,10 +192,10 @@ Windows'ta Odin ile:
 - Windows açılırsa boot-critical UFS zinciri çalışmıştır.
 - `INACCESSIBLE_BOOT_DEVICE` görülürse EFI/BCD ve winload aşaması geçilmiş,
   fakat kernel boot volume'u yeniden açamamıştır. Bunun nedeni yalnız miniport
-  değildir; disk/partition/volume/NTFS zinciri veya BPB geometrisi de olabilir.
-  Güncel paket `0.0.7.0` eşzamanlı medya hazırlığını ve PIT uyumlu BPB'yi
-  birlikte taşır. Aynı kod bu paketle tekrarlanırsa HBA/StorPort tarafı yeniden
-  ayrı bir tanı girdisi olur.
+  değildir; disk/partition/volume/NTFS zinciri de olabilir. Güncel paket
+  `0.0.7.0` eşzamanlı medya hazırlığını, PIT uyumlu BPB'yi ve düzeltilmiş BCD
+  OS-aygıt tanımını birlikte taşır. Aynı kod bu paketle tekrarlanırsa
+  HBA/StorPort tarafı yeniden ayrı bir tanı girdisi olur.
 - Boot manager veya winload hatası, ekrandaki kodla BCD/dosya katmanına ayrılır.
 
 Geri dönüşte Download Mode üzerinden stock SYSTEM ve CACHE imajlarını ya da tam

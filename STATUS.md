@@ -1,6 +1,6 @@
 # beyond2lte UEFI — durum
 
-**Son güncelleme:** 18 Ağustos 2026 — SYSTEM/CACHE BPB geometrisi stok PIT ile eşleştirildi.
+**Son güncelleme:** 18 Ağustos 2026 — disk BCD'sindeki yanlış `osdevice` düzeltildi.
 
 ## Çalışan / çalışmayan
 
@@ -12,7 +12,42 @@
 | **Dahili depolama (UFS)** | **✅** | 5 LUN, DiskIO protokolü kurulu — `S5E9820Pkg/Library/PlatformUfsLib` yazıldı |
 | **Windows UFS (`b2lufs`)** | **✅** | Disk 0: 119 GB; 31 GPT bölüm ve CACHE FAT32 okuma/yazma doğrulandı |
 | USB | ❌ | Henüz sürücü yok |
-| Windows boot | 🟡 | 0.0.7.0 aynı 0x7B'yi verdi; yanlış NTFS/FAT bölüm başlangıç geometrisi düzeltildi, cihaz doğrulaması bekleniyor |
+| Windows boot | 🟡 | 0.0.7.0 ve PIT-uyumlu BPB yine 0x7B verdi; BCD `osdevice` artık doğru sistem kökünü gösteriyor, cihaz doğrulaması bekleniyor |
+
+## 18 Ağustos 2026 — 0x7B için bulunan BCD hatası: `osdevice` yükleyici dosyasına bağlıydı
+
+PIT-uyumlu NTFS/FAT BPB'lerinin bulunduğu paket cihazda flaşlandı ve stop code
+yine `INACCESSIBLE_BOOT_DEVICE` kaldı. Böylece bölüm başlangıç geometrisi de
+gerçek bir uyumluluk düzeltmesi olmakla birlikte 0x7B'nin tek kök nedeni
+olmaktan çıktı. Depodaki bütün disk-boot zinciri yeniden incelendiğinde BCD
+üreticisinin iki farklı aygıt öğesini aynı dosya aramasıyla kurduğu bulundu:
+
+```text
+device   locate=\Windows\System32\Boot\winload.efi
+osdevice locate=\Windows\System32\Boot\winload.efi   <- yanlış
+```
+
+Microsoft BCD sözleşmesinde `device` boot uygulamasını, `osdevice` ise
+`systemroot`un bulunduğu aygıtı tanımlar. Boot manager ilk aramayla
+`winload.efi`yi bulup çalıştırabildiği için bu yanlışlık EFI/winload aşamasında
+görünmüyordu; kernel boot volume'u devralırken ona dosya-locator türünde yanlış
+OS aygıt tanımı ulaşıyordu. Disk girdisi artık şu şekilde üretilip BCD yeniden
+açılarak doğrulanıyor:
+
+```text
+device   locate=\Windows\System32\Boot\winload.efi
+osdevice locate=\Windows
+systemroot \Windows
+```
+
+İki sessiz eski-artık yolu da kapatıldı. Masaüstündeki `BCD.disk.ready`, bu tur
+sahnelenen iki BCD betiğinin SHA-256 tabanlı istek kimliğini taşımadığı sürece
+kabul edilmiyor; dolayısıyla eski BCD yeni kaynakların önüne geçemiyor.
+`tools_ufsboot.sh` ayrıca önceki WIM'de B2LUFS görüp görmemesine bakmadan her
+disk-boot turuna ISO'nun temiz `boot.wim`iyle başlıyor. Böylece daha önceki
+`tools_winpe_surucu.sh`, `tools_winpe_sistem.sh` veya hata-kapatma deneylerinin
+kalıcı hive değişiklikleri SYSTEM imajına sızamıyor. Regresyon testi üç kapıyı
+birlikte zorunlu tutuyor.
 
 ## 18 Ağustos 2026 — 0x7B için bulunan paketleme hatası: BPB bölüm başlangıcı sıfırdı
 
@@ -44,6 +79,11 @@ mkfs.vfat çıktısı artık gizlenmez. Regresyon testi PIT'ten SYSTEM için
 `83968/1459200`, CACHE için `1983488/153600` değerlerini ve iki üreticinin
 zorunlu geometri bayraklarını denetler.
 
+Bu geometriyi içeren paket daha sonra cihazda flaşlandı ve aynı 0x7B görüldü.
+Dolayısıyla alanlar doğru kalmalıdır, fakat artık kök neden olarak
+değerlendirilmemektedir; sonraki tek değişken üstteki BCD `osdevice`
+düzeltmesidir.
+
 ## 18 Ağustos 2026 — denenen boot farkı: gecikmeli StorPort keşfi
 
 DriverStore, boot-critical hive ve SYSTEM Basic Data düzeltmelerini içeren
@@ -72,8 +112,8 @@ PASSIVE callback artık yalnız registry telemetrisi ve isteğe bağlı yedek bu
 taramasıdır; callback/timer başarısı boot I/O'yu belirlemez. Şema sürümü 26'ya
 çıktı ve yaşam döngüsü kaynak-sırası regresyon testiyle korunuyor. Cihazda
 `0.0.7.0` ile stop code değişmedi; dolayısıyla bu düzeltme korunmakla birlikte
-tek kök neden olduğu iddiası kapanmıştır. Üstteki BPB paketleme hatası bir
-sonraki fiziksel testin tek değişkenidir.
+tek kök neden olduğu iddiası kapanmıştır. BPB paketi de daha sonra aynı stop
+code'u verdi; güncel tek değişken üstteki BCD `osdevice` düzeltmesidir.
 
 ## 17 Ağustos 2026 — INACCESSIBLE_BOOT_DEVICE: SYSTEM GPT türü düzeltmesi
 

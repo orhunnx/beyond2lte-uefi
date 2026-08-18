@@ -82,7 +82,7 @@ cleanup() {
 trap cleanup EXIT
 
 prepare_disk_bcd() {
-  local expected_size actual_size ready_text desktop_b64
+  local expected_size actual_size ready_text desktop_b64 request_id
 
   # Windows PowerShell 5.1 konsol ciktisini OEM kod sayfasinda verebilir;
   # Masaustu gibi Turkce yollar WSL borusunda Masa�st� olarak bozulur. Yolu
@@ -111,11 +111,26 @@ prepare_disk_bcd() {
   sed 's/\r*$/\r/' "$ROOT/windows/B2L_BCD_DISK_OLUSTUR.cmd" \
     >"$BCD_MANUAL_DIR/B2L_BCD_DISK_OLUSTUR.cmd"
 
+  # Eski bir BCD.disk.ready, uretici betigi degistikten sonra kesinlikle
+  # kabul edilmemeli. DISM sahnesindeki gibi bu tur sahnelenen iki betigin
+  # kimligini request.txt ile Windows CMD'ye tasir ve sonuc isaretinde geri
+  # isteriz. Boylece osdevice gibi BCD duzeltmeleri eski bir BCD tarafindan
+  # sessizce gecersiz kilinmaz.
+  request_id="$(printf '%s\n' \
+    "$(sha256sum "$BCD_MANUAL_DIR/bcd_olustur.cmd")" \
+    "$(sha256sum "$BCD_MANUAL_DIR/B2L_BCD_DISK_OLUSTUR.cmd")" \
+    | sha256sum | awk '{print $1}')"
+  {
+    echo 'B2L_BCD_STAGE_VERSION=2'
+    echo "B2L_BCD_REQUEST_ID=$request_id"
+  } >"$BCD_MANUAL_DIR/request.txt"
+
   disk_bcd_ready() {
     [[ -s "$BCD_MANUAL_OUT" && -s "$BCD_MANUAL_READY" ]] || return 1
     ready_text="$(tr -d '\r' <"$BCD_MANUAL_READY")"
-    grep -Fxq 'B2L_BCD_STAGE_VERSION=1' <<<"$ready_text" || return 1
+    grep -Fxq 'B2L_BCD_STAGE_VERSION=2' <<<"$ready_text" || return 1
     grep -Fxq 'B2L_BCD_VARIANT=disk' <<<"$ready_text" || return 1
+    grep -Fxq "B2L_BCD_REQUEST_ID=$request_id" <<<"$ready_text" || return 1
     [[ "$(head -c 4 "$BCD_MANUAL_OUT")" == "regf" ]] || return 1
     expected_size="$(sed -n 's/^B2L_BCD_SIZE=//p' <<<"$ready_text")"
     actual_size="$(stat -c%s "$BCD_MANUAL_OUT")"
@@ -152,6 +167,7 @@ prepare_disk_bcd() {
   BCD_ACCEPTED_HASH="$(sha256sum "$ROOT/windows/BCD" | awk '{print $1}')"
   {
     echo 'B2L_BCD_VARIANT=disk'
+    echo "B2L_BCD_REQUEST_ID=$request_id"
     echo "B2L_BCD_SHA256=$BCD_ACCEPTED_HASH"
     echo "B2L_BCD_SIZE=$actual_size"
     echo "B2L_BCD_SOURCE=$BCD_MANUAL_DIR_WIN\\BCD.disk"
@@ -160,19 +176,6 @@ prepare_disk_bcd() {
 }
 
 prepare_disk_bcd
-
-ensure_clean_driverstore_base() {
-  local existing_listing
-
-  existing_listing="$(wimlib-imagex dir "$ROOT/esp/sources/boot.wim" 1 2>/dev/null \
-    | tr '[:upper:]' '[:lower:]' || true)"
-  if grep -Eq '/windows/system32/driverstore/filerepository/b2lufs\.inf_' \
-    <<<"$existing_listing"; then
-    echo
-    echo "==> Onceki B2LUFS DriverStore paketi bulundu; WIM temiz ISO tabanindan yenileniyor"
-    bash "$ROOT/tools_winboot.sh" "$ISO" --wim-yenile
-  fi
-}
 
 install_b2lufs_driverstore() {
   local appdata_b64 request_id ready_text expected_size actual_size
@@ -306,8 +309,7 @@ install_b2lufs_driverstore() {
 }
 
 echo "==> 1/7 Windows ARM64 WinPE dosyalari hazirlaniyor"
-bash "$ROOT/tools_winboot.sh" "$ISO"
-ensure_clean_driverstore_base
+bash "$ROOT/tools_winboot.sh" "$ISO" --wim-yenile
 
 echo "==> 2/7 Var olan PowerShell SYS ile B2LUFS paketi uretiliyor"
 B2L_SKIP_MSVC_BUILD=1 bash "$ROOT/tools_b2lufs.sh"
