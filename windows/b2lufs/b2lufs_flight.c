@@ -1,5 +1,6 @@
 /* See b2lufs_flight.h for the persistent ABI and safety boundary. */
 #include <ntddk.h>
+#include <intrin.h>
 
 #include "b2lufs_flight.h"
 
@@ -12,6 +13,14 @@ static volatile B2LUFS_FLIGHT_HEADER *B2LUfsFlightHeader;
  * at DIRQL during a bugcheck.
  */
 static volatile LONG B2LUfsFlightLock;
+
+/*
+ * The raw /kernel /Zl ARM64 build must not emit CRT or kernel imports for the
+ * diagnostic try-lock.  These acquire/release forms are compiler intrinsics
+ * on ARM64 and keep the lock entirely inside this object file.
+ */
+#pragma intrinsic(_InterlockedCompareExchange_acq)
+#pragma intrinsic(_InterlockedExchange_rel)
 
 C_ASSERT(sizeof(B2LUFS_FLIGHT_HEADER) == B2LUFS_FLIGHT_HEADER_BYTES);
 C_ASSERT(sizeof(B2LUFS_FLIGHT_RECORD) == B2LUFS_FLIGHT_RECORD_BYTES);
@@ -129,12 +138,12 @@ B2LUfsFlightLog(
         B2LUfsFlightHeader->Magic != B2LUFS_FLIGHT_MAGIC) {
         return;
     }
-    if (InterlockedCompareExchange(&B2LUfsFlightLock, 1, 0) != 0) {
+    if (_InterlockedCompareExchange_acq(&B2LUfsFlightLock, 1, 0) != 0) {
         return;
     }
     if (!B2LUfsFlightHeaderValid(B2LUfsFlightHeader) ||
         B2LUfsFlightHeader->Magic != B2LUFS_FLIGHT_MAGIC) {
-        (void)InterlockedExchange(&B2LUfsFlightLock, 0);
+        (void)_InterlockedExchange_rel(&B2LUfsFlightLock, 0);
         return;
     }
 
@@ -150,7 +159,13 @@ B2LUfsFlightLog(
     Record->Commit = 0;
     Record->Sequence = Sequence;
     Record->Event = (uint16_t)Event;
-    Record->Irql = (uint8_t)KeGetCurrentIrql();
+    /*
+     * KeGetCurrentIrql was emitted as an unresolved import by the standalone
+     * ARM64 WDK link.  IRQL is diagnostic metadata, not part of correctness;
+     * keep the ABI byte and mark it unknown instead of adding an OS-version
+     * dependent StorPort DDI or undocumented processor-register read.
+     */
+    Record->Irql = B2LUFS_FLIGHT_IRQL_UNKNOWN;
     Record->Flags = Flags;
     Record->Argument[0] = Argument0;
     Record->Argument[1] = Argument1;
@@ -167,5 +182,5 @@ B2LUfsFlightLog(
     KeMemoryBarrier();
     B2LUfsFlightHeader->WriteIndex = (LONG)Sequence;
     KeMemoryBarrier();
-    (void)InterlockedExchange(&B2LUfsFlightLock, 0);
+    (void)_InterlockedExchange_rel(&B2LUfsFlightLock, 0);
 }

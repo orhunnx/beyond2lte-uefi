@@ -72,7 +72,7 @@ başlığıdır:
 | `windows/b2lufs/b2lufs_flight.h` | Firmware-reserved sıcak-reset uçuş kaydının sabit ikili ABI'si |
 | `windows/b2lufs/b2lufs_transport.h` | StorPort taşıma katmanının veri yapıları ve dış fonksiyonları |
 | `windows/b2lufs/b2lufs_resources.c` | ACPI/StorPort kaynaklarını taban adresine göre doğrulayıp bağlama |
-| `windows/b2lufs/b2lufs_flight.c` | ARMED kapısı, non-cached eşleme ve commit'li olay yazıcısı |
+| `windows/b2lufs/b2lufs_flight.c` | ARMED kapısı, non-cached eşleme, ARM64 inline try-lock ve commit'li olay yazıcısı |
 | `windows/b2lufs/b2lufs_transport.c` | UFSHCI, UTP, UPIU, PRDT, SCSI, DMA ve GPT veri yolu |
 | `windows/b2lufs/b2lufs_storport.c` | StorPort callback'leri, DriverEntry, PnP ve registry telemetrisi |
 

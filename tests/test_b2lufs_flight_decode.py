@@ -22,13 +22,15 @@ sys.modules[spec.name] = decoder
 spec.loader.exec_module(decoder)
 
 
-def make_record(sequence: int, event: int, *args: int) -> bytes:
+def make_record(
+    sequence: int, event: int, *args: int, irql: int = decoder.IRQL_UNKNOWN
+) -> bytes:
     padded = tuple(args) + (0,) * (5 - len(args))
-    word = (event << 16) | (2 << 8) | 1
+    word = (event << 16) | (irql << 8) | 1
     commit = decoder.RECORD_COMMIT_MAGIC ^ sequence ^ word
     for value in padded:
         commit ^= value
-    return struct.pack("<IHBB5II", sequence, event, 2, 1, *padded, commit)
+    return struct.pack("<IHBB5II", sequence, event, irql, 1, *padded, commit)
 
 
 def main() -> None:
@@ -63,6 +65,9 @@ def main() -> None:
     assert header.boot_id == 7
     assert [record.sequence for record in records] == [1, 2]
     assert records[-1].event_name == "INIT_OK"
+    assert records[-1].irql == decoder.IRQL_UNKNOWN
+    assert decoder.format_irql(records[-1].irql) == "?"
+    assert decoder.format_irql(2) == "2"
 
     image[decoder.HEADER_SIZE + decoder.RECORD_SIZE + 31] ^= 0x80
     _, records = decoder.decode_bytes(bytes(image))

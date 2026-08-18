@@ -79,17 +79,21 @@ doğru disk tanımı olarak korunuyor.
 
 Kök volume bağlanamadığı için bu hata anında registry, ETW, dosya veya crash
 dump çıktısına güvenilemez. Debug paketi bu nedenle `0xCF050000..0xCF05FFFF`
-aralığındaki firmware-reserved belleğe yalnız olay kimliği, IRQL, durum ve beş
-adet 32-bit argüman yazar. Medya payload'ı kaydedilmez. UEFI bellek haritasında
-bu aralık `EfiReservedMemoryType` olan `Lower dynamic guard` içindedir ve
-mevcut EL2, framebuffer ve runtime tanı alanlarıyla çakışmaz.
+aralığındaki firmware-reserved belleğe yalnız olay kimliği, durum ve beş adet
+32-bit argüman yazar. Sabit ABI'deki IRQL baytı mevcut ARM64 yapıda `0xFF`
+(`?`, bilinmiyor) değeridir; tanı uğruna çözümlenemeyen kernel importu eklenmez.
+Medya payload'ı kaydedilmez. UEFI bellek haritasında bu aralık
+`EfiReservedMemoryType` olan `Lower dynamic guard` içindedir ve mevcut EL2,
+framebuffer ve runtime tanı alanlarıyla çakışmaz.
 
 Windows alanı `MmNonCached` eşler. Microsoft non-cached bellek üzerinde
 `Interlocked*` kullanımını yasakladığı için halka indeksini doğrudan atomik
 artırmaz: çok kısa bir cached sürücü kilidiyle tek yazarlı hale gelir, kilit
-doluysa beklemeden o tanı kaydını düşürür. Her record'un commit sözcüğü en son,
-header write index'i ise tamamlanmış record'dan sonra yazılır. Böylece sıcak
-reset ortasındaki yarım kayıt UEFI okuyucusu tarafından geçerli sayılmaz.
+doluysa beklemeden o tanı kaydını düşürür. Kilit ARM64 compiler intrinsic olan
+acquire/release işlemlerini kullanır; SYS'e CRT veya ek kernel sembolü ithal
+etmez. Her record'un commit sözcüğü en son, header write index'i ise
+tamamlanmış record'dan sonra yazılır. Böylece sıcak reset ortasındaki yarım
+kayıt UEFI okuyucusu tarafından geçerli sayılmaz.
 
 Tanı paketi sırası:
 

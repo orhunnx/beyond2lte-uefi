@@ -20,7 +20,9 @@ işlemlerini yasakladığı için write index atomik artırılmaz. Bunun yerine 
 cached sürücü imajında beklemesiz try-lock kullanılır; çakışan tanı kaydı
 düşürülür, boot callback'i bekletilmez. Record commit sözcüğü ve ardından header
 write index'i en son store edilir. Normal/ARMED olmayan paket eşlemeyi hemen
-bırakır ve logger no-op olur.
+bırakır ve logger no-op olur. Try-lock ARM64 acquire/release compiler
+intrinsic'leriyle inline üretilir. Sabit ABI'deki IRQL alanı `0xFF` (`?`) olarak
+ayrılmıştır; tanı kodu SYS'e çözümlenemeyen CRT/kernel importu eklemez.
 
 `tools_ufsboot.sh --debug`, güncel B2LGoster'ı CACHE ESP'ye ekler ve bugcheck
 sonrası DRAM korunarak firmware'e dönülebilmesi için WinPE `AutoReboot=1`

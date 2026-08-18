@@ -299,7 +299,17 @@ grep -Fq '#define B2LUFS_FLIGHT_BYTES' "$UFS_FLIGHT_HEADER"
 grep -Fq 'UINT32_C(0x00010000)' "$UFS_FLIGHT_HEADER"
 grep -Fq 'B2LUfsFlightInitialize' "$UFS_FLIGHT"
 grep -Fq 'MmMapIoSpace' "$UFS_FLIGHT"
-grep -Fq 'InterlockedCompareExchange(&B2LUfsFlightLock' "$UFS_FLIGHT"
+if ! grep -Fq '#include <intrin.h>' "$UFS_FLIGHT" ||
+   ! grep -Fq '_InterlockedCompareExchange_acq(&B2LUfsFlightLock' "$UFS_FLIGHT" ||
+   ! grep -Fq '_InterlockedExchange_rel(&B2LUfsFlightLock' "$UFS_FLIGHT" ||
+   ! grep -Fq 'B2LUFS_FLIGHT_IRQL_UNKNOWN' "$UFS_FLIGHT"; then
+  echo "HATA: ARM64 flight recorder intrinsic baglanti sozlesmesi eksik." >&2
+  exit 1
+fi
+if grep -Eq '(^|[^_[:alnum:]])(KeGetCurrentIrql|InterlockedCompareExchange|InterlockedExchange)\(' "$UFS_FLIGHT"; then
+  echo "HATA: ARM64 flight recorder dis kernel/runtime yardimcisi ithal ediyor." >&2
+  exit 1
+fi
 if grep -Fq 'InterlockedIncrement(&B2LUfsFlightHeader' "$UFS_FLIGHT"; then
   echo "HATA: MmNonCached ucus kaydinda yasak Interlocked islemi kullaniliyor." >&2
   exit 1

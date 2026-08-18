@@ -16,6 +16,7 @@ FLIGHT_VERSION = 1
 HEADER_SIZE = 64
 RECORD_SIZE = 32
 RECORD_COMMIT_MAGIC = 0xC17F10A7
+IRQL_UNKNOWN = 0xFF
 
 EVENT_NAMES = {
     0x0001: "DRIVER_ENTRY",
@@ -87,6 +88,10 @@ def _record_commit(
     return value & 0xFFFFFFFF
 
 
+def format_irql(irql: int) -> str:
+    return "?" if irql == IRQL_UNKNOWN else f"{irql:X}"
+
+
 def decode_bytes(data: bytes) -> tuple[FlightHeader, list[FlightRecord]]:
     if len(data) < FLIGHT_BYTES:
         raise ValueError(f"kayit {len(data)} bayt; beklenen en az {FLIGHT_BYTES}")
@@ -154,7 +159,7 @@ def main() -> int:
         arguments = " ".join(f"{value:08X}" for value in record.arguments)
         print(
             f"{record.sequence:08X} {record.event_name:<16} "
-            f"irql={record.irql:X} flags={record.flags:02X} {arguments}"
+            f"irql={format_irql(record.irql)} flags={record.flags:02X} {arguments}"
         )
     return 0
 

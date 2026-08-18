@@ -34,9 +34,12 @@ write index'i en son yazıldığı için yarım kayıt geçerli görünmez.
 Logger yalnız B2LGoster önce `B2UA/ARMED` header'ı yazdıysa çalışır; normal
 disk-boot paketinde eşlemeyi hemen bırakır. `MmNonCached` alanda Interlocked
 kullanılmaz: Microsoft'un yasakladığı bu desen yerine cached sürücü değişkeni
-üzerinde beklemesiz try-lock vardır. Debug turunda `AutoReboot=1` yazılıp geri
-okunur; 0x7B otomatik sıcak resetinden sonra `B2LGoster SURUM 33` son altı
-geçerli olayı ve son olayın argümanlarını büyük yazıyla gösterir. Paket komutu:
+üzerinde ARM64 acquire/release compiler intrinsic'li beklemesiz try-lock
+vardır. Sabit record ABI'sindeki IRQL baytı `0xFF` (`?`) tutulur; böylece ham
+`/kernel /Zl` bağlantısına `KeGetCurrentIrql` veya CRT Interlocked importu
+girmez. Debug turunda `AutoReboot=1` yazılıp geri okunur; 0x7B otomatik sıcak
+resetinden sonra `B2LGoster SURUM 33` son altı geçerli olayı ve son olayın
+argümanlarını büyük yazıyla gösterir. Paket komutu:
 
 ```bash
 bash yap.sh
