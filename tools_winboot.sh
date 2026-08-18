@@ -2,7 +2,7 @@
 #
 # Windows Boot Manager'i ISO'dan cikarip ESP'ye hazirlar.
 #
-#   bash tools_winboot.sh [/yol/Windows_..._ARM64.iso]
+#   bash tools_winboot.sh [/yol/Win11_..._Arm64.iso]
 #
 # AMAC: Windows'un ilk denemesi, HICBIR SEY SILMEDEN.
 #
@@ -46,19 +46,6 @@ for a in "$@"; do
 done
 if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
 
-# beyond2lte bugcheck sonrasi yazilim resetini tamamlayamiyor. Disk-boot tani
-# turu bu nedenle mavi ekrani yerinde tutar ve B2LUFS uçuş kaydini bugcheck
-# callback'inden dogrudan framebuffer'a basar. Degisken yalniz ayri platform
-# deneyleri icin 1 degerini desteklemeye devam eder.
-BUGCHECK_AUTOREBOOT="${B2L_BUGCHECK_AUTOREBOOT:-0}"
-case "$BUGCHECK_AUTOREBOOT" in
-  0|1) ;;
-  *)
-    echo "HATA: B2L_BUGCHECK_AUTOREBOOT yalnizca 0 veya 1 olabilir." >&2
-    exit 2
-    ;;
-esac
-
 ISO="${1:-}"
 if [ -z "$ISO" ]; then
   for c in "$HOME"/*.iso /mnt/c/Users/*/Downloads/*Arm64*.iso /mnt/c/Users/*/Downloads/*.iso; do
@@ -68,19 +55,7 @@ fi
 [ -f "$ISO" ] || { echo "ISO bulunamadi. Yolu argüman olarak ver."; exit 1; }
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
-for tool in 7z readlink sha256sum stat; do
-  command -v "$tool" >/dev/null || { echo "$tool yok; gerekli WSL araclarini kur."; exit 1; }
-done
-
-# Hazir boot.wim yalniz ayni ISO'dan geldiyse yeniden kullanilabilir. Aksi
-# halde farkli bir ISO verildiginde onceki WIM sessizce paketlenir. Tam ISO
-# hash'i cok pahali oldugu icin kanonik yol, boyut ve mtime birlikte kaynak
-# kimligi olarak kullanilir.
-ISO_REAL="$(readlink -f "$ISO")"
-ISO_SOURCE="$(printf '%s\n%s\n%s\n' "$ISO_REAL" "$(stat -c%s "$ISO")" \
-  "$(stat -c%Y "$ISO")" | sha256sum | awk '{print $1}')"
-WIM_SOURCE_FILE="$HERE/out/boot-wim-source.txt"
-CURRENT_WIM_SOURCE="$(sed -n 's/^SOURCE_ID=//p' "$WIM_SOURCE_FILE" 2>/dev/null || true)"
+command -v 7z >/dev/null || { echo "7z yok -> sudo apt install -y p7zip-full"; exit 1; }
 
 say "ISO: $ISO"
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
@@ -179,15 +154,11 @@ fi
 #   Zorla yeniden uretmek icin:  bash tools_winboot.sh --wim-yenile
 #
 WIM_PATH="$(find_in_iso '(^|[/\\])sources[/\\]boot\.wim$')"
-if [ "$FORCE_WIM" = 0 ] && [ "$CURRENT_WIM_SOURCE" = "$ISO_SOURCE" ] \
-   && [ -s "$ESP/sources/boot.wim" ] \
+if [ "$FORCE_WIM" = 0 ] && [ -s "$ESP/sources/boot.wim" ] \
    && wimlib-imagex info "$ESP/sources/boot.wim" 2>/dev/null | grep -qi '^Boot Index: *1'; then
   say "boot.wim hazir, atlaniyor ($(du -h "$ESP/sources/boot.wim" | cut -f1), Boot Index 1)"
   echo "  yeniden uretmek icin: bash tools_winboot.sh --wim-yenile"
 elif [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
-  if [ -s "$ESP/sources/boot.wim" ] && [ "$CURRENT_WIM_SOURCE" != "$ISO_SOURCE" ]; then
-    say "ISO degisti; boot.wim onbellegi yenileniyor"
-  fi
   say "boot.wim isleniyor (sadece WinPE indeksi)"
   7z e -o"$W" "$ISO" "$WIM_PATH" >/dev/null
   SRCWIM="$W/$(basename "$WIM_PATH")"
@@ -283,15 +254,6 @@ elif [ -n "$WIM_PATH" ] && command -v wimlib-imagex >/dev/null; then
     echo "    wimlib-imagex export <kaynak> 1 <hedef> --compress=LZX --rebuild"
     echo "  ya da daha buyuk bir bolum (SYSTEM 5.57 GB)."
   fi
-
-  mkdir -p "$(dirname "$WIM_SOURCE_FILE")"
-  {
-    echo "SOURCE_ID=$ISO_SOURCE"
-    echo "ISO=$ISO_REAL"
-    echo "ISO_SIZE=$(stat -c%s "$ISO")"
-    echo "ISO_MTIME=$(stat -c%Y "$ISO")"
-    echo "WIM_PATH=$WIM_PATH"
-  } >"$WIM_SOURCE_FILE"
 else
   echo "  (boot.wim atlandi: ISO'da yok ya da wimlib-imagex kurulu degil)"
 fi
@@ -316,14 +278,13 @@ fi
 #
 if [ -s "$ESP/sources/boot.wim" ] && command -v wimlib-imagex >/dev/null; then
   #
-  # MAVI EKRAN DAVRANISINI TANI TURUNE GORE AYARLA.
+  # MAVI EKRANI EKRANDA TUT.
   #
   # Cihaz cekirdek cokunce ANINDA sifirliyor, kod gorunmuyor. Sebep WinPE'nin
   # registry'sindeki CrashControl\AutoReboot = 1. Bu ayar WIM'in ICINDEKI
   # SYSTEM hive'inda; disari cikarip degistirip geri koyabiliyoruz.
   #
   #   AutoReboot        = 0  -> cokunce sifirlama, ekranda kal
-  #   AutoReboot        = 1  -> yalniz platform reset yolu calisiyorsa yeniden baslat
   #   DisplayParameters = 1  -> stop kodunun parametrelerini de goster
   #
   # Bunlar olmadan her tur "yeniden basladi" demekten oteye gidemiyoruz.
@@ -347,16 +308,16 @@ if [ -s "$ESP/sources/boot.wim" ] && command -v wimlib-imagex >/dev/null; then
   [ -z "$HIVEARAC" ] && command -v hivexsh >/dev/null && HIVEARAC="sh"
 
   if [ -n "$HIVEARAC" ]; then
-    say "WinPE registry: AutoReboot=$BUGCHECK_AUTOREBOOT yaziliyor  (arac: hivex$HIVEARAC)"
+    say "WinPE registry: AutoReboot kapatiliyor  (arac: hivex$HIVEARAC)"
     HV="$W/hive"; mkdir -p "$HV"
     if wimlib-imagex extract "$ESP/sources/boot.wim" 1 \
          /Windows/System32/config/SYSTEM --dest-dir="$HV" --no-acls >/dev/null 2>&1; then
 
       YAZILDI=0
       if [ "$HIVEARAC" = "regedit" ]; then
-        cat > "$W/crash.reg" <<REG
+        cat > "$W/crash.reg" <<'REG'
 [HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Control\CrashControl]
-"AutoReboot"=dword:0000000${BUGCHECK_AUTOREBOOT}
+"AutoReboot"=dword:00000000
 "DisplayParameters"=dword:00000001
 REG
         hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' \
@@ -366,11 +327,11 @@ REG
         # hivexsh: "setval N" komutundan sonra N tane (isim, deger) CIFTI
         # satir satir okunuyor. Yol ayiraci ters egik cizgi.
         #
-        hivexsh -w "$HV/SYSTEM" <<HSH >/dev/null 2>&1 && YAZILDI=1
+        hivexsh -w "$HV/SYSTEM" <<'HSH' >/dev/null 2>&1 && YAZILDI=1
 cd \ControlSet001\Control\CrashControl
 setval 2
 AutoReboot
-dword:$BUGCHECK_AUTOREBOOT
+dword:0
 DisplayParameters
 dword:1
 commit
@@ -395,17 +356,10 @@ HSH
           AR="$(hivexget "$DV/SYSTEM" 'ControlSet001\Control\CrashControl' AutoReboot 2>/dev/null || true)"
           DP="$(hivexget "$DV/SYSTEM" 'ControlSet001\Control\CrashControl' DisplayParameters 2>/dev/null || true)"
           echo "  WIM'den geri okundu: AutoReboot=${AR:-<yok>}  DisplayParameters=${DP:-<yok>}"
-          if [ "$BUGCHECK_AUTOREBOOT" = 0 ]; then
-            case "$AR" in
-              0|0x0|0x00000000) echo "  DOGRULANDI: bugcheck olursa cihaz ekranda kalacak" ;;
-              *) echo "  ! DOGRULANAMADI - AutoReboot=0 yazilamadi" ;;
-            esac
-          else
-            case "$AR" in
-              1|0x1|0x00000001) echo "  DOGRULANDI: bugcheck sicak yeniden baslatacak" ;;
-              *) echo "  ! DOGRULANAMADI - AutoReboot=1 yazilamadi" ;;
-            esac
-          fi
+          case "$AR" in
+            0|0x0|0x00000000) echo "  DOGRULANDI: bugcheck olursa cihaz ekranda kalacak" ;;
+            *) echo "  ! DOGRULANAMADI - bugcheck olsa bile cihaz yeniden baslar" ;;
+          esac
         else
           echo "  ! UYARI: dogrulama icin hive geri okunamadi"
         fi
@@ -518,7 +472,6 @@ HSH
     echo "  butunluk: TAMAM"
   else
     echo "  butunluk: BASARISIZ - WIM bozuk!"
-    exit 1
   fi
 fi
 
@@ -540,11 +493,6 @@ if [ -s "$OWNBCD" ] && [ "$(head -c4 "$OWNBCD")" = "regf" ]; then
   cp "$OWNBCD" "$ESP/EFI/Microsoft/Boot/BCD"
   echo "  BCD: KENDI URETTIGIMIZ ($(stat -c%s "$OWNBCD") bayt, tani acik)"
 else
-  if [ "$DISK_MODU" = 1 ]; then
-    echo "HATA: disk modu icin windows/BCD yok veya gecerli bir registry hive degil." >&2
-    echo "Once: bash tools_ufsboot.sh /mnt/c/.../Windows_ARM64.iso" >&2
-    exit 1
-  fi
   cp "$BCD" "$ESP/EFI/Microsoft/Boot/BCD"
   echo "  BCD: ISO'nunki (tani kapali - windows/bcd_olustur.cmd calistir)"
 fi
@@ -594,7 +542,7 @@ fi
 #
 # Dogru sira: once tools_winboot.sh, EN SON tools_b2lfb.sh.
 #
-if [ "$DISK_MODU" = 0 ] && [ -s "$(dirname "$ESP")/out/b2lfb/b2lfb.sys" ]; then
+if [ -s "$(dirname "$ESP")/out/b2lfb/b2lfb.sys" ]; then
   if ! wimlib-imagex dir "$ESP/sources/boot.wim" 1 2>/dev/null | grep -qi 'b2lfb\.sys'; then
     echo
     echo "  ###############################################################"
@@ -608,21 +556,10 @@ if [ "$DISK_MODU" = 0 ] && [ -s "$(dirname "$ESP")/out/b2lfb/b2lfb.sys" ]; then
 fi
 
 say "Sonuc"
-SONUC_YOLLARI=()
-for yol in "$ESP/EFI/Microsoft" "$ESP/boot" "$ESP/sources"; do
-  [ -e "$yol" ] && SONUC_YOLLARI+=("$yol")
-done
-if [ ${#SONUC_YOLLARI[@]} -gt 0 ]; then
-  find "${SONUC_YOLLARI[@]}" -type f -exec ls -lh {} \; | awk '{print "  "$5"\t"$9}'
-fi
+find "$ESP/EFI/Microsoft" "$ESP/boot" "$ESP/sources" -type f 2>/dev/null -exec ls -lh {} \; | awk '{print "  "$5"\t"$9}'
 echo
 echo "Toplam: $(du -sh "$ESP" | cut -f1)  (CACHE bolumu 600 MB, imaj 75 MB)"
 echo
 echo "Sonra:"
-if [ "$DISK_MODU" = 1 ]; then
-  echo "  bash cache_esp.sh --win --disk --baseline"
-  echo "  SYSTEM + CACHE'i birlikte flasla; bootmgfw NTFS SYSTEM'deki Windows'u acar"
-else
-  echo "  bash cache_esp.sh --win"
-  echo "  cache'i flasla, ac, startup.nsh Windows Boot Manager'i baslatacak"
-fi
+echo "  bash cache_esp.sh --win"
+echo "  cache'i flasla, ac, startup.nsh Windows Boot Manager'i baslatacak"

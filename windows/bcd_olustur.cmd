@@ -102,14 +102,10 @@ echo.
 echo === WinPE BCD uretiliyor
 echo.
 
-set "OTOMATIK=0"
-if not "%~2"=="" set "OTOMATIK=1"
-if "%OTOMATIK%"=="0" (
-  net session >nul 2>&1
-  if errorlevel 1 (
-    echo HATA: Yonetici olarak calistir.
-    pause & exit /b 1
-  )
+net session >nul 2>&1
+if errorlevel 1 (
+  echo HATA: Yonetici olarak calistir.
+  pause & exit /b 1
 )
 
 set "VAR=%~1"
@@ -117,7 +113,6 @@ if "%VAR%"=="" set "VAR=tani"
 echo   varyant: %VAR%
 
 set "BCD=%USERPROFILE%\Desktop\BCD"
-if not "%~2"=="" set "BCD=%~2"
 if exist "%BCD%" del /f /q "%BCD%"
 
 bcdedit /createstore "%BCD%" || goto :hata
@@ -131,9 +126,9 @@ bcdedit /createstore "%BCD%" || goto :hata
 :: tamamen etkisiz kaldi. "sos On" acikken tek satir metin gormememizin
 :: sebebi bu olabilir.
 ::
-bcdedit /store "%BCD%" /create {globalsettings}     /d "Global" >nul || goto :hata
-bcdedit /store "%BCD%" /create {bootloadersettings} /d "Loader" >nul || goto :hata
-bcdedit /store "%BCD%" /set {bootloadersettings} inherit {globalsettings} >nul || goto :hata
+bcdedit /store "%BCD%" /create {globalsettings}     /d "Global" >nul 2>&1
+bcdedit /store "%BCD%" /create {bootloadersettings} /d "Loader" >nul 2>&1
+bcdedit /store "%BCD%" /set {bootloadersettings} inherit {globalsettings} >nul 2>&1
 ::
 :: DOGRU OGE ADI "bootuxdisabled" - "bootux" DIYE BIR SEY YOK.
 ::
@@ -149,7 +144,7 @@ bcdedit /store "%BCD%" /set {bootloadersettings} inherit {globalsettings} >nul |
 :: bitirebilir.
 ::
 bcdedit /store "%BCD%" /set {globalsettings} bootuxdisabled on
-if errorlevel 1 goto :hata
+if errorlevel 1 echo   ! BASARISIZ: bootuxdisabled on
 
 :: --- ramdisk tanimi -------------------------------------------------------
 :: boot.sdi'yi burasi isaret ediyor. "boot" = bootmgr'in yuklendigi birim.
@@ -166,7 +161,7 @@ echo   osloader GUID: %G%
 :: RAM DISK MI, GERCEK BOLUM MU
 ::
 :: "disk" varyanti WinPE'yi RAM diskten degil NTFS bir bolumden aciyor.
-:: Fikir kullanicidan geldi ve hakliydi: RAM diskte b2lufs'un baglanip
+:: Fikir kullanicidan geldi ve haklıydı: RAM diskte storufs'un baglanip
 :: baglanmamasi hicbir seyi degistirmiyor, o yuzden sessiz. Diskten acarken
 :: baglanmazsa winload ACILIS BIRIMINI BULAMAZ ve EKRANA HATA BASAR.
 ::
@@ -174,12 +169,8 @@ echo   osloader GUID: %G%
 :: "0xc0000428 / digital signature couldn't be verified" ekranini gorduk.
 ::
 :: "locate=" KULLANIYORUZ, "partition=" DEGIL: bootmgr birimleri kendisi
-:: tarayip verilen yolu buluyor. device yukleyici uygulamasini, osdevice ise
-:: sistem kokunu bulmalidir. Ikisini de winload.efi'ye baglamak bootmgr'in
-:: yukleyiciyi calistirmasina yeter, fakat kernel'e yanlis OS-device locate
-:: tanimi tasir ve boot volume yeniden acilirken 0x7B uretebilir.
-:: Boylece GPT bolum GUID'ini elle yazmak zorunda kalmiyoruz ve hangi boluma
-:: yazarsak yazalim calisiyor.
+:: tarayip verilen yolu buluyor. Boylece GPT bolum GUID'ini elle yazmak
+:: zorunda kalmiyoruz ve hangi boluma yazarsak yazalim calisiyor.
 ::
 set "DISKMOD="
 if /i "%VAR%"=="disk" set "DISKMOD=1"
@@ -197,8 +188,8 @@ if /i "%VAR%"=="menu"    set "MENUMOD=1"
 if /i "%VAR%"=="menuram" set "MENUMOD=1"
 
 if defined DISKMOD (
-  bcdedit /store "%BCD%" /set %G% device   locate=\Windows\System32\Boot\winload.efi >nul || goto :hata
-  bcdedit /store "%BCD%" /set %G% osdevice locate=\Windows >nul || goto :hata
+  bcdedit /store "%BCD%" /set %G% device   locate=\Windows\System32\winload.efi >nul || goto :hata
+  bcdedit /store "%BCD%" /set %G% osdevice locate=\Windows\System32\winload.efi >nul || goto :hata
   echo   AYAR: gercek bolumden acilis ^(locate^), RAM disk YOK
 ) else (
   bcdedit /store "%BCD%" /set %G% device   ramdisk=[boot]\sources\boot.wim,{ramdiskoptions} >nul || goto :hata
@@ -207,11 +198,11 @@ if defined DISKMOD (
 bcdedit /store "%BCD%" /set %G% path       \windows\system32\boot\winload.efi >nul || goto :hata
 bcdedit /store "%BCD%" /set %G% systemroot \windows >nul || goto :hata
 bcdedit /store "%BCD%" /set %G% detecthal  Yes
-if errorlevel 1 goto :hata
+if errorlevel 1 echo   ! BASARISIZ: detecthal  Yes
 bcdedit /store "%BCD%" /set %G% winpe      Yes
-if errorlevel 1 goto :hata
+if errorlevel 1 echo   ! BASARISIZ: winpe      Yes
 bcdedit /store "%BCD%" /set %G% inherit {bootloadersettings}
-if errorlevel 1 goto :hata
+if errorlevel 1 echo   ! BASARISIZ: inherit {bootloadersettings}
 
 :: --- SOS: CEKIRDEGIN KENDI ACILIS METNI ---------------------------------
 ::
@@ -266,13 +257,9 @@ if /i "%VAR%"=="hatagoster" (
 :: ayni hatayi tekrar etmek demekti.
 ::
 bcdedit /store "%BCD%" /set %G% testsigning        Yes
-if errorlevel 1 goto :hata
-::
-:: nointegritychecks BILEREK YAZILMIYOR. Suruculerimiz imzasiz degil,
-:: kendi sertifikamizla TEST-IMZALI; gereken ayar testsigning'dir.
-:: nointegritychecks Secure Boot acik bir derleme bilgisayarinda BCDEdit
-:: tarafindan reddedilebilir ve hedef BCD baska bir cihaz icin olsa bile
-:: gereksiz yere butun uretimi durduruyordu.
+if errorlevel 1 echo   ! BASARISIZ: testsigning        Yes
+bcdedit /store "%BCD%" /set %G% nointegritychecks  Yes
+if errorlevel 1 echo   ! BASARISIZ: nointegritychecks  Yes
 
 bcdedit /store "%BCD%" /set %G% quietboot          No
 if errorlevel 1 echo   ! BASARISIZ: quietboot          No
@@ -356,11 +343,11 @@ if /i "%VAR%"=="guvenli1g" (
 )
 
 :: --- boot manager ---------------------------------------------------------
-bcdedit /store "%BCD%" /create {bootmgr} /d "beyond2lte" >nul || goto :hata
+bcdedit /store "%BCD%" /create {bootmgr} /d "beyond2lte" >nul
 bcdedit /store "%BCD%" /set {bootmgr} device boot
-if errorlevel 1 goto :hata
+if errorlevel 1 echo   ! BASARISIZ: device boot
 bcdedit /store "%BCD%" /set {bootmgr} default %G%
-if errorlevel 1 goto :hata
+if errorlevel 1 echo   ! BASARISIZ: default %G%
 ::
 :: MENU VARYANTI: bootmgfw'i winload'u cagirmadan ONCE durdurup bekletiyoruz.
 ::
@@ -380,11 +367,11 @@ if defined MENUMOD (
   bcdedit /store "%BCD%" /set {bootmgr} timeout 0
   if errorlevel 1 echo   ! BASARISIZ: timeout 0
 )
-bcdedit /store "%BCD%" /displayorder %G% /addlast  >nul || goto :hata
+bcdedit /store "%BCD%" /displayorder %G% /addlast  >nul
 
 echo.
 echo === Sonuc  (BU CIKTIYI PAYLAS - hangi ayarin gercekten yazildigini gosterir)
-bcdedit /store "%BCD%" /enum all || goto :hata
+bcdedit /store "%BCD%" /enum all
 echo.
 echo Dosya: %BCD%
 echo.
@@ -392,13 +379,11 @@ echo Simdi WSL'de:
 echo   cp "%BCD%" ~/beyond2lte-uefi/windows/BCD
 echo   cd ~/beyond2lte-uefi ^&^& bash tools_winboot.sh ^&^& bash cache_esp.sh --win
 echo.
-if "%OTOMATIK%"=="1" exit /b 0
 pause
 exit /b 0
 
 :hata
 echo.
 echo BCD uretimi basarisiz. Yukaridaki hataya bak.
-if "%OTOMATIK%"=="1" exit /b 1
 pause
 exit /b 1

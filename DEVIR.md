@@ -8,16 +8,6 @@ dosyadan anlayabilmesi.
 Belgedeki her "elendi" ifadesi bir **ölçüme** dayanıyor. Tahminle elenen
 hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 
-> **18 Ağustos 2026 güncel notu:** Bu belgenin aşağıdaki tarihsel RAM-WinPE
-> anlatımından sonra B2LUFS, Disk 0/GPT/CACHE okuma-yazma testini geçti ve
-> SYSTEM+CACHE disk-boot akışı kuruldu. `0.0.7.0`, DriverStore, SYSTEM Basic
-> Data ve PIT-uyumlu BPB paketleri cihazda ayrı ayrı aynı 0x7B'yi verdi.
-> Son tam depo denetiminde disk BCD'sinde `osdevice` öğesinin yanlışlıkla
-> `winload.efi` dosyasına bağlandığı bulundu; artık `osdevice=locate:\Windows`
-> üretiliyor. Eski BCD başarı kaydı betik hash'i olmadan kabul edilmiyor ve
-> WIM her tur temiz ISO tabanından kuruluyor. Ayrıntı için `STATUS.md` ve
-> `UFS_DISK_BOOT.md` esas alınmalıdır.
-
 ---
 
 ## 1. Hedef ve donanım
@@ -1855,7 +1845,6 @@ Mac'te çalışır, sonra WSL'de `git pull`.
 | `0xCF041080` | | SEH/PSCI durum sözcükleri |
 | `0xCF041100` | | önceki açılışın SEH kopyası |
 | `0xCF041300` | | GIC susturma kaydı |
-| `0xCF050000` | 64 KB | **B2LUFS erken-boot uçuş kaydı** (`Reserv`, yalnız `ARMED` ise yazılır) |
 | `0x10101000` | 4 KB | GICD (dağıtıcı) |
 | `0x15860404` | 4 B | PMU `RST_STAT` |
 
@@ -1920,133 +1909,3 @@ korunmuştur. `ScsiUnitUsage` paging/hibernation/dump bildirimlerini kabul eder;
 ilan edilmeyen `ScsiUnitPower` yerine gelen `SRB_FUNCTION_POWER` ise gerçek
 UTRL stop/restart işini takip eden adapter-control callback'lerine bırakarak
 başarıyla tamamlanır.
-
----
-
-## 15. B2LUFS 0.0.7.0 — boot aygıtı HwInitialize dönmeden hazır
-
-18 Ağustos disk-boot turunda DriverStore kurulumu, boot-critical SYSTEM hive,
-SYS hash'i, NTFS 4096 bayt sektör/küme alanları ve SYSTEM/CACHE paketi doğrulandığı
-halde yine `INACCESSIBLE_BOOT_DEVICE` görüldü. Aynı miniport RAM-WinPE içinde
-Disk 0, GPT, CACHE yazma ve geri okumayı daha önce geçti. Bu karşılaştırma
-paketleme ve veri taşımasını değil, boot ile runtime arasındaki yaşam döngüsü
-farkını izole etti.
-
-`0.0.2.7` döneminde disk PDO'sunu geri getiren 500 ms timer çözümü runtime için
-doğru, boot diski için yanlıştı. Eski `HwInitialize` taşıma katmanını başlatıp
-`EnumerationReady=0` ile dönüyor; kapasite/GPT problarını PASSIVE callback'e
-bırakıyor; o aralıkta gelen ilk keşif SRB'lerini `NO_DEVICE` ile kapatıyordu.
-Timer daha sonra `BusChangeDetected` gönderince RAM-WinPE diski bulabiliyordu.
-Fakat Microsoft'un boot-drive miniport kısıtı, boot aygıtının
-`HwStorInitialize` dönmeden erişilebilir olmasını zorunlu tutar. Kernel SYSTEM
-volume'unu timer/PASSIVE zincirinden önce istediği için bu tasarım geçerli bir
-`INACCESSIBLE_BOOT_DEVICE` adayıydı.
-
-`0.0.7.0` şu sırayı `HwInitialize` içinde tamamlar:
-
-1. Canlı firmware UFS linkini tek UTRD/common-DMA yoluna devral.
-2. READ CAPACITY ve REPORT LUNS problarını tamamla.
-3. PMBR, GPT header/entries, CRC ve Windows snapshot self-check'ini tamamla.
-4. `SYSTEM` GPT adının Basic Data görünümüne çevrildiğini doğrula.
-5. Ancak bütün koşullar geçerliyse `EnumerationReady=1` yapıp TRUE dön.
-
-PASSIVE callback artık medya komutu göndermez; yalnız registry telemetrisi ve
-varsa isteğe bağlı 500 ms yedek tarama üretir. Timer oluşturulamaması veya
-PASSIVE callback'in etkinleştirilememesi boot I/O'yu başarısız yapmaz. Kaynak
-sırası `tests/test_ufsboot_scripts.sh` içinde regresyon kapısıyla korunur.
-
-Cihazda `0.0.7.0` ile stop code değişmedi. Bu yaşam döngüsü düzeltmesi
-korunmuştur, fakat tek kök neden olduğu çıkarımı cihaz tarafından
-çürütülmüştür. Sonraki tur aşağıdaki paketleme hatasını tek değişken olarak
-ölçecektir.
-
----
-
-## 16. SYSTEM/CACHE dosya sistemi BPB'si stok PIT geometrisine bağlandı
-
-Disk-boot imaj üreticisinin "geometri doğrulaması" eksikti: yalnız BPB
-bytes-per-sector ve sectors-per-cluster alanları okunuyordu. `mkntfs` bölüm
-başlangıcı, kafa sayısı ve iz başına sektör verilmeden çalıştırılıyor; aracın
-"Windows will not be able to boot" uyarısı da özel bir `grep -vi` filtresiyle
-çıktıdan siliniyordu. Sonuç NTFS BPB'de `HiddenSectors=0`, `Heads=0` ve
-`SectorsPerTrack=0` idi.
-
-Stok PIT doğrudan ayrıştırıldığında gerekli fiziksel değerler şunlardır:
-
-| Bölüm | Başlangıç 4Kn LBA | Blok sayısı |
-|---|---:|---:|
-| SYSTEM | 83968 | 1459200 |
-| CACHE | 1983488 | 153600 |
-
-Ortak `tools_partition_geometry.sh` artık bu değerleri PIT girdisinin
-`BlockStart`/`BlockCount` alanlarından little-endian okur. `tools_windisk.sh`
-NTFS'i `-p <SYSTEM-LBA> -H 255 -S 63` ile; `cache_esp.sh` bütün SYSTEM/CACHE
-FAT varyantlarını `-h <partition-LBA> -g 255/63` ile biçimlendirir. İki araç
-da imajın bölüme sığmasını ve BPB'deki sektör/küme, hidden/start, heads ve
-sectors-per-track değerlerini içerik kopyasından sonra tekrar doğrular.
-Biçimlendirme çıktısı artık filtrelenmez veya `/dev/null`a gönderilmez.
-
-Bu değişiklik miniport SYS'ini değiştirmez. Bir sonraki cihaz paketi aynı
-`0.0.7.0` sürücüsünü kullanarak yalnız dosya sistemi boot geometrisinin
-etkisini ölçecektir.
-
----
-
-## 17. B2LUFS 0.0.9.0 — yeniden başlatma gerektirmeyen bugcheck uçuş paneli
-
-18 Ağustos cihaz fotoğrafları eski tanı varsayımını doğrudan çürüttü.
-`B2LGoster` kaydı ARMED yapıp Windows'u başlatıyor ve çekirdek yine
-`INACCESSIBLE_BOOT_DEVICE` üretiyor; fakat beyond2lte Windows'un istediği
-yazılım resetini tamamlayamadığı için ikinci UEFI açılışı hiç oluşmuyor.
-Dolayısıyla 0xCF050000 uçuş kaydı RAM'de doğru olsa bile onu yeniden açılışta
-göstermek bu cihaz için kullanılabilir bir geri-alma kanalı değildir.
-
-`0.0.9.0` sürücüsü tanı modunda şu yolu kullanır:
-
-1. B2LGoster'ın `B2UA` ile ARMED yaptığı 0xCF050000/64 KiB alanını devralır.
-2. DriverEntry sırasında 0xCA000000 framebuffer'ını eşler ve
-   `KeRegisterBugCheckCallback` kaydını oluşturur.
-3. Erken StorPort olaylarını aynı commit-korumalı halkaya yazmaya devam eder.
-4. Bugcheck callback'i son altı geçerli kaydı ekranın üstündeki
-   `B2LUFS BUGCHECK FLIGHT` paneline `SEQ/EVT/A0..A4` olarak çizer.
-5. `AutoReboot=0` olduğu için panel fotoğraflanana kadar cihaz BSOD üzerinde
-   kalır; ikinci UEFI açılışı veya çalışan reset yolu gerekmez.
-
-Callback `HIGH_LEVEL` sınırına göre tasarlanmıştır: fiziksel eşleme ve callback
-kaydı DriverEntry'de yapılır; callback içinde yalnız resident kod/veri okunur
-ve önceden eşlenmiş framebuffer'a dword yazılır. Bellek ayırma, kilit,
-Interlocked, yeni eşleme ve pageable yardımcı yoktur. Normal (`--debug`
-olmayan) pakette uçuş alanı ARMED olmadığından bu yol tamamen etkisizdir.
-
-Header `Flags` bitleri tanıyı ayırır: `0x1` framebuffer eşlendi, `0x2` callback
-kaydedildi, `0x4` callback çalıştı. Ham RAM alınabilirse
-`tools_b2lufs_flight_decode.py` bu değeri başlıkta da gösterir. Bundan sonraki
-cihaz turunda mavi ekranın üst panelinin fotoğrafı alınacak; son `EVT` ve
-`A0..A4` değerleri `UFS_DISK_BOOT.md` tablosuyla yorumlanacaktır.
-
----
-
-## 18. B2LUFS debug akışına Boot Manager checkpoint'i eklendi
-
-`0.0.9.0` ile ilk cihaz çekimi bugcheck paneline ulaşmadı. CACHE içindeki
-`bootmgfw.efi` başarıyla açıldı ve EDK2 görüntüyü yükleyip giriş noktasına
-devretti; ekran bundan sonra değişmedi. Son görülen `ConvertPages: failed to
-find range` satırı EDK2 DEBUG bellek-nitelik mesajıdır ve başka çalışan
-önyüklemelerde de görülür. Bu nedenle onu kök neden saymak yerine ilerleme
-sınırı `bootmgfw` girişinden sonrası olarak kaydedildi.
-
-Repo geçmişindeki kanıtlanmış `menu` BCD deneyi debug akışına bağlandı.
-`tools_ufsboot.sh --debug` artık request dosyasına `B2L_BCD_VARIANT=menu`
-yazar; yönetici CMD launcher'ı yalnız `disk` veya `menu` kabul eder, aynı
-varyantı `bcd_olustur.cmd`ye geçirir ve ready işaretinde geri bildirir. Varyant
-request hash'ine de girdiği için eski `disk` BCD sonucu debug paketi tarafından
-kabul edilemez.
-
-Menu varyantı disk `device=locate=...winload.efi` ve
-`osdevice=locate=\Windows` sözleşmesini aynen korur. Tek fark,
-`displaybootmenu=Yes` ve `timeout=30` ile winload çağrısından önce görünür bir
-checkpoint oluşturmasıdır. Menü görünürse Boot Manager, BCD, bölüm taraması,
-NTFS okuması ve winload bulma geçmiştir; Enter ile B2LUFS deneyine devam
-edilir. Menü görünmezse bekleme çekirdek/miniporttan öncedir. Debug
-`startup.nsh`, B2LGoster dönüşünde ARMED checkpoint'ini ve bootmgfw beklenmedik
-biçimde dönerse `BOOTMGFW GERI DONDU: fsN` satırını da yazdırır.

@@ -6,7 +6,7 @@
 #   out/cache.img       ham imaj   -> recovery + adb dd yolu
 #   out/cache-esp.tar   sparse tar -> Odin, AP slotu
 #
-#   bash cache_esp.sh [--win] [--disk] [--baseline|--ufs-debug|--psci-hvc|--bos] [iceri-konacak-dosya.efi]
+#   bash cache_esp.sh [--win] [--baseline|--psci-hvc|--bos] [iceri-konacak-dosya.efi]
 #
 # Argüman verilmezse Mu-Silicium build'indeki Shell.efi aranir.
 #
@@ -29,9 +29,6 @@
 set -euo pipefail
 PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MU="${MU_SILICIUM:-$HOME/Mu-Silicium}"
-PIT="$PROJ/BEYOND2LTE_EUR_OPEN.pit"
-# shellcheck source=tools_partition_geometry.sh
-source "$PROJ/tools_partition_geometry.sh"
 OUT="$PROJ/out"; mkdir -p "$OUT"
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
@@ -61,8 +58,6 @@ BIGPART=0
 BOSALT=0
 BASELINE=0
 PSCI_HVC=0
-DISK_BOOT=0
-UFS_DEBUG=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
@@ -72,29 +67,10 @@ for a in "$@"; do
     --bos)    BOSALT=1 ;;
     --baseline) BASELINE=1 ;;
     --psci-hvc) PSCI_HVC=1 ;;
-    --disk)   DISK_BOOT=1 ;;
-    --ufs-debug) UFS_DEBUG=1 ;;
     *)        ARGS+=("$a") ;;
   esac
 done
 if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
-
-if [ "$DISK_BOOT" = 1 ]; then
-  if [ "$WINONLY" = 0 ] || { [ "$BASELINE" = 0 ] && [ "$UFS_DEBUG" = 0 ]; }; then
-    echo "--disk icin --baseline veya --ufs-debug secilmelidir."
-    echo "Dogru komut: bash cache_esp.sh --win --disk --baseline"
-    echo "Tani turu : bash cache_esp.sh --win --disk --ufs-debug"
-    exit 1
-  fi
-  if [ "$BASELINE" = 1 ] && [ "$UFS_DEBUG" = 1 ]; then
-    echo "--baseline ve --ufs-debug birlikte kullanilmaz."
-    exit 1
-  fi
-  if [ "$BIGPART" = 1 ] || [ "$BOSALT" = 1 ] || [ "$PSCI_HVC" = 1 ] || [ "$LINUXOK" = 1 ]; then
-    echo "--disk; --system, --bos, --psci-hvc veya --linux ile birlikte kullanilmaz."
-    exit 1
-  fi
-fi
 
 #
 # --baseline: Windows'un kendisi disinda B2L tani kodu calistirmayan ESP.
@@ -134,20 +110,6 @@ fi
 if [ "$WINONLY" = 1 ]; then say "MOD: Windows"; else say "MOD: Linux"; fi
 if [ "$BASELINE" = 1 ]; then
   say "MOD: Windows temiz taban (B2L tani yok)"
-fi
-if [ "$UFS_DEBUG" = 1 ]; then
-  GOSTER_SOURCE="$PROJ/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LGoster/B2LGoster.c"
-  GOSTER_INF="$PROJ/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LGoster/B2LGoster.inf"
-  [ -s "$PROJ/esp/B2LGOSTR.EFI" ] || {
-    echo "HATA: B2LUFS kaydini gosterecek esp/B2LGOSTR.EFI yok. Once: bash yap.sh"
-    exit 1
-  }
-  if [ "$GOSTER_SOURCE" -nt "$PROJ/esp/B2LGOSTR.EFI" ] || \
-     [ "$GOSTER_INF" -nt "$PROJ/esp/B2LGOSTR.EFI" ]; then
-    echo "HATA: esp/B2LGOSTR.EFI kaynaklardan eski. Once: bash yap.sh"
-    exit 1
-  fi
-  say "MOD: Windows UFS disk-boot bugcheck ucus paneli"
 fi
 if [ "$PSCI_HVC" = 1 ]; then
   [ -s "$PROJ/esp/B2LGOSTR.EFI" ] || {
@@ -237,7 +199,6 @@ if [ "$BIGPART" = 1 ]; then
   [ "$IMAJ_MB" -gt 5000 ] && IMAJ_MB=5000    # SYSTEM 5.57 GB
   SZ=$(( IMAJ_MB * 1048576 ))
   FATOPT="-F 32 -S 4096 -s 1"
-  FAT_CLUSTER_SECTORS=1
   FATDESC="FAT32 (${IMAJ_MB} MiB, 4096 bayt sektor, 4 KiB kume)"
   LIMIT_MB=$(( IMAJ_MB - 60 ))
   say "HEDEF BOLUM: SYSTEM (5.57 GB) - imaj ${IMAJ_MB} MiB (icerik ${ICERIK_MB} MB)"
@@ -245,19 +206,9 @@ else
   PART="cache"
   SZ=629145600
   FATOPT="-F 16 -S 4096 -s 8"
-  FAT_CLUSTER_SECTORS=8
   FATDESC="FAT16 (600 MiB, 4096 bayt sektor, 32 KiB kume)"
   LIMIT_MB=588
 fi
-
-PARTITION_NAME="$(printf '%s' "$PART" | tr '[:lower:]' '[:upper:]')"
-read -r PARTITION_START_LBA PARTITION_BLOCK_COUNT < <(
-  b2l_pit_partition_geometry "$PIT" "$PARTITION_NAME"
-)
-PARTITION_IMAGE_BLOCKS="$(
-  b2l_validate_image_fits_partition "$SZ" "$PARTITION_BLOCK_COUNT" "$PARTITION_NAME"
-)"
-echo "  $PARTITION_NAME PIT: baslangic LBA=$PARTITION_START_LBA, bolum=$PARTITION_BLOCK_COUNT blok, imaj=$PARTITION_IMAGE_BLOCKS blok"
 
 #
 # CACHE = 153600 blok x 4096 = 629145600 bayt = 600 MiB.
@@ -296,22 +247,20 @@ if [ "$BOSALT" = 1 ]; then
   say "BOS FAT32 URETILIYOR: $(echo "$PART" | tr a-z A-Z)  (600 MiB, 4096 bayt sektor/kume)"
   rm -f "$IMG"
   dd if=/dev/zero of="$IMG" bs=1M count=600 status=none
-  CREATED_IMAGE_BLOCKS="$(
-    b2l_validate_image_fits_partition \
-      "$(stat -c%s "$IMG")" "$PARTITION_BLOCK_COUNT" "$PARTITION_NAME (dd sonrasi)"
-  )"
-  [[ "$CREATED_IMAGE_BLOCKS" == "$PARTITION_IMAGE_BLOCKS" ]] || {
-    echo "HATA: $PARTITION_NAME imaj blok sayisi olusturma sirasinda degisti: beklenen=$PARTITION_IMAGE_BLOCKS gercek=$CREATED_IMAGE_BLOCKS" >&2
-    exit 1
-  }
-  mkfs.vfat -F 32 -S 4096 -s 1 \
-    -g "$B2L_BPB_HEADS/$B2L_BPB_SECTORS_PER_TRACK" \
-    -h "$PARTITION_START_LBA" \
-    -n CACHE "$IMG"
+  mkfs.vfat -F 32 -S 4096 -s 1 -n CACHE "$IMG" >/dev/null
 
+  BPB_SECTOR_BYTES="$(od -An -tu2 -j11 -N2 "$IMG" | tr -d ' ')"
+  BPB_SECTORS_PER_CLUSTER="$(od -An -tu1 -j13 -N1 "$IMG" | tr -d ' ')"
   BPB_LABEL="$(dd if="$IMG" bs=1 skip=71 count=11 status=none | tr -d ' ')"
   BPB_FILESYSTEM="$(dd if="$IMG" bs=1 skip=82 count=8 status=none | tr -d ' ')"
-  b2l_validate_bpb_geometry "$IMG" "$PARTITION_START_LBA" 1 "bos CACHE FAT32"
+  [ "$BPB_SECTOR_BYTES" = 4096 ] || {
+    echo "HATA: bos CACHE BPB sektor boyutu 4096 degil: $BPB_SECTOR_BYTES"
+    exit 1
+  }
+  [ "$BPB_SECTORS_PER_CLUSTER" = 1 ] || {
+    echo "HATA: bos CACHE BPB kume boyutu 1 sektor degil: $BPB_SECTORS_PER_CLUSTER"
+    exit 1
+  }
   [ "$BPB_FILESYSTEM" = FAT32 ] || {
     echo "HATA: bos CACHE dosya sistemi FAT32 degil: $BPB_FILESYSTEM"
     exit 1
@@ -320,7 +269,7 @@ if [ "$BOSALT" = 1 ]; then
     echo "HATA: bos CACHE birim etiketi CACHE degil: $BPB_LABEL"
     exit 1
   }
-  echo "  dogrulandi: FAT32 boot geometrisi, hidden=$PARTITION_START_LBA, CHS=$B2L_BPB_HEADS/$B2L_BPB_SECTORS_PER_TRACK, etiket CACHE"
+  echo "  dogrulandi: FAT32, 4096 bayt sektor, 4096 bayt kume, etiket CACHE"
   if command -v mdir >/dev/null; then
     MTOOLS_SKIP_CHECK=1 mdir -i "$IMG" ::/
   fi
@@ -403,7 +352,7 @@ verify_winpe_b2lufs_package() {
   echo "  SYS SHA256: ${ExpectedSys:0:16}"
 }
 
-if [ "$WINONLY" = 1 ] && [ "$DISK_BOOT" = 0 ]; then
+if [ "$WINONLY" = 1 ]; then
   verify_winpe_b2lufs_package
 fi
 
@@ -412,21 +361,7 @@ IMG="$OUT/$PART.img"
 say "$FATDESC imaji olusturuluyor"
 rm -f "$IMG"
 dd if=/dev/zero of="$IMG" bs=1M count=$((SZ/1048576)) status=none
-CREATED_IMAGE_BLOCKS="$(
-  b2l_validate_image_fits_partition \
-    "$(stat -c%s "$IMG")" "$PARTITION_BLOCK_COUNT" "$PARTITION_NAME (dd sonrasi)"
-)"
-[[ "$CREATED_IMAGE_BLOCKS" == "$PARTITION_IMAGE_BLOCKS" ]] || {
-  echo "HATA: $PARTITION_NAME imaj blok sayisi olusturma sirasinda degisti: beklenen=$PARTITION_IMAGE_BLOCKS gercek=$CREATED_IMAGE_BLOCKS" >&2
-  exit 1
-}
-mkfs.vfat $FATOPT \
-  -g "$B2L_BPB_HEADS/$B2L_BPB_SECTORS_PER_TRACK" \
-  -h "$PARTITION_START_LBA" \
-  -n UEFIESP "$IMG"
-b2l_validate_bpb_geometry \
-  "$IMG" "$PARTITION_START_LBA" "$FAT_CLUSTER_SECTORS" "$PARTITION_NAME FAT"
-echo "  $PARTITION_NAME FAT boot geometrisi dogrulandi: hidden=$PARTITION_START_LBA, CHS=$B2L_BPB_HEADS/$B2L_BPB_SECTORS_PER_TRACK"
+mkfs.vfat $FATOPT -n UEFIESP "$IMG" >/dev/null
 
 # startup.nsh: Shell acilista bunu otomatik calistirir. Klavye olmadan
 # komut vermenin tek yolu. Iki yere de koyuyoruz cunku Shell'in arama sirasi
@@ -434,8 +369,6 @@ echo "  $PARTITION_NAME FAT boot geometrisi dogrulandi: hidden=$PARTITION_START_
 NSH="$PROJ/esp/startup.nsh"
 if [ "$BASELINE" = 1 ]; then
   NSH="$PROJ/esp/startup-baseline.nsh"
-elif [ "$UFS_DEBUG" = 1 ]; then
-  NSH="$PROJ/esp/startup-ufs-debug.nsh"
 fi
 
 # Bir tur, cihazdan geri okunan imajda ESKI startup.nsh cikti: kernel'ler
@@ -444,11 +377,6 @@ fi
 # gittigi belli olsun; cihazdan geri okuyunca bununla karsilastir.
 if [ -f "$NSH" ]; then
   say "startup.nsh: $(stat -c%s "$NSH") bayt  sha1=$(sha1sum "$NSH" | cut -c1-12)"
-fi
-
-if [ "$DISK_BOOT" = 1 ] && ! command -v mcopy >/dev/null; then
-  echo "HATA: disk-boot CACHE imaji icin mtools zorunlu. WSL: sudo apt install -y mtools"
-  exit 1
 fi
 
 if command -v mcopy >/dev/null; then
@@ -465,13 +393,7 @@ if command -v mcopy >/dev/null; then
     b="$(basename "$f")"
     [ "$b" = "startup.nsh" ] && continue
     [ "$b" = "startup-baseline.nsh" ] && continue
-    [ "$b" = "startup-ufs-debug.nsh" ] && continue
     [ -e "$f" ] || continue
-    if [ "$DISK_BOOT" = 1 ] && [ "$b" != "EFI" ] && \
-       { [ "$UFS_DEBUG" = 0 ] || [ "$b" != "B2LGOSTR.EFI" ]; }; then
-      echo "  - $b (atlandi: disk-boot ESP yalniz EFI agacini tasir)"
-      continue
-    fi
     if [ "$BASELINE" = 1 ]; then
       case "$b" in
         B2LGOSTR.EFI|EBSTEST.EFI)
@@ -505,31 +427,9 @@ if command -v mcopy >/dev/null; then
     echo "  DIKKAT: en az bir dosya imaja giremedi (buyuk ihtimalle yer yok)."
     echo "  Windows icin:  bash cache_esp.sh --win"
     echo "  esp/ toplami: $(du -sh "$PROJ/esp" | cut -f1) / imaj ${LIMIT_MB} MB"
-    exit 1
   fi
-  # RAM-disk turunda boot.wim, disk-boot turunda ise yalniz BCD gerekir.
-  if [ "$DISK_BOOT" = 1 ]; then
-    for required in \
-      ::/EFI/BOOT/BOOTAA64.EFI \
-      ::/EFI/Microsoft/Boot/bootmgfw.efi \
-      ::/EFI/Microsoft/Boot/BCD \
-      ::/startup.nsh; do
-      if ! mdir -i "$IMG" "$required" >/dev/null 2>&1; then
-        echo "HATA: disk-boot CACHE imajinda zorunlu dosya yok: $required"
-        exit 1
-      fi
-    done
-    if [ "$UFS_DEBUG" = 1 ] && \
-       ! mdir -i "$IMG" ::/B2LGOSTR.EFI >/dev/null 2>&1; then
-      echo "HATA: UFS tani disk-boot CACHE imajinda B2LGOSTR.EFI yok."
-      exit 1
-    fi
-    if mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
-      echo "HATA: disk-boot CACHE imajina sources/ sizmis; boot.wim burada olmamali."
-      exit 1
-    fi
-    echo "--- disk-boot EFI/BCD/startup: VAR; boot.wim: YOK (beklenen)"
-  elif mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
+  # Windows icin boot.wim gerekiyor; sessizce eksik kalmasin.
+  if mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
     echo "--- sources/ (WinPE):"
     mdir -i "$IMG" ::/sources | sed 's/^/  /'
   else
@@ -541,25 +441,12 @@ if command -v mcopy >/dev/null; then
   mdir -i "$IMG" ::/
   mdir -i "$IMG" ::/EFI/BOOT
 else
-  [ "$DISK_BOOT" = 0 ] || { echo "HATA: disk-boot modu loop-mount yoluna dusmez."; exit 1; }
   echo "mtools yok -> sudo apt install -y mtools   (loop mount'a dusuluyor)"
   T=$(mktemp -d); sudo mount -o loop "$IMG" "$T"
   sudo mkdir -p "$T/EFI/BOOT"; sudo cp "$APP" "$T/EFI/BOOT/BOOTAA64.EFI"
   [ -f "$NSH" ] && { sudo cp "$NSH" "$T/startup.nsh"; sudo cp "$NSH" "$T/EFI/BOOT/startup.nsh"; }
   sudo umount "$T"; rmdir "$T"
 fi
-
-# Dosya kopyalama araci volume boot sektorunu degistirmemeli.
-b2l_validate_bpb_geometry \
-  "$IMG" "$PARTITION_START_LBA" "$FAT_CLUSTER_SECTORS" "$PARTITION_NAME FAT (kopya sonrasi)"
-COPIED_IMAGE_BLOCKS="$(
-  b2l_validate_image_fits_partition \
-    "$(stat -c%s "$IMG")" "$PARTITION_BLOCK_COUNT" "$PARTITION_NAME (kopya sonrasi)"
-)"
-[[ "$COPIED_IMAGE_BLOCKS" == "$PARTITION_IMAGE_BLOCKS" ]] || {
-  echo "HATA: kopyalama $PARTITION_NAME volume boyutunu degistirdi: beklenen=$PARTITION_IMAGE_BLOCKS gercek=$COPIED_IMAGE_BLOCKS" >&2
-  exit 1
-}
 
 say "Odin icin sparse imaj + tar"
 WORK="$(mktemp -d)"

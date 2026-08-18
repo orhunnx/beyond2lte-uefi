@@ -113,7 +113,7 @@ $StageRoot = Join-Path ([IO.Path]::GetTempPath()) ("b2lufs-arm64-{0}" -f [Guid]:
 New-Item -ItemType Directory -Path $StageRoot -Force | Out-Null
 
 try {
-    foreach ($Name in @('b2lufs_hw.h', 'b2lufs_flight.h', 'b2lufs_transport.h', 'b2lufs_resources.c', 'b2lufs_flight.c', 'b2lufs_transport.c', 'b2lufs_storport.c')) {
+    foreach ($Name in @('b2lufs_hw.h', 'b2lufs_transport.h', 'b2lufs_resources.c', 'b2lufs_transport.c', 'b2lufs_storport.c')) {
         Copy-Item -LiteralPath (Join-Path $SourceDir $Name) -Destination (Join-Path $StageRoot $Name) -Force
     }
 
@@ -134,13 +134,11 @@ try {
         'if errorlevel 1 exit /b 1',
         "`"$Cl`" $CompileFlags /Fo`"b2lufs_resources.obj`" `"b2lufs_resources.c`"",
         'if errorlevel 1 exit /b 1',
-        "`"$Cl`" $CompileFlags /Fo`"b2lufs_flight.obj`" `"b2lufs_flight.c`"",
-        'if errorlevel 1 exit /b 1',
         "`"$Cl`" $CompileFlags /Fo`"b2lufs_transport.obj`" `"b2lufs_transport.c`"",
         'if errorlevel 1 exit /b 1',
         "`"$Cl`" $CompileFlags /Fo`"b2lufs_storport.obj`" `"b2lufs_storport.c`"",
         'if errorlevel 1 exit /b 1',
-        "`"$Link`" /nologo /kernel /driver /subsystem:native /entry:DriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /out:`"b2lufs.sys`" `"b2lufs_resources.obj`" `"b2lufs_flight.obj`" `"b2lufs_transport.obj`" `"b2lufs_storport.obj`" storport.lib ntoskrnl.lib",
+        "`"$Link`" /nologo /kernel /driver /subsystem:native /entry:DriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /out:`"b2lufs.sys`" `"b2lufs_resources.obj`" `"b2lufs_transport.obj`" `"b2lufs_storport.obj`" storport.lib ntoskrnl.lib",
         'exit /b %errorlevel%'
     )
     $BuildCmd = Join-Path $StageRoot 'build-b2lufs-arm64.cmd'

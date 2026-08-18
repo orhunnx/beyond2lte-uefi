@@ -15,7 +15,6 @@
 
 [LibraryClasses]
   BaseMemoryLib
-  CacheMaintenanceLib
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
   UefiLib

@@ -62,17 +62,15 @@ Firmware ve Windows görev sınırı şöyledir:
 
 ### 2.1 Doğrudan SYS ikilisine giren dosyalar
 
-`build-b2lufs.ps1` aşağıdaki yedi dosyayı Windows `%TEMP%` altında yerel bir
-staging dizinine kopyalar. Dört `.c` dosyası derlenir, üç `.h` dosyası bunların
+`build-b2lufs.ps1` aşağıdaki beş dosyayı Windows `%TEMP%` altında yerel bir
+staging dizinine kopyalar. Üç `.c` dosyası derlenir, iki `.h` dosyası bunların
 başlığıdır:
 
 | Dosya | SYS içindeki rolü |
 |---|---|
 | `windows/b2lufs/b2lufs_hw.h` | İşletim sisteminden bağımsız Exynos 9820 MMIO/kaynak sözleşmesi |
-| `windows/b2lufs/b2lufs_flight.h` | Firmware-reserved erken-boot uçuş kaydının sabit ikili ABI'si |
 | `windows/b2lufs/b2lufs_transport.h` | StorPort taşıma katmanının veri yapıları ve dış fonksiyonları |
 | `windows/b2lufs/b2lufs_resources.c` | ACPI/StorPort kaynaklarını taban adresine göre doğrulayıp bağlama |
-| `windows/b2lufs/b2lufs_flight.c` | ARMED kapısı, commit'li olay yazıcısı ve reset gerektirmeyen HIGH_LEVEL bugcheck framebuffer paneli |
 | `windows/b2lufs/b2lufs_transport.c` | UFSHCI, UTP, UPIU, PRDT, SCSI, DMA ve GPT veri yolu |
 | `windows/b2lufs/b2lufs_storport.c` | StorPort callback'leri, DriverEntry, PnP ve registry telemetrisi |
 
@@ -83,9 +81,7 @@ başlığıdır:
 | `windows/b2lufs/b2lufs.inf.in` | ARM64 PnP sürücü paketinin INF şablonu |
 | `windows/b2lufs/build-b2lufs.ps1` | Windows MSVC/WDK ile yalnız `b2lufs.sys` derlemesi |
 | `windows/b2lufs/b2lgptdump.c` | WinPE'de PhysicalDrive0 GPT bölgelerini salt-okunur döken ve başarılı doğrulamadan sonra Windows bölüm önbelleğini yenileyen freestanding ARM64 araç |
-| `windows/b2lufs/test_resources.c` | WDK gerektirmeyen kaynak-bağlama ve GPT normalizasyon birim testi |
-| `tools_b2lufs_flight_decode.py` | Ham 64 KiB sıcak-reset kaydını ABI/commit denetimiyle çözme |
-| `tests/test_b2lufs_flight_decode.py` | Uçuş kaydı decoder ve bozuk-record regresyon testi |
+| `windows/b2lufs/test_resources.c` | WDK gerektirmeyen kaynak-bağlama birim testi |
 | `windows/b2lufs/README.md` | Tasarım ve çalışma davranışının geliştirici notları |
 | `windows/b2lufs/AI_DRIVER_BUILD_REFERENCE.md` | Bu dosya; kaynak ve build zinciri referansı |
 
@@ -117,7 +113,7 @@ başlığıdır:
 |---|---|---|
 | `powershell.exe` | Windows | Yerel MSVC/WDK derleme betiğini çalıştırır |
 | `vcvarsamd64_arm64.bat` | Windows | x64 host / ARM64 target MSVC ortamını kurar |
-| `cl.exe` | Windows | Dört C translation unit'i ARM64 kernel object'e derler |
+| `cl.exe` | Windows | Üç C translation unit'i ARM64 kernel object'e derler |
 | `link.exe` | Windows | Object'leri StorPort/NT kernel importlarıyla SYS'ye bağlar |
 | WDK headers ve `.lib` dosyaları | Windows | StorPort/NT DDI, ARM64 kernel ABI ve import library'leri |
 | `Inf2Cat.exe` | Windows, WSL'den çağrılır | INF paketini doğrular ve catalog üretir |
@@ -127,8 +123,7 @@ başlığıdır:
 | `osslsigncode` | WSL | SYS PE dosyasına Authenticode imzası ekler |
 | `sha256sum` | WSL | Paket, WIM ve Odin artefakt bütünlüğünü ölçer |
 | `wimlib-imagex` | WSL | INF/SYS/CAT/manifest/startnet/GPT dump aracını `boot.wim`e ekler ve geri okur |
-| `dosfstools` / `mkfs.vfat` | WSL | PIT başlangıç geometrisiyle SYSTEM/CACHE FAT volume imajlarını biçimlendirir |
-| `ntfs-3g` / `mkntfs` | WSL | Disk-boot SYSTEM NTFS volume'unu PIT başlangıç geometrisiyle biçimlendirir |
+| `dosfstools` / `mkfs.vfat` | WSL | SYSTEM/CACHE FAT volume imajlarını biçimlendirir |
 | `mtools` (`mmd`, `mcopy`, `mdir`) | WSL | Loop mount olmadan FAT imaj içeriğini düzenler ve listeler |
 | `img2simg` | WSL | Ham SYSTEM/CACHE'i Android sparse imaja dönüştürür |
 | `tar` | WSL | Odin'in kabul ettiği ustar arşivlerini üretir |
@@ -380,8 +375,7 @@ PnP tarafından sağlanan `PORT_CONFIGURATION_INFORMATION` ve
 4. Adapter ve SRB extension yapılarını hazırlar.
 5. Klasik SRB/BTL8, tek bus, target ve queue sınırlarını ayarlar.
 6. Common DMA taşıma alanını ayırır.
-7. İsteğe bağlı çalışma-zamanı yeniden taraması için StorPort timer nesnesi
-   oluşturmaya çalışır; timer yokluğu boot başlangıcını engellemez.
+7. Gecikmeli bus scan için StorPort timer nesnesini oluşturur.
 
 Kaynak eşlemesi başarısızsa o ana kadar alınmış StorPort mapping'leri geri
 bırakılır.
@@ -389,22 +383,23 @@ bırakılır.
 #### `B2LUfsInitialize` ve passive init
 
 `HwInitialize` bağlamındaki `B2LUfsInitialize()` taşıma katmanını başlatır.
-Boot diskini yöneten StorPort miniportu aygıtı bu callback dönmeden erişilebilir
-yapmak zorundadır. Bu nedenle bounded/polled ve nonpageable common-DMA probları
-aynı callback içinde çalışır:
+Başlangıçta PASSIVE_LEVEL gereken prob ve registry işleri
+`StorPortEnablePassiveInitialization` ile `B2LUfsPassiveInitialize()` içine
+aktarılır.
+
+Passive init sırası:
 
 1. LUN 0 kapasite probu.
 2. REPORT LUNS probu.
-3. Medya/GPT header ve entry probu.
-4. Windows GPT snapshot self-check'i ve SYSTEM eşleşmesi.
-5. Bütün boot-medya koşulları geçerliyse `EnumerationReady=1`.
+3. Medya/GPT header probu.
+4. Kapasite, Windows GPT snapshot ve snapshot self-check geçerliyse normal
+   LUN keşif kapısının açılması.
+5. StorPort timer'ın bus scan bildirimi için planlanması.
+6. Registry telemetrisinin yayımlanması.
 
-`B2LUfsPassiveInitialize()` medya I/O'su yapmaz. Yalnız registry telemetrisini
-yayımlar ve mevcutsa timer'ı isteğe bağlı bus scan bildirimi için planlar.
-`StorPortEnablePassiveInitialization` veya timer başarısı boot I/O'yu
-belirlemez. Savunma kapısı hazır olmayan normal SCSI isteklerini aygıt yok
-durumuyla tamamlar; normal boot yolunda bu durum `HwInitialize` başarılı
-döndükten sonra oluşamaz. Dump stack kapıdan muaftır. Timer, remove yaşam
+Kapı açılmadan gelen normal SCSI keşif istekleri aygıt yok durumuyla
+tamamlanır; dump stack bu kapıdan muaftır. Timer callback'i yalnız kapı
+açıldıktan sonra `BusChangeDetected` bildirimi üretir. Timer, remove yaşam
 döngüsünde iptal edilip bırakılır.
 
 #### `B2LUfsBuildIo`
@@ -483,21 +478,11 @@ katalog paketinin bir üyesi olarak hash'lemesini sağlar.
 INF yalnız vendor compatible kimliğine bağlanır. Genel PCI/UFS class kimliği
 eklenmez; böylece aynı HBA için başka bir miniportla eşleşme alanı açılmaz.
 
-`0.0.9.0` yalnız ARMED debug turunda `KeRegisterBugCheckCallback` kaydeder.
-Framebuffer `DriverEntry` içinde önceden `MmMapIoSpace` ile resident tutulur;
-HIGH_LEVEL callback içinde haritalama, ayırma, kilit, StorPort veya dosya I/O
-çağrısı yoktur. Callback yalnız sabit flight ABI'sini doğrulayıp önceden
-eşlenmiş BGRA belleğe `SEQ/EVT/A0..A4` gliflerini yazar. Bu ayrım
-`tests/test_ufsboot_scripts.sh` tarafından kaynak sözleşmesi olarak korunur.
-
 ### 3.7 `test_resources.c`
 
 Bu test WDK veya Windows kernel ortamı gerektirmez. Kaynakların farklı sırada
 verilmesini, doğru base pointer'lara bağlanmasını ve hatalı memory/duplicate
-kaynakların reddedilmesini `assert()` ile doğrular. Ayrıca SYSTEM/CACHE GPT
-adlarının tam ve büyük/küçük harf duyarsız UTF-16LE eşleşmesini, Basic Data
-GUID dönüşümünü, attribute temizliğini ve kısmi/bozuk adların değiştirilmeden
-reddedilmesini sınar.
+kaynakların reddedilmesini `assert()` ile doğrular.
 
 Yerel çalıştırma örneği:
 
@@ -516,8 +501,8 @@ Bayraklar:
 - `-Werror`: uyarıları hata yapar.
 - `-o`: test executable çıktı yolu.
 
-Bu test yalnız saf kaynak/GPT yardımcılarını kapsar; StorPort, gerçek MMIO veya
-fiziksel UFS GPT erişimi çalıştırmaz.
+Bu test yalnız saf kaynak bağlama işlevini kapsar; StorPort veya gerçek MMIO
+erişimi çalıştırmaz.
 
 ## 4. Windows MSVC/WDK derlemesi
 
@@ -547,7 +532,7 @@ Visual Studio tarafında aynı kurulum ağacındaki en yeni
 
 Kaynak repo WSL'nin `\\wsl.localhost\...` UNC yolu üzerinden açılabilir.
 `cmd.exe` UNC çalışma dizinini normal bir current directory olarak kullanamaz.
-PowerShell betiği yedi kaynak/header dosyasını `%TEMP%\b2lufs-arm64-<GUID>`
+PowerShell betiği beş kaynak/header dosyasını `%TEMP%\b2lufs-arm64-<GUID>`
 altına kopyalar, derlemeyi orada yapar ve yalnız doğrulanmış SYS'yi repo
 `out\b2lufs` dizinine geri kopyalar.
 
@@ -619,19 +604,10 @@ Ayrıntılı anlamları:
 kurar; `_KERNEL_MODE` MSVC'nin rezerve makrosudur ve elle tanımı `/WX`
 altında uyarıyı build hatasına çevirebilir.
 
-Bu ham ARM64 `/kernel /Zl /nodefaultlib` zincirinde `Interlocked*` adları ve
-`_acq/_rel` çeşitleri, `#pragma intrinsic` bulunsa bile object içinde dış
-sembol kalabilir. Microsoft'un intrinsic pragma sözleşmesi de derleyicinin
-uygun gördüğünde çağrı bırakabileceğini belirtir. Bu nedenle yalnız tanı
-sayacı/kapısı olan kod atomiklik istemez; `b2lufs_transport.c` sayaçları ve
-`b2lufs_flight.c` busy kapısı best-effort volatile erişim kullanır. Gerçek UFS
-komut veya kaynak eşzamanlaması bu istisnaya sokulamaz.
-
 Üretilen object dosyaları:
 
 ```text
 b2lufs_resources.obj
-b2lufs_flight.obj
 b2lufs_transport.obj
 b2lufs_storport.obj
 ```
@@ -645,7 +621,7 @@ link.exe /nologo /kernel /driver /subsystem:native
   /entry:DriverEntry /machine:arm64 /nodefaultlib
   /libpath:"<WDK>\Lib\<version>\km\arm64"
   /out:"b2lufs.sys"
-  b2lufs_resources.obj b2lufs_flight.obj b2lufs_transport.obj b2lufs_storport.obj
+  b2lufs_resources.obj b2lufs_transport.obj b2lufs_storport.obj
   storport.lib ntoskrnl.lib
 ```
 
@@ -901,7 +877,7 @@ Boş CACHE için:
 
 ```bash
 dd if=/dev/zero of=out/cache.img bs=1M count=600
-mkfs.vfat -F 32 -S 4096 -s 1 -h 1983488 -g 255/63 -n CACHE out/cache.img
+mkfs.vfat -F 32 -S 4096 -s 1 -n CACHE out/cache.img
 ```
 
 | Bayrak | Anlamı |
@@ -910,14 +886,10 @@ mkfs.vfat -F 32 -S 4096 -s 1 -h 1983488 -g 255/63 -n CACHE out/cache.img
 | `mkfs.vfat -F 32` | FAT32 seçer. |
 | `-S 4096` | FAT logical sector boyutunu UFS logical block boyutuyla 4096 yapar. |
 | `-s 1` | Küme başına bir sektör; küme boyutu 4096 bayt. |
-| `-h 1983488` | Stok PIT'teki CACHE başlangıç LBA'sını BPB HiddenSectors alanına yazar. |
-| `-g 255/63` | Windows uyumlu heads/sectors-per-track BPB geometrisini yazar. |
 | `-n CACHE` | Volume label. |
 
-Betik değeri sabit komuttan kopyalamaz; CACHE başlangıç/blok sayısını stok
-PIT'ten okur. BPB içinden bytes-per-sector, sectors-per-cluster,
-hidden/start LBA, heads, sectors-per-track, label ve FAT32 işaretini geri
-okuyup doğrular. Biçimlendirme çıktısı gizlenmez.
+Betik BPB içinden bytes-per-sector, sectors-per-cluster, label ve FAT32
+işaretini geri okuyup doğrular.
 
 ### 8.2 Mtools ve sparse araçları
 

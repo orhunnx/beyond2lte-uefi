@@ -14,7 +14,7 @@
 #include <ntddk.h>
 #include <storport.h>
 
-#include "b2lufs_flight.h"
+
 #include "b2lufs_transport.h"
 
 #define B2LUFS_UTRD_ALIGNMENT             1024UL
@@ -167,6 +167,10 @@
 #define B2LUFS_GPT_HEADER_MIN_BYTES               92UL
 #define B2LUFS_GPT_REVISION_1_0            0x00010000UL
 #define B2LUFS_GPT_MAX_WINDOWS_ENTRIES           128UL
+#define B2LUFS_GPT_ENTRY_TYPE_OFFSET                0UL
+#define B2LUFS_GPT_ENTRY_ATTRIBUTES_OFFSET         48UL
+#define B2LUFS_GPT_ENTRY_NAME_OFFSET               56UL
+#define B2LUFS_GPT_ENTRY_NAME_CODE_UNITS           36UL
 
 /* UFSHCI offsets, all relative to the first (HCI) or second (VS) resource. */
 #define B2LUFS_REG_IE                          0x0024UL
@@ -1435,15 +1439,8 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
 {
     ULONG InterruptStatus;
     ULONG Attempts;
-    ULONG Hce;
-    ULONG Doorbell;
 
     if (Adapter->UtrdVirtual == NULL || Adapter->UcdVirtual == NULL) {
-        B2LUfsFlightLog(
-            B2LUfsFlightTransportResult, 1,
-            B2LUfsFlightTransportNoDma,
-            Adapter->UtrdVirtual != NULL ? 1UL : 0UL,
-            Adapter->UcdVirtual != NULL ? 1UL : 0UL, 0, 0);
         return FALSE;
     }
 
@@ -1462,46 +1459,25 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
         B2LUFS_HCS_READY_MASK ||
         Adapter->TransferSlotCount == 0 || Adapter->TransferSlotCount > 32UL ||
         Adapter->TaskSlotCount == 0 || Adapter->TaskSlotCount > 32UL) {
-        B2LUfsFlightLog(
-            B2LUfsFlightTransportResult, 2,
-            B2LUfsFlightTransportNotReady,
-            Adapter->ControllerCapabilities, Adapter->ControllerStatus,
-            Adapter->TransferSlotCount, Adapter->TaskSlotCount);
         return FALSE;
     }
     if ((Adapter->ControllerCapabilities & B2LUFS_CAP_64_ADDRESSING) == 0 &&
         (Adapter->UtrdPhysical.HighPart != 0 ||
          Adapter->UcdPhysical.HighPart != 0)) {
-        B2LUfsFlightLog(
-            B2LUfsFlightTransportResult, 3,
-            B2LUfsFlightTransportAddressWidth,
-            Adapter->ControllerCapabilities, Adapter->UtrdPhysical.HighPart,
-            Adapter->UcdPhysical.HighPart, 0);
         return FALSE;
     }
-    Hce = B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_HCE);
-    if ((Hce & B2LUFS_HCE_ENABLE) == 0) {
+    if ((B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_HCE) &
+         B2LUFS_HCE_ENABLE) == 0) {
         /* Never enable/reset the controller from Windows if firmware did not. */
-        B2LUfsFlightLog(
-            B2LUfsFlightTransportResult, 4,
-            B2LUfsFlightTransportHceOff,
-            Adapter->ControllerCapabilities, Adapter->ControllerStatus,
-            Hce, 0);
         return FALSE;
     }
 
-    Doorbell = B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR);
-    if (Doorbell != 0) {
+    if (B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR) != 0) {
         /*
          * Firmware may have used any UTR slot, not only the one B2LUFS will
          * later borrow. Stopping the list while any doorbell is set could
          * truncate a final UEFI Block I/O request across ExitBootServices.
          */
-        B2LUfsFlightLog(
-            B2LUfsFlightTransportResult, 5,
-            B2LUfsFlightTransportDoorbellBusy,
-            Adapter->ControllerCapabilities, Adapter->ControllerStatus,
-            Hce, Doorbell);
         return FALSE;
     }
 
@@ -1519,11 +1495,6 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
         StorPortStallExecution(10);
     }
     if (Attempts == 1000UL) {
-        B2LUfsFlightLog(
-            B2LUfsFlightTransportResult, 6,
-            B2LUfsFlightTransportStopTimeout,
-            Adapter->ControllerCapabilities, Adapter->ControllerStatus,
-            Hce, Attempts);
         return FALSE;
     }
 
@@ -1570,11 +1541,6 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
                     B2LUFS_UTRL_RUN_STOP);
     if ((B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLRSR) &
          B2LUFS_UTRL_RUN_STOP) == 0) {
-        B2LUfsFlightLog(
-            B2LUfsFlightTransportResult, 7,
-            B2LUfsFlightTransportStartFailed,
-            Adapter->ControllerCapabilities, Adapter->ControllerStatus,
-            Hce, InterruptStatus);
         return FALSE;
     }
 
@@ -1586,11 +1552,6 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
     Adapter->CachedGptTraceBudget =
         Adapter->DumpMode ? 0 : B2LUFS_CACHED_GPT_TRACE_BUDGET;
     Adapter->CachedGptTraceSequence = 0;
-    B2LUfsFlightLog(
-        B2LUfsFlightTransportResult, 0,
-        B2LUfsFlightTransportOk,
-        Adapter->ControllerCapabilities, Adapter->ControllerStatus,
-        Hce, InterruptStatus);
     return TRUE;
 }
 
@@ -1700,11 +1661,6 @@ B2LUfsSubmitScsi(
     if (ReturnedLength != NULL) {
         *ReturnedLength = 0;
     }
-    B2LUfsFlightLog(
-        B2LUfsFlightSubmitBegin, 0,
-        Cdb[0], RequestedLength, (ULONG)DataDirection,
-        Srb != NULL ? Srb->QueueTag : 0UL,
-        Adapter->TransportReady ? 1UL : 0UL);
     if (CdbLength == 0 || CdbLength > 16 ||
         RequestedLength > B2LUFS_MAX_TRANSFER ||
         DataDirection == B2LUfsDataInvalid ||
@@ -2158,9 +2114,9 @@ B2LUfsRecoverProbeQueue(
     _In_ B2LUFS_TRANSFER_RESULT Result)
 {
     /*
-     * A timed-out polled command leaves UTRLDBR set. If initialization were
-     * allowed to continue, every normal StorPort SRB would see slot 0 busy
-     * and the boot disk PDO would disappear. Reset only
+     * A timed-out polled command leaves UTRLDBR set.  If that diagnostic
+     * request is allowed to escape into the deferred BusChange, every normal
+     * StorPort SRB sees slot 0 busy and the disk PDO disappears.  Reset only
      * the driver-owned UTP list; B2LUfsResetTransport deliberately preserves
      * HCE, UniPro, PHY and all media contents.
      */
@@ -2256,20 +2212,51 @@ B2LUfsBuildProtectiveMbr(
     Mbr[511] = 0xAAU;
 }
 
+static BOOLEAN
+B2LUfsGptEntryNameIsCache(
+    _In_reads_bytes_(EntrySize) const UCHAR *Entry,
+    _In_ ULONG EntrySize)
+{
+    static const UCHAR CacheName[] = {'C', 'A', 'C', 'H', 'E'};
+    ULONG Index;
+    UCHAR Value;
+
+    if (EntrySize < B2LUFS_GPT_ENTRY_NAME_OFFSET +
+                    (B2LUFS_GPT_ENTRY_NAME_CODE_UNITS * 2UL)) {
+        return FALSE;
+    }
+    for (Index = 0; Index < (ULONG)sizeof(CacheName); ++Index) {
+        Value = Entry[B2LUFS_GPT_ENTRY_NAME_OFFSET + (Index * 2UL)];
+        if (Value >= 'a' && Value <= 'z') {
+            Value = (UCHAR)(Value - ('a' - 'A'));
+        }
+        if (Value != CacheName[Index] ||
+            Entry[B2LUFS_GPT_ENTRY_NAME_OFFSET + (Index * 2UL) + 1UL] != 0) {
+            return FALSE;
+        }
+    }
+    return Entry[B2LUFS_GPT_ENTRY_NAME_OFFSET +
+                 (ULONG)sizeof(CacheName) * 2UL] == 0 &&
+           Entry[B2LUFS_GPT_ENTRY_NAME_OFFSET +
+                 (ULONG)sizeof(CacheName) * 2UL + 1UL] == 0;
+}
+
 static VOID
 B2LUfsBuildWindowsGptSnapshot(
     _Inout_ B2LUFS_ADAPTER *Adapter,
     _In_ ULONG EntryBytes,
     _In_ ULONG EntryBlocks)
 {
+    static const UCHAR BasicDataGuid[16] = {
+        0xA2U, 0xA0U, 0xD0U, 0xEBU, 0xE5U, 0xB9U, 0x33U, 0x44U,
+        0x87U, 0xC0U, 0x68U, 0xB6U, 0xB7U, 0x26U, 0x99U, 0xC7U
+    };
     UCHAR *Entry;
     ULONG Index;
 
     Adapter->MediaWindowsGptSnapshotValid = FALSE;
     Adapter->MediaWindowsCacheEntryFound = FALSE;
     Adapter->MediaWindowsCacheEntryIndex = MAXULONG;
-    Adapter->MediaWindowsSystemEntryFound = FALSE;
-    Adapter->MediaWindowsSystemEntryIndex = MAXULONG;
     Adapter->MediaWindowsGptEntriesCrc = 0;
     Adapter->MediaWindowsGptSnapshotReason =
         B2LUFS_GPT_SNAPSHOT_NOT_ATTEMPTED;
@@ -2318,24 +2305,26 @@ B2LUfsBuildWindowsGptSnapshot(
     for (Index = 0; Index < Adapter->MediaProbeGptEntryCount; ++Index) {
         Entry = Adapter->MediaWindowsGptEntries +
                 (Index * Adapter->MediaProbeGptEntrySize);
+        if (!B2LUfsGptEntryNameIsCache(
+                Entry, Adapter->MediaProbeGptEntrySize)) {
+            continue;
+        }
+
         /*
          * Preserve Samsung's on-media GPT. Only the immutable Windows view
-         * exposes the NTFS SYSTEM boot volume and FAT CACHE ESP as
-         * Microsoft Basic Data with clear GPT flags. Data-sector I/O still
-         * travels to each partition's real UFS LBA range.
+         * exposes CACHE as Microsoft Basic Data and clears its GPT flags;
+         * CACHE data-sector writes still travel to the real UFS LBA range.
          */
-        if (!Adapter->MediaWindowsSystemEntryFound &&
-            B2LUfsNormalizeWindowsDataPartition(
-                Entry, Adapter->MediaProbeGptEntrySize, "SYSTEM")) {
-            Adapter->MediaWindowsSystemEntryFound = TRUE;
-            Adapter->MediaWindowsSystemEntryIndex = Index;
-        }
-        if (!Adapter->MediaWindowsCacheEntryFound &&
-            B2LUfsNormalizeWindowsDataPartition(
-                Entry, Adapter->MediaProbeGptEntrySize, "CACHE")) {
-            Adapter->MediaWindowsCacheEntryFound = TRUE;
-            Adapter->MediaWindowsCacheEntryIndex = Index;
-        }
+        B2LUfsCopyMemory(
+            Entry + B2LUFS_GPT_ENTRY_TYPE_OFFSET,
+            BasicDataGuid,
+            sizeof(BasicDataGuid));
+        B2LUfsZeroMemory(
+            Entry + B2LUFS_GPT_ENTRY_ATTRIBUTES_OFFSET,
+            sizeof(ULONGLONG));
+        Adapter->MediaWindowsCacheEntryFound = TRUE;
+        Adapter->MediaWindowsCacheEntryIndex = Index;
+        break;
     }
 
     Adapter->MediaWindowsGptEntriesCrc = B2LUfsCrc32(
@@ -2695,7 +2684,6 @@ B2LUfsProbeMediaHeaders(
     Adapter->MediaProbeGptEntriesCrcCalculated = 0;
     Adapter->MediaWindowsGptSnapshotValid = FALSE;
     Adapter->MediaWindowsCacheEntryFound = FALSE;
-    Adapter->MediaWindowsSystemEntryFound = FALSE;
     Adapter->MediaWindowsGptSelfCheckValid = FALSE;
     Adapter->MediaWindowsGptSnapshotReason =
         B2LUFS_GPT_SNAPSHOT_NOT_ATTEMPTED;
@@ -2705,7 +2693,6 @@ B2LUfsProbeMediaHeaders(
     Adapter->MediaWindowsGptEntryBlocks = 0;
     Adapter->MediaWindowsGptEntriesCrc = 0;
     Adapter->MediaWindowsCacheEntryIndex = MAXULONG;
-    Adapter->MediaWindowsSystemEntryIndex = MAXULONG;
     B2LUfsZeroMemory(Adapter->MediaProbeLba0,
                      sizeof(Adapter->MediaProbeLba0));
     B2LUfsZeroMemory(Adapter->MediaProbeLba1,
@@ -3042,19 +3029,11 @@ B2LUfsTryCompleteCachedCapacity(
             sizeof(Trace),
             &Trace);
     }
-    B2LUfsFlightLog(
-        B2LUfsFlightCachedCapacity, 0,
-        Trace.Outcome, Trace.MapStatus, Trace.MapSource,
-        Trace.RequestedLength, Trace.ReturnedLength);
     /* BLC3 already contains the complete software response. */
     B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
     return TRUE;
 
 LogAndFallback:
-    B2LUfsFlightLog(
-        B2LUfsFlightCachedCapacity, 1,
-        Trace.Outcome, Trace.MapStatus, Trace.MapSource,
-        Trace.RequestedLength, 0);
     if (!Adapter->DumpMode) {
         (void)StorPortEtwLogError(
             DeviceExtension,
@@ -3135,10 +3114,6 @@ B2LUfsTryCompleteCachedGptRead(
         MapSource = B2LUFS_GPT_CACHE_MAP_DATA_BUFFER;
     }
     if (SystemAddress == NULL) {
-        B2LUfsFlightLog(
-            B2LUfsFlightCachedGpt, 1,
-            B2LUFS_GPT_CACHE_OUTCOME_MAP_FAILED,
-            (ULONG)StartLba, BlockCount, Status, MapSource);
         B2LUfsLogCachedGptTrace(
             DeviceExtension, Adapter, Srb,
             B2LUFS_GPT_CACHE_OUTCOME_MAP_FAILED,
@@ -3153,10 +3128,6 @@ B2LUfsTryCompleteCachedGptRead(
                 Adapter,
                 StartLba + Index,
                 Output + (Index * Adapter->CapacityBlockLength))) {
-            B2LUfsFlightLog(
-                B2LUfsFlightCachedGpt, 2,
-                B2LUFS_GPT_CACHE_OUTCOME_COPY_FAILED,
-                (ULONG)StartLba, BlockCount, Index, MapSource);
             B2LUfsLogCachedGptTrace(
                 DeviceExtension, Adapter, Srb,
                 B2LUFS_GPT_CACHE_OUTCOME_COPY_FAILED,
@@ -3171,10 +3142,6 @@ B2LUfsTryCompleteCachedGptRead(
         B2LUFS_GPT_CACHE_OUTCOME_COMPLETED,
         Status, MapSource, StartLba, BlockCount, Output,
         (ULONG)RequestedBytes);
-    B2LUfsFlightLog(
-        B2LUfsFlightCachedGpt, 0,
-        B2LUFS_GPT_CACHE_OUTCOME_COMPLETED,
-        (ULONG)StartLba, BlockCount, (ULONG)RequestedBytes, MapSource);
     Srb->DataTransferLength = (ULONG)RequestedBytes;
     Srb->ScsiStatus = B2LUFS_SCSI_STATUS_GOOD;
     B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
@@ -3257,11 +3224,11 @@ B2LUfsExecuteScsi(
     }
 
     /*
-     * Defensive invariant: successful normal initialization publishes the
-     * capacity/GPT/SYSTEM snapshot before HwInitialize returns, so StorPort's
-     * first request cannot reach this branch. Refuse I/O if a later lifecycle
-     * regression ever exposes an uninitialized adapter rather than returning
-     * a raw Samsung GPT view to disk.sys/partmgr.
+     * Fail the overlapping initial StorPort scan as "not present" until the
+     * PASSIVE probe has atomically published the canonical GPT snapshot.
+     * The delayed BusChangeDetected notification performs the first
+     * successful enumeration.  This prevents disk.sys/partmgr from caching
+     * the raw protective MBR before normalized GPT reads are available.
      */
     if (!Adapter->DumpMode && !Adapter->EnumerationReady) {
         Adapter->EnumerationGateRejectCount++;
@@ -3425,11 +3392,6 @@ B2LUfsExecuteScsi(
         RequestedLength,
         &Srb->ScsiStatus,
         &ReturnedLength);
-    B2LUfsFlightLog(
-        B2LUfsFlightSubmitDone, 0,
-        Srb->Cdb[0], (ULONG)Result,
-        ((ULONG)Srb->ScsiStatus << 24) | (ReturnedLength & 0x00FFFFFFUL),
-        Adapter->LastUtrdOcs, Adapter->LastInterruptStatus);
     Srb->DataTransferLength = ReturnedLength;
     if (Result == B2LUfsTransferOk &&
         Srb->ScsiStatus == B2LUFS_SCSI_STATUS_GOOD &&

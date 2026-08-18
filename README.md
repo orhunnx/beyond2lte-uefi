@@ -21,13 +21,12 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | PSCI / SMP | ✅ 8 çekirdek açılıyor (SMC konduiti) |
 | DSDT UFS düğümü | ✅ numaralanıyor, `_HID` geçici |
 | UEFI'den UFS'e **yazma** | ✅ çalışıyor (`WriteBlocks` Success, dizin girdisi oluşuyor) |
-| Windows UFS (`b2lufs`) | ✅ 119 GB, 31 GPT bölüm; CACHE FAT32 okuma/yazma doğrulandı |
 | EFI Shell `>a` yönlendirmesi | ❌ `Invalid Parameter` — dosya değil, kabuk sorunu |
 | USB | ❌ |
 | **Linux (ACPI, DTB yok)** | ✅ 8 CPU açılıyor, initramfs'e kadar |
 | Windows Boot Manager | ✅ çalışıyor, ekran çiziyor, ESP'den okuyor |
 | Windows çekirdeği (`ntoskrnl`) | ✅ başlıyor |
-| Windows UFS disk-boot | 🟡 `INACCESSIBLE_BOOT_DEVICE`; `b2lufs` 0.0.9.0 bugcheck uçuş paneliyle kök neden ölçülüyor |
+| Windows erken kullanıcı modu | ❌ ~12 sn sonra reset, tanı kanalı yok |
 
 Ayrıntı: [`STATUS.md`](STATUS.md)
 
@@ -54,7 +53,6 @@ masaüstüne atar ve FV kullanımını raporlar.
 | `beyond2ltePkg/` | Platform kaynağı (overlay ile senkron tutuluyor) |
 | `silicium-acpi-overlay/` | S5E9820 ACPI tabloları (`.dsl`) + derleme script'i |
 | `dtb-analiz/` | Stock firmware'den çıkarılmış decompile edilmiş DTB'ler |
-| `drivers/` | Bileşenlere ayrılmış bağımsız sürücü yedekleri; build girdisi değildir |
 
 ## Belgeler
 
@@ -66,7 +64,6 @@ masaüstüne atar ve FV kullanımını raporlar.
 | [`PARTITIONS.md`](PARTITIONS.md) | Bölüm tablosu (PIT'ten çıkarıldı) |
 | [`BUILD.md`](BUILD.md) | Derleme ve flash |
 | [`ORTAM.md`](ORTAM.md) | Cihaz/bilgisayar referansı (projeden bağımsız) |
-| [`drivers/README.md`](drivers/README.md) | Sürücü dosyalarının görevleri, canlı yolları ve yedek senkronu |
 
 ## Upstream'e gönderilecek düzeltmeler
 

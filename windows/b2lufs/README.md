@@ -6,39 +6,6 @@ aygıtına bağlanan bir **fiziksel StorPort miniportu**dur.
 Kaynak dosyalarının görevleri, MSVC/WDK bayrakları ve imza–WIM–Odin araç
 zinciri için: [`AI_DRIVER_BUILD_REFERENCE.md`](AI_DRIVER_BUILD_REFERENCE.md).
 
-## Disk-boot uçuş kaydı ve bugcheck paneli
-
-`INACCESSIBLE_BOOT_DEVICE`, SYSTEM volume bağlanmadan oluştuğu için normal
-registry/ETW/dosya tanısı geri alınamaz. `b2lufs_flight.c/.h`, yalnız UEFI
-B2LGoster `0xCF050000` firmware-reserved alanını `ARMED` yaptıysa 64 KiB'lik
-commit'li halka kaydı etkinleştirir. DriverEntry, StorPort adapter/init yaşam
-döngüsü, capacity/LUN/GPT probları ve gerçek SCSI begin/done sonuçları olay
-kimliği ile yazılır; medya verisi yazılmaz.
-
-Alan `MmNonCached` eşlenir. Microsoft non-cached bellek üzerinde Interlocked
-işlemlerini yasakladığı için write index atomik artırılmaz. Cached sürücü
-imajındaki best-effort busy kapısı özyinelemeli yazarı beklemeden düşürür. İki
-CPU kapıyı aynı anda aşarsa yalnız tanı slotu çakışır; commit doğrulaması karışık
-kaydı atar. Bu kapı hiçbir UFS komutunu veya kaynağını korumaz. Record commit
-sözcüğü ve ardından header write index'i en son store edilir. Normal/ARMED
-olmayan paket eşlemeyi hemen bırakır ve logger no-op olur. Sabit ABI'deki IRQL
-alanı `0xFF` (`?`) olarak ayrılmıştır; tanı kodu SYS'e çözümlenemeyen
-CRT/kernel atomik importu eklemez.
-
-`tools_ufsboot.sh --debug`, güncel B2LGoster'ı CACHE ESP'ye ekler ve bugcheck
-ekranının cihaz restart edemediği ölçüldüğü için WinPE `AutoReboot=0` değerini
-yazıp doğrular. ARMED turda DriverEntry framebuffer'ı önceden eşler ve resident
-bugcheck callback'ini kaydeder. Callback HIGH_LEVEL'da yalnız sabit belleği
-okuyup yazar; son altı geçerli `SEQ/EVT/A0..A4` kaydını mavi ekranın üstüne
-çizer. Normal paket bu eşlemeyi ve callback'i kurmaz. Ham 64 KiB görüntü
-`tools_b2lufs_flight_decode.py` ile tamamen çözülebilir.
-
-Aynı `--debug` akışı BCD'nin `menu` varyantını kullanır. 30 saniyelik metin
-menüsü `bootmgfw` SYSTEM/NTFS taramasını bitirip winload'u bulduktan sonra,
-B2LUFS DriverEntry'den önce görünür. Menü çıkarsa Enter ile devam edilir;
-çıkmazsa bekleme henüz miniport kodunda değildir. Böylece bugcheck panelinin
-sessizliği “sürücü çalışmadı” diye yanlış yorumlanmaz.
-
 ## LUN 0 okuma/yazma ve GPT erişimi
 
 `b2lufs_resources.c`, UEFI `PlatformUfsLib` ile stok Exynos sürücüsünün
@@ -241,30 +208,34 @@ olarak Windows'un ürettiği ham LocationPaths değerini görünür kılar.
 Her `ACCESS_RANGE`, yalnız StorPort'un verdiği kaynak üzerinden
 `StorPortGetDeviceBase` ile haritalanır; `RangeInMemory` değeri API'nin
 `InIoSpace` parametresi için terslenir. Kısmi/uyuşmayan kaynak dizisi hemen
-geri bırakılır. `HwInitialize`, canlı HCE ve boş UTRL scheduler'ını doğrulayıp
-tek DMA slotunu bağlar. Ardından kapasite, REPORT LUNS ve GPT snapshot
-problarını aynı eşzamanlı, polled common-DMA yolunda tamamlar. Microsoft'un
+geri bırakılır. `HwInitialize`, canlı HCE ve boş UTRL scheduler'ını
+doğrulayıp tek DMA slotunu bağlar; başlangıç kapasite/LUN
+probları `PASSIVE_LEVEL` callback'ine bırakılır. Microsoft'un
 [StorPort yaşam döngüsü](https://learn.microsoft.com/en-us/windows-hardware/drivers/storage/life-cycle-of-a-storport-driver)
 `HwFindAdapter -> HwInitialize -> HwAdapterControl(QuerySupported) -> I/O`
-sırasındadır. Boot diskini yöneten miniport için ek kısıt, boot aygıtının
-`HwInitialize` dönmeden erişilebilir olmasıdır. Bu yüzden kapasite, GPT
-self-check ve `SYSTEM` eşleşmesi tamamlanmadan initialization başarılı dönmez;
-ilk otomatik LUN taraması doğrudan `EnumerationReady=1` görür.
-
-`HwFindAdapter`, yalnız çalışma-zamanı yedek taraması için açık bir StorPort
-timer nesnesi oluşturmaya çalışır. Timer yokluğu adapter başlangıcını başarısız
-yapmaz. PASSIVE callback medya komutu göndermez; yalnız registry telemetrisi
-yayımlar ve timer kullanılabiliyorsa 500 ms sonra bus 0 için isteğe bağlı
-`BusChangeDetected` gönderir. Operational kanaldaki `BLT1` bu yedek taramayı
-tanılar, fakat boot erişiminin ön koşulu değildir. StorPort, ilan edilmiş BTL8
-yolunda `HwBuildIo`/`HwUnitControl` sözleşmesi üzerinden LUN 0 için standart
-PnP ve ardından SCSI keşfini yürütür. Timer'ın oluşturma ve planlama durumları
-`BusScanTimerInitializeStatus`/`BusScanTimerRequestStatus` olarak tanıya
-yazılır; PnP remove sırasında bekleyen istek iptal edilip nesne
-`StorPortFreeTimer` ile bırakılır. Dump stack'te timer/PASSIVE tanı yolu
-kurulmaz. Zorunlu adapter-control çağrıları Microsoft'un istediği gibi daima
-`ScsiAdapterControlSuccess` döndürür; gerçek taşıma durumu ayrıca
-`TransportReady` ile korunur.
+sırasındadır. Bu nedenle başlangıç callback'leri içinden doğrudan bus taraması
+istenmez. `HwFindAdapter`, sonucu denetlenebilen açık bir StorPort timer
+nesnesini `StorPortInitializeTimer` ile oluşturur. PASSIVE probundan sonra
+`StorPortRequestTimer` bunu 500 ms'ye kurar; timer çalışınca bus 0 için tek
+`BusChangeDetected` gönderilir. Operational kanaldaki `BLT1`
+kaydı timer'ın gerçekten çalıştığını, içindeki `TransportReady=1` ise UFS
+taşımasının tarama öncesinde hazır olduğunu gösterir. Normal çalışma
+yığınında otomatik ilk LUN taraması, kapasite ile Windows GPT snapshot ve
+self-check sonuçları hazır olana kadar `SRB_STATUS_NO_DEVICE` ile kapalı
+tutulur. PASSIVE probu bütün snapshot alanlarını yayımladıktan sonra
+`EnumerationReady=1` olur; gecikmeli `BusChangeDetected` böylece disk PDO'yu
+ilk başarılı okumadan itibaren tek ve CRC-tutarlı GPT görünümüyle oluşturur.
+`EnumerationGateRejectCount`, bu başlangıç penceresinde reddedilen keşif
+isteklerini sayar. Bildirim PDO oluşturma sözleşmesinin yerine geçmez.
+StorPort, ilan edilmiş
+BTL8 yolunda `HwBuildIo`/`HwUnitControl` sözleşmesi üzerinden LUN 0 için
+standart PnP ve ardından SCSI keşfini yürütür. Timer'ın oluşturma ve planlama
+durumları `BusScanTimerInitializeStatus`/`BusScanTimerRequestStatus` olarak
+tanıya yazılır; PnP remove sırasında bekleyen istek iptal edilip nesne
+`StorPortFreeTimer` ile bırakılır. StorAHCI örneğiyle aynı şekilde dump
+stack'te timer/PASSIVE tanı yolu kurulmaz. Zorunlu adapter-control çağrıları
+Microsoft'un istediği gibi daima `ScsiAdapterControlSuccess` döndürür; gerçek
+taşıma durumu ayrıca `TransportReady` ile korunur.
 
 `ScatterGather`, `Master`, `NeedPhysicalAddresses`, `TaggedQueuing`,
 `AutoRequestSense` ve `MultipleRequestPerLu` alanları StorPort tarafından
@@ -342,12 +313,12 @@ ilk 64 baytlar aynı boot'ta konsola basılır. Dört okuma da başarılıysa ar
 isteği medyadaki GPT baytlarını değiştirmez. Araç WIM'de manuel tanı için
 bulunur; sade otomatik CACHE yazma testi tarafından çağrılmaz.
 
-StorPort Operational çıktısında normal `BLS2` INQUIRY/READ CAPACITY kayıtları
-timer'dan bağımsız oluşmalıdır. İsteğe bağlı 500 ms yeniden taraması çalışırsa
-ayrıca `B2LUFS deferred bus scan timer fired` ve `BLT1` görülür; `BLT1`
-boot-medya hazırlığının kanıtı veya ön koşulu değildir. Registry yayımlandıysa
-`EnumerationReady=1`, `ReadCapacityValid=1`, GPT snapshot/self-check ve
-`MediaWindowsSystemEntryFound=1` aynı başlangıç sonucunu doğrular.
+StorPort Operational çıktısında önce `B2LUFS deferred bus scan timer fired`
+ve `BLT1`, ardından `BLC3 Outcome=5, CompletionPhase=2`, normal `BLS2`
+INQUIRY/READ CAPACITY kayıtları beklenir.
+`BLT1` var fakat `BLS2` yoksa timer/adapter yaşam döngüsü tamamlanmış olmasına
+rağmen StorPort tarama üretmemiştir; `BLT1` de yoksa sorun timer'ın
+planlanmasından önceki miniport başlatma aşamasındadır.
 
 `Code 10`/`FAILED_START`, HCE/link durumunun firmware'den canlı devralınamadığını
 veya transfer-list scheduler'ın boş olmadığını gösterir. İmza veya `pnputil`
@@ -392,15 +363,6 @@ imzasına güvenmek doğru değildir. `CopyFiles` bölümü için INF'de açık 
 `SourceDisksFiles` eşlemesi vardır; bu, Inf2Cat'in SYS dosyasını imzalanacak
 paketin parçası olarak doğrulamasını sağlar.
 
-RAM-disk WinPE'deki çalışma anı testi için paketin `Windows\B2LUFS` altından
-`pnputil` ile kurulması yeterliydi. UFS'teki SYSTEM'den doğrudan boot ederken
-ise çekirdek aynı diske erişmeden bu komut çalışamaz. Bu yüzden
-`tools_ufsboot.sh`, INF/SYS/CAT üçlüsünü önce Windows DISM ile offline
-`boot.wim` DriverStore/DriverDatabase yapısına kurdurur; ardından
-`tools_ufsboot_prepare.sh` servis başlangıcını ve ACPI kritik aygıt eşlemesini
-doğrular. Sadece SYS'i `System32\drivers` altına kopyalayan bir imaj geçerli
-disk-boot artefaktı sayılmaz.
-
 Paketlenmiş WIM'de ayrıca `\Windows\B2LUFS\manifest.txt` bulunur. Bu dosya
 INF/SYS/CAT SHA-256 değerlerini taşır. `cache_esp.sh --win --system`,
 `out/b2lufs/b2lufs.sys` bulunduğunda bu manifestteki SYS hash'ini WIM'i geri
@@ -413,13 +375,8 @@ Sürücü, CRC ile doğruladığı 4Kn GPT başlığını ve 16 KiB entry dizisi
 bir CPU snapshot'ında tutar. `partmgr` metadata `READ` istekleri kilitli
 `HwStartIo` içinde bu tutarlı snapshot'tan tamamlanır; bir istekte düzeltilmiş
 PMBR, başka bir istekte ham Samsung GPT dönmesi engellenir. Stok medyadaki
-`SYSTEM` ve `CACHE` girdileri bu salt Windows görünümünde Microsoft Basic Data
-GUID'i ve temiz GPT attribute alanı taşır; ham GPT'ye yazılmaz. Bu ayrım
-zorunludur: NTFS/FAT dosya sistemleri bölümlerin içinde bulunsa da Windows
-yalnız Basic Data türünü normal volume olarak tanır. Böylece 25 numaralı
-`SYSTEM` NTFS boot volume, 28 numaralı `CACHE` ise FAT volume olarak açılır.
-`MediaWindowsSystemEntryFound/Index` ve
-`MediaWindowsCacheEntryFound/Index` değerleri iki dönüşümü ayrı raporlar.
+`CACHE` girdisi bu salt Windows görünümünde Microsoft Basic Data GUID'i ve
+temiz GPT attribute alanı taşır; ham GPT'ye yazılmaz.
 
 Renegade/edk2-msm SM7125 karşılaştırmasında firmware tarafı UFS
 denetleyicisini `QCOM24A5`, MMIO/IRQ, `_CCA` ve `_ADR=8` alt aygıtıyla

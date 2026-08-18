@@ -37,7 +37,6 @@
 #include <Uefi.h>
 
 #include <Library/BaseMemoryLib.h>
-#include <Library/CacheMaintenanceLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiApplicationEntryPoint.h>
 #include <Library/UefiLib.h>
@@ -57,7 +56,7 @@
 // biriminde B2LGOSTR.EFI olabiliyor - bu tur tam olarak oldu ve iki farkli
 // ekran cikti) tek bakista anlasilsin diye.
 //
-#define SURUM_METNI  L"SURUM 33"
+#define SURUM_METNI  L"SURUM 32"
 
 #define OLCEK        4      // her glif pikseli 4x4 blok
 #define KENAR       24      // sol/ust bosluk
@@ -76,43 +75,6 @@
 #define HVC_DXE_TANI (HVC_KAYIT + 0x100ULL)
 #define RT_KAYIT    0xCF040000ULL   // B2LRtHookDxe
 #define PMU_RST     0x15860404ULL
-
-// B2LUFS b2lufs_flight.h ile AYNI ABI. Bu adres, 0xCF050000'da baslayan
-// firmware "Lower dynamic guard" icinde EfiReservedMemoryType olarak
-// Windows'tan ayridir; EL2/SEH/GIC/b2lfb kayitlariyla cakisma yoktur.
-#define B2LUFS_FLIGHT_PHYSICAL_BASE 0xCF050000ULL
-#define B2LUFS_FLIGHT_MAGIC         0x46553242U  // "B2UF"
-#define B2LUFS_FLIGHT_ARMED_MAGIC   0x41553242U  // "B2UA"
-#define B2LUFS_FLIGHT_VERSION       1U
-#define B2LUFS_FLIGHT_HEADER_BYTES  64U
-#define B2LUFS_FLIGHT_RECORD_BYTES  32U
-#define B2LUFS_FLIGHT_BYTES         0x10000U
-#define B2LUFS_FLIGHT_CAPACITY \
-  ((B2LUFS_FLIGHT_BYTES - B2LUFS_FLIGHT_HEADER_BYTES) / \
-   B2LUFS_FLIGHT_RECORD_BYTES)
-#define B2LUFS_FLIGHT_COMMIT_MAGIC  0xC17F10A7U
-
-typedef struct {
-  UINT32        Magic;
-  UINT16        Version;
-  UINT16        HeaderSize;
-  UINT16        RecordSize;
-  UINT16        Reserved0;
-  UINT32        Capacity;
-  volatile INT32 WriteIndex;
-  UINT32        BootId;
-  UINT32        Flags;
-  UINT32        Reserved[9];
-} B2LUFS_FLIGHT_HEADER;
-
-typedef struct {
-  UINT32 Sequence;
-  UINT16 Event;
-  UINT8  Irql;
-  UINT8  Flags;
-  UINT32 Argument[5];
-  UINT32 Commit;
-} B2LUFS_FLIGHT_RECORD;
 
 typedef struct {
   UINT64  Base;
@@ -337,195 +299,6 @@ Deger (
   Yaz (mTampon, Renk);
 }
 
-STATIC
-BOOLEAN
-B2LUfsFlightHeaderValid (
-  IN volatile B2LUFS_FLIGHT_HEADER *Header)
-{
-  return Header != NULL &&
-         (Header->Magic == B2LUFS_FLIGHT_MAGIC ||
-          Header->Magic == B2LUFS_FLIGHT_ARMED_MAGIC) &&
-         Header->Version == B2LUFS_FLIGHT_VERSION &&
-         Header->HeaderSize == B2LUFS_FLIGHT_HEADER_BYTES &&
-         Header->RecordSize == B2LUFS_FLIGHT_RECORD_BYTES &&
-         Header->Capacity == B2LUFS_FLIGHT_CAPACITY;
-}
-
-STATIC
-CHAR16 *
-B2LUfsFlightEventName (
-  IN UINT16 Event)
-{
-  switch (Event) {
-    case 0x0001: return L"DRIVER";
-    case 0x0002: return L"STORRET";
-    case 0x0100: return L"FIND";
-    case 0x0101: return L"FEATURE";
-    case 0x0102: return L"RANGE";
-    case 0x0103: return L"ALLOC";
-    case 0x010F: return L"FINDRET";
-    case 0x0200: return L"INIT";
-    case 0x0201: return L"TRANSP";
-    case 0x0202: return L"CAP";
-    case 0x0203: return L"LUNS";
-    case 0x0204: return L"MEDIA";
-    case 0x020F: return L"INITOK";
-    case 0x0210: return L"INITFAIL";
-    case 0x0211: return L"PASSIVE";
-    case 0x0212: return L"RESCAN";
-    case 0x0300: return L"STARTIO";
-    case 0x0301: return L"CCAP";
-    case 0x0302: return L"CGPT";
-    case 0x0310: return L"SUBMIT";
-    case 0x0311: return L"DONE";
-    case 0x0320: return L"UNITCTL";
-    case 0x0321: return L"ADAPCTL";
-    case 0x0322: return L"RESET";
-    default:     return L"UNKNOWN";
-  }
-}
-
-STATIC
-BOOLEAN
-B2LUfsFlightRecordValid (
-  IN volatile B2LUFS_FLIGHT_RECORD *Record,
-  IN UINT32                         Sequence)
-{
-  UINT32 Commit;
-
-  if (Record->Sequence != Sequence) {
-    return FALSE;
-  }
-  Commit = B2LUFS_FLIGHT_COMMIT_MAGIC ^ Record->Sequence ^
-           ((UINT32)Record->Event << 16) ^ ((UINT32)Record->Irql << 8) ^
-           Record->Flags ^ Record->Argument[0] ^ Record->Argument[1] ^
-           Record->Argument[2] ^ Record->Argument[3] ^ Record->Argument[4];
-  return Record->Commit == Commit;
-}
-
-STATIC
-VOID
-B2LUfsFlightLine (
-  IN volatile B2LUFS_FLIGHT_RECORD *Record)
-{
-  CHAR16 *Name;
-  UINTN   N;
-
-  Hex32 (&mTampon[0], Record->Sequence);
-  mTampon[8] = L' ';
-  Name = B2LUfsFlightEventName (Record->Event);
-  N = 9;
-  while (*Name != L'\0' && N < 18) {
-    mTampon[N++] = *Name++;
-  }
-  while (N < 18) {
-    mTampon[N++] = L' ';
-  }
-  Hex32 (&mTampon[N], Record->Argument[0]);
-  N += 8;
-  mTampon[N] = L'\0';
-  Yaz (mTampon, 0x0060C0FF);
-}
-
-STATIC
-BOOLEAN
-B2LUfsFlightShow (
-  VOID)
-{
-  volatile B2LUFS_FLIGHT_HEADER *Header;
-  volatile B2LUFS_FLIGHT_RECORD *Record;
-  volatile UINT8                *Base;
-  UINT32                         First;
-  UINT32                         Last;
-  UINT32                         Remaining;
-  UINT32                         Sequence;
-  UINT32                         Shown;
-
-  Header = (volatile B2LUFS_FLIGHT_HEADER *)(UINTN)
-             B2LUFS_FLIGHT_PHYSICAL_BASE;
-  InvalidateDataCacheRange ((VOID *)Header, B2LUFS_FLIGHT_BYTES);
-  if (!B2LUfsFlightHeaderValid (Header)) {
-    return FALSE;
-  }
-
-  Yaz (L"=== B2LUFS UCUS KAYDI ===", 0x00FFFFFF);
-  Deger (L"BOOT    =", Header->BootId, NULL, 0x0060C0FF);
-  if (Header->Magic == B2LUFS_FLIGHT_ARMED_MAGIC) {
-    Yaz (L"ARMED AMA SURUCU YAZMADI", 0x00FF4040);
-    return TRUE;
-  }
-
-  Deger (L"KAYIT   =", (UINT32)Header->WriteIndex, NULL, 0x0060C0FF);
-  if (Header->WriteIndex <= 0) {
-    Yaz (L"B2UF VAR AMA OLAY YOK", 0x00FF4040);
-    return TRUE;
-  }
-
-  Last = (UINT32)Header->WriteIndex;
-  First = (Last > 6U) ? Last - 5U : 1U;
-  Remaining = Last - First + 1U;
-  Base = (volatile UINT8 *)Header;
-  Shown = 0;
-  for (Sequence = First; Remaining != 0; Sequence++, Remaining--) {
-    UINT32 Slot;
-
-    Slot = (Sequence - 1U) % B2LUFS_FLIGHT_CAPACITY;
-    Record = (volatile B2LUFS_FLIGHT_RECORD *)(Base +
-               B2LUFS_FLIGHT_HEADER_BYTES +
-               Slot * B2LUFS_FLIGHT_RECORD_BYTES);
-    if (B2LUfsFlightRecordValid (Record, Sequence)) {
-      B2LUfsFlightLine (Record);
-      Shown++;
-    }
-  }
-  if (Shown == 0) {
-    Yaz (L"SON KAYITLAR GECERSIZ", 0x00FF4040);
-    return TRUE;
-  }
-
-  Sequence = Last;
-  Record = (volatile B2LUFS_FLIGHT_RECORD *)(Base +
-             B2LUFS_FLIGHT_HEADER_BYTES +
-             ((Sequence - 1U) % B2LUFS_FLIGHT_CAPACITY) *
-             B2LUFS_FLIGHT_RECORD_BYTES);
-  if (B2LUfsFlightRecordValid (Record, Sequence)) {
-    Deger (L"SON A1  =", Record->Argument[1], NULL, 0x00FFFF40);
-    Deger (L"SON A2  =", Record->Argument[2], NULL, 0x00FFFF40);
-    Deger (L"SON A3  =", Record->Argument[3], NULL, 0x00FFFF40);
-    Deger (L"SON A4  =", Record->Argument[4], NULL, 0x00FFFF40);
-  }
-  return TRUE;
-}
-
-STATIC
-VOID
-B2LUfsFlightArm (
-  VOID)
-{
-  volatile B2LUFS_FLIGHT_HEADER *Header;
-  UINT32                         BootId;
-
-  Header = (volatile B2LUFS_FLIGHT_HEADER *)(UINTN)
-             B2LUFS_FLIGHT_PHYSICAL_BASE;
-  BootId = B2LUfsFlightHeaderValid (Header) ? Header->BootId + 1U : 1U;
-  if (BootId == 0) {
-    BootId = 1;
-  }
-
-  Header->Magic = 0;
-  Header->Version = B2LUFS_FLIGHT_VERSION;
-  Header->HeaderSize = B2LUFS_FLIGHT_HEADER_BYTES;
-  Header->RecordSize = B2LUFS_FLIGHT_RECORD_BYTES;
-  Header->Reserved0 = 0;
-  Header->Capacity = B2LUFS_FLIGHT_CAPACITY;
-  Header->WriteIndex = 0;
-  Header->BootId = BootId;
-  Header->Flags = 0;
-  SetMem ((VOID *)Header->Reserved, sizeof (Header->Reserved), 0);
-  Header->Magic = B2LUFS_FLIGHT_ARMED_MAGIC;
-  WriteBackDataCacheRange ((VOID *)Header, B2LUFS_FLIGHT_HEADER_BYTES);
-}
-
 EFI_STATUS
 EFIAPI
 B2LGosterEntry (
@@ -578,12 +351,6 @@ B2LGosterEntry (
 
   Yaz (L"=== BEYOND2LTE TANI ===", 0x00FFFFFF);
   Yaz (SURUM_METNI, 0x00808080);
-
-  // Bir onceki Windows denemesi B2LUFS kaydi biraktiysa onu her seyden once
-  // goster ve eski genel tani satirlariyla ekrandan tasirma.
-  if (B2LUfsFlightShow ()) {
-    goto WaitAndArm;
-  }
 
   //
   // PSCI HVC koprusu yalnizca "yap.sh --psci-hvc" ile yuklenir. Kayit
@@ -1200,13 +967,11 @@ B2LGosterEntry (
     }
   }
 
-WaitAndArm:
   mSatir += 12;
   Yaz (L"FOTOGRAFLA, SONRA TUSA BAS", 0x00FFFFFF);
 
   gBS->WaitForEvent (1, &gST->ConIn->WaitForKey, &Index);
   gST->ConIn->ReadKeyStroke (gST->ConIn, &Key);
-  B2LUfsFlightArm ();
 
   return EFI_SUCCESS;
 }

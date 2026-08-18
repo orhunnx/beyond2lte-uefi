@@ -141,7 +141,6 @@ typedef struct B2LUFS_ADAPTER {
     UCHAR MediaProbeLba1[64];
     BOOLEAN MediaWindowsGptSnapshotValid;
     BOOLEAN MediaWindowsCacheEntryFound;
-    BOOLEAN MediaWindowsSystemEntryFound;
     BOOLEAN MediaWindowsGptSelfCheckValid;
     ULONG MediaWindowsGptSnapshotReason;
     ULONG MediaWindowsGptSelfCheckReason;
@@ -149,7 +148,6 @@ typedef struct B2LUFS_ADAPTER {
     ULONG MediaWindowsGptEntryBlocks;
     ULONG MediaWindowsGptEntriesCrc;
     ULONG MediaWindowsCacheEntryIndex;
-    ULONG MediaWindowsSystemEntryIndex;
     UCHAR MediaWindowsGptHeader[B2LUFS_WINDOWS_GPT_BLOCK_BYTES];
     UCHAR MediaWindowsGptEntries[B2LUFS_WINDOWS_GPT_ENTRIES_BYTES];
 
@@ -188,14 +186,16 @@ typedef struct B2LUFS_ADAPTER {
     ULONG BusTypeFeatureStatus;
     ULONG ConfiguredUnitBusType;
     ULONG BusTypeQueryCount;
-    /* Optional StorPort timer used only for a runtime fallback LUN scan. */
+    /* Explicit StorPort timer used for the post-start LUN scan. */
     PVOID BusScanTimer;
     ULONG BusScanTimerInitializeStatus;
     ULONG BusScanTimerRequestStatus;
     /*
-     * HwInitialize publishes capacity, GPT snapshot, its self-check and the
-     * SYSTEM match before returning. The gate is a defensive invariant for
-     * later PnP/restart paths, not a delayed boot-enumeration mechanism.
+     * StorPort can begin its first LUN scan before the PASSIVE media probe
+     * has built the immutable Windows GPT view.  Keep discovery closed until
+     * capacity, GPT snapshot and its self-check are all published; the
+     * deferred BusChange then creates a fresh disk PDO whose first partmgr
+     * read already sees the canonical view.
      */
     volatile BOOLEAN EnumerationReady;
     ULONG EnumerationGateRejectCount;
