@@ -46,6 +46,18 @@ for a in "$@"; do
 done
 if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
 
+# Normal tani turunda mavi ekran ekranda kalir. UFS sicak-reset ucus kaydi
+# turunda ise bugcheck'ten sonra gucu kesmeden firmware'e donmemiz gerekir;
+# tools_ufsboot.sh --debug bu degeri 1 olarak aktarir.
+BUGCHECK_AUTOREBOOT="${B2L_BUGCHECK_AUTOREBOOT:-0}"
+case "$BUGCHECK_AUTOREBOOT" in
+  0|1) ;;
+  *)
+    echo "HATA: B2L_BUGCHECK_AUTOREBOOT yalnizca 0 veya 1 olabilir." >&2
+    exit 2
+    ;;
+esac
+
 ISO="${1:-}"
 if [ -z "$ISO" ]; then
   for c in "$HOME"/*.iso /mnt/c/Users/*/Downloads/*Arm64*.iso /mnt/c/Users/*/Downloads/*.iso; do
@@ -303,13 +315,14 @@ fi
 #
 if [ -s "$ESP/sources/boot.wim" ] && command -v wimlib-imagex >/dev/null; then
   #
-  # MAVI EKRANI EKRANDA TUT.
+  # MAVI EKRAN DAVRANISINI TANI TURUNE GORE AYARLA.
   #
   # Cihaz cekirdek cokunce ANINDA sifirliyor, kod gorunmuyor. Sebep WinPE'nin
   # registry'sindeki CrashControl\AutoReboot = 1. Bu ayar WIM'in ICINDEKI
   # SYSTEM hive'inda; disari cikarip degistirip geri koyabiliyoruz.
   #
   #   AutoReboot        = 0  -> cokunce sifirlama, ekranda kal
+  #   AutoReboot        = 1  -> ucus kaydi icin yazilim sicak reset yap
   #   DisplayParameters = 1  -> stop kodunun parametrelerini de goster
   #
   # Bunlar olmadan her tur "yeniden basladi" demekten oteye gidemiyoruz.
@@ -333,16 +346,16 @@ if [ -s "$ESP/sources/boot.wim" ] && command -v wimlib-imagex >/dev/null; then
   [ -z "$HIVEARAC" ] && command -v hivexsh >/dev/null && HIVEARAC="sh"
 
   if [ -n "$HIVEARAC" ]; then
-    say "WinPE registry: AutoReboot kapatiliyor  (arac: hivex$HIVEARAC)"
+    say "WinPE registry: AutoReboot=$BUGCHECK_AUTOREBOOT yaziliyor  (arac: hivex$HIVEARAC)"
     HV="$W/hive"; mkdir -p "$HV"
     if wimlib-imagex extract "$ESP/sources/boot.wim" 1 \
          /Windows/System32/config/SYSTEM --dest-dir="$HV" --no-acls >/dev/null 2>&1; then
 
       YAZILDI=0
       if [ "$HIVEARAC" = "regedit" ]; then
-        cat > "$W/crash.reg" <<'REG'
+        cat > "$W/crash.reg" <<REG
 [HKEY_LOCAL_MACHINE\SYSTEM\ControlSet001\Control\CrashControl]
-"AutoReboot"=dword:00000000
+"AutoReboot"=dword:0000000${BUGCHECK_AUTOREBOOT}
 "DisplayParameters"=dword:00000001
 REG
         hivexregedit --merge --prefix 'HKEY_LOCAL_MACHINE\SYSTEM' \
@@ -352,11 +365,11 @@ REG
         # hivexsh: "setval N" komutundan sonra N tane (isim, deger) CIFTI
         # satir satir okunuyor. Yol ayiraci ters egik cizgi.
         #
-        hivexsh -w "$HV/SYSTEM" <<'HSH' >/dev/null 2>&1 && YAZILDI=1
+        hivexsh -w "$HV/SYSTEM" <<HSH >/dev/null 2>&1 && YAZILDI=1
 cd \ControlSet001\Control\CrashControl
 setval 2
 AutoReboot
-dword:0
+dword:$BUGCHECK_AUTOREBOOT
 DisplayParameters
 dword:1
 commit
@@ -381,10 +394,17 @@ HSH
           AR="$(hivexget "$DV/SYSTEM" 'ControlSet001\Control\CrashControl' AutoReboot 2>/dev/null || true)"
           DP="$(hivexget "$DV/SYSTEM" 'ControlSet001\Control\CrashControl' DisplayParameters 2>/dev/null || true)"
           echo "  WIM'den geri okundu: AutoReboot=${AR:-<yok>}  DisplayParameters=${DP:-<yok>}"
-          case "$AR" in
-            0|0x0|0x00000000) echo "  DOGRULANDI: bugcheck olursa cihaz ekranda kalacak" ;;
-            *) echo "  ! DOGRULANAMADI - bugcheck olsa bile cihaz yeniden baslar" ;;
-          esac
+          if [ "$BUGCHECK_AUTOREBOOT" = 0 ]; then
+            case "$AR" in
+              0|0x0|0x00000000) echo "  DOGRULANDI: bugcheck olursa cihaz ekranda kalacak" ;;
+              *) echo "  ! DOGRULANAMADI - AutoReboot=0 yazilamadi" ;;
+            esac
+          else
+            case "$AR" in
+              1|0x1|0x00000001) echo "  DOGRULANDI: bugcheck sicak yeniden baslatacak" ;;
+              *) echo "  ! DOGRULANAMADI - AutoReboot=1 yazilamadi" ;;
+            esac
+          fi
         else
           echo "  ! UYARI: dogrulama icin hive geri okunamadi"
         fi

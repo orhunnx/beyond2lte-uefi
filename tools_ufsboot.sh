@@ -4,28 +4,35 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$ROOT/out"
-SYSTEM_GIB="${2:-4}"
+DEBUG_MODE=0
+POSITIONAL=()
 
 usage() {
   cat <<'EOF'
 Kullanim:
-  bash tools_ufsboot.sh /mnt/c/yol/Windows_ARM64.iso [system-boyutu-GiB]
+  bash tools_ufsboot.sh [--debug] /mnt/c/yol/Windows_ARM64.iso [system-boyutu-GiB]
 
 Bu arac b2lufs.sys DERLEMEZ. SYS once Windows PowerShell'de uretilmelidir.
 Geri kalan WIM, BCD, SYSTEM/CACHE ve Odin paketleme islemleri WSL'de yapilir.
+--debug, 0xCF050000 sicak-reset ucus kaydini ikinci UEFI acilisinda gosterir.
 EOF
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  usage
-  exit 0
-fi
-if [[ $# -lt 1 || $# -gt 2 ]]; then
+for argument in "$@"; do
+  case "$argument" in
+    -h|--help) usage; exit 0 ;;
+    --debug) DEBUG_MODE=1 ;;
+    --*) echo "HATA: bilinmeyen secenek: $argument" >&2; usage >&2; exit 2 ;;
+    *) POSITIONAL+=("$argument") ;;
+  esac
+done
+if [[ ${#POSITIONAL[@]} -lt 1 || ${#POSITIONAL[@]} -gt 2 ]]; then
   usage >&2
   exit 2
 fi
 
-ISO="$1"
+ISO="${POSITIONAL[0]}"
+SYSTEM_GIB="${POSITIONAL[1]:-4}"
 
 if ! grep -Eiq 'microsoft|wsl' /proc/version 2>/dev/null; then
   echo "HATA: Bu arac WSL icinde calistirilmalidir." >&2
@@ -36,6 +43,25 @@ fi
   echo "HATA: SYSTEM boyutu 2..5 GiB arasinda tam sayi olmali." >&2
   exit 1
 }
+if (( DEBUG_MODE )); then
+  GOSTER="$ROOT/esp/B2LGOSTR.EFI"
+  GOSTER_SOURCE="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LGoster/B2LGoster.c"
+  GOSTER_INF="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LGoster/B2LGoster.inf"
+  [[ -s "$GOSTER" ]] || {
+    echo "HATA: --debug icin $GOSTER yok. WSL'de once: bash yap.sh" >&2
+    exit 1
+  }
+  if [[ "$GOSTER_SOURCE" -nt "$GOSTER" || "$GOSTER_INF" -nt "$GOSTER" ]]; then
+    echo "HATA: --debug B2LGOSTR.EFI kaynaklardan eski. WSL'de once: bash yap.sh" >&2
+    exit 1
+  fi
+fi
+
+# Ucus kaydi yalniz yazilim sicak reset sonrasinda geri alinabilir. Debug
+# paketinde 0x7B ekranda kalmasin; Windows otomatik yeniden baslatip ayni
+# DRAM'i koruyarak B2LGoster'a donsun. Normal turda eski AutoReboot=0
+# davranisi aynen korunur.
+export B2L_BUGCHECK_AUTOREBOOT="$DEBUG_MODE"
 
 for tool in 7z base64 clang cmd.exe cmp file hivexget hivexregedit hivexsh img2simg \
   lld-link llvm-dlltool mcopy mdir mkfs.vfat mkntfs mmd ntfsls openssl \
@@ -335,7 +361,11 @@ bash "$ROOT/tools_windisk.sh" "$SYSTEM_GIB"
 
 echo "==> 6/7 CACHE disk-boot ESP imaji uretiliyor"
 bash "$ROOT/tools_winboot.sh" "$ISO" --disk
-bash "$ROOT/cache_esp.sh" --win --disk --baseline
+if (( DEBUG_MODE )); then
+  bash "$ROOT/cache_esp.sh" --win --disk --ufs-debug
+else
+  bash "$ROOT/cache_esp.sh" --win --disk --baseline
+fi
 
 echo "==> 7/7 Odin SYSTEM+CACHE paketi birlestiriliyor"
 mkdir -p "$WORK/system" "$WORK/cache" "$WORK/package"
@@ -364,3 +394,7 @@ echo "BASARILI: $OUT/ufs-diskboot.tar"
 echo "Odin: AP alanina bu TAR'i sec; Re-Partition KAPALI kalsin."
 echo "Yalniz SYSTEM ve CACHE yazilir; boot/recovery/stock bolumlerine dokunulmaz."
 echo "Ilk cihaz testi ve geri donus adimlari: UFS_DISK_BOOT.md"
+if (( DEBUG_MODE )); then
+  echo "TANI: ilk B2LGoster ekraninda tusa bas; 0x7B'den sonra gucu kesmeden sicak yeniden baslat."
+  echo "Ikinci B2LUFS UCUS KAYDI ekraninin fotografini cek."
+fi

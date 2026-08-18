@@ -13,6 +13,7 @@
 #include <ntddstor.h>
 #include <storport.h>
 
+#include "b2lufs_flight.h"
 #include "b2lufs_transport.h"
 
 /*
@@ -234,6 +235,10 @@ B2LUfsDeferredBusScan(
     Data.TransportReady = Adapter->TransportReady ? 1UL : 0UL;
     Data.HciStatus = Adapter->ControllerStatus;
     Data.EnumerationReady = Adapter->EnumerationReady ? 1UL : 0UL;
+    B2LUfsFlightLog(
+        B2LUfsFlightDeferredScan, 0,
+        Data.TimerInitializeStatus, Data.TimerRequestStatus,
+        Data.TransportReady, Data.HciStatus, Data.EnumerationReady);
 
     /*
      * This record distinguishes a timer that actually fired from an early
@@ -306,6 +311,13 @@ B2LUfsFindAdapter(
      */
     DumpMode = ConfigInfo->DumpMode || HwContext != NULL ||
                B2LUfsArgumentHasDumpFlag(ArgumentString);
+    B2LUfsFlightLog(
+        B2LUfsFlightFindBegin, DumpMode ? 1U : 0U,
+        ConfigInfo->NumberOfAccessRanges,
+        (ULONG)ConfigInfo->AdapterInterfaceType,
+        ConfigInfo->SystemIoBusNumber,
+        ConfigInfo->DumpMode ? 1UL : 0UL,
+        HwContext != NULL ? 1UL : 0UL);
 
     /*
      * Microsoft requires this registration at the beginning of every
@@ -319,7 +331,14 @@ B2LUfsFindAdapter(
         DeviceExtension,
         StorportFeatureMax,
         FeatureList);
+    B2LUfsFlightLog(
+        B2LUfsFlightFindFeature, 0,
+        BusTypeFeatureStatus, StorportFeatureBusTypeUnitControl,
+        StorportFeatureMax, 0, 0);
     if (BusTypeFeatureStatus != STOR_STATUS_SUCCESS) {
+        B2LUfsFlightLog(
+            B2LUfsFlightFindResult, 1,
+            SP_RETURN_ERROR, BusTypeFeatureStatus, 0, 0, 0);
         return SP_RETURN_ERROR;
     }
 
@@ -333,6 +352,10 @@ B2LUfsFindAdapter(
             ConfigInfo,
             0,
             0);
+        B2LUfsFlightLog(
+            B2LUfsFlightFindResult, 2,
+            SP_RETURN_BAD_CONFIG, ConfigInfo->NumberOfAccessRanges,
+            B2LUFS_RESOURCE_COUNT, 0, 0);
         return SP_RETURN_BAD_CONFIG;
     }
 
@@ -362,6 +385,11 @@ B2LUfsFindAdapter(
             Range->RangeLength,
             /* StorPort API'si "InIoSpace" bekler; ACCESS_RANGE tersidir. */
             Range->RangeInMemory ? FALSE : TRUE);
+        B2LUfsFlightLog(
+            B2LUfsFlightFindRange, 0,
+            Index, (ULONG)Given[Index].Base, Given[Index].Length,
+            Given[Index].MappedBase != NULL ? 1UL : 0UL,
+            Given[Index].InMemory);
         if (Given[Index].MappedBase == NULL) {
             B2LUfsLogFindFailure(
                 DeviceExtension,
@@ -372,6 +400,10 @@ B2LUfsFindAdapter(
                 Given[Index].Base,
                 Given[Index].Length);
             B2LUfsReleaseGivenResources(DeviceExtension, Given);
+            B2LUfsFlightLog(
+                B2LUfsFlightFindResult, 3,
+                SP_RETURN_BAD_CONFIG, Index, (ULONG)Given[Index].Base,
+                Given[Index].Length, 0);
             return SP_RETURN_BAD_CONFIG;
         }
     }
@@ -399,6 +431,9 @@ B2LUfsFindAdapter(
             0,
             0);
         B2LUfsReleaseGivenResources(DeviceExtension, Given);
+        B2LUfsFlightLog(
+            B2LUfsFlightFindResult, 4,
+            SP_RETURN_BAD_CONFIG, B2LUFS_RESOURCE_COUNT, 0, 0, 0);
         return SP_RETURN_BAD_CONFIG;
     }
 
@@ -413,6 +448,11 @@ B2LUfsFindAdapter(
      * PRDT'ye çevrilir; daha büyük istekleri StorPort parçalar.
      */
     if (!B2LUfsAllocateTransport(DeviceExtension, Adapter, ConfigInfo)) {
+        B2LUfsFlightLog(
+            B2LUfsFlightFindAllocate, 1,
+            0, 0,
+            (ULONG)Adapter->CommonPhysical.QuadPart,
+            Adapter->CommonPhysical.HighPart, 0);
         B2LUfsLogFindFailure(
             DeviceExtension,
             DumpMode,
@@ -423,8 +463,16 @@ B2LUfsFindAdapter(
             0);
         B2LUfsReleaseGivenResources(DeviceExtension, Given);
         B2LUfsZeroMemory(&Adapter->Resources, sizeof(Adapter->Resources));
+        B2LUfsFlightLog(
+            B2LUfsFlightFindResult, 5,
+            SP_RETURN_BAD_CONFIG, 0, 0, 0, 0);
         return SP_RETURN_BAD_CONFIG;
     }
+    B2LUfsFlightLog(
+        B2LUfsFlightFindAllocate, 0,
+        1, Adapter->IoBounceLength,
+        (ULONG)Adapter->CommonPhysical.QuadPart,
+        Adapter->CommonPhysical.HighPart, Adapter->IoBounceLength);
 
     /*
      * The timer is only an optional runtime re-scan fallback. Boot media
@@ -437,6 +485,12 @@ B2LUfsFindAdapter(
     }
     Adapter->Signature = B2LUFS_ADAPTER_SIGNATURE;
     Adapter->AdapterRemoved = FALSE;
+    B2LUfsFlightLog(
+        B2LUfsFlightFindResult, 0,
+        SP_RETURN_FOUND, Adapter->ConfiguredMaximumTargets,
+        Adapter->ConfiguredInitiatorBusId,
+        Adapter->ConfiguredMaxNumberOfIo,
+        Adapter->ConfiguredInitialLunQueueDepth);
     return SP_RETURN_FOUND;
 }
 
@@ -776,6 +830,13 @@ B2LUfsPassiveInitialize(_In_ PVOID DeviceExtension)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
 
+    B2LUfsFlightLog(
+        B2LUfsFlightPassiveInitialize, 0,
+        Adapter->TransportReady ? 1UL : 0UL,
+        Adapter->EnumerationReady ? 1UL : 0UL,
+        Adapter->BusScanTimer != NULL ? 1UL : 0UL,
+        Adapter->BusScanTimerInitializeStatus, 0);
+
     /*
      * Boot-critical capacity/GPT discovery completed synchronously before
      * HwInitialize returned. This callback is deliberately nonessential:
@@ -826,18 +887,31 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
 
+    B2LUfsFlightLog(
+        B2LUfsFlightInitializeBegin, Adapter->DumpMode ? 1U : 0U,
+        Adapter->DumpMode ? 1UL : 0UL,
+        Adapter->TransportReady ? 1UL : 0UL,
+        Adapter->EnumerationReady ? 1UL : 0UL, 0, 0);
+
     /* Normal discovery stays closed throughout transport takeover/probing. */
     if (!Adapter->DumpMode) {
         Adapter->EnumerationReady = FALSE;
     }
 
     if (!B2LUfsStartTransport(DeviceExtension, Adapter)) {
+        B2LUfsFlightLog(
+            B2LUfsFlightInitializeFail, 1,
+            1, Adapter->ControllerCapabilities, Adapter->ControllerStatus,
+            Adapter->TransferSlotCount, Adapter->TaskSlotCount);
         return FALSE;
     }
 
     /* Crash-dump stacks run at elevated IRQL and cannot use PASSIVE work. */
     if (Adapter->DumpMode) {
         Adapter->EnumerationReady = TRUE;
+        B2LUfsFlightLog(
+            B2LUfsFlightInitializeOk, 1,
+            1, 1, 0, 0, 0);
         return TRUE;
     }
 
@@ -857,8 +931,33 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
      * StorPort is allowed to issue its first discovery request.
      */
     B2LUfsProbeLun0Capacity(DeviceExtension, Adapter);
+    B2LUfsFlightLog(
+        B2LUfsFlightCapacityProbe, 0,
+        Adapter->CapacityProbeResult,
+        ((ULONG)Adapter->CapacityProbeScsiStatus << 24) |
+            ((ULONG)Adapter->CapacityProbeOpcode << 16) |
+            Adapter->CapacityProbeBytes,
+        Adapter->CapacityValid ? 1UL : 0UL,
+        Adapter->CapacityBlockLength,
+        (ULONG)Adapter->CapacityLastLba);
     B2LUfsProbeLuns(DeviceExtension, Adapter);
+    B2LUfsFlightLog(
+        B2LUfsFlightLunProbe, 0,
+        Adapter->LunReportResult, Adapter->LunReportScsiStatus,
+        Adapter->LunReportValid ? 1UL : 0UL,
+        Adapter->LunReportEntryCount, Adapter->LunReportBytes);
     B2LUfsProbeMediaHeaders(DeviceExtension, Adapter);
+    B2LUfsFlightLog(
+        B2LUfsFlightMediaProbe, 0,
+        Adapter->MediaProbeResult,
+        ((ULONG)Adapter->MediaProbeScsiStatus << 24) |
+            (Adapter->MediaProbeValid ? 1UL : 0UL) |
+            (Adapter->MediaWindowsGptSnapshotValid ? 2UL : 0UL) |
+            (Adapter->MediaWindowsGptSelfCheckValid ? 4UL : 0UL) |
+            (Adapter->MediaWindowsSystemEntryFound ? 8UL : 0UL),
+        Adapter->MediaWindowsGptSnapshotReason,
+        Adapter->MediaWindowsGptSelfCheckReason,
+        Adapter->MediaWindowsSystemEntryIndex);
     KeMemoryBarrier();
     Adapter->EnumerationReady =
         Adapter->CapacityValid &&
@@ -867,12 +966,24 @@ B2LUfsInitialize(_In_ PVOID DeviceExtension)
         Adapter->MediaWindowsSystemEntryFound;
     KeMemoryBarrier();
     if (!Adapter->EnumerationReady) {
+        B2LUfsFlightLog(
+            B2LUfsFlightInitializeFail, 2,
+            2, Adapter->CapacityValid ? 1UL : 0UL,
+            Adapter->MediaWindowsGptSnapshotValid ? 1UL : 0UL,
+            Adapter->MediaWindowsGptSelfCheckValid ? 1UL : 0UL,
+            Adapter->MediaWindowsSystemEntryFound ? 1UL : 0UL);
         return FALSE;
     }
 
     /* Registry/timer diagnostics are optional and never gate boot I/O. */
     (void)StorPortEnablePassiveInitialization(
         DeviceExtension, B2LUfsPassiveInitialize);
+    B2LUfsFlightLog(
+        B2LUfsFlightInitializeOk, 0,
+        1, Adapter->CapacityValid ? 1UL : 0UL,
+        Adapter->MediaWindowsGptSnapshotValid ? 1UL : 0UL,
+        Adapter->MediaWindowsGptSelfCheckValid ? 1UL : 0UL,
+        Adapter->MediaWindowsSystemEntryFound ? 1UL : 0UL);
     return TRUE;
 }
 
@@ -954,6 +1065,13 @@ B2LUfsUnitControl(
     _In_ PVOID Parameters)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
+
+    B2LUfsFlightLog(
+        B2LUfsFlightUnitControl, 0,
+        (ULONG)ControlType, Parameters != NULL ? 1UL : 0UL,
+        Adapter->TransportReady ? 1UL : 0UL,
+        Adapter->EnumerationReady ? 1UL : 0UL,
+        Adapter->BusTypeQueryCount);
 
     if (ControlType == ScsiQuerySupportedUnitControlTypes) {
         PSCSI_SUPPORTED_CONTROL_TYPE_LIST Supported;
@@ -1052,6 +1170,13 @@ B2LUfsStartIo(_In_ PVOID DeviceExtension, _In_ PSCSI_REQUEST_BLOCK Srb)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
 
+    B2LUfsFlightLog(
+        B2LUfsFlightStartIo, 0,
+        Srb->Function,
+        ((ULONG)Srb->Cdb[0] << 24) | ((ULONG)Srb->PathId << 16) |
+            ((ULONG)Srb->TargetId << 8) | Srb->Lun,
+        Srb->DataTransferLength, Srb->SrbFlags, Srb->QueueTag);
+
     B2LUfsExecuteScsi(DeviceExtension, Adapter, Srb);
     return TRUE;
 }
@@ -1074,6 +1199,12 @@ B2LUfsResetBus(_In_ PVOID DeviceExtension, _In_ ULONG PathId)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
 
+    B2LUfsFlightLog(
+        B2LUfsFlightResetBus, 0,
+        PathId, Adapter->DumpMode ? 1UL : 0UL,
+        Adapter->AdapterRemoved ? 1UL : 0UL,
+        Adapter->TransportReady ? 1UL : 0UL, 0);
+
     if (PathId != 0 || Adapter->AdapterRemoved) {
         return FALSE;
     }
@@ -1094,6 +1225,12 @@ B2LUfsAdapterControl(
     _In_ PVOID Parameters)
 {
     B2LUFS_ADAPTER *Adapter = (B2LUFS_ADAPTER *)DeviceExtension;
+
+    B2LUfsFlightLog(
+        B2LUfsFlightAdapterControl, 0,
+        (ULONG)ControlType, Parameters != NULL ? 1UL : 0UL,
+        Adapter->TransportReady ? 1UL : 0UL,
+        Adapter->AdapterRemoved ? 1UL : 0UL, 0);
 
     if (ControlType == ScsiQuerySupportedControlTypes) {
         PSCSI_SUPPORTED_CONTROL_TYPE_LIST Supported;
@@ -1148,6 +1285,11 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
 {
     HW_INITIALIZATION_DATA InitData;
     PVOID HwContext;
+    ULONG Status;
+    BOOLEAN DumpEntry;
+
+    DumpEntry = Argument1 == NULL && Argument2 == NULL;
+    (void)B2LUfsFlightInitialize(DumpEntry);
 
     B2LUfsZeroMemory(&InitData, sizeof(InitData));
     InitData.HwInitializationDataSize = sizeof(InitData);
@@ -1207,7 +1349,13 @@ DriverEntry(_In_ PVOID Argument1, _In_ PVOID Argument2)
                               STOR_FEATURE_SET_ADAPTER_INTERFACE_TYPE |
                               STOR_FEATURE_FULL_PNP_DEVICE_CAPABILITIES;
 
-    HwContext = (Argument1 == NULL && Argument2 == NULL) ?
+    HwContext = DumpEntry ?
                 (PVOID)(ULONG_PTR)1 : NULL;
-    return StorPortInitialize(Argument1, Argument2, &InitData, HwContext);
+    Status = StorPortInitialize(Argument1, Argument2, &InitData, HwContext);
+    B2LUfsFlightLog(
+        B2LUfsFlightStorPortReturn, DumpEntry ? 1U : 0U,
+        Status, DumpEntry ? 1UL : 0UL,
+        InitData.DeviceExtensionSize, InitData.SrbExtensionSize,
+        InitData.NumberOfAccessRanges);
+    return Status;
 }

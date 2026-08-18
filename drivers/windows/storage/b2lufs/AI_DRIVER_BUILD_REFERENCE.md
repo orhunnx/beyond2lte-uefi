@@ -62,15 +62,17 @@ Firmware ve Windows görev sınırı şöyledir:
 
 ### 2.1 Doğrudan SYS ikilisine giren dosyalar
 
-`build-b2lufs.ps1` aşağıdaki beş dosyayı Windows `%TEMP%` altında yerel bir
-staging dizinine kopyalar. Üç `.c` dosyası derlenir, iki `.h` dosyası bunların
+`build-b2lufs.ps1` aşağıdaki yedi dosyayı Windows `%TEMP%` altında yerel bir
+staging dizinine kopyalar. Dört `.c` dosyası derlenir, üç `.h` dosyası bunların
 başlığıdır:
 
 | Dosya | SYS içindeki rolü |
 |---|---|
 | `windows/b2lufs/b2lufs_hw.h` | İşletim sisteminden bağımsız Exynos 9820 MMIO/kaynak sözleşmesi |
+| `windows/b2lufs/b2lufs_flight.h` | Firmware-reserved sıcak-reset uçuş kaydının sabit ikili ABI'si |
 | `windows/b2lufs/b2lufs_transport.h` | StorPort taşıma katmanının veri yapıları ve dış fonksiyonları |
 | `windows/b2lufs/b2lufs_resources.c` | ACPI/StorPort kaynaklarını taban adresine göre doğrulayıp bağlama |
+| `windows/b2lufs/b2lufs_flight.c` | ARMED kapısı, non-cached eşleme ve commit'li olay yazıcısı |
 | `windows/b2lufs/b2lufs_transport.c` | UFSHCI, UTP, UPIU, PRDT, SCSI, DMA ve GPT veri yolu |
 | `windows/b2lufs/b2lufs_storport.c` | StorPort callback'leri, DriverEntry, PnP ve registry telemetrisi |
 
@@ -82,6 +84,8 @@ başlığıdır:
 | `windows/b2lufs/build-b2lufs.ps1` | Windows MSVC/WDK ile yalnız `b2lufs.sys` derlemesi |
 | `windows/b2lufs/b2lgptdump.c` | WinPE'de PhysicalDrive0 GPT bölgelerini salt-okunur döken ve başarılı doğrulamadan sonra Windows bölüm önbelleğini yenileyen freestanding ARM64 araç |
 | `windows/b2lufs/test_resources.c` | WDK gerektirmeyen kaynak-bağlama ve GPT normalizasyon birim testi |
+| `tools_b2lufs_flight_decode.py` | Ham 64 KiB sıcak-reset kaydını ABI/commit denetimiyle çözme |
+| `tests/test_b2lufs_flight_decode.py` | Uçuş kaydı decoder ve bozuk-record regresyon testi |
 | `windows/b2lufs/README.md` | Tasarım ve çalışma davranışının geliştirici notları |
 | `windows/b2lufs/AI_DRIVER_BUILD_REFERENCE.md` | Bu dosya; kaynak ve build zinciri referansı |
 
@@ -113,7 +117,7 @@ başlığıdır:
 |---|---|---|
 | `powershell.exe` | Windows | Yerel MSVC/WDK derleme betiğini çalıştırır |
 | `vcvarsamd64_arm64.bat` | Windows | x64 host / ARM64 target MSVC ortamını kurar |
-| `cl.exe` | Windows | Üç C translation unit'i ARM64 kernel object'e derler |
+| `cl.exe` | Windows | Dört C translation unit'i ARM64 kernel object'e derler |
 | `link.exe` | Windows | Object'leri StorPort/NT kernel importlarıyla SYS'ye bağlar |
 | WDK headers ve `.lib` dosyaları | Windows | StorPort/NT DDI, ARM64 kernel ABI ve import library'leri |
 | `Inf2Cat.exe` | Windows, WSL'den çağrılır | INF paketini doğrular ve catalog üretir |
@@ -536,7 +540,7 @@ Visual Studio tarafında aynı kurulum ağacındaki en yeni
 
 Kaynak repo WSL'nin `\\wsl.localhost\...` UNC yolu üzerinden açılabilir.
 `cmd.exe` UNC çalışma dizinini normal bir current directory olarak kullanamaz.
-PowerShell betiği beş kaynak/header dosyasını `%TEMP%\b2lufs-arm64-<GUID>`
+PowerShell betiği yedi kaynak/header dosyasını `%TEMP%\b2lufs-arm64-<GUID>`
 altına kopyalar, derlemeyi orada yapar ve yalnız doğrulanmış SYS'yi repo
 `out\b2lufs` dizinine geri kopyalar.
 
@@ -612,6 +616,7 @@ altında uyarıyı build hatasına çevirebilir.
 
 ```text
 b2lufs_resources.obj
+b2lufs_flight.obj
 b2lufs_transport.obj
 b2lufs_storport.obj
 ```
@@ -625,7 +630,7 @@ link.exe /nologo /kernel /driver /subsystem:native
   /entry:DriverEntry /machine:arm64 /nodefaultlib
   /libpath:"<WDK>\Lib\<version>\km\arm64"
   /out:"b2lufs.sys"
-  b2lufs_resources.obj b2lufs_transport.obj b2lufs_storport.obj
+  b2lufs_resources.obj b2lufs_flight.obj b2lufs_transport.obj b2lufs_storport.obj
   storport.lib ntoskrnl.lib
 ```
 

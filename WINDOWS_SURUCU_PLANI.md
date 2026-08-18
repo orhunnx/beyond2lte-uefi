@@ -6,7 +6,7 @@ ekleyemez miyiz?"*
 Cevap: evet, ve `storufs.sys` kapısı yapısal olarak kapandığına göre (bkz.
 STATUS.md, "_CCA=0 sonuç vermedi") **tek gerçek çözüm bu.** Ama sıra önemli.
 
-## Güncel durum — taşıma kanıtlandı, disk-boot kurulumu düzeltiliyor
+## Güncel durum — taşıma kanıtlandı, disk-boot uçuş kaydıyla ölçülüyor
 
 Bu belgedeki sürücü planı artık yalnız bir tasarım değildir. `b2lufs` aynı
 WinPE oturumunda dahili UFS'i 119 GB Disk 0 olarak yayımladı, 31 GPT bölümünü
@@ -38,8 +38,8 @@ bırakıldığı, üstelik aracın boot edilemez uyarısının script tarafında
 gizlendiği bulundu. Stok PIT'te SYSTEM başlangıcı 83968, CACHE başlangıcı
 1983488 4Kn LBA'dır. Güncel imaj üreticileri bu değerleri BPB'ye yazar,
 255/63 uyumluluk geometrisini ekler, PIT kapasitesini ve bütün alanları içerik
-kopyasından sonra tekrar doğrular. Bu paketleme düzeltmesi cihazda henüz
-doğrulanmamıştır; miniporta bu turda yeni bir değişiklik yapılmamıştır.
+kopyasından sonra tekrar doğrular. Bu paketleme düzeltmesi cihazda da aynı
+0x7B sonucunu verdi; doğru geometri olarak korunur ama kök neden değildir.
 
 Güncel sürücü ham telefon GPT'sine yazmadan, salt ve CRC-tutarlı Windows
 snapshot'ında hem `SYSTEM` hem `CACHE` girdilerini Basic Data yapıp attribute
@@ -55,8 +55,17 @@ kökünü göstermelidir. Güncel BCD bu nedenle
 `device=locate:\Windows\System32\Boot\winload.efi` ve
 `osdevice=locate:\Windows` üretir, ardından ikisini BCD deposundan geri okur.
 Eski masaüstü BCD sonucu betik hash'ine bağlı istek kimliği olmadan kabul
-edilmez; disk-boot WIM'i de her tur ISO'dan temiz çıkarılır. Bu düzeltme
-cihazda henüz doğrulanmamıştır.
+edilmez; disk-boot WIM'i de her tur ISO'dan temiz çıkarılır. Bu düzeltme de
+cihazda aynı 0x7B sonucunu verdi ve tek kök neden olmadığı kanıtlandı.
+
+Güncel `0.0.8.0` yeni bir taşıma davranışı tahmin etmek yerine miniportun en
+erken boot yaşam döngüsünü sıcak-reset uçuş kaydına alır. `0xCF050000` tabanlı
+64 KiB alan UEFI tarafından `ARMED` yapılır; DriverEntry, kaynak/DMA, HCI
+devri, capacity/LUN/GPT başlangıç probları, StorPort SRB'leri ve her gerçek UFS
+komutunun begin/done sonucu commit'li kayıtlardır. Debug WIM'i
+`AutoReboot=1` ile hazırlanır; 0x7B sonrasındaki yazılım sıcak resetinde
+B2LGoster kaydı okur. Böylece bir sonraki tur varsayım değil, son tamamlanan
+callback/CDB/OCS/interrupt status üzerinden ilerler.
 
 Disk-boot akışı ayrıca INF/SYS/CAT paketini Windows DISM ile çevrimdışı
 DriverStore/DriverDatabase'a kurar; sonra `Start=0` servis kaydı ve
@@ -191,13 +200,15 @@ Windows'ta pratik bir USB **device/gadget** modu yok. Linux'un gadget
 DWC3 için UFX istemci sürücüsü yazmak endpoint yönetimi, descriptor'lar ve
 CDC-ACM sınıfı demek. Hepsi de çıktı kanalı **olmadan** yazılacak.
 
-Aynı faydanın ucuz hali: **`0xCF000000`'daki ayrılmış bölgeye halka tampon.**
+Aynı faydanın ucuz hali: ayrılmış belleğe sıcak-reset halka tamponudur. Planın
+uygulanan güncel adresi **`0xCF050000`**'dır; `0xCF000000..0xCF03FFFF` EL2 ve
+`0xCF040000..0xCF04FFFF` runtime tanı alanlarıyla çakışmaması için seçilmiştir.
 
-- Bölge hafıza haritamızda zaten ayrılmış (`B2L EL2`, `Reserv`,
-  `UNCACHED_UNBUFFERED`)
+- Bölge hafıza haritamızdaki `Lower dynamic guard` içinde ayrılmıştır
+  (`EfiReservedMemoryType`)
 - **DRAM'in sıfırlamayı hayatta geçirdiğini ölçtük**: `B2LResetHookDxe`
   sayacı 0x403'ten 0x404'e geçti
-- `startup.nsh` zaten `dmem` ile o adresi döküyor
+- B2LGoster aynı sabit ABI'yi yorumlayıp son kayıtları büyük yazıyla gösterir
 
 Yani sürücü çöküş anında oraya yazar, cihaz sıfırlanır, sonraki açılışta
 Shell logu ekrana basar. **Çöküş anındaki kaydı çöküşten sonra okumak** —

@@ -16,6 +16,13 @@ PIT="$ROOT/BEYOND2LTE_EUR_OPEN.pit"
 UFS_INF="$ROOT/windows/b2lufs/b2lufs.inf.in"
 UFS_DSDT="$ROOT/silicium-acpi-overlay/SoCs/Samsung/S5E9820/DSDT_minimal.dsl"
 UFS_STORPORT="$ROOT/windows/b2lufs/b2lufs_storport.c"
+UFS_TRANSPORT="$ROOT/windows/b2lufs/b2lufs_transport.c"
+UFS_FLIGHT="$ROOT/windows/b2lufs/b2lufs_flight.c"
+UFS_FLIGHT_HEADER="$ROOT/windows/b2lufs/b2lufs_flight.h"
+UFS_BUILD="$ROOT/windows/b2lufs/build-b2lufs.ps1"
+UFS_GOSTER="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LGoster/B2LGoster.c"
+UFS_GOSTER_INF="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LGoster/B2LGoster.inf"
+UFS_DEBUG_STARTUP="$ROOT/esp/startup-ufs-debug.nsh"
 
 for script in \
   "$ROOT/tools_ufsboot.sh" \
@@ -277,6 +284,49 @@ passive_enable_line="$(grep -n 'StorPortEnablePassiveInitialization' <<<"$initia
   echo "HATA: HwInitialize boot-medya hazirlik sirasi bozuldu." >&2
   exit 1
 }
+
+# INACCESSIBLE_BOOT_DEVICE, dosya sistemi baglanmadan once oldugu icin ETW,
+# registry veya X: uzerindeki kayitlar bu turda geri alinamaz. B2LUFS erken
+# yasam dongusunu firmware'in ayirdigi, sicak reset boyunca kalan RAM'e yazar;
+# sonraki UEFI acilisi ayni ABI'yi buyuk puntolu ekranda yorumlar.
+[[ -s "$UFS_FLIGHT" && -s "$UFS_FLIGHT_HEADER" ]] || {
+  echo "HATA: B2LUFS sicak-reset ucus kaydi kaynaklari yok." >&2
+  exit 1
+}
+grep -Fq '#define B2LUFS_FLIGHT_PHYSICAL_BASE' "$UFS_FLIGHT_HEADER"
+grep -Fq 'UINT64_C(0xCF050000)' "$UFS_FLIGHT_HEADER"
+grep -Fq '#define B2LUFS_FLIGHT_BYTES' "$UFS_FLIGHT_HEADER"
+grep -Fq 'UINT32_C(0x00010000)' "$UFS_FLIGHT_HEADER"
+grep -Fq 'B2LUfsFlightInitialize' "$UFS_FLIGHT"
+grep -Fq 'MmMapIoSpace' "$UFS_FLIGHT"
+grep -Fq 'InterlockedCompareExchange(&B2LUfsFlightLock' "$UFS_FLIGHT"
+if grep -Fq 'InterlockedIncrement(&B2LUfsFlightHeader' "$UFS_FLIGHT"; then
+  echo "HATA: MmNonCached ucus kaydinda yasak Interlocked islemi kullaniliyor." >&2
+  exit 1
+fi
+grep -Fq 'B2LUfsFlightLog' "$UFS_STORPORT"
+grep -Fq 'B2LUfsFlightLog' "$UFS_TRANSPORT"
+grep -Fq "'b2lufs_flight.c'" "$UFS_BUILD"
+grep -Fq 'b2lufs_flight.obj' "$UFS_BUILD"
+grep -Fq 'B2LUFS UCUS KAYDI' "$UFS_GOSTER"
+grep -Fq 'B2LUFS_FLIGHT_PHYSICAL_BASE' "$UFS_GOSTER"
+grep -Fq 'InvalidateDataCacheRange ((VOID *)Header, B2LUFS_FLIGHT_BYTES)' "$UFS_GOSTER"
+grep -Fq 'CacheMaintenanceLib' "$UFS_GOSTER_INF"
+[[ -s "$UFS_DEBUG_STARTUP" ]] || {
+  echo "HATA: UFS disk-boot tani startup betigi yok." >&2
+  exit 1
+}
+grep -Fq -- '--debug' "$ORCHESTRATOR"
+grep -Fq -- '--ufs-debug' "$ORCHESTRATOR"
+grep -Fq 'export B2L_BUGCHECK_AUTOREBOOT="$DEBUG_MODE"' "$ORCHESTRATOR"
+grep -Fq 'BUGCHECK_AUTOREBOOT="${B2L_BUGCHECK_AUTOREBOOT:-0}"' "$WINBOOT"
+grep -Fq 'DOGRULANDI: bugcheck sicak yeniden baslatacak' "$WINBOOT"
+grep -Fq -- '--ufs-debug' "$CACHE_ESP"
+grep -Fq 'B2LGOSTR.EFI' "$UFS_DEBUG_STARTUP"
+grep -Fq 'bootmgfw.efi' "$UFS_DEBUG_STARTUP"
+grep -Fq 'DriverVer=08/18/2026,0.0.8.0' "$UFS_INF"
+
+python3 "$ROOT/tests/test_b2lufs_flight_decode.py"
 
 unicode_desktop_b64='QzpcVXNlcnNcb3JodW5cT25lRHJpdmVcTWFzYcO8c3TDvA=='
 unicode_desktop="$(printf '%s' "$unicode_desktop_b64" | base64 --decode)"

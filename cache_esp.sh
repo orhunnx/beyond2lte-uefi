@@ -6,7 +6,7 @@
 #   out/cache.img       ham imaj   -> recovery + adb dd yolu
 #   out/cache-esp.tar   sparse tar -> Odin, AP slotu
 #
-#   bash cache_esp.sh [--win] [--disk] [--baseline|--psci-hvc|--bos] [iceri-konacak-dosya.efi]
+#   bash cache_esp.sh [--win] [--disk] [--baseline|--ufs-debug|--psci-hvc|--bos] [iceri-konacak-dosya.efi]
 #
 # Argüman verilmezse Mu-Silicium build'indeki Shell.efi aranir.
 #
@@ -62,6 +62,7 @@ BOSALT=0
 BASELINE=0
 PSCI_HVC=0
 DISK_BOOT=0
+UFS_DEBUG=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
@@ -72,15 +73,21 @@ for a in "$@"; do
     --baseline) BASELINE=1 ;;
     --psci-hvc) PSCI_HVC=1 ;;
     --disk)   DISK_BOOT=1 ;;
+    --ufs-debug) UFS_DEBUG=1 ;;
     *)        ARGS+=("$a") ;;
   esac
 done
 if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
 
 if [ "$DISK_BOOT" = 1 ]; then
-  if [ "$WINONLY" = 0 ] || [ "$BASELINE" = 0 ]; then
-    echo "--disk yalniz temiz Windows disk-boot ESP'si icindir."
+  if [ "$WINONLY" = 0 ] || { [ "$BASELINE" = 0 ] && [ "$UFS_DEBUG" = 0 ]; }; then
+    echo "--disk icin --baseline veya --ufs-debug secilmelidir."
     echo "Dogru komut: bash cache_esp.sh --win --disk --baseline"
+    echo "Tani turu : bash cache_esp.sh --win --disk --ufs-debug"
+    exit 1
+  fi
+  if [ "$BASELINE" = 1 ] && [ "$UFS_DEBUG" = 1 ]; then
+    echo "--baseline ve --ufs-debug birlikte kullanilmaz."
     exit 1
   fi
   if [ "$BIGPART" = 1 ] || [ "$BOSALT" = 1 ] || [ "$PSCI_HVC" = 1 ] || [ "$LINUXOK" = 1 ]; then
@@ -127,6 +134,20 @@ fi
 if [ "$WINONLY" = 1 ]; then say "MOD: Windows"; else say "MOD: Linux"; fi
 if [ "$BASELINE" = 1 ]; then
   say "MOD: Windows temiz taban (B2L tani yok)"
+fi
+if [ "$UFS_DEBUG" = 1 ]; then
+  GOSTER_SOURCE="$PROJ/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LGoster/B2LGoster.c"
+  GOSTER_INF="$PROJ/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LGoster/B2LGoster.inf"
+  [ -s "$PROJ/esp/B2LGOSTR.EFI" ] || {
+    echo "HATA: B2LUFS kaydini gosterecek esp/B2LGOSTR.EFI yok. Once: bash yap.sh"
+    exit 1
+  }
+  if [ "$GOSTER_SOURCE" -nt "$PROJ/esp/B2LGOSTR.EFI" ] || \
+     [ "$GOSTER_INF" -nt "$PROJ/esp/B2LGOSTR.EFI" ]; then
+    echo "HATA: esp/B2LGOSTR.EFI kaynaklardan eski. Once: bash yap.sh"
+    exit 1
+  fi
+  say "MOD: Windows UFS disk-boot sicak-reset ucus kaydi"
 fi
 if [ "$PSCI_HVC" = 1 ]; then
   [ -s "$PROJ/esp/B2LGOSTR.EFI" ] || {
@@ -413,6 +434,8 @@ echo "  $PARTITION_NAME FAT boot geometrisi dogrulandi: hidden=$PARTITION_START_
 NSH="$PROJ/esp/startup.nsh"
 if [ "$BASELINE" = 1 ]; then
   NSH="$PROJ/esp/startup-baseline.nsh"
+elif [ "$UFS_DEBUG" = 1 ]; then
+  NSH="$PROJ/esp/startup-ufs-debug.nsh"
 fi
 
 # Bir tur, cihazdan geri okunan imajda ESKI startup.nsh cikti: kernel'ler
@@ -442,8 +465,10 @@ if command -v mcopy >/dev/null; then
     b="$(basename "$f")"
     [ "$b" = "startup.nsh" ] && continue
     [ "$b" = "startup-baseline.nsh" ] && continue
+    [ "$b" = "startup-ufs-debug.nsh" ] && continue
     [ -e "$f" ] || continue
-    if [ "$DISK_BOOT" = 1 ] && [ "$b" != "EFI" ]; then
+    if [ "$DISK_BOOT" = 1 ] && [ "$b" != "EFI" ] && \
+       { [ "$UFS_DEBUG" = 0 ] || [ "$b" != "B2LGOSTR.EFI" ]; }; then
       echo "  - $b (atlandi: disk-boot ESP yalniz EFI agacini tasir)"
       continue
     fi
@@ -494,6 +519,11 @@ if command -v mcopy >/dev/null; then
         exit 1
       fi
     done
+    if [ "$UFS_DEBUG" = 1 ] && \
+       ! mdir -i "$IMG" ::/B2LGOSTR.EFI >/dev/null 2>&1; then
+      echo "HATA: UFS tani disk-boot CACHE imajinda B2LGOSTR.EFI yok."
+      exit 1
+    fi
     if mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
       echo "HATA: disk-boot CACHE imajina sources/ sizmis; boot.wim burada olmamali."
       exit 1

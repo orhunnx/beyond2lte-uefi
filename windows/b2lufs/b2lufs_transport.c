@@ -14,7 +14,7 @@
 #include <ntddk.h>
 #include <storport.h>
 
-
+#include "b2lufs_flight.h"
 #include "b2lufs_transport.h"
 
 #define B2LUFS_UTRD_ALIGNMENT             1024UL
@@ -1435,8 +1435,15 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
 {
     ULONG InterruptStatus;
     ULONG Attempts;
+    ULONG Hce;
+    ULONG Doorbell;
 
     if (Adapter->UtrdVirtual == NULL || Adapter->UcdVirtual == NULL) {
+        B2LUfsFlightLog(
+            B2LUfsFlightTransportResult, 1,
+            B2LUfsFlightTransportNoDma,
+            Adapter->UtrdVirtual != NULL ? 1UL : 0UL,
+            Adapter->UcdVirtual != NULL ? 1UL : 0UL, 0, 0);
         return FALSE;
     }
 
@@ -1455,25 +1462,46 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
         B2LUFS_HCS_READY_MASK ||
         Adapter->TransferSlotCount == 0 || Adapter->TransferSlotCount > 32UL ||
         Adapter->TaskSlotCount == 0 || Adapter->TaskSlotCount > 32UL) {
+        B2LUfsFlightLog(
+            B2LUfsFlightTransportResult, 2,
+            B2LUfsFlightTransportNotReady,
+            Adapter->ControllerCapabilities, Adapter->ControllerStatus,
+            Adapter->TransferSlotCount, Adapter->TaskSlotCount);
         return FALSE;
     }
     if ((Adapter->ControllerCapabilities & B2LUFS_CAP_64_ADDRESSING) == 0 &&
         (Adapter->UtrdPhysical.HighPart != 0 ||
          Adapter->UcdPhysical.HighPart != 0)) {
+        B2LUfsFlightLog(
+            B2LUfsFlightTransportResult, 3,
+            B2LUfsFlightTransportAddressWidth,
+            Adapter->ControllerCapabilities, Adapter->UtrdPhysical.HighPart,
+            Adapter->UcdPhysical.HighPart, 0);
         return FALSE;
     }
-    if ((B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_HCE) &
-         B2LUFS_HCE_ENABLE) == 0) {
+    Hce = B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_HCE);
+    if ((Hce & B2LUFS_HCE_ENABLE) == 0) {
         /* Never enable/reset the controller from Windows if firmware did not. */
+        B2LUfsFlightLog(
+            B2LUfsFlightTransportResult, 4,
+            B2LUfsFlightTransportHceOff,
+            Adapter->ControllerCapabilities, Adapter->ControllerStatus,
+            Hce, 0);
         return FALSE;
     }
 
-    if (B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR) != 0) {
+    Doorbell = B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLDBR);
+    if (Doorbell != 0) {
         /*
          * Firmware may have used any UTR slot, not only the one B2LUFS will
          * later borrow. Stopping the list while any doorbell is set could
          * truncate a final UEFI Block I/O request across ExitBootServices.
          */
+        B2LUfsFlightLog(
+            B2LUfsFlightTransportResult, 5,
+            B2LUfsFlightTransportDoorbellBusy,
+            Adapter->ControllerCapabilities, Adapter->ControllerStatus,
+            Hce, Doorbell);
         return FALSE;
     }
 
@@ -1491,6 +1519,11 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
         StorPortStallExecution(10);
     }
     if (Attempts == 1000UL) {
+        B2LUfsFlightLog(
+            B2LUfsFlightTransportResult, 6,
+            B2LUfsFlightTransportStopTimeout,
+            Adapter->ControllerCapabilities, Adapter->ControllerStatus,
+            Hce, Attempts);
         return FALSE;
     }
 
@@ -1537,6 +1570,11 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
                     B2LUFS_UTRL_RUN_STOP);
     if ((B2LUfsReadHci(DeviceExtension, Adapter, B2LUFS_REG_UTRLRSR) &
          B2LUFS_UTRL_RUN_STOP) == 0) {
+        B2LUfsFlightLog(
+            B2LUfsFlightTransportResult, 7,
+            B2LUfsFlightTransportStartFailed,
+            Adapter->ControllerCapabilities, Adapter->ControllerStatus,
+            Hce, InterruptStatus);
         return FALSE;
     }
 
@@ -1548,6 +1586,11 @@ B2LUfsStartTransport(_In_ PVOID DeviceExtension, _Inout_ B2LUFS_ADAPTER *Adapter
     Adapter->CachedGptTraceBudget =
         Adapter->DumpMode ? 0 : B2LUFS_CACHED_GPT_TRACE_BUDGET;
     Adapter->CachedGptTraceSequence = 0;
+    B2LUfsFlightLog(
+        B2LUfsFlightTransportResult, 0,
+        B2LUfsFlightTransportOk,
+        Adapter->ControllerCapabilities, Adapter->ControllerStatus,
+        Hce, InterruptStatus);
     return TRUE;
 }
 
@@ -1657,6 +1700,11 @@ B2LUfsSubmitScsi(
     if (ReturnedLength != NULL) {
         *ReturnedLength = 0;
     }
+    B2LUfsFlightLog(
+        B2LUfsFlightSubmitBegin, 0,
+        Cdb[0], RequestedLength, (ULONG)DataDirection,
+        Srb != NULL ? Srb->QueueTag : 0UL,
+        Adapter->TransportReady ? 1UL : 0UL);
     if (CdbLength == 0 || CdbLength > 16 ||
         RequestedLength > B2LUFS_MAX_TRANSFER ||
         DataDirection == B2LUfsDataInvalid ||
@@ -2994,11 +3042,19 @@ B2LUfsTryCompleteCachedCapacity(
             sizeof(Trace),
             &Trace);
     }
+    B2LUfsFlightLog(
+        B2LUfsFlightCachedCapacity, 0,
+        Trace.Outcome, Trace.MapStatus, Trace.MapSource,
+        Trace.RequestedLength, Trace.ReturnedLength);
     /* BLC3 already contains the complete software response. */
     B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
     return TRUE;
 
 LogAndFallback:
+    B2LUfsFlightLog(
+        B2LUfsFlightCachedCapacity, 1,
+        Trace.Outcome, Trace.MapStatus, Trace.MapSource,
+        Trace.RequestedLength, 0);
     if (!Adapter->DumpMode) {
         (void)StorPortEtwLogError(
             DeviceExtension,
@@ -3079,6 +3135,10 @@ B2LUfsTryCompleteCachedGptRead(
         MapSource = B2LUFS_GPT_CACHE_MAP_DATA_BUFFER;
     }
     if (SystemAddress == NULL) {
+        B2LUfsFlightLog(
+            B2LUfsFlightCachedGpt, 1,
+            B2LUFS_GPT_CACHE_OUTCOME_MAP_FAILED,
+            (ULONG)StartLba, BlockCount, Status, MapSource);
         B2LUfsLogCachedGptTrace(
             DeviceExtension, Adapter, Srb,
             B2LUFS_GPT_CACHE_OUTCOME_MAP_FAILED,
@@ -3093,6 +3153,10 @@ B2LUfsTryCompleteCachedGptRead(
                 Adapter,
                 StartLba + Index,
                 Output + (Index * Adapter->CapacityBlockLength))) {
+            B2LUfsFlightLog(
+                B2LUfsFlightCachedGpt, 2,
+                B2LUFS_GPT_CACHE_OUTCOME_COPY_FAILED,
+                (ULONG)StartLba, BlockCount, Index, MapSource);
             B2LUfsLogCachedGptTrace(
                 DeviceExtension, Adapter, Srb,
                 B2LUFS_GPT_CACHE_OUTCOME_COPY_FAILED,
@@ -3107,6 +3171,10 @@ B2LUfsTryCompleteCachedGptRead(
         B2LUFS_GPT_CACHE_OUTCOME_COMPLETED,
         Status, MapSource, StartLba, BlockCount, Output,
         (ULONG)RequestedBytes);
+    B2LUfsFlightLog(
+        B2LUfsFlightCachedGpt, 0,
+        B2LUFS_GPT_CACHE_OUTCOME_COMPLETED,
+        (ULONG)StartLba, BlockCount, (ULONG)RequestedBytes, MapSource);
     Srb->DataTransferLength = (ULONG)RequestedBytes;
     Srb->ScsiStatus = B2LUFS_SCSI_STATUS_GOOD;
     B2LUfsComplete(DeviceExtension, Srb, SRB_STATUS_SUCCESS);
@@ -3357,6 +3425,11 @@ B2LUfsExecuteScsi(
         RequestedLength,
         &Srb->ScsiStatus,
         &ReturnedLength);
+    B2LUfsFlightLog(
+        B2LUfsFlightSubmitDone, 0,
+        Srb->Cdb[0], (ULONG)Result,
+        ((ULONG)Srb->ScsiStatus << 24) | (ReturnedLength & 0x00FFFFFFUL),
+        Adapter->LastUtrdOcs, Adapter->LastInterruptStatus);
     Srb->DataTransferLength = ReturnedLength;
     if (Result == B2LUfsTransferOk &&
         Srb->ScsiStatus == B2LUFS_SCSI_STATUS_GOOD &&

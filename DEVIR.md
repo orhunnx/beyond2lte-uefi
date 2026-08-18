@@ -1855,6 +1855,7 @@ Mac'te çalışır, sonra WSL'de `git pull`.
 | `0xCF041080` | | SEH/PSCI durum sözcükleri |
 | `0xCF041100` | | önceki açılışın SEH kopyası |
 | `0xCF041300` | | GIC susturma kaydı |
+| `0xCF050000` | 64 KB | **B2LUFS sıcak-reset uçuş kaydı** (`Reserv`, yalnız `ARMED` ise yazılır) |
 | `0x10101000` | 4 KB | GICD (dağıtıcı) |
 | `0x15860404` | 4 B | PMU `RST_STAT` |
 

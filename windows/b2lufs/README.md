@@ -6,6 +6,27 @@ aygıtına bağlanan bir **fiziksel StorPort miniportu**dur.
 Kaynak dosyalarının görevleri, MSVC/WDK bayrakları ve imza–WIM–Odin araç
 zinciri için: [`AI_DRIVER_BUILD_REFERENCE.md`](AI_DRIVER_BUILD_REFERENCE.md).
 
+## Disk-boot sıcak-reset uçuş kaydı
+
+`INACCESSIBLE_BOOT_DEVICE`, SYSTEM volume bağlanmadan oluştuğu için normal
+registry/ETW/dosya tanısı geri alınamaz. `b2lufs_flight.c/.h`, yalnız UEFI
+B2LGoster `0xCF050000` firmware-reserved alanını `ARMED` yaptıysa 64 KiB'lik
+commit'li halka kaydı etkinleştirir. DriverEntry, StorPort adapter/init yaşam
+döngüsü, capacity/LUN/GPT probları ve gerçek SCSI begin/done sonuçları olay
+kimliği ile yazılır; medya verisi yazılmaz.
+
+Alan `MmNonCached` eşlenir. Microsoft non-cached bellek üzerinde Interlocked
+işlemlerini yasakladığı için write index atomik artırılmaz. Bunun yerine normal
+cached sürücü imajında beklemesiz try-lock kullanılır; çakışan tanı kaydı
+düşürülür, boot callback'i bekletilmez. Record commit sözcüğü ve ardından header
+write index'i en son store edilir. Normal/ARMED olmayan paket eşlemeyi hemen
+bırakır ve logger no-op olur.
+
+`tools_ufsboot.sh --debug`, güncel B2LGoster'ı CACHE ESP'ye ekler ve bugcheck
+sonrası DRAM korunarak firmware'e dönülebilmesi için WinPE `AutoReboot=1`
+değerini yazıp doğrular. UEFI ekranı son altı geçerli olayı gösterir; ham 64 KiB
+görüntü `tools_b2lufs_flight_decode.py` ile tamamen çözülebilir.
+
 ## LUN 0 okuma/yazma ve GPT erişimi
 
 `b2lufs_resources.c`, UEFI `PlatformUfsLib` ile stok Exynos sürücüsünün
