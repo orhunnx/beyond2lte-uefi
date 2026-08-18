@@ -72,7 +72,7 @@ başlığıdır:
 | `windows/b2lufs/b2lufs_flight.h` | Firmware-reserved sıcak-reset uçuş kaydının sabit ikili ABI'si |
 | `windows/b2lufs/b2lufs_transport.h` | StorPort taşıma katmanının veri yapıları ve dış fonksiyonları |
 | `windows/b2lufs/b2lufs_resources.c` | ACPI/StorPort kaynaklarını taban adresine göre doğrulayıp bağlama |
-| `windows/b2lufs/b2lufs_flight.c` | ARMED kapısı, non-cached eşleme, ARM64 inline try-lock ve commit'li olay yazıcısı |
+| `windows/b2lufs/b2lufs_flight.c` | ARMED kapısı, non-cached eşleme, best-effort tanı kapısı ve commit'li olay yazıcısı |
 | `windows/b2lufs/b2lufs_transport.c` | UFSHCI, UTP, UPIU, PRDT, SCSI, DMA ve GPT veri yolu |
 | `windows/b2lufs/b2lufs_storport.c` | StorPort callback'leri, DriverEntry, PnP ve registry telemetrisi |
 
@@ -611,6 +611,14 @@ Ayrıntılı anlamları:
 `_KERNEL_MODE` elle `/D` ile tanımlanmaz. `/kernel` gereken compiler durumunu
 kurar; `_KERNEL_MODE` MSVC'nin rezerve makrosudur ve elle tanımı `/WX`
 altında uyarıyı build hatasına çevirebilir.
+
+Bu ham ARM64 `/kernel /Zl /nodefaultlib` zincirinde `Interlocked*` adları ve
+`_acq/_rel` çeşitleri, `#pragma intrinsic` bulunsa bile object içinde dış
+sembol kalabilir. Microsoft'un intrinsic pragma sözleşmesi de derleyicinin
+uygun gördüğünde çağrı bırakabileceğini belirtir. Bu nedenle yalnız tanı
+sayacı/kapısı olan kod atomiklik istemez; `b2lufs_transport.c` sayaçları ve
+`b2lufs_flight.c` busy kapısı best-effort volatile erişim kullanır. Gerçek UFS
+komut veya kaynak eşzamanlaması bu istisnaya sokulamaz.
 
 Üretilen object dosyaları:
 

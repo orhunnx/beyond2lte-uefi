@@ -1,26 +1,19 @@
 /* See b2lufs_flight.h for the persistent ABI and safety boundary. */
 #include <ntddk.h>
-#include <intrin.h>
 
 #include "b2lufs_flight.h"
 
 static volatile B2LUFS_FLIGHT_HEADER *B2LUfsFlightHeader;
 /*
- * Interlocked operations are forbidden on MmNonCached memory.  Serialize the
- * recorder through this ordinary cached image variable, then update the
- * reserved-memory ABI with plain volatile stores.  Never spin here: a lost
- * diagnostic record is preferable to changing StorPort timing or deadlocking
- * at DIRQL during a bugcheck.
+ * This is deliberately a non-atomic, cached best-effort reentrancy gate.
+ * MSVC/WDK 28000 leaves every tested Interlocked spelling as an unresolved
+ * external in this raw ARM64 /kernel /Zl link, even with #pragma intrinsic.
+ * The recorder protects diagnostics only: if two CPUs race through this gate,
+ * they can overwrite one ring slot, whose commit check will reject a mixed
+ * record.  Losing a trace entry is preferable to changing StorPort timing or
+ * making the boot driver depend on a CRT/kernel atomic helper.
  */
-static volatile LONG B2LUfsFlightLock;
-
-/*
- * The raw /kernel /Zl ARM64 build must not emit CRT or kernel imports for the
- * diagnostic try-lock.  These acquire/release forms are compiler intrinsics
- * on ARM64 and keep the lock entirely inside this object file.
- */
-#pragma intrinsic(_InterlockedCompareExchange_acq)
-#pragma intrinsic(_InterlockedExchange_rel)
+static volatile LONG B2LUfsFlightBusy;
 
 C_ASSERT(sizeof(B2LUFS_FLIGHT_HEADER) == B2LUFS_FLIGHT_HEADER_BYTES);
 C_ASSERT(sizeof(B2LUFS_FLIGHT_RECORD) == B2LUFS_FLIGHT_RECORD_BYTES);
@@ -103,7 +96,7 @@ B2LUfsFlightInitialize(_In_ BOOLEAN DumpMode)
         }
         B2LUfsFlightResetHeader(B2LUfsFlightHeader, BootId);
     }
-    B2LUfsFlightLock = 0;
+    B2LUfsFlightBusy = 0;
     KeMemoryBarrier();
 
     B2LUfsFlightLog(
@@ -138,12 +131,14 @@ B2LUfsFlightLog(
         B2LUfsFlightHeader->Magic != B2LUFS_FLIGHT_MAGIC) {
         return;
     }
-    if (_InterlockedCompareExchange_acq(&B2LUfsFlightLock, 1, 0) != 0) {
+    if (B2LUfsFlightBusy != 0) {
         return;
     }
+    B2LUfsFlightBusy = 1;
+    KeMemoryBarrier();
     if (!B2LUfsFlightHeaderValid(B2LUfsFlightHeader) ||
         B2LUfsFlightHeader->Magic != B2LUFS_FLIGHT_MAGIC) {
-        (void)_InterlockedExchange_rel(&B2LUfsFlightLock, 0);
+        B2LUfsFlightBusy = 0;
         return;
     }
 
@@ -182,5 +177,5 @@ B2LUfsFlightLog(
     KeMemoryBarrier();
     B2LUfsFlightHeader->WriteIndex = (LONG)Sequence;
     KeMemoryBarrier();
-    (void)_InterlockedExchange_rel(&B2LUfsFlightLock, 0);
+    B2LUfsFlightBusy = 0;
 }

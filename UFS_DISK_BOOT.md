@@ -88,12 +88,13 @@ framebuffer ve runtime tanı alanlarıyla çakışmaz.
 
 Windows alanı `MmNonCached` eşler. Microsoft non-cached bellek üzerinde
 `Interlocked*` kullanımını yasakladığı için halka indeksini doğrudan atomik
-artırmaz: çok kısa bir cached sürücü kilidiyle tek yazarlı hale gelir, kilit
-doluysa beklemeden o tanı kaydını düşürür. Kilit ARM64 compiler intrinsic olan
-acquire/release işlemlerini kullanır; SYS'e CRT veya ek kernel sembolü ithal
-etmez. Her record'un commit sözcüğü en son, header write index'i ise
-tamamlanmış record'dan sonra yazılır. Böylece sıcak reset ortasındaki yarım
-kayıt UEFI okuyucusu tarafından geçerli sayılmaz.
+artırmaz. Cached sürücü değişkenindeki best-effort busy kapısı özyinelemeli
+yazarı beklemeden düşürür; iki CPU aynı anda kapıdan geçerse yalnız aynı tanı
+slotu çakışabilir. Commit sözcüğü karışmış kaydı geçersiz kılar. Bu alan UFS
+komutunu veya kaynağını korumaz ve SYS'e CRT/kernel atomik sembolü ithal etmez.
+Her record'un commit sözcüğü en son, header write index'i ise tamamlanmış
+record'dan sonra yazılır. Böylece sıcak reset ortasındaki yarım kayıt UEFI
+okuyucusu tarafından geçerli sayılmaz.
 
 Tanı paketi sırası:
 
