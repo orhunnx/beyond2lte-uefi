@@ -70,6 +70,12 @@ haritalanan framebuffer'a kayıtlı bugcheck callback'i son altı
 ikinci UEFI açılışına değil, crash ekranındaki son tamamlanan
 callback/CDB/OCS/interrupt status'a dayanır.
 
+İlk `0.0.9.0` çekimi bugcheck ekranından önce `bootmgfw` girişinde kaldığı için
+debug BCD'si ayrıca `menu` checkpoint'ini taşır. Bu, disk locator'larını
+değiştirmez; Boot Manager SYSTEM/NTFS taramasını ve winload bulmayı bitirince
+30 saniyelik metin menüsü çizer. Menü görünmeden uçuş paneli beklenmez; menü
+görünürse Enter ile çekirdek/B2LUFS aşamasına geçilir.
+
 Disk-boot akışı ayrıca INF/SYS/CAT paketini Windows DISM ile çevrimdışı
 DriverStore/DriverDatabase'a kurar; sonra `Start=0` servis kaydı ve
 `CriticalDeviceDatabase\ACPI#BYND9820` eşlemesini uygular. WIM geri alındığında

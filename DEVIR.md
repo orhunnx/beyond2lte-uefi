@@ -2023,3 +2023,30 @@ kaydedildi, `0x4` callback çalıştı. Ham RAM alınabilirse
 `tools_b2lufs_flight_decode.py` bu değeri başlıkta da gösterir. Bundan sonraki
 cihaz turunda mavi ekranın üst panelinin fotoğrafı alınacak; son `EVT` ve
 `A0..A4` değerleri `UFS_DISK_BOOT.md` tablosuyla yorumlanacaktır.
+
+---
+
+## 18. B2LUFS debug akışına Boot Manager checkpoint'i eklendi
+
+`0.0.9.0` ile ilk cihaz çekimi bugcheck paneline ulaşmadı. CACHE içindeki
+`bootmgfw.efi` başarıyla açıldı ve EDK2 görüntüyü yükleyip giriş noktasına
+devretti; ekran bundan sonra değişmedi. Son görülen `ConvertPages: failed to
+find range` satırı EDK2 DEBUG bellek-nitelik mesajıdır ve başka çalışan
+önyüklemelerde de görülür. Bu nedenle onu kök neden saymak yerine ilerleme
+sınırı `bootmgfw` girişinden sonrası olarak kaydedildi.
+
+Repo geçmişindeki kanıtlanmış `menu` BCD deneyi debug akışına bağlandı.
+`tools_ufsboot.sh --debug` artık request dosyasına `B2L_BCD_VARIANT=menu`
+yazar; yönetici CMD launcher'ı yalnız `disk` veya `menu` kabul eder, aynı
+varyantı `bcd_olustur.cmd`ye geçirir ve ready işaretinde geri bildirir. Varyant
+request hash'ine de girdiği için eski `disk` BCD sonucu debug paketi tarafından
+kabul edilemez.
+
+Menu varyantı disk `device=locate=...winload.efi` ve
+`osdevice=locate=\Windows` sözleşmesini aynen korur. Tek fark,
+`displaybootmenu=Yes` ve `timeout=30` ile winload çağrısından önce görünür bir
+checkpoint oluşturmasıdır. Menü görünürse Boot Manager, BCD, bölüm taraması,
+NTFS okuması ve winload bulma geçmiştir; Enter ile B2LUFS deneyine devam
+edilir. Menü görünmezse bekleme çekirdek/miniporttan öncedir. Debug
+`startup.nsh`, B2LGoster dönüşünde ARMED checkpoint'ini ve bootmgfw beklenmedik
+biçimde dönerse `BOOTMGFW GERI DONDU: fsN` satırını da yazdırır.

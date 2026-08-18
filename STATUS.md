@@ -58,6 +58,24 @@ Bu tur artık yeni bir düzeltme tahmin etmiyor; sonraki `B2LUFS BUGCHECK FLIGHT
 fotoğrafı initialization kapısı, ilk SRB, cached GPT cevabı veya gerçek UFS
 komut timeout'u arasında kanıtlı ayrım yapacak.
 
+İlk `0.0.9.0` cihaz turu henüz bu panele ulaşmadan durdu. Fotoğraftaki son
+akış `FSOpen` ile CACHE'deki `bootmgfw.efi`yi buluyor, EDK2 görüntüyü
+`Loading driver ... bootmgfw.efi` ile yüklüyor ve `ProtectUefiImage` sonrasında
+Boot Manager giriş noktasına devrediyor. `ConvertPages: failed to find range`
+satırı EDK2 DEBUG bellek-nitelik gürültüsüdür; aynı satırdan sonra çalışan
+önyükleme örnekleri ve bu repodaki eski turlar nedeniyle tek başına hata
+sayılmıyor. Ancak Windows menüsü, winload veya bugcheck ekranı çizilmediği için
+bu çekimde ilerleme kanıtı Boot Manager'ın içindedir; B2LUFS DriverEntry henüz
+kanıtlanmış değildir.
+
+`--debug` akışı bu nedenle BCD `menu` varyantını ister. Bu varyant disk
+`device/osdevice` tanımlarını değiştirmez; yalnız Boot Manager SYSTEM/NTFS
+taramasını ve winload bulmayı bitirdikten sonra 30 saniyelik metin checkpoint'i
+gösterir. Menü görünürse Enter ile devam edilir ve sonraki ayrım bugcheck uçuş
+panelidir. Menü görünmezse sorun boot-critical miniporttan önceki
+`bootmgfw`/bölüm tarama yoluna daralmış olur. Startup ayrıca beklenmedik
+`bootmgfw` dönüşünü `BOOTMGFW GERI DONDU: fsN` olarak yazdırır.
+
 ## 18 Ağustos 2026 — 0x7B için bulunan BCD hatası: `osdevice` yükleyici dosyasına bağlıydı
 
 PIT-uyumlu NTFS/FAT BPB'lerinin bulunduğu paket cihazda flaşlandı ve stop code

@@ -111,6 +111,11 @@ bash tools_ufsboot.sh --debug '/mnt/c/yol/Windows_ARM64.iso' 4
 
 `--debug`, CACHE'e `B2LGOSTR.EFI` ve özel `startup.nsh` koyar. İlk UEFI
 ekranını fotoğraflayıp bir tuşa basınca kayıt `ARMED` olur ve Windows başlar.
+Debug BCD'si normal `disk` yerine onunla aynı `locate` aygıtlarını kullanan
+`menu` varyantıdır: `bootmgfw` SYSTEM bölümünü ve `winload.efi`yi bulduktan
+sonra 30 saniyelik metin menüsü gösterir. Menü görünürse Boot Manager,
+BCD ve NTFS taraması tamamlanmıştır; Enter ile hemen devam edilir. Menü hiç
+görünmezse bekleme B2LUFS/çekirdekten önce, `bootmgfw` içindedir.
 Fotoğrafla doğrulanan platform sınırı nedeniyle Windows 0x7B sonrasında cihazı
 restart edemiyor. Bu mod bu yüzden WinPE `CrashControl\AutoReboot=0` değerini
 yazıp geri okur. B2LUFS DriverEntry'de `0xCA000000` framebuffer eşlemesini ve
@@ -118,6 +123,13 @@ yazıp geri okur. B2LUFS DriverEntry'de `0xCA000000` framebuffer eşlemesini ve
 HIGH_LEVEL'da hiçbir bellek ayırma, haritalama veya kilit işlemi yapmadan son
 altı geçerli kaydı mavi ekranın üstündeki `B2LUFS BUGCHECK FLIGHT` paneline
 yazar. Panelin fotoğrafı doğrudan sonuçtur; ikinci UEFI açılışı gerekmez.
+
+UEFI DEBUG satırlarındaki `ConvertPages: failed to find range` bu checkpoint
+ölçümünün sonucu değildir. EDK2 aynı uyarıyı görüntü yüklendikten sonra üretir;
+sonraki `Loading driver ... bootmgfw.efi` ve `ProtectUefiImage` satırları
+Boot Manager görüntüsünün başarıyla hazırlandığını gösterir. Asıl ilerleme
+kanıtı menünün çizilmesidir. `bootmgfw` geri dönerse özel startup betiği bunu
+`BOOTMGFW GERI DONDU: fsN` satırıyla ayrıca görünür kılar.
 
 Panel sütunları `SEQ`, `EVT` ve `A0..A4` alanlarıdır. `EVT` aşağıdaki olayın
 16-bit sayısal kodudur (`020F=INITOK`, `0310=SUBMIT`, `0311=DONE` gibi).

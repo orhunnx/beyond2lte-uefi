@@ -14,7 +14,8 @@ Kullanim:
 
 Bu arac b2lufs.sys DERLEMEZ. SYS once Windows PowerShell'de uretilmelidir.
 Geri kalan WIM, BCD, SYSTEM/CACHE ve Odin paketleme islemleri WSL'de yapilir.
---debug, 0xCF050000 ucus kaydini 0x7B aninda framebuffer'da gosterir.
+--debug, Boot Manager menu checkpoint'ini acar ve 0xCF050000 ucus kaydini
+0x7B aninda framebuffer'da gosterir.
 EOF
 }
 
@@ -33,6 +34,8 @@ fi
 
 ISO="${POSITIONAL[0]}"
 SYSTEM_GIB="${POSITIONAL[1]:-4}"
+BCD_VARIANT="disk"
+(( DEBUG_MODE )) && BCD_VARIANT="menu"
 
 if ! grep -Eiq 'microsoft|wsl' /proc/version 2>/dev/null; then
   echo "HATA: Bu arac WSL icinde calistirilmalidir." >&2
@@ -142,11 +145,13 @@ prepare_disk_bcd() {
   # isteriz. Boylece osdevice gibi BCD duzeltmeleri eski bir BCD tarafindan
   # sessizce gecersiz kilinmaz.
   request_id="$(printf '%s\n' \
+    "$BCD_VARIANT" \
     "$(sha256sum "$BCD_MANUAL_DIR/bcd_olustur.cmd")" \
     "$(sha256sum "$BCD_MANUAL_DIR/B2L_BCD_DISK_OLUSTUR.cmd")" \
     | sha256sum | awk '{print $1}')"
   {
     echo 'B2L_BCD_STAGE_VERSION=2'
+    echo "B2L_BCD_VARIANT=$BCD_VARIANT"
     echo "B2L_BCD_REQUEST_ID=$request_id"
   } >"$BCD_MANUAL_DIR/request.txt"
 
@@ -154,7 +159,7 @@ prepare_disk_bcd() {
     [[ -s "$BCD_MANUAL_OUT" && -s "$BCD_MANUAL_READY" ]] || return 1
     ready_text="$(tr -d '\r' <"$BCD_MANUAL_READY")"
     grep -Fxq 'B2L_BCD_STAGE_VERSION=2' <<<"$ready_text" || return 1
-    grep -Fxq 'B2L_BCD_VARIANT=disk' <<<"$ready_text" || return 1
+    grep -Fxq "B2L_BCD_VARIANT=$BCD_VARIANT" <<<"$ready_text" || return 1
     grep -Fxq "B2L_BCD_REQUEST_ID=$request_id" <<<"$ready_text" || return 1
     [[ "$(head -c 4 "$BCD_MANUAL_OUT")" == "regf" ]] || return 1
     expected_size="$(sed -n 's/^B2L_BCD_SIZE=//p' <<<"$ready_text")"
@@ -191,13 +196,13 @@ prepare_disk_bcd() {
   }
   BCD_ACCEPTED_HASH="$(sha256sum "$ROOT/windows/BCD" | awk '{print $1}')"
   {
-    echo 'B2L_BCD_VARIANT=disk'
+    echo "B2L_BCD_VARIANT=$BCD_VARIANT"
     echo "B2L_BCD_REQUEST_ID=$request_id"
     echo "B2L_BCD_SHA256=$BCD_ACCEPTED_HASH"
     echo "B2L_BCD_SIZE=$actual_size"
     echo "B2L_BCD_SOURCE=$BCD_MANUAL_DIR_WIN\\BCD.disk"
   } >"$OUT/disk-bcd-source.txt"
-  echo "  Disk BCD dogrulandi: regf, $actual_size bayt, SHA256=${BCD_ACCEPTED_HASH:0:16}"
+  echo "  Disk BCD dogrulandi: varyant=$BCD_VARIANT, regf, $actual_size bayt, SHA256=${BCD_ACCEPTED_HASH:0:16}"
 }
 
 prepare_disk_bcd
@@ -395,6 +400,7 @@ echo "Yalniz SYSTEM ve CACHE yazilir; boot/recovery/stock bolumlerine dokunulmaz
 echo "Ilk cihaz testi ve geri donus adimlari: UFS_DISK_BOOT.md"
 if (( DEBUG_MODE )); then
   echo "TANI: ilk B2LGoster ekraninda tusa bas; B2LUFS kaydi ARMED olur."
+  echo "Windows Boot Manager menusu acilinca ENTER'a bas; bu, SYSTEM/NTFS taramasinin bittigini kanitlar."
   echo "0x7B'de ustteki B2LUFS BUGCHECK FLIGHT panelinin fotografini cek."
   echo "Panel SEQ/EVT/A0..A4 alanlarini gosterir; yeniden baslatma gerekmez."
 fi

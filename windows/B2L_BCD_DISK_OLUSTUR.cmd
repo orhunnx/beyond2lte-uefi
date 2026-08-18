@@ -15,6 +15,7 @@ set "BCD=%~dp0BCD.disk"
 set "READY=%~dp0BCD.disk.ready"
 set "REQUEST=%~dp0request.txt"
 set "REQUEST_ID="
+set "BCD_VARIANT="
 del /f /q "%READY%" "%BCD%" >nul 2>&1
 
 if not exist "%REQUEST%" (
@@ -22,15 +23,20 @@ if not exist "%REQUEST%" (
   goto :hata
 )
 for /f "tokens=2 delims==" %%I in ('findstr /b "B2L_BCD_REQUEST_ID=" "%REQUEST%"') do set "REQUEST_ID=%%I"
+for /f "tokens=2 delims==" %%I in ('findstr /b "B2L_BCD_VARIANT=" "%REQUEST%"') do set "BCD_VARIANT=%%I"
 if not defined REQUEST_ID (
   echo HATA: request.txt icinde B2L_BCD_REQUEST_ID yok.
+  goto :hata
+)
+if /i not "%BCD_VARIANT%"=="disk" if /i not "%BCD_VARIANT%"=="menu" (
+  echo HATA: request.txt icindeki B2L_BCD_VARIANT disk veya menu degil.
   goto :hata
 )
 
 echo.
 echo === beyond2lte UFS disk-boot BCD hazirlaniyor ===
 echo.
-call "%~dp0bcd_olustur.cmd" disk "%BCD%"
+call "%~dp0bcd_olustur.cmd" "%BCD_VARIANT%" "%BCD%"
 if errorlevel 1 goto :hata
 
 if not exist "%BCD%" goto :hata
@@ -52,14 +58,29 @@ if not defined OSDEVICE_OK (
   echo HATA: BCD osdevice, \Windows sistem kokune geri okunamadi.
   goto :hata
 )
+if /i "%BCD_VARIANT%"=="menu" (
+  set "MENU_OK="
+  set "MENU_TIMEOUT_OK="
+  for /f "tokens=1,*" %%A in ('bcdedit /store "%BCD%" /enum {bootmgr}') do if /i "%%A"=="displaybootmenu" if /i "%%B"=="Yes" set "MENU_OK=1"
+  for /f "tokens=1,*" %%A in ('bcdedit /store "%BCD%" /enum {bootmgr}') do if /i "%%A"=="timeout" if "%%B"=="30" set "MENU_TIMEOUT_OK=1"
+  if not defined MENU_OK (
+    echo HATA: BCD menu varyantinda displaybootmenu=Yes geri okunamadi.
+    goto :hata
+  )
+  if not defined MENU_TIMEOUT_OK (
+    echo HATA: BCD menu varyantinda timeout=30 geri okunamadi.
+    goto :hata
+  )
+)
 
 >"%READY%" echo B2L_BCD_STAGE_VERSION=2
->>"%READY%" echo B2L_BCD_VARIANT=disk
+>>"%READY%" echo B2L_BCD_VARIANT=%BCD_VARIANT%
 >>"%READY%" echo B2L_BCD_REQUEST_ID=%REQUEST_ID%
 >>"%READY%" echo B2L_BCD_SIZE=%BCD_SIZE%
 
 echo.
 echo BASARILI: %BCD%
+echo BCD varyanti: %BCD_VARIANT%
 echo Bu pencereyi kapatip WSL terminaline donun ve ENTER'a basin.
 echo.
 pause

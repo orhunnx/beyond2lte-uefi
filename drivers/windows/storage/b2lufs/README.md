@@ -33,6 +33,12 @@ okuyup yazar; son altı geçerli `SEQ/EVT/A0..A4` kaydını mavi ekranın üstü
 çizer. Normal paket bu eşlemeyi ve callback'i kurmaz. Ham 64 KiB görüntü
 `tools_b2lufs_flight_decode.py` ile tamamen çözülebilir.
 
+Aynı `--debug` akışı BCD'nin `menu` varyantını kullanır. 30 saniyelik metin
+menüsü `bootmgfw` SYSTEM/NTFS taramasını bitirip winload'u bulduktan sonra,
+B2LUFS DriverEntry'den önce görünür. Menü çıkarsa Enter ile devam edilir;
+çıkmazsa bekleme henüz miniport kodunda değildir. Böylece bugcheck panelinin
+sessizliği “sürücü çalışmadı” diye yanlış yorumlanmaz.
+
 ## LUN 0 okuma/yazma ve GPT erişimi
 
 `b2lufs_resources.c`, UEFI `PlatformUfsLib` ile stok Exynos sürücüsünün
