@@ -62,6 +62,32 @@ Merkezi bir cihaz listesi **yok** — `build_uefi.py` `Platforms/` altında
 
 ## 4. Derle
 
+Proje sarmalayıcısını WSL'deki proje dizininden kullan. Bilinen çalışan normal
+boot ve deneysel UEFI dokunmatik derlemeleri birbirinden ayrıdır:
+
+```bash
+cd ~/beyond2lte-uefi-8549
+
+# Bilinen çalışan profil (dokunmatik kapalı)
+bash yap.sh --acpi --clean
+
+# Deneysel UEFI dokunmatik profili
+bash yap.sh --touch --acpi --clean
+```
+
+`--touch`, `--acpi` seçeneğini zaten zorunlu kılar; komutta ayrıca yazılması
+niyeti görünür tutar. Dokunmatik denemesinde yalnız `out/uefi-boot.tar`
+değişir ve Odin'de AP alanından, **Re-Partition kapalıyken** flashlanır.
+BCD, WIM, SYSTEM ve CACHE yeniden hazırlanmaz veya flashlanmaz. Geri dönüş
+için `bash yap.sh --acpi --clean` çalıştırıp oluşan BOOT tar'ını flashla.
+
+Bu sürücü UEFI `AbsolutePointer` sağlar. `ExitBootServices` sırasında I²C'yi
+susturur; dolayısıyla Windows açıldıktan sonraki dokunmatik için ayrıca bir
+Windows sürücüsü gerekir.
+
+Doğrudan Mu-Silicium komutu aşağıda referans olarak duruyor; günlük beyond2lte
+derlemelerinde yukarıdaki `yap.sh` yolu kullanılmalıdır.
+
 ```bash
 cd ~/Mu-Silicium
 python3 build_uefi.py -d beyond2lte

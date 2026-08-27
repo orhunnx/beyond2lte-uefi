@@ -104,6 +104,9 @@
   INF SamsungPkg/Drivers/UsiDxe/UsiDxe.inf
   INF SamsungPkg/Drivers/SpeedyDxe/SpeedyDxe.inf
   INF SamsungPkg/Drivers/HsI2cDxe/HsI2cDxe.inf
+  # Optional sec_ts UEFI input. yap.sh --touch opens this only in the
+  # external Mu-Silicium tree; it is deliberately absent from APRIORI.
+  # INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf
   INF SamsungPkg/Drivers/PmicDxe/PmicDxe.inf
 
   INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf

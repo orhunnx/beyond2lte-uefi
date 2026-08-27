@@ -68,6 +68,8 @@
   #
   GpioLib|S5E9820Pkg/Library/GpioLib/GpioLib.inf
   SpeedyLib|S5E9820Pkg/Library/SpeedyLib/SpeedyLib.inf
+  # yap.sh --touch opens this only in the external Mu-Silicium tree.
+  # HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf
 
   #
   # Power Management Libraries

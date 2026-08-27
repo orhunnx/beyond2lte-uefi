@@ -9,6 +9,7 @@
 #   yap.sh                 DEBUG derle
 #   yap.sh -r RELEASE      RELEASE derle
 #   yap.sh --acpi          ACPI tablolarini derle + etkinlestir
+#   yap.sh --touch         deneysel UEFI dokunmatik + zorunlu ACPI yenileme
 #   yap.sh --psci-hvc      deneysel: Windows PSCI'sini EL2 HVC koprusune yonlendir
 #   (Odin .tar ve .img her zaman uretilir)
 #   yap.sh --clean         temiz derleme (-c)
@@ -17,12 +18,13 @@ set -euo pipefail
 
 PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MU="${MU_SILICIUM:-$HOME/Mu-Silicium}"
-REL="DEBUG"; CLEAN=""; DO_ACPI=0; DO_TAR=0; PSCI_HVC=0
+REL="DEBUG"; CLEAN=""; DO_ACPI=0; DO_TAR=0; PSCI_HVC=0; TOUCH=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     -r|--release) REL="$2"; shift 2 ;;
     --acpi)  DO_ACPI=1; shift ;;
+    --touch) TOUCH=1; DO_ACPI=1; shift ;;
     --psci-hvc) PSCI_HVC=1; DO_ACPI=1; shift ;;
     --tar)   shift ;;   # geriye donuk uyumluluk, artik varsayilan
     --clean) CLEAN="-c"; shift ;;
@@ -115,6 +117,30 @@ echo "  Platforms/Samsung/beyond2ltePkg"
 echo "  Silicon/Samsung/S5E9820Pkg"
 echo "  Silicon/Samsung/SamsungPkg/Drivers/UfsDxe/UfsDxe.inf  (upstream yamasi)"
 echo "  Resources/{Configs,DTBs}/beyond2lte.*"
+
+# ---------------------------------------------------------------- UEFI touch
+#
+# Dokunmatik normal firmware yolunu degistirmez. --touch verilirse yalnizca
+# Mu-Silicium'daki gecici overlay kopyasinda surucu FV'ye ve gercek HSI2C
+# kutuphanesi bagina eklenir. Sonraki normal derleme overlay'i tekrar
+# kopyalayarak iki satiri da kapatir. --touch ayrica ACPI'yi bu turda zorunlu
+# olarak yeniden derler; onceki deneylerden kalan ACPI kullanilmaz.
+#
+if [ "$TOUCH" = 1 ]; then
+  TOUCH_DXE_INC="$MU/Platforms/Samsung/beyond2ltePkg/Include/DXE.inc"
+  TOUCH_SOC_DSC="$MU/Silicon/Samsung/S5E9820Pkg/S5E9820Pkg.dsc.inc"
+  sed -i 's@^  # INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf$@  INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf@' "$TOUCH_DXE_INC"
+  sed -i 's@^  # HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf$@  HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf@' "$TOUCH_SOC_DSC"
+  if grep -qx '  INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf' "$TOUCH_DXE_INC" \
+     && grep -qx '  HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf' "$TOUCH_SOC_DSC"; then
+    echo "  B2LTouchDxe: DENEYSEL PROFIL ACIK (ACPI yeniden derlendi)"
+  else
+    echo "HATA: B2LTouchDxe veya HsI2cLib etkinlestirilemedi"
+    exit 1
+  fi
+else
+  echo "  B2LTouchDxe: KAPALI"
+fi
 
 # ---------------------------------------------------------------- PSCI HVC bridge
 #

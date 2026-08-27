@@ -175,3 +175,6 @@
   #
   SiliciumPkg/Drivers/KeypadDxe/KeypadDxe.inf
   SiliciumPkg/Drivers/KeypadDeviceDxe/KeypadDeviceDxe.inf
+  # Compiled for validation, but only embedded when yap.sh --touch opens the
+  # commented INF in Include/DXE.inc.
+  beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf
