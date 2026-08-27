@@ -73,6 +73,9 @@ bash yap.sh --acpi --clean
 
 # Deneysel UEFI dokunmatik profili
 bash yap.sh --touch --acpi --clean
+
+# Windows'tan once kareli fabrika tipi dokunmatik testi
+bash yap.sh --touch-test --acpi --clean
 ```
 
 `--touch`, `--acpi` seçeneğini zaten zorunlu kılar; komutta ayrıca yazılması
@@ -84,6 +87,11 @@ için `bash yap.sh --acpi --clean` çalıştırıp oluşan BOOT tar'ını flashl
 Bu sürücü UEFI `AbsolutePointer` sağlar. `ExitBootServices` sırasında I²C'yi
 susturur; dolayısıyla Windows açıldıktan sonraki dokunmatik için ayrıca bir
 Windows sürücüsü gerekir.
+
+`--touch-test` ekranında parmağın geçtiği kareler yeşile döner, etkin kare
+sarı görünür. Tüm kareler tamamlanınca test otomatik kapanıp Windows'a devam
+eder. Herhangi bir ses tuşu testi erken kapatır; dokunmatik hiç yanıt vermezse
+45 saniyelik güvenlik süresi sonunda yine Windows'a geçilir.
 
 Doğrudan Mu-Silicium komutu aşağıda referans olarak duruyor; günlük beyond2lte
 derlemelerinde yukarıdaki `yap.sh` yolu kullanılmalıdır.

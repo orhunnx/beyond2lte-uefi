@@ -10,6 +10,7 @@
 #   yap.sh -r RELEASE      RELEASE derle
 #   yap.sh --acpi          ACPI tablolarini derle + etkinlestir
 #   yap.sh --touch         deneysel UEFI dokunmatik + zorunlu ACPI yenileme
+#   yap.sh --touch-test    kareli UEFI dokunmatik testi + Windows'a devam
 #   yap.sh --psci-hvc      deneysel: Windows PSCI'sini EL2 HVC koprusune yonlendir
 #   (Odin .tar ve .img her zaman uretilir)
 #   yap.sh --clean         temiz derleme (-c)
@@ -18,13 +19,14 @@ set -euo pipefail
 
 PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MU="${MU_SILICIUM:-$HOME/Mu-Silicium}"
-REL="DEBUG"; CLEAN=""; DO_ACPI=0; DO_TAR=0; PSCI_HVC=0; TOUCH=0
+REL="DEBUG"; CLEAN=""; DO_ACPI=0; DO_TAR=0; PSCI_HVC=0; TOUCH=0; TOUCH_TEST=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     -r|--release) REL="$2"; shift 2 ;;
     --acpi)  DO_ACPI=1; shift ;;
     --touch) TOUCH=1; DO_ACPI=1; shift ;;
+    --touch-test) TOUCH=1; TOUCH_TEST=1; DO_ACPI=1; shift ;;
     --psci-hvc) PSCI_HVC=1; DO_ACPI=1; shift ;;
     --tar)   shift ;;   # geriye donuk uyumluluk, artik varsayilan
     --clean) CLEAN="-c"; shift ;;
@@ -140,6 +142,16 @@ if [ "$TOUCH" = 1 ]; then
   fi
 else
   echo "  B2LTouchDxe: KAPALI"
+fi
+
+if [ "$TOUCH_TEST" = 1 ]; then
+  sed -i 's@^  # INF beyond2ltePkg/Drivers/B2LTouchTestDxe/B2LTouchTestDxe.inf$@  INF beyond2ltePkg/Drivers/B2LTouchTestDxe/B2LTouchTestDxe.inf@' "$TOUCH_DXE_INC"
+  if grep -qx '  INF beyond2ltePkg/Drivers/B2LTouchTestDxe/B2LTouchTestDxe.inf' "$TOUCH_DXE_INC"; then
+    echo "  B2LTouchTestDxe: KARELI TEST EKRANI ACIK"
+  else
+    echo "HATA: B2LTouchTestDxe etkinlestirilemedi"
+    exit 1
+  fi
 fi
 
 # ---------------------------------------------------------------- PSCI HVC bridge

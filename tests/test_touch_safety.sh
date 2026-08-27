@@ -6,13 +6,16 @@ DXE_INC="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Include/DXE.i
 DSC="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/beyond2lte.dsc"
 SOC_DSC="$ROOT/mu-silicium-overlay/Silicon/Samsung/S5E9820Pkg/S5E9820Pkg.dsc.inc"
 TOUCH_DIR="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Drivers/B2LTouchDxe"
+TEST_DIR="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Drivers/B2LTouchTestDxe"
 
 grep -qx '  # INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf' "$DXE_INC"
+grep -qx '  # INF beyond2ltePkg/Drivers/B2LTouchTestDxe/B2LTouchTestDxe.inf' "$DXE_INC"
 grep -qx '  # HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf' "$SOC_DSC"
 grep -qx '  beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf' "$DSC"
 grep -q -- '--touch) TOUCH=1; DO_ACPI=1' "$ROOT/yap.sh"
+grep -q -- '--touch-test) TOUCH=1; TOUCH_TEST=1; DO_ACPI=1' "$ROOT/yap.sh"
 
-if rg -n 'APRIORI|0x(8|9|A|B|C|D|E|F)[0-9A-Fa-f]{7}' "$TOUCH_DIR"/*.[ch]; then
+if rg -n 'APRIORI|0x(8|9|A|B|C|D|E|F)[0-9A-Fa-f]{7}' "$TOUCH_DIR"/*.[ch] "$TEST_DIR"/*.[ch]; then
   echo "HATA: touch surucusunde APRIORI veya DRAM benzeri sabit adres bulundu"
   exit 1
 fi

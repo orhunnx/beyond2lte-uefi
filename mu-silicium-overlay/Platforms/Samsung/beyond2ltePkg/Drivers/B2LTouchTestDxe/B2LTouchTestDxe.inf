@@ -1,0 +1,25 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = B2LTouchTestDxe
+  FILE_GUID                      = 2F5C9A48-740C-4C02-A993-434953F15A50
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = B2LTouchTestEntry
+
+[Sources]
+  B2LTouchTestDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiAbsolutePointerProtocolGuid
+  gEfiGraphicsOutputProtocolGuid
+
+[Depex]
+  gEfiAbsolutePointerProtocolGuid AND gEfiGraphicsOutputProtocolGuid

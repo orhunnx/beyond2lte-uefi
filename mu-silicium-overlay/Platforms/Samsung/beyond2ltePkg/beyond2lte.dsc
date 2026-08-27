@@ -178,3 +178,4 @@
   # Compiled for validation, but only embedded when yap.sh --touch opens the
   # commented INF in Include/DXE.inc.
   beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf
+  beyond2ltePkg/Drivers/B2LTouchTestDxe/B2LTouchTestDxe.inf
