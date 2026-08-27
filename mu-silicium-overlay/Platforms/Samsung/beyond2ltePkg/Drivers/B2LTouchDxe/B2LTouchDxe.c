@@ -30,6 +30,8 @@
 #define SEC_TS_STATUS_APP_MODE       0x20
 #define SEC_TS_MAX_EVENT_COUNT       32
 #define B2L_POINTER_QUEUE_SIZE       32
+#define B2L_TOUCH_POLL_INTERVAL      200000ULL // 20 ms in 100 ns units
+#define B2L_TOUCH_ERROR_BACKOFF_TICKS 50       // Retry failed I2C after 1 s
 
 typedef struct {
   EFI_ABSOLUTE_POINTER_PROTOCOL  Protocol;
@@ -41,6 +43,8 @@ typedef struct {
   UINTN                          QueueCount;
   BOOLEAN                        Polling;
   UINTN                          ErrorCount;
+  EFI_EVENT                      PollTimer;
+  UINTN                          PollBackoffTicks;
 } B2L_TOUCH_CONTEXT;
 
 STATIC B2L_TOUCH_CONTEXT  mTouch;
@@ -273,9 +277,11 @@ TouchReset (
   }
 
   ZeroMem (&mTouch.Pointer, sizeof (mTouch.Pointer));
-  mTouch.QueueHead  = 0;
-  mTouch.QueueTail  = 0;
-  mTouch.QueueCount = 0;
+  mTouch.QueueHead        = 0;
+  mTouch.QueueTail        = 0;
+  mTouch.QueueCount       = 0;
+  mTouch.ErrorCount       = 0;
+  mTouch.PollBackoffTicks = 0;
 
   Status = WriteCommand (SEC_TS_CMD_CLEAR_EVENT_STACK);
   if (!EFI_ERROR (Status)) {
@@ -302,10 +308,6 @@ TouchGetState (
   }
 
   if (QueueIsEmpty (&mTouch)) {
-    PollEvents (&mTouch);
-  }
-
-  if (QueueIsEmpty (&mTouch)) {
     return EFI_NOT_READY;
   }
 
@@ -313,6 +315,35 @@ TouchGetState (
   mTouch.QueueHead = (mTouch.QueueHead + 1) % B2L_POINTER_QUEUE_SIZE;
   mTouch.QueueCount--;
   return EFI_SUCCESS;
+}
+
+STATIC
+VOID
+EFIAPI
+TouchPollTimer (
+  IN EFI_EVENT  Event,
+  IN VOID      *Context
+  )
+{
+  B2L_TOUCH_CONTEXT  *Touch;
+  EFI_STATUS          Status;
+
+  (VOID)Event;
+  Touch = Context;
+  if (Touch->PollBackoffTicks != 0) {
+    Touch->PollBackoffTicks--;
+    return;
+  }
+
+  Status = PollEvents (Touch);
+  if (EFI_ERROR (Status)) {
+    //
+    // A missing or temporarily wedged controller must not monopolize the
+    // firmware event loop.  One failed transfer is already bounded by the
+    // transport timeout; defer the next attempt for one second.
+    //
+    Touch->PollBackoffTicks = B2L_TOUCH_ERROR_BACKOFF_TICKS;
+  }
 }
 
 STATIC
@@ -326,7 +357,6 @@ TouchWaitForInput (
   B2L_TOUCH_CONTEXT  *Touch;
 
   Touch = Context;
-  PollEvents (Touch);
   if (!QueueIsEmpty (Touch)) {
     gBS->SignalEvent (Event);
   }
@@ -368,7 +398,7 @@ B2LTouchEntry (
 
   Status = gBS->CreateEvent (
                   EVT_NOTIFY_WAIT,
-                  TPL_CALLBACK,
+                  TPL_NOTIFY,
                   TouchWaitForInput,
                   &mTouch,
                   &mTouch.Protocol.WaitForInput
@@ -377,8 +407,21 @@ B2LTouchEntry (
     return Status;
   }
 
+  Status = gBS->CreateEvent (
+                  EVT_TIMER | EVT_NOTIFY_SIGNAL,
+                  TPL_CALLBACK,
+                  TouchPollTimer,
+                  &mTouch,
+                  &mTouch.PollTimer
+                  );
+  if (EFI_ERROR (Status)) {
+    gBS->CloseEvent (mTouch.Protocol.WaitForInput);
+    return Status;
+  }
+
   Status = TouchReset (&mTouch.Protocol, FALSE);
   if (EFI_ERROR (Status)) {
+    gBS->CloseEvent (mTouch.PollTimer);
     gBS->CloseEvent (mTouch.Protocol.WaitForInput);
     return Status;
   }
@@ -390,6 +433,23 @@ B2LTouchEntry (
                   &mTouch.Protocol
                   );
   if (EFI_ERROR (Status)) {
+    gBS->CloseEvent (mTouch.PollTimer);
+    gBS->CloseEvent (mTouch.Protocol.WaitForInput);
+    return Status;
+  }
+
+  Status = gBS->SetTimer (
+                  mTouch.PollTimer,
+                  TimerPeriodic,
+                  B2L_TOUCH_POLL_INTERVAL
+                  );
+  if (EFI_ERROR (Status)) {
+    gBS->UninstallProtocolInterface (
+           ImageHandle,
+           &gEfiAbsolutePointerProtocolGuid,
+           &mTouch.Protocol
+           );
+    gBS->CloseEvent (mTouch.PollTimer);
     gBS->CloseEvent (mTouch.Protocol.WaitForInput);
     return Status;
   }
