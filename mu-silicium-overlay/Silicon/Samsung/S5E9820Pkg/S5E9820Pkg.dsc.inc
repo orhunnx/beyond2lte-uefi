@@ -67,6 +67,7 @@
   # IO Libraries
   #
   GpioLib|S5E9820Pkg/Library/GpioLib/GpioLib.inf
+  HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf
   SpeedyLib|S5E9820Pkg/Library/SpeedyLib/SpeedyLib.inf
 
   #

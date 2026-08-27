@@ -15,6 +15,7 @@ APRIORI DXE {
   INF SamsungPkg/Drivers/UsiDxe/UsiDxe.inf
   INF SamsungPkg/Drivers/SpeedyDxe/SpeedyDxe.inf
   INF SamsungPkg/Drivers/HsI2cDxe/HsI2cDxe.inf
+  INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf
   INF SamsungPkg/Drivers/PmicDxe/PmicDxe.inf
 
   INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf

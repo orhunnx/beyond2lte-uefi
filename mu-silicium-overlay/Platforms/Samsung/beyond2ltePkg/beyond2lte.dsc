@@ -173,5 +173,6 @@
   #
   # Input
   #
+  beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf
   SiliciumPkg/Drivers/KeypadDxe/KeypadDxe.inf
   SiliciumPkg/Drivers/KeypadDeviceDxe/KeypadDeviceDxe.inf
