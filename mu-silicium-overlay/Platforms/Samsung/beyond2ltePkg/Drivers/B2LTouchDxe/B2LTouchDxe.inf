@@ -13,12 +13,14 @@
 
 [Packages]
   MdePkg/MdePkg.dec
+  SiliciumPkg/SiliciumPkg.dec
   SamsungPkg/SamsungPkg.dec
 
 [LibraryClasses]
   BaseMemoryLib
   DebugLib
   IoLib
+  MemoryAllocationHelperLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
 

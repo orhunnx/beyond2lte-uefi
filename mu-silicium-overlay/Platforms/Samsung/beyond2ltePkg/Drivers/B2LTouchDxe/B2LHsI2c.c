@@ -11,6 +11,7 @@
 
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>
+#include <Library/MemoryAllocationHelperLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 
 #include <Protocol/EFIHsI2c.h>
@@ -23,6 +24,8 @@ extern EFI_GUID  gEfiHsI2cProtocolGuid;
 #define B2L_HSI2C_BUS           10
 #define B2L_HSI2C_SLAVE         0x48
 #define B2L_HSI2C_BASE          0x104B0000UL
+#define B2L_USI_CONFIG_BASE      0x10421000UL
+#define B2L_USI_CONFIG_SIZE      0x00001000UL
 #define B2L_HSI2C_RETRIES       3
 #define B2L_HSI2C_TIMEOUT_US    20000
 
@@ -207,6 +210,26 @@ B2LHsI2cInitialize (
                   (VOID **)&HsI2c
                   );
   if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  //
+  // HsI2cDxe maps the HSI2C controller, then UsiDxe selects its mode through
+  // the separate USI configuration register at 0x1042101C.  Map only that
+  // device-MMIO page before InitBus; it is not DRAM and must not be added to
+  // the platform's reserved-memory map.
+  //
+  Status = MapMemoryRegion (
+             B2L_USI_CONFIG_BASE,
+             B2L_USI_CONFIG_SIZE,
+             EfiMemoryMappedIO
+             );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "B2LTouch: failed to map HSI2C10 USI MMIO page: %r\n",
+      Status
+      ));
     return Status;
   }
 
