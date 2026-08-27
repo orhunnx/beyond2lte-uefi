@@ -316,6 +316,19 @@ if [ -n "$GOS" ]; then
   echo "B2LGoster hazir: esp/B2LGOSTR.EFI"
 fi
 
+#
+# B2LBootTani.efi - bootmgfw'nin kalici bekleme noktasini, ayrilmis RAM veya
+# MMIO okumadan GOP ustundeki bir nabizla ayirir. Yalnizca
+# `cache_esp.sh --win --system --boot-tani` yolunda calistirilir.
+#
+BTANI="$(find "$MU/Build" -name 'B2LBootTani.efi' 2>/dev/null | head -1)"
+if [ -n "$BTANI" ]; then
+  mkdir -p "$PROJ/out"
+  cp -f "$BTANI" "$PROJ/out/B2LBootTani.efi"
+  cp -f "$BTANI" "$PROJ/esp/B2LBOOT.EFI"
+  echo "B2LBootTani hazir: esp/B2LBOOT.EFI"
+fi
+
 EBS="$(find "$MU/Build" -name 'EbsTest.efi' 2>/dev/null | head -1)"
 if [ -n "$EBS" ]; then
   mkdir -p "$PROJ/out"

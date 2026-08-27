@@ -6,7 +6,7 @@
 #   out/cache.img       ham imaj   -> recovery + adb dd yolu
 #   out/cache-esp.tar   sparse tar -> Odin, AP slotu
 #
-#   bash cache_esp.sh [--win] [--baseline|--psci-hvc|--bos] [iceri-konacak-dosya.efi]
+#   bash cache_esp.sh [--win] [--baseline|--boot-tani|--psci-hvc|--bos] [iceri-konacak-dosya.efi]
 #
 # Argüman verilmezse Mu-Silicium build'indeki Shell.efi aranir.
 #
@@ -58,6 +58,7 @@ BIGPART=0
 BOSALT=0
 BASELINE=0
 PSCI_HVC=0
+BOOT_TANI=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
@@ -67,6 +68,7 @@ for a in "$@"; do
     --bos)    BOSALT=1 ;;
     --baseline) BASELINE=1 ;;
     --psci-hvc) PSCI_HVC=1 ;;
+    --boot-tani) BOOT_TANI=1 ;;
     *)        ARGS+=("$a") ;;
   esac
 done
@@ -93,6 +95,18 @@ if [ "$PSCI_HVC" = 1 ] && [ "$WINONLY" = 0 ]; then
   echo "--psci-hvc yalnizca Windows modu ile kullanilir: bash cache_esp.sh --win --system --psci-hvc"
   exit 1
 fi
+if [ "$BOOT_TANI" = 1 ] && [ "$WINONLY" = 0 ]; then
+  echo "--boot-tani yalnizca Windows modu ile kullanilir: bash cache_esp.sh --win --system --boot-tani"
+  exit 1
+fi
+if [ "$BOOT_TANI" = 1 ] && [ "$BASELINE" = 1 ]; then
+  echo "--boot-tani ve --baseline ayni anda kullanilmaz."
+  exit 1
+fi
+if [ "$BOOT_TANI" = 1 ] && [ ! -s "$PROJ/esp/B2LBOOT.EFI" ]; then
+  echo "HATA: esp/B2LBOOT.EFI yok. Once: bash yap.sh"
+  exit 1
+fi
 if [ "$PSCI_HVC" = 1 ] && [ "$BASELINE" = 1 ]; then
   echo "--psci-hvc ve --baseline birlikte kullanilmaz: HVC deneyinde onceki acilisin HVC kaydi ekranda okunur."
   exit 1
@@ -117,6 +131,9 @@ if [ "$PSCI_HVC" = 1 ]; then
     exit 1
   }
   say "MOD: Windows PSCI HVC deneyi (B2LGoster sonraki acilista HVC kaydini gosterir)"
+fi
+if [ "$BOOT_TANI" = 1 ]; then
+  say "MOD: Windows bootmgfw canlilik tanisi (sabit fiziksel adres yok)"
 fi
 
 #
@@ -370,6 +387,9 @@ NSH="$PROJ/esp/startup.nsh"
 if [ "$BASELINE" = 1 ]; then
   NSH="$PROJ/esp/startup-baseline.nsh"
 fi
+if [ "$BOOT_TANI" = 1 ]; then
+  NSH="$PROJ/esp/startup-boot-tani.nsh"
+fi
 
 # Bir tur, cihazdan geri okunan imajda ESKI startup.nsh cikti: kernel'ler
 # eklendikten sonra ama script duzenlenmeden once uretilmis bir imaj
@@ -393,11 +413,20 @@ if command -v mcopy >/dev/null; then
     b="$(basename "$f")"
     [ "$b" = "startup.nsh" ] && continue
     [ "$b" = "startup-baseline.nsh" ] && continue
+    [ "$b" = "startup-boot-tani.nsh" ] && continue
     [ -e "$f" ] || continue
     if [ "$BASELINE" = 1 ]; then
       case "$b" in
-        B2LGOSTR.EFI|EBSTEST.EFI)
+        B2LGOSTR.EFI|B2LBOOT.EFI|EBSTEST.EFI)
           echo "  - $b (atlandi: temiz taban)"
+          continue
+          ;;
+      esac
+    fi
+    if [ "$BOOT_TANI" = 1 ]; then
+      case "$b" in
+        B2LGOSTR.EFI|EBSTEST.EFI)
+          echo "  - $b (atlandi: sabit fiziksel adres tanisi kapali)"
           continue
           ;;
       esac

@@ -157,6 +157,10 @@
   # girmiyor; out/ altina cikip esp/ icine elle konuyor.
   #
   beyond2ltePkg/Applications/B2LGoster/B2LGoster.inf
+  # B2LBootTani - bootmgfw'yi ayni FAT biriminden baslatip yalnizca GOP ve
+  # UEFI olaylariyla canlilik/ExitBootServices siniri gosteren uygulama.
+  # Fiziksel tani kayitlarina veya ayrilmis RAM'e erismez.
+  beyond2ltePkg/Applications/B2LBootTani/B2LBootTani.inf
   beyond2ltePkg/Drivers/B2LRtHookDxe/B2LRtHookDxe.inf
   beyond2ltePkg/Drivers/B2LSehDxe/B2LSehDxe.inf
   beyond2ltePkg/Drivers/B2LGicSusDxe/B2LGicSusDxe.inf

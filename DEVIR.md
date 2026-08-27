@@ -49,6 +49,7 @@ boot.img yerine UEFI  (Mu-Silicium / Project Mu / EDK2)
 UEFI Shell -> startup.nsh
    |
    +-- B2LGOSTR.EFI  (tani ekrani)
+   +-- B2LBOOT.EFI   (salt GOP/UEFI bootmgfw canlilik tanisi, istege bagli)
    +-- Windows Boot Manager -> winload.efi -> ntoskrnl
    |     ve icinde bizim b2lfb.sys surucumuz
    +-- ya da vmlinuz-lts (Linux kontrol deneyi)
@@ -76,6 +77,7 @@ UEFI_beyond2lte/
 │       ├── Library/MemoryMapLib/     BELLEK HARITASI - en kritik dosya
 │       ├── Applications/
 │       │   ├── B2LGoster/            tani ekrani (buyuk puntolu)
+│       │   ├── B2LBootTani/           bootmgfw canlilik/ExitBootServices tanisi
 │       │   └── EbsTest/              ExitBootServices sonrasi kalp atisi
 │       └── Drivers/
 │           ├── B2LRtHookDxe/         UEFI calisma zamani servis kancalari
@@ -149,18 +151,32 @@ Gösterdikleri: RAM/banka doğrulaması, EL3 SEH durumu, PSCI sorgu sonuçları,
 bir önceki açılışın `TIK/BUG/SPN/MAX` değerleri, `RST_STAT`, GIC bekleyen
 kesme sayısı, bellek tarama sonucu.
 
-### 4.3 `EbsTest.efi`
+### 4.3 `B2LBootTani.efi`
+
+`B2LBootTani.efi`, BCD ile `bootmgfw.efi`yi yuklendigi ayni FAT biriminden
+dogrudan baslatir. Sag ustte hareket eden mavi/camgobegi isaret Boot Services
+zamanlayicisinin hala isledigini, sari isaret `ExitBootServices` olayini,
+kirmizi ekran ise `StartImage` donusunu gosterir. Sabit fiziksel adres, MMIO,
+ayrilmis RAM veya bellek taramasi kullanmaz. Windows BCD'si yine Windows'ta
+yonetici CMD ile uretilir; bu tur icin `menuram` varyanti kullanilir. ESP:
+
+```bash
+bash cache_esp.sh --win --system --boot-tani
+bash cache_esp.sh --win --bos
+```
+
+### 4.4 `EbsTest.efi`
 
 `ExitBootServices` çağırıp **hiçbir şey kurmayan** bir döngü. Saniyede bir
 kare çiziyor (mimari zamanlayıcıyla, meşgul döngüyle değil). "Sıfırlama
 Windows'a mı özgü" sorusunu cevaplıyor.
 
-### 4.4 Linux kontrol deneyi
+### 4.5 Linux kontrol deneyi
 
 Alpine 6.18 aarch64, `acpi=force` ile **bizim ACPI tablolarımızdan** açılıyor,
 `linux_test/init` CPU'yu sürekli yakıp `/dev/kmsg`'e sayaç basıyor.
 
-### 4.5 USB ile tanı — neden şu an bir kanal değil
+### 4.6 USB ile tanı — neden şu an bir kanal değil
 
 Stok Android DTB'sinde Exynos DWC3 denetleyicisi `otg` olarak tanımlı ve
 Linux'ta sürücüsü var. Bu, **UEFI'nin USB kullanabildiği anlamına gelmez**:
