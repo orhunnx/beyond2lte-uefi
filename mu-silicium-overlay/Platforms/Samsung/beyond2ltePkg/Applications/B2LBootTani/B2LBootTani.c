@@ -7,8 +7,7 @@
 
   Sag ustteki isaret:
     mavi/camgobegi hareket  - Boot Services zamanlayicisi isliyor
-    sari                    - ExitBootServices olayi goruldu, cagri icinde
-    yesil                   - ExitBootServices basariyla geri dondu
+    sari                    - ExitBootServices olayi goruldu
     kirmizi                 - bootmgfw StartImage'dan geri dondu
 **/
 
@@ -44,8 +43,6 @@ STATIC UINT32                        mSatir;
 STATIC CHAR16                        mTampon[48];
 STATIC volatile UINT32               mTik;
 STATIC volatile BOOLEAN              mEbsGoruldu;
-STATIC volatile BOOLEAN              mEbsDondu;
-STATIC EFI_EXIT_BOOT_SERVICES        mAsilExitBootServices;
 
 STATIC
 VOID
@@ -137,77 +134,6 @@ ExitBootServicesGoruldu (
 
   X = mGop->Mode->Info->HorizontalResolution - NABIZ_EN - 16U;
   Dikdortgen (X, 16U, NABIZ_EN, NABIZ_BOY, 0x00FFFF40U);
-}
-
-/**
-  ExitBootServices olay callback'i cagri TAMAMLANMADAN once calisir. Bu ince
-  sarmalayici, asil firmware islevi EFI_SUCCESS ile geri dondugu anda ayni
-  kutuyu yesile cevirir. Basarili donusten sonra Boot Services kullanilmaz;
-  yalnizca zaten haritalanmis GOP framebuffer'ina dogrudan piksel yazilir.
-**/
-STATIC
-EFI_STATUS
-EFIAPI
-IzlenenExitBootServices (
-  IN EFI_HANDLE ImageHandle,
-  IN UINTN      MapKey
-  )
-{
-  EFI_STATUS Status;
-  UINT32     X;
-
-  Status = mAsilExitBootServices (ImageHandle, MapKey);
-  if (!EFI_ERROR (Status)) {
-    mEbsDondu = TRUE;
-    if ((mGop != NULL) && (mGop->Mode != NULL) && (mGop->Mode->Info != NULL) &&
-        (mGop->Mode->Info->HorizontalResolution >= NABIZ_EN + 16U)) {
-      X = mGop->Mode->Info->HorizontalResolution - NABIZ_EN - 16U;
-      Dikdortgen (X, 16U, NABIZ_EN, NABIZ_BOY, 0x0040FF40U);
-    }
-  }
-
-  return Status;
-}
-
-STATIC
-EFI_STATUS
-ExitBootServicesKancasiniKur (
-  VOID
-  )
-{
-  EFI_STATUS Status;
-
-  mAsilExitBootServices = gBS->ExitBootServices;
-  gBS->ExitBootServices = IzlenenExitBootServices;
-  gBS->Hdr.CRC32         = 0;
-  Status = gBS->CalculateCrc32 (
-                  (VOID *)gBS,
-                  gBS->Hdr.HeaderSize,
-                  &gBS->Hdr.CRC32
-                  );
-  if (EFI_ERROR (Status)) {
-    gBS->ExitBootServices = mAsilExitBootServices;
-    gBS->Hdr.CRC32         = 0;
-    gBS->CalculateCrc32 ((VOID *)gBS, gBS->Hdr.HeaderSize, &gBS->Hdr.CRC32);
-  }
-
-  return Status;
-}
-
-STATIC
-VOID
-ExitBootServicesKancasiniKaldir (
-  VOID
-  )
-{
-  if ((mAsilExitBootServices == NULL) || mEbsDondu) {
-    return;
-  }
-
-  gBS->ExitBootServices = mAsilExitBootServices;
-  gBS->Hdr.CRC32         = 0;
-  gBS->CalculateCrc32 ((VOID *)gBS, gBS->Hdr.HeaderSize, &gBS->Hdr.CRC32);
-  mAsilExitBootServices = NULL;
 }
 
 STATIC
@@ -399,8 +325,6 @@ B2LBootTaniEntry (
   EbsEvent   = NULL;
   mTik       = 0;
   mEbsGoruldu = FALSE;
-  mEbsDondu   = FALSE;
-  mAsilExitBootServices = NULL;
 
   Status = gBS->HandleProtocol (
                   ImageHandle,
@@ -428,12 +352,11 @@ B2LBootTaniEntry (
 
   EkraniTemizle ();
   Yaz (L"=== BEYOND2LTE BOOT TANI ===", 0x00FFFFFFU);
-  Yaz (L"SURUM 35", 0x00808080U);
+  Yaz (L"SURUM 34", 0x00808080U);
   Yaz (L"BCD VE BOOTMGFW BULUNDU", 0x0040FF40U);
   Yaz (L"KORUMALI BELLEK: ERISIM YOK", 0x0040FF40U);
   Yaz (L"MAVI NABIZ: BOOT SERVICES CANLI", 0x0060C0FFU);
-  Yaz (L"SARI: EXIT BOOT SERVICES ICINDE", 0x00FFFF40U);
-  Yaz (L"YESIL: EXIT BOOT SERVICES DONDU", 0x0040FF40U);
+  Yaz (L"SARI: EXIT BOOT SERVICES", 0x00FFFF40U);
   Yaz (L"KIRMIZI: BOOTMGFW GERI DONDU", 0x00FF4040U);
   Yaz (L"FOTOGRAFLA, SONRA TUSA BAS", 0x00FFFFFFU);
   TusBekle ();
@@ -480,16 +403,10 @@ B2LBootTaniEntry (
   if (EFI_ERROR (Status)) {
     goto Hata;
   }
-  Status = ExitBootServicesKancasiniKur ();
-  if (EFI_ERROR (Status)) {
-    goto Hata;
-  }
-
   Nabiz (NabizEvent, NULL);
   Status = gBS->StartImage (BootImage, NULL, NULL);
 
 Hata:
-  ExitBootServicesKancasiniKaldir ();
   if (NabizEvent != NULL) {
     gBS->SetTimer (NabizEvent, TimerCancel, 0);
     gBS->CloseEvent (NabizEvent);

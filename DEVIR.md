@@ -156,7 +156,6 @@ kesme sayısı, bellek tarama sonucu.
 `B2LBootTani.efi`, BCD ile `bootmgfw.efi`yi yuklendigi ayni FAT biriminden
 dogrudan baslatir. Sag ustte hareket eden mavi/camgobegi isaret Boot Services
 zamanlayicisinin hala isledigini, sari isaret `ExitBootServices` olayini,
-yesil isaret asil `ExitBootServices` cagrisinin basariyla geri dondugunu,
 kirmizi ekran ise `StartImage` donusunu gosterir. Sabit fiziksel adres, MMIO,
 ayrilmis RAM veya bellek taramasi kullanmaz. Windows BCD'si yine Windows'ta
 yonetici CMD ile uretilir; bu tur icin `menuram` varyanti kullanilir. ESP:
