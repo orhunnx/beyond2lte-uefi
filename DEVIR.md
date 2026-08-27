@@ -156,6 +156,7 @@ kesme sayısı, bellek tarama sonucu.
 `B2LBootTani.efi`, BCD ile `bootmgfw.efi`yi yuklendigi ayni FAT biriminden
 dogrudan baslatir. Sag ustte hareket eden mavi/camgobegi isaret Boot Services
 zamanlayicisinin hala isledigini, sari isaret `ExitBootServices` olayini,
+yesil isaret asil `ExitBootServices` cagrisinin basariyla geri dondugunu,
 kirmizi ekran ise `StartImage` donusunu gosterir. Sabit fiziksel adres, MMIO,
 ayrilmis RAM veya bellek taramasi kullanmaz. Windows BCD'si yine Windows'ta
 yonetici CMD ile uretilir; bu tur icin `menuram` varyanti kullanilir. ESP:
@@ -164,6 +165,12 @@ yonetici CMD ile uretilir; bu tur icin `menuram` varyanti kullanilir. ESP:
 bash cache_esp.sh --win --system --boot-tani
 bash cache_esp.sh --win --bos
 ```
+
+Dokunmatik DXE'nin Windows devrini etkileyip etkilemedigi tek-degiskenli
+kontrol derlemesiyle sinanir: `bash yap.sh --clean --no-touch`. Bu, yalnizca
+Mu-Silicium'a kopyalanan `DXE.inc` icinde B2LTouchDxe'yi kapatir ve
+`out/uefi-boot-no-touch.tar` uretir; sonraki normal `yap.sh` dokunmatigi geri
+acar. BCD ve SYSTEM/CACHE imajlari degistirilmez.
 
 ### 4.4 `EbsTest.efi`
 

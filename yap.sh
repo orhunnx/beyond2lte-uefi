@@ -10,6 +10,7 @@
 #   yap.sh -r RELEASE      RELEASE derle
 #   yap.sh --acpi          ACPI tablolarini derle + etkinlestir
 #   yap.sh --psci-hvc      deneysel: Windows PSCI'sini EL2 HVC koprusune yonlendir
+#   yap.sh --no-touch      kontrol: B2LTouchDxe'yi firmware'den cikar
 #   (Odin .tar ve .img her zaman uretilir)
 #   yap.sh --clean         temiz derleme (-c)
 #
@@ -17,13 +18,14 @@ set -euo pipefail
 
 PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MU="${MU_SILICIUM:-$HOME/Mu-Silicium}"
-REL="DEBUG"; CLEAN=""; DO_ACPI=0; DO_TAR=0; PSCI_HVC=0
+REL="DEBUG"; CLEAN=""; DO_ACPI=0; DO_TAR=0; PSCI_HVC=0; NO_TOUCH=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     -r|--release) REL="$2"; shift 2 ;;
     --acpi)  DO_ACPI=1; shift ;;
     --psci-hvc) PSCI_HVC=1; DO_ACPI=1; shift ;;
+    --no-touch) NO_TOUCH=1; shift ;;
     --tar)   shift ;;   # geriye donuk uyumluluk, artik varsayilan
     --clean) CLEAN="-c"; shift ;;
     -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
@@ -115,6 +117,21 @@ echo "  Platforms/Samsung/beyond2ltePkg"
 echo "  Silicon/Samsung/S5E9820Pkg"
 echo "  Silicon/Samsung/SamsungPkg/Drivers/UfsDxe/UfsDxe.inf  (upstream yamasi)"
 echo "  Resources/{Configs,DTBs}/beyond2lte.*"
+
+# Tek-degiskenli kontrol: kaynak depoda surucu etkin kalir; yalnizca bu
+# derleme icin Mu-Silicium'a kopyalanan DXE.inc satiri kapatilir. Sonraki
+# normal yap.sh overlay'i yeniden kopyalayarak dokunmatigi geri acar.
+if [ "$NO_TOUCH" = 1 ]; then
+  DXE_INC="$MU/Platforms/Samsung/beyond2ltePkg/Include/DXE.inc"
+  sed -i 's|^  INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf$|  # INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf|' "$DXE_INC"
+  if grep -qx '  # INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf' "$DXE_INC" \
+     && ! grep -qx '  INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf' "$DXE_INC"; then
+    echo "  B2LTouchDxe: KONTROL DERLEMESINDE KAPALI"
+  else
+    echo "HATA: B2LTouchDxe DXE.inc icinde kapatilamadi"
+    exit 1
+  fi
+fi
 
 # ---------------------------------------------------------------- PSCI HVC bridge
 #
@@ -280,11 +297,18 @@ if [ -n "$IMG" ] && [ -f "$IMG" ]; then
   # Proje icindeki out/ klasorune de koy (Mac'e senkronlamak icin sabit yol)
   mkdir -p "$PROJ/out"
   cp -f "$IMG" "$MU/uefi-boot.tar" "$PROJ/out/" 2>/dev/null || true
+  if [ "$NO_TOUCH" = 1 ]; then
+    cp -f "$MU/uefi-boot.tar" "$PROJ/out/uefi-boot-no-touch.tar"
+  fi
 
   if [ -n "$DESK" ]; then
     mkdir -p "$DESK/beyond2lte-flash"
     cp -f "$IMG" "$DESK/beyond2lte-flash/"
     cp -f "$MU/uefi-boot.tar" "$DESK/beyond2lte-flash/"
+    if [ "$NO_TOUCH" = 1 ]; then
+      cp -f "$MU/uefi-boot.tar" "$DESK/beyond2lte-flash/uefi-boot-no-touch.tar"
+      echo "  uefi-boot-no-touch.tar -> Odin, AP (dokunmatik DXE kapali kontrol)"
+    fi
     echo "Flash dosyalari: $DESK/beyond2lte-flash"
     echo "  uefi-boot.tar        -> Odin, AP slotu  (Re-Partition ISARETSIZ)"
     echo "  Mu-beyond2lte.img    -> heimdall flash --BOOT Mu-beyond2lte.img"

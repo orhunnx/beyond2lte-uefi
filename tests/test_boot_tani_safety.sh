@@ -17,8 +17,13 @@ fi
 
 grep -Fq 'FileDevicePath (Kendi->DeviceHandle, BOOT_YOLU)' "$APP"
 grep -Fq 'gEfiEventExitBootServicesGuid' "$APP"
+grep -Fq 'Status = mAsilExitBootServices (ImageHandle, MapKey);' "$APP"
+grep -Fq '0x0040FF40U' "$APP"
 grep -Fq 'TimerPeriodic' "$APP"
 grep -Fq 'KORUMALI BELLEK: ERISIM YOK' "$APP"
+grep -Fq -- '--no-touch) NO_TOUCH=1' "$ROOT/yap.sh"
+grep -Fq 'B2LTouchDxe: KONTROL DERLEMESINDE KAPALI' "$ROOT/yap.sh"
+grep -Fq 'uefi-boot-no-touch.tar' "$ROOT/yap.sh"
 
 bash -n "$ROOT/cache_esp.sh" "$ROOT/yap.sh"
 echo "B2LBootTani guvenlik sozlesmesi: TAMAM"
