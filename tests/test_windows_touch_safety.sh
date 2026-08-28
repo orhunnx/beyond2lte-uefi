@@ -20,6 +20,8 @@ grep -q '"LowerFilters",0x00010000,"vhf"' "$INF"
 grep -q 'KmdfLibraryVersion=1.15' "$INF"
 grep -q 'VHF_CONFIG_INIT' "$WIN/b2ltouch.c"
 grep -q 'VhfReadReportSubmit' "$WIN/b2ltouch.c"
+grep -Fq "'shared\\vhf.h'" "$WIN/build-b2ltouch.ps1"
+grep -Fq 'shared/vhf.h' "$ROOT/tools_b2ltouch.sh"
 grep -q 'Usage (Contact Count)' "$WIN/b2ltouch.c"
 grep -q 'Usage (Contact Count Maximum)' "$WIN/b2ltouch.c"
 

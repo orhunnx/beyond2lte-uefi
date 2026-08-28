@@ -47,7 +47,7 @@ if ([string]::IsNullOrWhiteSpace($WdkVersion)) {
     $Candidate = Get-ChildItem -LiteralPath $IncludeRoot -Directory |
         Where-Object {
             (Test-Path -LiteralPath (Join-Path $_.FullName 'km\ntddk.h') -PathType Leaf) -and
-            (Test-Path -LiteralPath (Join-Path $_.FullName 'km\vhf.h') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName 'shared\vhf.h') -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $KitsRoot ("Lib\{0}\km\arm64\VhfKm.lib" -f $_.Name)) -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $KitsRoot ("Lib\{0}\km\arm64\ntoskrnl.lib" -f $_.Name)) -PathType Leaf)
         } |
@@ -61,6 +61,11 @@ if ([string]::IsNullOrWhiteSpace($WdkVersion)) {
 }
 
 $WdkInclude = Resolve-Directory (Join-Path $KitsRoot ("Include\{0}" -f $WdkVersion)) 'Secilen WDK Include dizini'
+foreach ($Header in @('km\ntddk.h', 'shared\vhf.h')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $WdkInclude $Header) -PathType Leaf)) {
+        Fail "$Header yok: $WdkInclude"
+    }
+}
 $WdkLib = Resolve-Directory (Join-Path $KitsRoot ("Lib\{0}\km\arm64" -f $WdkVersion)) 'Secilen WDK ARM64 kutuphane dizini'
 foreach ($Library in @('VhfKm.lib', 'ntoskrnl.lib', 'hal.lib', 'BufferOverflowFastFailK.lib')) {
     if (-not (Test-Path -LiteralPath (Join-Path $WdkLib $Library) -PathType Leaf)) {
