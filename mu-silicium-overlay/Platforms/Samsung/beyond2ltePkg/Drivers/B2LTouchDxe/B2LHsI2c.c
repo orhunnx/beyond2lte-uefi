@@ -44,7 +44,10 @@ extern EFI_GUID  gEfiHsI2cProtocolGuid;
 #define HSI2C_TIMEOUT           0x48
 #define HSI2C_CMD               0x4C
 #define HSI2C_TRANS_STATUS      0x50
-#define HSI2C_ADDRESS           0x74
+// Exynos5/7 HSI2C target address register.  The previous 0x74 offset is a
+// reserved word on this controller; the on-device diagnostic consequently
+// showed ADDR=00000000 while the transfer stalled in address state 6.
+#define HSI2C_ADDRESS           0x70
 
 #define HSI2C_MASTER            BIT3
 #define HSI2C_RXCHON            BIT6

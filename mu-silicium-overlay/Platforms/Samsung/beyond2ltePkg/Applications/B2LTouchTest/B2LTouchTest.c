@@ -191,7 +191,8 @@ ShowTouchDiagnostic (
          Data.IntEnable, Data.IntStatus, Data.FifoStatus);
   Print (L"CONF=%08x AUTO=%08x CMDREG=%08x\n",
          Data.Conf, Data.AutoConf, Data.Command);
-  Print (L"TRANS=%08x ADDR=%08x\n", Data.TransferStatus, Data.Address);
+  Print (L"TRANS=%08x ADDR=%08x EXPECT=00012000\n",
+         Data.TransferStatus, Data.Address);
   Print (L"\nFotografla. Tus: devam (20 sn otomatik)\n");
   WaitForKeyOrTimeout ();
 }

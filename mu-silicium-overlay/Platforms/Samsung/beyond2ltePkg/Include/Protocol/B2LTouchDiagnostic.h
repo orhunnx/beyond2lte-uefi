@@ -3,7 +3,7 @@
 
 #include <Uefi.h>
 
-#define B2L_TOUCH_DIAGNOSTIC_REVISION  1
+#define B2L_TOUCH_DIAGNOSTIC_REVISION  2
 #define B2L_TOUCH_DIAGNOSTIC_READ_MAX  32
 
 typedef struct {
