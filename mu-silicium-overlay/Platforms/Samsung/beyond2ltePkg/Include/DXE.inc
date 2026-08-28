@@ -107,8 +107,6 @@
   # Optional sec_ts UEFI input. yap.sh --touch opens this only in the
   # external Mu-Silicium tree; it is deliberately absent from APRIORI.
   # INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf
-  # Factory-style grid test, enabled only by yap.sh --touch-test.
-  # INF beyond2ltePkg/Drivers/B2LTouchTestDxe/B2LTouchTestDxe.inf
   INF SamsungPkg/Drivers/PmicDxe/PmicDxe.inf
 
   INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf

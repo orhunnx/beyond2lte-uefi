@@ -1,16 +1,15 @@
 /** @file
-  Factory-style UEFI touchscreen grid for beyond2lte.
+  Factory-style UEFI touchscreen test application for beyond2lte.
 
-  Enabled only by yap.sh --touch-test.  It runs once after the graphics and
-  absolute-pointer protocols become available, marks every cell crossed by
-  an active contact, then returns to the existing boot path.  It has no
-  device MMIO or memory-map access.
+  Invoked by startup.nsh only when yap.sh --touch-test exports the binary to
+  the ESP.  Running at EFI Shell application level guarantees that input and
+  timer events are dispatchable.  It has no device MMIO or memory-map access.
 **/
 
 #include <Uefi.h>
 
 #include <Library/UefiBootServicesTableLib.h>
-#include <Library/UefiDriverEntryPoint.h>
+#include <Library/UefiApplicationEntryPoint.h>
 #include <Library/UefiLib.h>
 #include <Protocol/AbsolutePointer.h>
 #include <Protocol/GraphicsOutput.h>
@@ -21,14 +20,13 @@
 #define GRID_CELL_COUNT    (GRID_COLUMNS * GRID_ROWS)
 #define GRID_MARGIN        6
 #define GRID_HEADER_HEIGHT 64
-#define TEST_TICKS         4500 // 45 seconds at 10 ms
+#define TEST_TIMEOUT       450000000ULL // 45 seconds in 100 ns units
 
 STATIC EFI_ABSOLUTE_POINTER_PROTOCOL  *mPointer;
 STATIC EFI_GRAPHICS_OUTPUT_PROTOCOL   *mGop;
 STATIC EFI_SIMPLE_TEXT_INPUT_PROTOCOL *mConIn;
 STATIC BOOLEAN                         mVisited[GRID_CELL_COUNT];
 STATIC UINTN                           mVisitedCount;
-STATIC BOOLEAN                         mTestRan;
 
 STATIC CONST EFI_GRAPHICS_OUTPUT_BLT_PIXEL  mBlack  = { 0x00, 0x00, 0x00, 0x00 };
 STATIC CONST EFI_GRAPHICS_OUTPUT_BLT_PIXEL  mGray   = { 0x50, 0x50, 0x50, 0x00 };
@@ -263,38 +261,60 @@ DrawInitialScreen (
 }
 
 STATIC
-VOID
-EFIAPI
+EFI_STATUS
 RunTouchTest (
-  IN EFI_EVENT  Event,
-  IN VOID      *Context
+  VOID
   )
 {
   EFI_ABSOLUTE_POINTER_STATE  State;
+  EFI_EVENT                   Events[3];
+  EFI_EVENT                   TimeoutEvent;
   EFI_INPUT_KEY               Key;
+  EFI_STATUS                  Status;
   UINTN                       Column;
+  UINTN                       EventCount;
+  UINTN                       EventIndex;
+  UINTN                       KeyEventIndex;
   UINTN                       Row;
   UINTN                       PreviousColumn;
   UINTN                       PreviousRow;
   UINTN                       HighlightedColumn;
   UINTN                       HighlightedRow;
-  UINTN                       Tick;
+  UINTN                       TimeoutEventIndex;
   BOOLEAN                     HavePrevious;
   BOOLEAN                     HaveHighlight;
-
-  (VOID)Event;
-  (VOID)Context;
-  if (mTestRan) {
-    return;
-  }
-  mTestRan = TRUE;
 
   DrawInitialScreen ();
   HavePrevious  = FALSE;
   HaveHighlight = FALSE;
 
-  for (Tick = 0; Tick < TEST_TICKS; Tick++) {
-    if ((mConIn != NULL) && !EFI_ERROR (mConIn->ReadKeyStroke (mConIn, &Key))) {
+  Status = gBS->CreateEvent (EVT_TIMER, TPL_APPLICATION, NULL, NULL, &TimeoutEvent);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+  Status = gBS->SetTimer (TimeoutEvent, TimerRelative, TEST_TIMEOUT);
+  if (EFI_ERROR (Status)) {
+    gBS->CloseEvent (TimeoutEvent);
+    return Status;
+  }
+
+  EventCount            = 0;
+  Events[EventCount++]  = mPointer->WaitForInput;
+  KeyEventIndex         = MAX_UINTN;
+  if ((mConIn != NULL) && (mConIn->WaitForKey != NULL)) {
+    KeyEventIndex        = EventCount;
+    Events[EventCount++] = mConIn->WaitForKey;
+  }
+  TimeoutEventIndex     = EventCount;
+  Events[EventCount++]  = TimeoutEvent;
+
+  for (;;) {
+    Status = gBS->WaitForEvent (EventCount, Events, &EventIndex);
+    if (EFI_ERROR (Status) || (EventIndex == TimeoutEventIndex)) {
+      break;
+    }
+    if (EventIndex == KeyEventIndex) {
+      mConIn->ReadKeyStroke (mConIn, &Key);
       break;
     }
 
@@ -334,10 +354,9 @@ RunTouchTest (
       Fill (&mGreen, GRID_MARGIN, 42,
             mGop->Mode->Info->HorizontalResolution - (2 * GRID_MARGIN), 14);
       gBS->Stall (1000000);
-      return;
+      gBS->CloseEvent (TimeoutEvent);
+      return EFI_SUCCESS;
     }
-
-    gBS->Stall (10000);
   }
 
   if (HaveHighlight) {
@@ -348,6 +367,8 @@ RunTouchTest (
           mGop->Mode->Info->HorizontalResolution - (2 * GRID_MARGIN), 14);
     gBS->Stall (500000);
   }
+  gBS->CloseEvent (TimeoutEvent);
+  return EFI_SUCCESS;
 }
 
 EFI_STATUS
@@ -380,6 +401,5 @@ B2LTouchTestEntry (
     return Status;
   }
 
-  RunTouchTest (NULL, NULL);
-  return EFI_SUCCESS;
+  return RunTouchTest ();
 }

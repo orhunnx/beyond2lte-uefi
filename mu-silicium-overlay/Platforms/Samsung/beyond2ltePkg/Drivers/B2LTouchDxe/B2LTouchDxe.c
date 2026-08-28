@@ -346,6 +346,8 @@ TouchPollTimer (
     Touch->Disabled = TRUE;
     B2LHsI2cQuiesce ();
     gBS->SetTimer (Touch->PollTimer, TimerCancel, 0);
+  } else if (!QueueIsEmpty (Touch)) {
+    gBS->SignalEvent (Touch->Protocol.WaitForInput);
   }
 }
 

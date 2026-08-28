@@ -145,13 +145,7 @@ else
 fi
 
 if [ "$TOUCH_TEST" = 1 ]; then
-  sed -i 's@^  # INF beyond2ltePkg/Drivers/B2LTouchTestDxe/B2LTouchTestDxe.inf$@  INF beyond2ltePkg/Drivers/B2LTouchTestDxe/B2LTouchTestDxe.inf@' "$TOUCH_DXE_INC"
-  if grep -qx '  INF beyond2ltePkg/Drivers/B2LTouchTestDxe/B2LTouchTestDxe.inf' "$TOUCH_DXE_INC"; then
-    echo "  B2LTouchTestDxe: KARELI TEST EKRANI ACIK"
-  else
-    echo "HATA: B2LTouchTestDxe etkinlestirilemedi"
-    exit 1
-  fi
+  echo "  B2LTouchTest: EFI SHELL TEST UYGULAMASI HAZIRLANACAK"
 fi
 
 # ---------------------------------------------------------------- PSCI HVC bridge
@@ -362,4 +356,18 @@ if [ -n "$EBS" ]; then
   echo "EbsTest hazir: out/EbsTest.efi"
   echo "  Denemek icin:  cp out/EbsTest.efi esp/EBSTEST.EFI && bash cache_esp.sh --win --system"
   echo "  Geri almak icin: rm esp/EBSTEST.EFI"
+fi
+
+if [ "$TOUCH_TEST" = 1 ]; then
+  TOUCH_APP="$(find "$MU/Build" -name 'B2LTouchTest.efi' 2>/dev/null | head -1)"
+  [ -n "$TOUCH_APP" ] && [ -f "$TOUCH_APP" ] || {
+    echo "HATA: B2LTouchTest.efi derlenmedi"
+    exit 1
+  }
+  mkdir -p "$PROJ/out"
+  cp -f "$TOUCH_APP" "$PROJ/out/B2LTouchTest.efi"
+  cp -f "$TOUCH_APP" "$PROJ/esp/B2LTOUCH.EFI"
+  echo "B2LTouchTest hazir: esp/B2LTOUCH.EFI"
+else
+  rm -f "$PROJ/esp/B2LTOUCH.EFI"
 fi

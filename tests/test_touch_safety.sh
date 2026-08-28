@@ -6,10 +6,13 @@ DXE_INC="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Include/DXE.i
 DSC="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/beyond2lte.dsc"
 SOC_DSC="$ROOT/mu-silicium-overlay/Silicon/Samsung/S5E9820Pkg/S5E9820Pkg.dsc.inc"
 TOUCH_DIR="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Drivers/B2LTouchDxe"
-TEST_DIR="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Drivers/B2LTouchTestDxe"
+TEST_DIR="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LTouchTest"
 
 grep -qx '  # INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf' "$DXE_INC"
-grep -qx '  # INF beyond2ltePkg/Drivers/B2LTouchTestDxe/B2LTouchTestDxe.inf' "$DXE_INC"
+if rg -q 'B2LTouchTest' "$DXE_INC"; then
+  echo "HATA: test uygulamasi DXE firmware akisini engelliyor"
+  exit 1
+fi
 grep -qx '  # HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf' "$SOC_DSC"
 grep -qx '  beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf' "$DSC"
 grep -q -- '--touch) TOUCH=1; DO_ACPI=1' "$ROOT/yap.sh"

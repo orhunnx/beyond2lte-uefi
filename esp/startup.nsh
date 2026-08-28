@@ -29,6 +29,21 @@
 #
 mode 80 25
 
+# UEFI dokunmatik fabrika testi. Dosya yalniz yap.sh --touch-test ile
+# uretilir; uygulama donunce mevcut tani ve Windows yolu aynen devam eder.
+if exist fs0:\B2LTOUCH.EFI then
+    fs0:\B2LTOUCH.EFI
+endif
+if exist fs1:\B2LTOUCH.EFI then
+    fs1:\B2LTOUCH.EFI
+endif
+if exist fs2:\B2LTOUCH.EFI then
+    fs2:\B2LTOUCH.EFI
+endif
+if exist fs3:\B2LTOUCH.EFI then
+    fs3:\B2LTOUCH.EFI
+endif
+
 #
 # 1) PMU: sifirlamanin kaynagi
 #    0x40010000 guc cevrimi  /  0x20000000 yazilim istedi

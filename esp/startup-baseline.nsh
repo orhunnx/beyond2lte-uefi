@@ -13,6 +13,19 @@
 mode 80 25
 echo B2L temiz taban: B2L tani kodu yok.
 
+if exist fs0:\B2LTOUCH.EFI then
+    fs0:\B2LTOUCH.EFI
+endif
+if exist fs1:\B2LTOUCH.EFI then
+    fs1:\B2LTOUCH.EFI
+endif
+if exist fs2:\B2LTOUCH.EFI then
+    fs2:\B2LTOUCH.EFI
+endif
+if exist fs3:\B2LTOUCH.EFI then
+    fs3:\B2LTOUCH.EFI
+endif
+
 if exist fs0:\EFI\Microsoft\Boot\BCD then
     echo Windows: fs0
     fs0:\EFI\Microsoft\Boot\bootmgfw.efi

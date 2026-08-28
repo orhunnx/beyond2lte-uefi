@@ -151,6 +151,7 @@
   # startup.nsh varsa calistiriyor, yoksa Windows'a geciyor.
   #
   beyond2ltePkg/Applications/EbsTest/EbsTest.inf
+  beyond2ltePkg/Applications/B2LTouchTest/B2LTouchTest.inf
 
   #
   # B2LGoster - tani kayitlarini buyuk harflerle cizer. EbsTest gibi FDF'ye
@@ -178,4 +179,3 @@
   # Compiled for validation, but only embedded when yap.sh --touch opens the
   # commented INF in Include/DXE.inc.
   beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf
-  beyond2ltePkg/Drivers/B2LTouchTestDxe/B2LTouchTestDxe.inf
