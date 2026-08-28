@@ -48,6 +48,9 @@ grep -q 'AKTIF TARAMA YOK' "$TEST_DIR/B2LTouchTest.c"
 grep -q 'AKTIF PROBE YOK' "$TEST_DIR/B2LTouchTest.c"
 grep -q 'B2L_TOUCH_DVDD_LDO        19' "$TOUCH_DIR/B2LTouchDxe.c"
 grep -q 'B2L_TOUCH_AVDD_LDO        27' "$TOUCH_DIR/B2LTouchDxe.c"
+grep -q 'SEC_TS_DEFAULT_TOUCH_FUNCTIONS 0x0061' "$TOUCH_DIR/B2LTouchDxe.c"
+grep -q 'SEC_TS_CMD_SET_TOUCHFUNCTION' "$TOUCH_DIR/B2LTouchDxe.c"
+grep -q 'Touch->ErrorCount >= B2L_TOUCH_MAX_CONSECUTIVE_ERRORS' "$TOUCH_DIR/B2LTouchDxe.c"
 grep -q 'gEfiHsI2cProtocolGuid AND gEfiPmicRegulatorProtocolGuid' "$TOUCH_DIR/B2LTouchDxe.inf"
 
 if rg -n 'SetBuck|SetLdo' "$TOUCH_DIR"/*.c | rg -v 'B2LTouchDxe.c'; then

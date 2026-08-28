@@ -3,8 +3,9 @@
 
 #include <Uefi.h>
 
-#define B2L_TOUCH_DIAGNOSTIC_REVISION  4
+#define B2L_TOUCH_DIAGNOSTIC_REVISION  5
 #define B2L_TOUCH_DIAGNOSTIC_READ_MAX  32
+#define B2L_TOUCH_EVENT_SIZE           8
 
 typedef struct {
   UINT32      Revision;
@@ -20,6 +21,7 @@ typedef struct {
   EFI_STATUS  PowerAvddStatus;
   EFI_STATUS  ProbeStatus;
   EFI_STATUS  ResetStatus;
+  EFI_STATUS  TouchFunctionStatus;
   EFI_STATUS  PointerStatus;
   EFI_STATUS  LastPollStatus;
   EFI_STATUS  LastTransferStatus;
@@ -29,13 +31,16 @@ typedef struct {
   UINT64      PollCount;
   UINT64      RawEventCount;
   UINT64      ParsedEventCount;
+  UINT64      PollFailureCount;
+  UINT64      EventTypeCount[4];
   UINT32      PollErrorCount;
   BOOLEAN     Disabled;
   BOOLEAN     ExitingBootServices;
   UINT8       DeviceId[5];
   UINT8       FirmwareIntegrity;
   UINT8       BootStatus;
-  UINT8       Reserved;
+  UINT16      TouchFunctions;
+  UINT8       LastEvent[B2L_TOUCH_EVENT_SIZE];
   UINT8       LastRead[B2L_TOUCH_DIAGNOSTIC_READ_MAX];
   UINT32      UsiMode;
   UINT32      Ctrl;

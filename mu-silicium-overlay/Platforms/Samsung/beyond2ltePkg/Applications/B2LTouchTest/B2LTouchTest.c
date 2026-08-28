@@ -231,6 +231,8 @@ ShowTouchDiagnostic (
   Print (L"PTR=%s INIT=%r PROBE=%r RESET=%r\n",
          (mPointer == NULL) ? L"YOK" : L"VAR",
          Data.InitStatus, Data.ProbeStatus, Data.ResetStatus);
+  Print (L"TOUCHFUNC=%r MASK=%04x\n",
+         Data.TouchFunctionStatus, Data.TouchFunctions);
   Print (L"PTRSTAT=%r POLL=%r DIS=%u EXIT=%u ERR=%u\n",
          Data.PointerStatus, Data.LastPollStatus, Data.Disabled,
          Data.ExitingBootServices, Data.PollErrorCount);
@@ -244,6 +246,12 @@ ShowTouchDiagnostic (
   Print (L"CMD=%02x LEN=%u POLLS=%Lu RAW=%Lu PARSED=%Lu\n",
          Data.LastCommand, Data.LastReadLength, Data.PollCount,
          Data.RawEventCount, Data.ParsedEventCount);
+  Print (L"POLLFAIL=%Lu EVT C/S/G/E=%Lu/%Lu/%Lu/%Lu\n",
+         Data.PollFailureCount, Data.EventTypeCount[0],
+         Data.EventTypeCount[1], Data.EventTypeCount[2],
+         Data.EventTypeCount[3]);
+  Print (L"LASTEVT: ");
+  PrintBytes (Data.LastEvent, 0, B2L_TOUCH_EVENT_SIZE);
   Print (L"READ00: ");
   PrintBytes (Data.LastRead, 0, 16);
   Print (L"READ16: ");

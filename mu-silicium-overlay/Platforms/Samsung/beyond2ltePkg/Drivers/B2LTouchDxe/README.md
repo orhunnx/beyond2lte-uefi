@@ -19,7 +19,10 @@ Güvenlik sınırları:
   protokolüyle açar; voltaj ayarını korur ve UEFI'den çıkarken kapatmaz.
 - Aktarım süresince yalnız `TRANSFER_DONE` kaynağını açar, sınırlı süreyle
   polling yapar ve her çıkış yolunda yeniden kapatır.
-- İlk çalışma zamanı I2C hatasında polling'i o boot için tamamen kapatır.
+- Samsung başlangıç sırasına uygun olarak `0x30` ile touch/palm/wet işlevlerini
+  açtıktan sonra `SENSE_ON` gönderir.
+- Tek bir geçici I2C hatasından sonra polling'e devam eder; yalnız üç ardışık
+  hata olursa o boot için tamamen kapatır.
 - `WaitForInput` ve `GetState` içinde donanıma erişmez.
 - `ExitBootServices` sırasında HSI2C10'u susturur.
 - APRIORI listesinde değildir ve normal derlemede firmware'e gömülmez.

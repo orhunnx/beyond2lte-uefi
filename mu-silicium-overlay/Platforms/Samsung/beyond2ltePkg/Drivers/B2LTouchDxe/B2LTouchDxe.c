@@ -25,6 +25,7 @@
 #define SEC_TS_CMD_SENSE_ON          0x10
 #define SEC_TS_READ_FIRMWARE_INTEGRITY 0x21
 #define SEC_TS_READ_DEVICE_ID        0x22
+#define SEC_TS_CMD_SET_TOUCHFUNCTION 0x30
 #define SEC_TS_READ_BOOT_STATUS      0x55
 #define SEC_TS_READ_ONE_EVENT        0x60
 #define SEC_TS_READ_ALL_EVENT        0x61
@@ -34,6 +35,11 @@
 #define SEC_TS_MAX_EVENT_COUNT       32
 #define B2L_POINTER_QUEUE_SIZE       32
 #define B2L_TOUCH_POLL_INTERVAL      200000ULL // 20 ms in 100 ns units
+#define B2L_TOUCH_MAX_CONSECUTIVE_ERRORS 3
+
+// Samsung sec_ts initialization enables mutual touch, palm and wet-mode
+// reporting before SENSE_ON.  The 16-bit command payload is little-endian.
+#define SEC_TS_DEFAULT_TOUCH_FUNCTIONS 0x0061
 
 typedef struct {
   EFI_ABSOLUTE_POINTER_PROTOCOL  Protocol;
@@ -55,11 +61,15 @@ typedef struct {
   EFI_STATUS                     PowerAvddStatus;
   EFI_STATUS                     ProbeStatus;
   EFI_STATUS                     ResetStatus;
+  EFI_STATUS                     TouchFunctionStatus;
   EFI_STATUS                     PointerStatus;
   EFI_STATUS                     LastPollStatus;
   UINT64                         PollCount;
   UINT64                         RawEventCount;
   UINT64                         ParsedEventCount;
+  UINT64                         PollFailureCount;
+  UINT64                         EventTypeCount[4];
+  UINT8                          LastEvent[B2L_SEC_TS_EVENT_SIZE];
   UINT8                          DeviceId[5];
   UINT8                          FirmwareIntegrity;
   UINT8                          BootStatus;
@@ -153,6 +163,20 @@ WriteCommand (
 }
 
 STATIC
+EFI_STATUS
+SetTouchFunctions (
+  VOID
+  )
+{
+  UINT8  Command[3];
+
+  Command[0] = SEC_TS_CMD_SET_TOUCHFUNCTION;
+  Command[1] = (UINT8)(SEC_TS_DEFAULT_TOUCH_FUNCTIONS & 0xFF);
+  Command[2] = (UINT8)(SEC_TS_DEFAULT_TOUCH_FUNCTIONS >> 8);
+  return B2LHsI2cWriteRead (Command, sizeof (Command), NULL, 0);
+}
+
+STATIC
 BOOLEAN
 QueueIsEmpty (
   IN CONST B2L_TOUCH_CONTEXT  *Context
@@ -192,7 +216,11 @@ ConsumeEvent (
   )
 {
   B2L_SEC_TS_PARSE_RESULT  Result;
+  UINT8                    EventId;
 
+  CopyMem (Context->LastEvent, Event, sizeof (Context->LastEvent));
+  EventId = Event[0] & 0x03;
+  Context->EventTypeCount[EventId]++;
   Result = B2LSecTsParseEvent (Event, &Context->Pointer);
   Context->RawEventCount++;
   if (Result == B2LSecTsUpdated) {
@@ -267,6 +295,7 @@ Exit:
   Context->LastPollStatus = Status;
   if (EFI_ERROR (Status)) {
     Context->ErrorCount++;
+    Context->PollFailureCount++;
     if ((Context->ErrorCount == 1) || ((Context->ErrorCount & 0x3F) == 0)) {
       DEBUG ((
         DEBUG_ERROR,
@@ -377,6 +406,11 @@ TouchReset (
 
   Status = WriteCommand (SEC_TS_CMD_CLEAR_EVENT_STACK);
   if (!EFI_ERROR (Status)) {
+    Status = SetTouchFunctions ();
+    mTouch.TouchFunctionStatus = Status;
+  }
+
+  if (!EFI_ERROR (Status)) {
     Status = WriteCommand (SEC_TS_CMD_SENSE_ON);
   }
 
@@ -411,17 +445,23 @@ TouchGetDiagnostic (
   Data->PowerAvddStatus     = mTouch.PowerAvddStatus;
   Data->ProbeStatus         = mTouch.ProbeStatus;
   Data->ResetStatus         = mTouch.ResetStatus;
+  Data->TouchFunctionStatus = mTouch.TouchFunctionStatus;
   Data->PointerStatus       = mTouch.PointerStatus;
   Data->LastPollStatus      = mTouch.LastPollStatus;
   Data->PollCount           = mTouch.PollCount;
   Data->RawEventCount       = mTouch.RawEventCount;
   Data->ParsedEventCount    = mTouch.ParsedEventCount;
+  Data->PollFailureCount    = mTouch.PollFailureCount;
+  CopyMem (Data->EventTypeCount, mTouch.EventTypeCount,
+           sizeof (Data->EventTypeCount));
+  CopyMem (Data->LastEvent, mTouch.LastEvent, sizeof (Data->LastEvent));
   Data->PollErrorCount      = (UINT32)mTouch.ErrorCount;
   Data->Disabled            = mTouch.Disabled;
   Data->ExitingBootServices = mTouch.ExitingBootServices;
   CopyMem (Data->DeviceId, mTouch.DeviceId, sizeof (Data->DeviceId));
   Data->FirmwareIntegrity = mTouch.FirmwareIntegrity;
   Data->BootStatus         = mTouch.BootStatus;
+  Data->TouchFunctions     = SEC_TS_DEFAULT_TOUCH_FUNCTIONS;
   B2LHsI2cPopulateDiagnostic (Data);
   gBS->RestoreTPL (OldTpl);
   return EFI_SUCCESS;
@@ -468,11 +508,15 @@ TouchPollTimer (
 
   Status = PollEvents (Touch);
   if (EFI_ERROR (Status)) {
-    // Optional input must never hold up boot.  A single bounded transfer
-    // failure permanently disables polling for this boot.
-    Touch->Disabled = TRUE;
-    B2LHsI2cQuiesce ();
-    gBS->SetTimer (Touch->PollTimer, TimerCancel, 0);
+    // Linux sec_ts handlers leave the device active after a failed event
+    // read.  Permit isolated timeouts to recover on the next controller
+    // reset, but retain a small consecutive-error bound so optional input
+    // can never hold up boot indefinitely.
+    if (Touch->ErrorCount >= B2L_TOUCH_MAX_CONSECUTIVE_ERRORS) {
+      Touch->Disabled = TRUE;
+      B2LHsI2cQuiesce ();
+      gBS->SetTimer (Touch->PollTimer, TimerCancel, 0);
+    }
   } else if (!QueueIsEmpty (Touch)) {
     gBS->SignalEvent (Touch->Protocol.WaitForInput);
   }
@@ -527,6 +571,7 @@ B2LTouchEntry (
   mTouch.PowerAvddStatus     = EFI_NOT_READY;
   mTouch.ProbeStatus         = EFI_NOT_READY;
   mTouch.ResetStatus         = EFI_NOT_READY;
+  mTouch.TouchFunctionStatus = EFI_NOT_READY;
   mTouch.PointerStatus       = EFI_NOT_READY;
   mTouch.LastPollStatus      = EFI_NOT_READY;
 
