@@ -3,7 +3,7 @@
 
 #include <Uefi.h>
 
-#define B2L_TOUCH_DIAGNOSTIC_REVISION  2
+#define B2L_TOUCH_DIAGNOSTIC_REVISION  3
 #define B2L_TOUCH_DIAGNOSTIC_READ_MAX  32
 
 typedef struct {
@@ -37,14 +37,32 @@ typedef struct {
   UINT32      UsiMode;
   UINT32      Ctrl;
   UINT32      FifoCtrl;
+  UINT32      ClockControl;
+  UINT32      ClockSlot;
   UINT32      IntEnable;
   UINT32      IntStatus;
+  UINT32      ErrorStatus;
   UINT32      FifoStatus;
   UINT32      Conf;
   UINT32      AutoConf;
   UINT32      Command;
   UINT32      TransferStatus;
   UINT32      Address;
+  UINT32      TimingHs1;
+  UINT32      TimingHs2;
+  UINT32      TimingHs3;
+  UINT32      TimingFs1;
+  UINT32      TimingFs2;
+  UINT32      TimingFs3;
+  UINT32      TimingSla;
+  UINT32      LastIntStatusRaw;
+  UINT32      LastErrorStatusRaw;
+  UINT32      LastTransferStatusRaw;
+  UINT32      LastFifoStatusRaw;
+  EFI_STATUS  SclStatus;
+  EFI_STATUS  SdaStatus;
+  BOOLEAN     SclHigh;
+  BOOLEAN     SdaHigh;
 } B2L_TOUCH_DIAGNOSTIC_DATA;
 
 typedef struct _B2L_TOUCH_DIAGNOSTIC_PROTOCOL B2L_TOUCH_DIAGNOSTIC_PROTOCOL;

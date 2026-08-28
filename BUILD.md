@@ -88,12 +88,14 @@ Bu sürücü UEFI `AbsolutePointer` sağlar. `ExitBootServices` sırasında I²C
 susturur; dolayısıyla Windows açıldıktan sonraki dokunmatik için ayrıca bir
 Windows sürücüsü gerekir.
 
-`--touch-test` önce Android DT'deki 47 HSI2C denetleyicisinin salt okunur adres
-haritasını gösterir; diğer hatlara aktif sorgu göndermez. Sonraki tanı ekranı
-HSI2C10'un güvenli cihaz-MMIO register durumunu, probe sonucunu, son komutu,
-son 32 yanıt baytını ve aktarım/olay sayaçlarını gösterir. Kareli testten sonra
-aynı tanı ekranı yeniden açılır. Her tanı sayfası tuşla veya 20 saniyede,
-kareli test ise tuşla veya 45 saniyede kapanır ve Windows yolu devam eder.
+`--touch-test` önce Android DT'deki 47 HSI2C denetleyicisinin adres ve açık/
+kapalı haritasını, ardından DT'de ilan edilmiş slave adlarını gösterir. Kamera,
+EEPROM, PMIC ve şarj cihazlarına kör aktif tarama göndermez. Yalnız firmware'in
+zaten map edip başlattığı HSI2C10 için canlı SCL/SDA, hata, saat ve timing
+register'ları okunur. Diğer tanı ekranları probe sonucunu, son komutu, son 32
+yanıt baytını ve aktarım/olay sayaçlarını gösterir. Kareli testten sonra aynı
+canlı tanılar yeniden açılır. Her tanı sayfası tuşla veya 20 saniyede, kareli
+test ise tuşla veya 45 saniyede kapanır ve Windows yolu devam eder.
 
 Test uygulaması artık DXE aşamasında çalışmaz; EFI Shell açıldıktan sonra
 başlatılır. Dokunmatik build'inden sonra test uygulamasını SYSTEM ESP'ye koy:

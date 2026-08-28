@@ -16,6 +16,7 @@
 #include <Library/UefiBootServicesTableLib.h>
 
 #include <Protocol/EFIHsI2c.h>
+#include <Protocol/EFIGpio.h>
 
 #include "B2LHsI2c.h"
 
@@ -29,13 +30,16 @@ extern EFI_GUID  gEfiHsI2cProtocolGuid;
 #define B2L_USI_CONFIG_REGISTER  0x1042101CUL
 #define B2L_USI_CONFIG_SIZE      0x00001000UL
 #define B2L_HSI2C_RETRIES       1
-#define B2L_HSI2C_TIMEOUT_US    20000
+#define B2L_HSI2C_TIMEOUT_US    100000
 
 #define HSI2C_CTRL              0x00
 #define HSI2C_FIFO_CTRL         0x04
 #define HSI2C_TRAIL_CTRL        0x08
+#define HSI2C_CLK_CTRL          0x0C
+#define HSI2C_CLK_SLOT          0x10
 #define HSI2C_INT_ENABLE        0x20
 #define HSI2C_INT_STATUS        0x24
+#define HSI2C_ERR_STATUS        0x2C
 #define HSI2C_FIFO_STATUS       0x30
 #define HSI2C_TX_DATA           0x34
 #define HSI2C_RX_DATA           0x38
@@ -44,6 +48,13 @@ extern EFI_GUID  gEfiHsI2cProtocolGuid;
 #define HSI2C_TIMEOUT           0x48
 #define HSI2C_CMD               0x4C
 #define HSI2C_TRANS_STATUS      0x50
+#define HSI2C_TIMING_HS1        0x54
+#define HSI2C_TIMING_HS2        0x58
+#define HSI2C_TIMING_HS3        0x5C
+#define HSI2C_TIMING_FS1        0x60
+#define HSI2C_TIMING_FS2        0x64
+#define HSI2C_TIMING_FS3        0x68
+#define HSI2C_TIMING_SLA        0x6C
 // Exynos5/7 HSI2C target address register.  The previous 0x74 offset is a
 // reserved word on this controller; the on-device diagnostic consequently
 // showed ADDR=00000000 while the transfer stalled in address state 6.
@@ -74,6 +85,7 @@ extern EFI_GUID  gEfiHsI2cProtocolGuid;
 #define HSI2C_RX_FIFO_EMPTY     BIT24
 
 STATIC BOOLEAN     mInitialized;
+STATIC EFI_GPIO_PROTOCOL  *mGpio;
 STATIC UINT64      mTransferCount;
 STATIC UINT64      mTransferSuccessCount;
 STATIC UINT64      mTransferFailureCount;
@@ -81,6 +93,10 @@ STATIC EFI_STATUS  mLastTransferStatus = EFI_NOT_READY;
 STATIC UINT8       mLastCommand;
 STATIC UINT8       mLastReadLength;
 STATIC UINT8       mLastRead[B2L_TOUCH_DIAGNOSTIC_READ_MAX];
+STATIC UINT32      mLastIntStatusRaw;
+STATIC UINT32      mLastErrorStatusRaw;
+STATIC UINT32      mLastTransferStatusRaw;
+STATIC UINT32      mLastFifoStatusRaw;
 
 STATIC
 UINTN
@@ -89,6 +105,18 @@ Reg (
   )
 {
   return B2L_HSI2C_BASE + Offset;
+}
+
+STATIC
+VOID
+CaptureHardwareStatus (
+  VOID
+  )
+{
+  mLastIntStatusRaw      = MmioRead32 (Reg (HSI2C_INT_STATUS));
+  mLastErrorStatusRaw    = MmioRead32 (Reg (HSI2C_ERR_STATUS));
+  mLastTransferStatusRaw = MmioRead32 (Reg (HSI2C_TRANS_STATUS));
+  mLastFifoStatusRaw     = MmioRead32 (Reg (HSI2C_FIFO_STATUS));
 }
 
 STATIC
@@ -146,6 +174,12 @@ B2LHsI2cPopulateDiagnostic (
   Data->TransferCount        = mTransferCount;
   Data->TransferSuccessCount = mTransferSuccessCount;
   Data->TransferFailureCount = mTransferFailureCount;
+  Data->LastIntStatusRaw     = mLastIntStatusRaw;
+  Data->LastErrorStatusRaw   = mLastErrorStatusRaw;
+  Data->LastTransferStatusRaw = mLastTransferStatusRaw;
+  Data->LastFifoStatusRaw    = mLastFifoStatusRaw;
+  Data->SclStatus            = EFI_NOT_READY;
+  Data->SdaStatus            = EFI_NOT_READY;
   for (Index = 0; Index < B2L_TOUCH_DIAGNOSTIC_READ_MAX; Index++) {
     Data->LastRead[Index] = mLastRead[Index];
   }
@@ -157,14 +191,41 @@ B2LHsI2cPopulateDiagnostic (
   Data->UsiMode        = MmioRead32 (B2L_USI_CONFIG_REGISTER);
   Data->Ctrl           = MmioRead32 (Reg (HSI2C_CTRL));
   Data->FifoCtrl       = MmioRead32 (Reg (HSI2C_FIFO_CTRL));
+  Data->ClockControl   = MmioRead32 (Reg (HSI2C_CLK_CTRL));
+  Data->ClockSlot      = MmioRead32 (Reg (HSI2C_CLK_SLOT));
   Data->IntEnable      = MmioRead32 (Reg (HSI2C_INT_ENABLE));
   Data->IntStatus      = MmioRead32 (Reg (HSI2C_INT_STATUS));
+  Data->ErrorStatus    = MmioRead32 (Reg (HSI2C_ERR_STATUS));
   Data->FifoStatus     = MmioRead32 (Reg (HSI2C_FIFO_STATUS));
   Data->Conf           = MmioRead32 (Reg (HSI2C_CONF));
   Data->AutoConf       = MmioRead32 (Reg (HSI2C_AUTO_CONF));
   Data->Command        = MmioRead32 (Reg (HSI2C_CMD));
   Data->TransferStatus = MmioRead32 (Reg (HSI2C_TRANS_STATUS));
   Data->Address        = MmioRead32 (Reg (HSI2C_ADDRESS));
+  Data->TimingHs1      = MmioRead32 (Reg (HSI2C_TIMING_HS1));
+  Data->TimingHs2      = MmioRead32 (Reg (HSI2C_TIMING_HS2));
+  Data->TimingHs3      = MmioRead32 (Reg (HSI2C_TIMING_HS3));
+  Data->TimingFs1      = MmioRead32 (Reg (HSI2C_TIMING_FS1));
+  Data->TimingFs2      = MmioRead32 (Reg (HSI2C_TIMING_FS2));
+  Data->TimingFs3      = MmioRead32 (Reg (HSI2C_TIMING_FS3));
+  Data->TimingSla      = MmioRead32 (Reg (HSI2C_TIMING_SLA));
+
+  Data->SclStatus = EFI_NOT_FOUND;
+  Data->SdaStatus = EFI_NOT_FOUND;
+  if (mGpio != NULL) {
+    Data->SclStatus = mGpio->GetState (
+                                BANK_ID_P,
+                                1,
+                                4,
+                                &Data->SclHigh
+                                );
+    Data->SdaStatus = mGpio->GetState (
+                                BANK_ID_P,
+                                1,
+                                5,
+                                &Data->SdaHigh
+                                );
+  }
 }
 
 STATIC
@@ -222,8 +283,10 @@ TransferMessage (
     MmioWrite32 (Reg (HSI2C_INT_STATUS), InterruptStatus);
   }
 
-  // Poll INT_STATUS directly; do not route HSI2C10 into the GIC.
-  MmioWrite32 (Reg (HSI2C_INT_ENABLE), 0);
+  // Match SamsungPkg's HsI2cDxe and the DT check-transdone-int behavior.
+  // Enable only TRANSFER_DONE while this bounded transfer is active; every
+  // success and failure path clears both the source and this enable again.
+  MmioWrite32 (Reg (HSI2C_INT_ENABLE), HSI2C_INT_TRANSFER_DONE);
   MmioOr32 (Reg (HSI2C_AUTO_CONF), HSI2C_MASTER_RUN);
 
   Index   = 0;
@@ -240,6 +303,7 @@ TransferMessage (
       if (Index >= BufferLength) {
         InterruptStatus = MmioRead32 (Reg (HSI2C_INT_STATUS));
         if ((InterruptStatus & HSI2C_INT_TRANSFER_DONE) != 0) {
+          CaptureHardwareStatus ();
           MmioWrite32 (Reg (HSI2C_INT_STATUS), InterruptStatus);
           MmioWrite32 (Reg (HSI2C_INT_ENABLE), 0);
           return EFI_SUCCESS;
@@ -265,6 +329,7 @@ TransferMessage (
       FifoStatus      = MmioRead32 (Reg (HSI2C_FIFO_STATUS));
       if (((InterruptStatus & HSI2C_INT_TRANSFER_DONE) != 0) &&
           ((FifoStatus & HSI2C_TX_FIFO_EMPTY) != 0)) {
+        CaptureHardwareStatus ();
         MmioWrite32 (Reg (HSI2C_INT_STATUS), InterruptStatus);
         MmioWrite32 (Reg (HSI2C_INT_ENABLE), 0);
         return EFI_SUCCESS;
@@ -274,6 +339,7 @@ TransferMessage (
     }
   }
 
+  CaptureHardwareStatus ();
   B2LHsI2cQuiesce ();
   return EFI_TIMEOUT;
 }
@@ -285,6 +351,17 @@ B2LHsI2cInitialize (
 {
   EFI_HSI2C_PROTOCOL  *HsI2c;
   EFI_STATUS           Status;
+
+  // Optional read-only line-state diagnostics.  HsI2cDxe still owns pin
+  // setup; failure to locate GPIO must not block touch initialization.
+  Status = gBS->LocateProtocol (
+                  &gEfiGpioProtocolGuid,
+                  NULL,
+                  (VOID **)&mGpio
+                  );
+  if (EFI_ERROR (Status)) {
+    mGpio = NULL;
+  }
 
   Status = gBS->LocateProtocol (
                   &gEfiHsI2cProtocolGuid,

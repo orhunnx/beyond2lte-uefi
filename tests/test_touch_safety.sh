@@ -24,10 +24,13 @@ if rg -n 'APRIORI|0x(8|9|A|B|C|D|E|F)[0-9A-Fa-f]{7}' "$TOUCH_DIR"/*.[ch] "$TEST_
   exit 1
 fi
 
-if rg -n 'MmioWrite32 \(Reg \(HSI2C_INT_ENABLE\), [^0]' "$TOUCH_DIR/B2LHsI2c.c"; then
-  echo "HATA: HSI2C kesmesi aciliyor"
+if rg 'MmioWrite32 \(Reg \(HSI2C_INT_ENABLE\),' "$TOUCH_DIR/B2LHsI2c.c" | \
+   rg -v ', (0|HSI2C_INT_TRANSFER_DONE)\);'; then
+  echo "HATA: HSI2C kesmesinde allowlist disi deger kullaniliyor"
   exit 1
 fi
+grep -q 'MmioWrite32 (Reg (HSI2C_INT_ENABLE), HSI2C_INT_TRANSFER_DONE)' "$TOUCH_DIR/B2LHsI2c.c"
+grep -q '#define HSI2C_INT_TRANSFER_DONE BIT7' "$TOUCH_DIR/B2LHsI2c.c"
 
 for function_name in TouchGetState TouchWaitForInput; do
   if sed -n "/^${function_name} (/,/^}/p" "$TOUCH_DIR/B2LTouchDxe.c" | rg -q 'PollEvents|ReadCommand|WriteCommand|B2LHsI2c'; then
@@ -42,6 +45,7 @@ grep -q 'stock Android DT explicitly sets samsung,stop-after-trans' "$TOUCH_DIR/
 grep -q '^#define HSI2C_ADDRESS           0x70$' "$TOUCH_DIR/B2LHsI2c.c"
 grep -q 'gB2LTouchDiagnosticProtocolGuid' "$TOUCH_DIR/B2LTouchDxe.c"
 grep -q 'AKTIF TARAMA YOK' "$TEST_DIR/B2LTouchTest.c"
+grep -q 'AKTIF PROBE YOK' "$TEST_DIR/B2LTouchTest.c"
 
 if rg -n 'B2LHsI2cWriteRead|InitBus|Mmio(Read|Write|Or|And)' "$TEST_DIR/B2LTouchTest.c"; then
   echo "HATA: test uygulamasi HSI2C envanteri gosterirken donanimi taramaya calisiyor"

@@ -28,6 +28,7 @@
 [Protocols]
   gB2LTouchDiagnosticProtocolGuid
   gEfiAbsolutePointerProtocolGuid
+  gEfiGpioProtocolGuid
   gEfiHsI2cProtocolGuid
 
 [Guids]

@@ -49,6 +49,36 @@ STATIC CONST UINT32  mHsI2cAddress[] = {
   0x15D50000, 0x15D60000, 0x15D70000
 };
 
+STATIC CONST BOOLEAN  mHsI2cEnabled[] = {
+  [0] = TRUE, [1] = TRUE, [2] = TRUE, [3] = TRUE,
+  [10] = TRUE, [14] = TRUE, [19] = TRUE, [20] = TRUE,
+  [21] = TRUE, [24] = TRUE, [37] = TRUE, [38] = TRUE,
+  [42] = TRUE, [44] = TRUE, [45] = TRUE, [46] = TRUE
+};
+
+typedef struct {
+  UINT8         Bus;
+  UINT8         Address;
+  CONST CHAR16 *Name;
+} B2L_DT_I2C_DEVICE;
+
+// Direct children of DT-enabled HSI2C nodes.  This is an inventory only;
+// no generic command is safe across cameras, EEPROMs, PMICs and chargers.
+STATIC CONST B2L_DT_I2C_DEVICE  mDtDevices[] = {
+  {  0, 0x10, L"CAM2L4" },    {  1, 0x51, L"REAR2EEP" },
+  {  1, 0x2D, L"CAM3P9" },    {  2, 0x10, L"CAM3J1" },
+  {  3, 0x50, L"REAREEP" },   {  3, 0x0F, L"ACT0F" },
+  {  3, 0x0C, L"ACT0C" },     { 10, 0x48, L"TOUCH" },
+  { 14, 0x28, L"SX9330" },    { 19, 0x2D, L"CAM3M3" },
+  { 19, 0x10, L"CAM4HA" },    { 20, 0x27, L"NFC" },
+  { 20, 0x57, L"MAX86915" },  { 21, 0x51, L"FRONTEEP" },
+  { 21, 0x0C, L"ACT0C" },     { 24, 0x59, L"S2MPB02" },
+  { 37, 0x51, L"MCU" },       { 38, 0x41, L"AMP41" },
+  { 38, 0x40, L"AMP40" },     { 42, 0x56, L"S2MPB03" },
+  { 44, 0x60, L"S2DOS05" },   { 45, 0x66, L"MAX77705" },
+  { 46, 0x3B, L"CHARGER" }
+};
+
 STATIC CONST EFI_GRAPHICS_OUTPUT_BLT_PIXEL  mBlack  = { 0x00, 0x00, 0x00, 0x00 };
 STATIC CONST EFI_GRAPHICS_OUTPUT_BLT_PIXEL  mGray   = { 0x50, 0x50, 0x50, 0x00 };
 STATIC CONST EFI_GRAPHICS_OUTPUT_BLT_PIXEL  mGreen  = { 0x20, 0xD0, 0x20, 0x00 };
@@ -104,19 +134,49 @@ ShowHsI2cInventory (
 
   gST->ConOut->ClearScreen (gST->ConOut);
   Print (L"=== HSI2C HARITASI - ANDROID DT - AKTIF TARAMA YOK ===\n");
-  Print (L"47 denetleyici; yalniz adres listesi. B10 dokunmatik adayi.\n\n");
+  Print (L"47 denetleyici; + DT acik, - DT kapali. B10 dokunmatik.\n\n");
   for (Row = 0; Row < 16; Row++) {
     for (Bus = Row; Bus < ARRAY_SIZE (mHsI2cAddress); Bus += 16) {
       if (Bus == 10) {
-        Print (L"B%02u*=0x%08x  ", Bus, mHsI2cAddress[Bus]);
+        Print (L"B%02u*+=0x%08x ", Bus, mHsI2cAddress[Bus]);
       } else {
-        Print (L"B%02u =0x%08x  ", Bus, mHsI2cAddress[Bus]);
+        Print (L"B%02u%c =0x%08x ", Bus,
+               mHsI2cEnabled[Bus] ? L'+' : L'-', mHsI2cAddress[Bus]);
       }
     }
     Print (L"\n");
   }
   Print (L"\n*=DT: touchscreen at 48, USI=1042101C, GPP1 4/5 F2\n");
   Print (L"Tus: ayrintili dokunmatik tanisina gec (20 sn otomatik)\n");
+  WaitForKeyOrTimeout ();
+}
+
+STATIC
+VOID
+ShowHsI2cDevices (
+  VOID
+  )
+{
+  UINTN  Index;
+  UINTN  Other;
+  UINTN  Rows;
+
+  gST->ConOut->ClearScreen (gST->ConOut);
+  Print (L"=== HSI2C DT SLAVE ENVANTERI - AKTIF PROBE YOK ===\n");
+  Print (L"Kamera EEPROM PMIC sarj cihazlarina kor tarama gonderilmedi.\n\n");
+  Rows = (ARRAY_SIZE (mDtDevices) + 1) / 2;
+  for (Index = 0; Index < Rows; Index++) {
+    Print (L"B%02u A%02x %-10s", mDtDevices[Index].Bus,
+           mDtDevices[Index].Address, mDtDevices[Index].Name);
+    Other = Index + Rows;
+    if (Other < ARRAY_SIZE (mDtDevices)) {
+      Print (L"  B%02u A%02x %-10s", mDtDevices[Other].Bus,
+             mDtDevices[Other].Address, mDtDevices[Other].Name);
+    }
+    Print (L"\n");
+  }
+  Print (L"\nYalniz B10 zaten map edilmis ve canli okunuyor.\n");
+  Print (L"Tus: B10 canli taniya gec (20 sn otomatik)\n");
   WaitForKeyOrTimeout ();
 }
 
@@ -193,6 +253,56 @@ ShowTouchDiagnostic (
          Data.Conf, Data.AutoConf, Data.Command);
   Print (L"TRANS=%08x ADDR=%08x EXPECT=00012000\n",
          Data.TransferStatus, Data.Address);
+  Print (L"\nFotografla. Tus: devam (20 sn otomatik)\n");
+  WaitForKeyOrTimeout ();
+}
+
+STATIC
+VOID
+ShowTouchHardware (
+  IN CONST CHAR16  *Phase
+  )
+{
+  B2L_TOUCH_DIAGNOSTIC_DATA  Data;
+  EFI_STATUS                 Status;
+
+  gST->ConOut->ClearScreen (gST->ConOut);
+  Print (L"=== HSI2C10 CANLI DONANIM REV%u: %s ===\n",
+         B2L_TOUCH_DIAGNOSTIC_REVISION, Phase);
+  Print (L"Yalniz map edilmis B10 okunur; B00-B46 guc alanlari acilmaz.\n\n");
+  if (mDiagnostic == NULL) {
+    Print (L"TANI PROTOKOLU YOK\n");
+    WaitForKeyOrTimeout ();
+    return;
+  }
+
+  Status = mDiagnostic->GetDiagnostic (mDiagnostic, &Data);
+  if (EFI_ERROR (Status)) {
+    Print (L"TANI OKUNAMADI: %r\n", Status);
+    WaitForKeyOrTimeout ();
+    return;
+  }
+
+  Print (L"SCL=%u (%r) SDA=%u (%r)  IDLE BEKLENEN: 1 1\n",
+         Data.SclHigh, Data.SclStatus, Data.SdaHigh, Data.SdaStatus);
+  Print (L"CLK_CTRL=%08x CLK_SLOT=%08x USI_MODE=%08x\n",
+         Data.ClockControl, Data.ClockSlot, Data.UsiMode);
+  Print (L"CTRL=%08x FIFO=%08x FIFO_STAT=%08x\n",
+         Data.Ctrl, Data.FifoCtrl, Data.FifoStatus);
+  Print (L"INT_EN=%08x INT_STAT=%08x ERR_STAT=%08x\n",
+         Data.IntEnable, Data.IntStatus, Data.ErrorStatus);
+  Print (L"CONF=%08x AUTO=%08x TRANS=%08x\n",
+         Data.Conf, Data.AutoConf, Data.TransferStatus);
+  Print (L"ADDR=%08x EXPECT=00012000 CMDREG=%08x\n",
+         Data.Address, Data.Command);
+  Print (L"HS1=%08x HS2=%08x HS3=%08x\n",
+         Data.TimingHs1, Data.TimingHs2, Data.TimingHs3);
+  Print (L"FS1=%08x FS2=%08x FS3=%08x\n",
+         Data.TimingFs1, Data.TimingFs2, Data.TimingFs3);
+  Print (L"SLA=%08x\n", Data.TimingSla);
+  Print (L"LAST INT=%08x ERR=%08x TRANS=%08x FIFO=%08x\n",
+         Data.LastIntStatusRaw, Data.LastErrorStatusRaw,
+         Data.LastTransferStatusRaw, Data.LastFifoStatusRaw);
   Print (L"\nFotografla. Tus: devam (20 sn otomatik)\n");
   WaitForKeyOrTimeout ();
 }
@@ -574,7 +684,9 @@ B2LTouchTestEntry (
   }
 
   ShowHsI2cInventory ();
+  ShowHsI2cDevices ();
   ShowTouchDiagnostic (L"TEST ONCESI");
+  ShowTouchHardware (L"TEST ONCESI");
 
   if (mPointer != NULL) {
     Status = RunTouchTest ();
@@ -583,5 +695,6 @@ B2LTouchTestEntry (
   }
 
   ShowTouchDiagnostic (L"TEST SONRASI");
+  ShowTouchHardware (L"TEST SONRASI");
   return Status;
 }
