@@ -8,6 +8,10 @@ USI yapılandırma sayfası `0x10421000`, I2C adresi `0x48` ve 12 bit koordinat
 aralığı `0..4095`. Bu adresler cihaz MMIO'sudur. Sürücü DRAM taramaz, platform
 bellek haritasını değiştirmez ve kısıtlı RAM bölgelerine erişmez.
 
+HSI2C aktarımı Android DT'deki `samsung,reset-before-trans` ve
+`samsung,stop-after-trans` özelliklerini izler. sec_ts komut yazması ile veri
+okuması ayrı mesajlardır ve ikisi de STOP ile tamamlanır.
+
 Güvenlik sınırları:
 
 - Firmware güncellemesi, regülatör güç çevrimi ve GPIO/IRQ kurulumu yapmaz.

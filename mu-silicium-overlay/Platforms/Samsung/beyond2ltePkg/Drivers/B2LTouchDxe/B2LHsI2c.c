@@ -2,9 +2,10 @@
   Minimal combined-transfer transport for beyond2lte HSI2C10.
 
   SamsungPkg's public HSI2C protocol initializes the controller but its data
-  API always emits a four-byte register address.  sec_ts uses a one-byte
-  command followed by a repeated-start read, so this platform driver performs
-  only that data phase against the already initialized HSI2C10 controller.
+  API always emits a four-byte register address.  sec_ts uses one-byte
+  commands.  The stock Android DT explicitly sets samsung,stop-after-trans
+  on HSI2C10, so command writes and following reads are separate messages,
+  each ending with STOP.
 **/
 
 #include <Uefi.h>
@@ -287,7 +288,7 @@ B2LHsI2cWriteRead (
                  (UINT8 *)(VOID *)WriteBuffer,
                  WriteLength,
                  FALSE,
-                 ReadLength == 0
+                 TRUE
                  );
       if (EFI_ERROR (Status)) {
         gBS->Stall (100);

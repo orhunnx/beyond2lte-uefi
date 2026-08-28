@@ -37,5 +37,6 @@ done
 
 grep -q 'gEfiEventExitBootServicesGuid' "$TOUCH_DIR/B2LTouchDxe.c"
 grep -q 'B2LHsI2cQuiesce' "$TOUCH_DIR/B2LTouchDxe.c"
+grep -q 'stock Android DT explicitly sets samsung,stop-after-trans' "$TOUCH_DIR/B2LHsI2c.c"
 
 echo "touch safety checks: PASS"
