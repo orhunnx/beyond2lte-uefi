@@ -2,6 +2,7 @@
 #define B2L_HSI2C_H
 
 #include <Uefi.h>
+#include <Protocol/B2LTouchDiagnostic.h>
 
 EFI_STATUS
 B2LHsI2cInitialize (
@@ -19,6 +20,11 @@ B2LHsI2cWriteRead (
 VOID
 B2LHsI2cQuiesce (
   VOID
+  );
+
+VOID
+B2LHsI2cPopulateDiagnostic (
+  IN OUT B2L_TOUCH_DIAGNOSTIC_DATA  *Data
   );
 
 #endif

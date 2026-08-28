@@ -26,6 +26,7 @@ extern EFI_GUID  gEfiHsI2cProtocolGuid;
 #define B2L_HSI2C_SLAVE         0x48
 #define B2L_HSI2C_BASE          0x104B0000UL
 #define B2L_USI_CONFIG_BASE      0x10421000UL
+#define B2L_USI_CONFIG_REGISTER  0x1042101CUL
 #define B2L_USI_CONFIG_SIZE      0x00001000UL
 #define B2L_HSI2C_RETRIES       1
 #define B2L_HSI2C_TIMEOUT_US    20000
@@ -41,6 +42,8 @@ extern EFI_GUID  gEfiHsI2cProtocolGuid;
 #define HSI2C_CONF              0x40
 #define HSI2C_AUTO_CONF         0x44
 #define HSI2C_TIMEOUT           0x48
+#define HSI2C_CMD               0x4C
+#define HSI2C_TRANS_STATUS      0x50
 #define HSI2C_ADDRESS           0x74
 
 #define HSI2C_MASTER            BIT3
@@ -66,6 +69,15 @@ extern EFI_GUID  gEfiHsI2cProtocolGuid;
 #define HSI2C_TX_FIFO_LEVEL(x)  ((x) & 0x7F)
 #define HSI2C_TX_FIFO_EMPTY     BIT8
 #define HSI2C_RX_FIFO_EMPTY     BIT24
+
+STATIC BOOLEAN     mInitialized;
+STATIC UINT64      mTransferCount;
+STATIC UINT64      mTransferSuccessCount;
+STATIC UINT64      mTransferFailureCount;
+STATIC EFI_STATUS  mLastTransferStatus = EFI_NOT_READY;
+STATIC UINT8       mLastCommand;
+STATIC UINT8       mLastReadLength;
+STATIC UINT8       mLastRead[B2L_TOUCH_DIAGNOSTIC_READ_MAX];
 
 STATIC
 UINTN
@@ -108,6 +120,48 @@ B2LHsI2cQuiesce (
 
   MmioAnd32 (Reg (HSI2C_AUTO_CONF), ~HSI2C_MASTER_RUN);
   MmioAnd32 (Reg (HSI2C_CTRL), ~(HSI2C_RXCHON | HSI2C_TXCHON));
+}
+
+VOID
+B2LHsI2cPopulateDiagnostic (
+  IN OUT B2L_TOUCH_DIAGNOSTIC_DATA  *Data
+  )
+{
+  UINTN  Index;
+
+  if (Data == NULL) {
+    return;
+  }
+
+  Data->Bus                  = B2L_HSI2C_BUS;
+  Data->Slave                = B2L_HSI2C_SLAVE;
+  Data->ControllerAddress    = B2L_HSI2C_BASE;
+  Data->UsiAddress           = B2L_USI_CONFIG_REGISTER;
+  Data->LastCommand          = mLastCommand;
+  Data->LastReadLength       = mLastReadLength;
+  Data->LastTransferStatus   = mLastTransferStatus;
+  Data->TransferCount        = mTransferCount;
+  Data->TransferSuccessCount = mTransferSuccessCount;
+  Data->TransferFailureCount = mTransferFailureCount;
+  for (Index = 0; Index < B2L_TOUCH_DIAGNOSTIC_READ_MAX; Index++) {
+    Data->LastRead[Index] = mLastRead[Index];
+  }
+
+  if (!mInitialized) {
+    return;
+  }
+
+  Data->UsiMode        = MmioRead32 (B2L_USI_CONFIG_REGISTER);
+  Data->Ctrl           = MmioRead32 (Reg (HSI2C_CTRL));
+  Data->FifoCtrl       = MmioRead32 (Reg (HSI2C_FIFO_CTRL));
+  Data->IntEnable      = MmioRead32 (Reg (HSI2C_INT_ENABLE));
+  Data->IntStatus      = MmioRead32 (Reg (HSI2C_INT_STATUS));
+  Data->FifoStatus     = MmioRead32 (Reg (HSI2C_FIFO_STATUS));
+  Data->Conf           = MmioRead32 (Reg (HSI2C_CONF));
+  Data->AutoConf       = MmioRead32 (Reg (HSI2C_AUTO_CONF));
+  Data->Command        = MmioRead32 (Reg (HSI2C_CMD));
+  Data->TransferStatus = MmioRead32 (Reg (HSI2C_TRANS_STATUS));
+  Data->Address        = MmioRead32 (Reg (HSI2C_ADDRESS));
 }
 
 STATIC
@@ -258,7 +312,9 @@ B2LHsI2cInitialize (
     return Status;
   }
 
-  return HsI2c->InitBus (B2L_HSI2C_BUS);
+  Status = HsI2c->InitBus (B2L_HSI2C_BUS);
+  mInitialized = (BOOLEAN)!EFI_ERROR (Status);
+  return Status;
 }
 
 EFI_STATUS
@@ -270,6 +326,7 @@ B2LHsI2cWriteRead (
   )
 {
   EFI_STATUS  Status;
+  UINTN       Index;
   UINTN       Retry;
 
   if (((WriteLength == 0) && (ReadLength == 0)) ||
@@ -277,6 +334,13 @@ B2LHsI2cWriteRead (
       ((ReadLength != 0) && (ReadBuffer == NULL)) ||
       (WriteLength > MAX_UINT16) || (ReadLength > MAX_UINT16)) {
     return EFI_INVALID_PARAMETER;
+  }
+
+  mTransferCount++;
+  mLastCommand    = (WriteLength != 0) ? WriteBuffer[0] : 0;
+  mLastReadLength = 0;
+  for (Index = 0; Index < B2L_TOUCH_DIAGNOSTIC_READ_MAX; Index++) {
+    mLastRead[Index] = 0;
   }
 
   for (Retry = 0; Retry < B2L_HSI2C_RETRIES; Retry++) {
@@ -304,10 +368,19 @@ B2LHsI2cWriteRead (
       }
     }
 
+    mLastTransferStatus = EFI_SUCCESS;
+    mTransferSuccessCount++;
+    mLastReadLength = (UINT8)((ReadLength < B2L_TOUCH_DIAGNOSTIC_READ_MAX) ?
+                             ReadLength : B2L_TOUCH_DIAGNOSTIC_READ_MAX);
+    for (Index = 0; Index < mLastReadLength; Index++) {
+      mLastRead[Index] = ReadBuffer[Index];
+    }
     return EFI_SUCCESS;
   }
 
   B2LHsI2cQuiesce ();
+  mLastTransferStatus = EFI_DEVICE_ERROR;
+  mTransferFailureCount++;
   DEBUG ((DEBUG_ERROR, "B2LTouch: HSI2C10 transfer failed: %r\n", Status));
   return EFI_DEVICE_ERROR;
 }

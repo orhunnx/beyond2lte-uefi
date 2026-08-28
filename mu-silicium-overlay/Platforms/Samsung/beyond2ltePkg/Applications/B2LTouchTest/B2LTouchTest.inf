@@ -11,6 +11,7 @@
 
 [Packages]
   MdePkg/MdePkg.dec
+  beyond2ltePkg/beyond2lte.dec
 
 [LibraryClasses]
   UefiBootServicesTableLib
@@ -18,5 +19,6 @@
   UefiLib
 
 [Protocols]
+  gB2LTouchDiagnosticProtocolGuid
   gEfiAbsolutePointerProtocolGuid
   gEfiGraphicsOutputProtocolGuid

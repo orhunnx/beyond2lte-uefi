@@ -450,6 +450,7 @@ fi
 
 say "Odin icin sparse imaj + tar"
 WORK="$(mktemp -d)"
+TOUCH_BUNDLE=""
 if command -v img2simg >/dev/null; then
   img2simg "$IMG" "$WORK/$PART.img"
   MAGIC=$(od -An -tx4 -N4 "$WORK/$PART.img" | tr -d ' ')
@@ -460,20 +461,48 @@ else
   cp "$IMG" "$WORK/$PART.img"
 fi
 ( cd "$WORK" && tar -H ustar -cf "$OUT/$PART-esp.tar" "$PART.img" )
+
+# Dokunmatik tanisi iki bolumdeki iki dosyayi birlikte gerektirir:
+# BOOT'ta B2LTouchDxe, SYSTEM ESP'de B2LTOUCH.EFI. Test uygulamasi mevcutsa
+# ikisini tek Odin AP arsivinde birlestir. Boylece ayni turun iki ayri tar ile
+# karistirilma riski kalmaz. Yalnizca daha once uretilen kendi BOOT arsimizi
+# acar; cihazda veya baska bolumlerde herhangi bir islem yapmaz.
+if [ "$PART" = system ] && [ -s "$PROJ/esp/B2LTOUCH.EFI" ] && \
+   [ -s "$OUT/uefi-boot.tar" ]; then
+  if tar -tf "$OUT/uefi-boot.tar" | grep -qx 'boot.img'; then
+    tar -xf "$OUT/uefi-boot.tar" -C "$WORK" boot.img
+    TOUCH_BUNDLE="$OUT/beyond2lte-touch-diag.tar"
+    ( cd "$WORK" && tar -H ustar -cf "$TOUCH_BUNDLE" boot.img system.img )
+  else
+    echo "HATA: out/uefi-boot.tar icinde boot.img yok; tek-flas tani paketi uretilmedi."
+    rm -rf "$WORK"
+    exit 1
+  fi
+fi
 rm -rf "$WORK"
 
 say "Cikti"
 ls -lh "$IMG" "$OUT/$PART-esp.tar"
+if [ -n "$TOUCH_BUNDLE" ]; then
+  ls -lh "$TOUCH_BUNDLE"
+  echo "  TEK FLAS: beyond2lte-touch-diag.tar -> BOOT + SYSTEM"
+fi
 
 for p in /mnt/c/Users/*/OneDrive/Masa*st* /mnt/c/Users/*/OneDrive/Desktop \
          /mnt/c/Users/*/Masa*st* /mnt/c/Users/*/Desktop; do
   [ -d "$p" ] || continue
   mkdir -p "$p/beyond2lte-flash"
   cp -f "$OUT/$PART-esp.tar" "$IMG" "$p/beyond2lte-flash/"
+  if [ -n "$TOUCH_BUNDLE" ]; then
+    cp -f "$TOUCH_BUNDLE" "$p/beyond2lte-flash/"
+  fi
   echo
   echo "Masaustune kopyalandi: $p/beyond2lte-flash"
   echo "  $PART-esp.tar  -> Odin, AP slotu (Re-Partition ISARETSIZ)"
   echo "  $PART.img      -> recovery: adb push + dd"
   echo "  hedef bolum: $(echo "$PART" | tr a-z A-Z)"
+  if [ -n "$TOUCH_BUNDLE" ]; then
+    echo "  beyond2lte-touch-diag.tar -> TEK Odin AP flasi (BOOT + SYSTEM)"
+  fi
   break
 done

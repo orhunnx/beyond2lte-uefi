@@ -1,0 +1,11 @@
+[Defines]
+  DEC_SPECIFICATION              = 0x00010005
+  PACKAGE_NAME                   = beyond2ltePkg
+  PACKAGE_GUID                   = 77A1BDCE-7345-4B7D-AE53-D803AD66D1E8
+  PACKAGE_VERSION                = 1.0
+
+[Includes]
+  Include
+
+[Protocols]
+  gB2LTouchDiagnosticProtocolGuid = { 0x47c2c225, 0x58af, 0x47aa, { 0xb7, 0xf0, 0xbc, 0x15, 0xd4, 0x34, 0xfa, 0x94 } }

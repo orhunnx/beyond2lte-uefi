@@ -88,10 +88,12 @@ Bu sürücü UEFI `AbsolutePointer` sağlar. `ExitBootServices` sırasında I²C
 susturur; dolayısıyla Windows açıldıktan sonraki dokunmatik için ayrıca bir
 Windows sürücüsü gerekir.
 
-`--touch-test` ekranında parmağın geçtiği kareler yeşile döner, etkin kare
-sarı görünür. Tüm kareler tamamlanınca test otomatik kapanıp Windows'a devam
-eder. Herhangi bir ses tuşu testi erken kapatır; dokunmatik hiç yanıt vermezse
-45 saniyelik güvenlik süresi sonunda yine Windows'a geçilir.
+`--touch-test` önce Android DT'deki 47 HSI2C denetleyicisinin salt okunur adres
+haritasını gösterir; diğer hatlara aktif sorgu göndermez. Sonraki tanı ekranı
+HSI2C10'un güvenli cihaz-MMIO register durumunu, probe sonucunu, son komutu,
+son 32 yanıt baytını ve aktarım/olay sayaçlarını gösterir. Kareli testten sonra
+aynı tanı ekranı yeniden açılır. Her tanı sayfası tuşla veya 20 saniyede,
+kareli test ise tuşla veya 45 saniyede kapanır ve Windows yolu devam eder.
 
 Test uygulaması artık DXE aşamasında çalışmaz; EFI Shell açıldıktan sonra
 başlatılır. Dokunmatik build'inden sonra test uygulamasını SYSTEM ESP'ye koy:
@@ -100,9 +102,10 @@ başlatılır. Dokunmatik build'inden sonra test uygulamasını SYSTEM ESP'ye ko
 bash cache_esp.sh --win --system --baseline
 ```
 
-Bu turda Odin AP alanından önce `out/uefi-boot.tar`, sonra
-`out/system-esp.tar` flashlanır. BCD yeniden üretilmez; mevcut `esp/` içeriği
-aynen kullanılır.
+Test uygulaması bulunduğunda ikinci komut BOOT ve SYSTEM sparse imajlarını
+`out/beyond2lte-touch-diag.tar` içinde birleştirir. Odin'de yalnızca bu tek
+dosyayı AP alanından, **Re-Partition kapalıyken** flashla. BCD yeniden
+üretilmez; mevcut `esp/` içeriği aynen kullanılır.
 
 Doğrudan Mu-Silicium komutu aşağıda referans olarak duruyor; günlük beyond2lte
 derlemelerinde yukarıdaki `yap.sh` yolu kullanılmalıdır.

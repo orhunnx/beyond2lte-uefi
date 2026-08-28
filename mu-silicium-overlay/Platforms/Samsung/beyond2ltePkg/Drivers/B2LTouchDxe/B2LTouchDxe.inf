@@ -15,6 +15,7 @@
   MdePkg/MdePkg.dec
   SiliciumPkg/SiliciumPkg.dec
   SamsungPkg/SamsungPkg.dec
+  beyond2ltePkg/beyond2lte.dec
 
 [LibraryClasses]
   BaseMemoryLib
@@ -25,6 +26,7 @@
   UefiDriverEntryPoint
 
 [Protocols]
+  gB2LTouchDiagnosticProtocolGuid
   gEfiAbsolutePointerProtocolGuid
   gEfiHsI2cProtocolGuid
 

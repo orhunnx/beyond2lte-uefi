@@ -16,6 +16,7 @@
 
 #include <Guid/EventGroup.h>
 #include <Protocol/AbsolutePointer.h>
+#include <Protocol/B2LTouchDiagnostic.h>
 
 #include "B2LHsI2c.h"
 #include "B2LSecTsParser.h"
@@ -47,9 +48,33 @@ typedef struct {
   UINTN                          ErrorCount;
   EFI_EVENT                      PollTimer;
   EFI_EVENT                      ExitBootServicesEvent;
+  EFI_STATUS                     InitStatus;
+  EFI_STATUS                     ProbeStatus;
+  EFI_STATUS                     ResetStatus;
+  EFI_STATUS                     PointerStatus;
+  EFI_STATUS                     LastPollStatus;
+  UINT64                         PollCount;
+  UINT64                         RawEventCount;
+  UINT64                         ParsedEventCount;
+  UINT8                          DeviceId[5];
+  UINT8                          FirmwareIntegrity;
+  UINT8                          BootStatus;
 } B2L_TOUCH_CONTEXT;
 
 STATIC B2L_TOUCH_CONTEXT  mTouch;
+
+STATIC
+EFI_STATUS
+EFIAPI
+TouchGetDiagnostic (
+  IN  B2L_TOUCH_DIAGNOSTIC_PROTOCOL  *This,
+  OUT B2L_TOUCH_DIAGNOSTIC_DATA      *Data
+  );
+
+STATIC B2L_TOUCH_DIAGNOSTIC_PROTOCOL  mDiagnostic = {
+  B2L_TOUCH_DIAGNOSTIC_REVISION,
+  TouchGetDiagnostic
+};
 
 STATIC
 EFI_STATUS
@@ -113,7 +138,9 @@ ConsumeEvent (
   B2L_SEC_TS_PARSE_RESULT  Result;
 
   Result = B2LSecTsParseEvent (Event, &Context->Pointer);
+  Context->RawEventCount++;
   if (Result == B2LSecTsUpdated) {
+    Context->ParsedEventCount++;
     QueuePointerState (Context);
   } else if (Result == B2LSecTsInvalid) {
     DEBUG ((DEBUG_WARN, "B2LTouch: malformed sec_ts coordinate event\n"));
@@ -136,6 +163,7 @@ PollEvents (
   }
 
   Context->Polling = TRUE;
+  Context->PollCount++;
   Status = ReadCommand (
              SEC_TS_READ_ONE_EVENT,
              Events[0],
@@ -180,6 +208,7 @@ PollEvents (
 
 Exit:
   Context->Polling = FALSE;
+  Context->LastPollStatus = Status;
   if (EFI_ERROR (Status)) {
     Context->ErrorCount++;
     if ((Context->ErrorCount == 1) || ((Context->ErrorCount & 0x3F) == 0)) {
@@ -200,27 +229,28 @@ Exit:
 STATIC
 EFI_STATUS
 ProbeController (
-  VOID
+  IN OUT B2L_TOUCH_CONTEXT  *Context
   )
 {
-  UINT8       BootStatus;
-  UINT8       DeviceId[5];
-  UINT8       FirmwareIntegrity;
   UINTN       Index;
   BOOLEAN     AllZero;
   BOOLEAN     AllOnes;
   EFI_STATUS  Status;
 
-  Status = ReadCommand (SEC_TS_READ_DEVICE_ID, DeviceId, sizeof (DeviceId));
+  Status = ReadCommand (
+             SEC_TS_READ_DEVICE_ID,
+             Context->DeviceId,
+             sizeof (Context->DeviceId)
+             );
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
   AllZero = TRUE;
   AllOnes = TRUE;
-  for (Index = 0; Index < sizeof (DeviceId); Index++) {
-    AllZero = (BOOLEAN)(AllZero && (DeviceId[Index] == 0x00));
-    AllOnes = (BOOLEAN)(AllOnes && (DeviceId[Index] == 0xFF));
+  for (Index = 0; Index < sizeof (Context->DeviceId); Index++) {
+    AllZero = (BOOLEAN)(AllZero && (Context->DeviceId[Index] == 0x00));
+    AllOnes = (BOOLEAN)(AllOnes && (Context->DeviceId[Index] == 0xFF));
   }
 
   if (AllZero || AllOnes) {
@@ -229,8 +259,8 @@ ProbeController (
 
   Status = ReadCommand (
              SEC_TS_READ_FIRMWARE_INTEGRITY,
-             &FirmwareIntegrity,
-             sizeof (FirmwareIntegrity)
+             &Context->FirmwareIntegrity,
+             sizeof (Context->FirmwareIntegrity)
              );
   if (EFI_ERROR (Status)) {
     return Status;
@@ -238,8 +268,8 @@ ProbeController (
 
   Status = ReadCommand (
              SEC_TS_READ_BOOT_STATUS,
-             &BootStatus,
-             sizeof (BootStatus)
+             &Context->BootStatus,
+             sizeof (Context->BootStatus)
              );
   if (EFI_ERROR (Status)) {
     return Status;
@@ -248,20 +278,21 @@ ProbeController (
   DEBUG ((
     DEBUG_INFO,
     "B2LTouch: sec_ts id=%02x%02x%02x%02x%02x integrity=%02x boot=%02x\n",
-    DeviceId[0],
-    DeviceId[1],
-    DeviceId[2],
-    DeviceId[3],
-    DeviceId[4],
-    FirmwareIntegrity,
-    BootStatus
+    Context->DeviceId[0],
+    Context->DeviceId[1],
+    Context->DeviceId[2],
+    Context->DeviceId[3],
+    Context->DeviceId[4],
+    Context->FirmwareIntegrity,
+    Context->BootStatus
     ));
 
-  if ((FirmwareIntegrity & 0x80) == 0) {
+  if ((Context->FirmwareIntegrity & 0x80) == 0) {
     return EFI_COMPROMISED_DATA;
   }
 
-  return (BootStatus == SEC_TS_STATUS_APP_MODE) ? EFI_SUCCESS : EFI_UNSUPPORTED;
+  return (Context->BootStatus == SEC_TS_STATUS_APP_MODE) ?
+         EFI_SUCCESS : EFI_UNSUPPORTED;
 }
 
 STATIC
@@ -294,10 +325,47 @@ TouchReset (
   }
 
   if (!EFI_ERROR (Status) && ExtendedVerification) {
-    Status = ProbeController ();
+    Status = ProbeController (&mTouch);
   }
 
+  mTouch.ResetStatus = Status;
   return EFI_ERROR (Status) ? EFI_DEVICE_ERROR : EFI_SUCCESS;
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+TouchGetDiagnostic (
+  IN  B2L_TOUCH_DIAGNOSTIC_PROTOCOL  *This,
+  OUT B2L_TOUCH_DIAGNOSTIC_DATA      *Data
+  )
+{
+  EFI_TPL  OldTpl;
+
+  if ((This != &mDiagnostic) || (Data == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  OldTpl = gBS->RaiseTPL (TPL_NOTIFY);
+  ZeroMem (Data, sizeof (*Data));
+  Data->Revision            = B2L_TOUCH_DIAGNOSTIC_REVISION;
+  Data->InitStatus          = mTouch.InitStatus;
+  Data->ProbeStatus         = mTouch.ProbeStatus;
+  Data->ResetStatus         = mTouch.ResetStatus;
+  Data->PointerStatus       = mTouch.PointerStatus;
+  Data->LastPollStatus      = mTouch.LastPollStatus;
+  Data->PollCount           = mTouch.PollCount;
+  Data->RawEventCount       = mTouch.RawEventCount;
+  Data->ParsedEventCount    = mTouch.ParsedEventCount;
+  Data->PollErrorCount      = (UINT32)mTouch.ErrorCount;
+  Data->Disabled            = mTouch.Disabled;
+  Data->ExitingBootServices = mTouch.ExitingBootServices;
+  CopyMem (Data->DeviceId, mTouch.DeviceId, sizeof (Data->DeviceId));
+  Data->FirmwareIntegrity = mTouch.FirmwareIntegrity;
+  Data->BootStatus         = mTouch.BootStatus;
+  B2LHsI2cPopulateDiagnostic (Data);
+  gBS->RestoreTPL (OldTpl);
+  return EFI_SUCCESS;
 }
 
 STATIC
@@ -393,20 +461,38 @@ B2LTouchEntry (
 {
   EFI_STATUS  Status;
 
-  Status = B2LHsI2cInitialize ();
+  ZeroMem (&mTouch, sizeof (mTouch));
+  mTouch.InitStatus     = EFI_NOT_READY;
+  mTouch.ProbeStatus    = EFI_NOT_READY;
+  mTouch.ResetStatus    = EFI_NOT_READY;
+  mTouch.PointerStatus  = EFI_NOT_READY;
+  mTouch.LastPollStatus = EFI_NOT_READY;
+
+  Status = gBS->InstallProtocolInterface (
+                  &ImageHandle,
+                  &gB2LTouchDiagnosticProtocolGuid,
+                  EFI_NATIVE_INTERFACE,
+                  &mDiagnostic
+                  );
   if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "B2LTouch: HSI2C10 init failed: %r\n", Status));
     return Status;
   }
 
-  Status = ProbeController ();
+  mTouch.InitStatus = B2LHsI2cInitialize ();
+  Status = mTouch.InitStatus;
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_ERROR, "B2LTouch: HSI2C10 init failed: %r\n", Status));
+    return EFI_SUCCESS;
+  }
+
+  mTouch.ProbeStatus = ProbeController (&mTouch);
+  Status = mTouch.ProbeStatus;
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "B2LTouch: sec_ts probe failed: %r\n", Status));
     B2LHsI2cQuiesce ();
-    return Status;
+    return EFI_SUCCESS;
   }
 
-  ZeroMem (&mTouch, sizeof (mTouch));
   mTouch.Mode.AbsoluteMinX = 0;
   mTouch.Mode.AbsoluteMinY = 0;
   mTouch.Mode.AbsoluteMinZ = 0;
@@ -427,8 +513,9 @@ B2LTouchEntry (
                   &mTouch.Protocol.WaitForInput
                   );
   if (EFI_ERROR (Status)) {
+    mTouch.PointerStatus = Status;
     B2LHsI2cQuiesce ();
-    return Status;
+    return EFI_SUCCESS;
   }
 
   Status = gBS->CreateEvent (
@@ -439,9 +526,10 @@ B2LTouchEntry (
                   &mTouch.PollTimer
                   );
   if (EFI_ERROR (Status)) {
+    mTouch.PointerStatus = Status;
     gBS->CloseEvent (mTouch.Protocol.WaitForInput);
     B2LHsI2cQuiesce ();
-    return Status;
+    return EFI_SUCCESS;
   }
 
   Status = gBS->CreateEventEx (
@@ -453,19 +541,21 @@ B2LTouchEntry (
                   &mTouch.ExitBootServicesEvent
                   );
   if (EFI_ERROR (Status)) {
+    mTouch.PointerStatus = Status;
     gBS->CloseEvent (mTouch.PollTimer);
     gBS->CloseEvent (mTouch.Protocol.WaitForInput);
     B2LHsI2cQuiesce ();
-    return Status;
+    return EFI_SUCCESS;
   }
 
   Status = TouchReset (&mTouch.Protocol, FALSE);
   if (EFI_ERROR (Status)) {
+    mTouch.PointerStatus = Status;
     gBS->CloseEvent (mTouch.ExitBootServicesEvent);
     gBS->CloseEvent (mTouch.PollTimer);
     gBS->CloseEvent (mTouch.Protocol.WaitForInput);
     B2LHsI2cQuiesce ();
-    return Status;
+    return EFI_SUCCESS;
   }
 
   Status = gBS->InstallProtocolInterface (
@@ -475,11 +565,12 @@ B2LTouchEntry (
                   &mTouch.Protocol
                   );
   if (EFI_ERROR (Status)) {
+    mTouch.PointerStatus = Status;
     gBS->CloseEvent (mTouch.ExitBootServicesEvent);
     gBS->CloseEvent (mTouch.PollTimer);
     gBS->CloseEvent (mTouch.Protocol.WaitForInput);
     B2LHsI2cQuiesce ();
-    return Status;
+    return EFI_SUCCESS;
   }
 
   Status = gBS->SetTimer (
@@ -488,6 +579,7 @@ B2LTouchEntry (
                   B2L_TOUCH_POLL_INTERVAL
                   );
   if (EFI_ERROR (Status)) {
+    mTouch.PointerStatus = Status;
     gBS->UninstallProtocolInterface (
            ImageHandle,
            &gEfiAbsolutePointerProtocolGuid,
@@ -497,9 +589,10 @@ B2LTouchEntry (
     gBS->CloseEvent (mTouch.PollTimer);
     gBS->CloseEvent (mTouch.Protocol.WaitForInput);
     B2LHsI2cQuiesce ();
-    return Status;
+    return EFI_SUCCESS;
   }
 
+  mTouch.PointerStatus = EFI_SUCCESS;
   DEBUG ((DEBUG_INFO, "B2LTouch: EFI Absolute Pointer installed\n"));
   return EFI_SUCCESS;
 }
