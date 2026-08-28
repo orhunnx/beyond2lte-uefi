@@ -1,0 +1,61 @@
+; Beyond2LTE sec_ts Windows HID source driver (ARM64 only).
+; The ACPI function device owns only the verified HSI2C10 and USI MMIO pages.
+; Vhf.sys is the Microsoft inbox lower filter that enumerates the HID child.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%B2L%
+CatalogFile=b2ltouch.cat
+DriverVer=08/28/2026,0.1.0.0
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir=12
+
+[SourceDisksNames]
+1=%B2LTouch.DiskName%,,,
+
+[SourceDisksFiles]
+b2ltouch.sys=1
+
+[Manufacturer]
+%B2L%=B2L,NTarm64
+
+[B2L.NTarm64]
+%B2LTouch.DeviceDesc%=B2LTouch_Install,ACPI\BYN0001
+
+[B2LTouch_Install.NT]
+CopyFiles=B2LTouch_CopyFiles
+
+[B2LTouch_CopyFiles]
+b2ltouch.sys
+
+[B2LTouch_Install.NT.HW]
+AddReg=B2LTouch_VhfLowerFilter
+
+[B2LTouch_VhfLowerFilter]
+HKR,,"LowerFilters",0x00010000,"vhf"
+
+[B2LTouch_Install.NT.Services]
+AddService=b2ltouch,0x00000002,B2LTouch_Service
+
+[B2LTouch_Service]
+DisplayName=%B2LTouch.ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\b2ltouch.sys
+
+[B2LTouch_Install.NT.Wdf]
+KmdfService=b2ltouch,B2LTouch_Wdf
+
+[B2LTouch_Wdf]
+KmdfLibraryVersion=1.15
+
+[Strings]
+B2L="beyond2lte"
+B2LTouch.DeviceDesc="Beyond2LTE Samsung sec_ts Touchscreen"
+B2LTouch.ServiceDesc="Beyond2LTE sec_ts HID Source Driver"
+B2LTouch.DiskName="Beyond2LTE touch driver package"

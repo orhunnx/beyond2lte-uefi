@@ -26,7 +26,8 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | **Linux (ACPI, DTB yok)** | ✅ 8 CPU açılıyor, initramfs'e kadar |
 | Windows Boot Manager | ✅ çalışıyor, ekran çiziyor, ESP'den okuyor |
 | Windows çekirdeği (`ntoskrnl`) | ✅ başlıyor |
-| Windows erken kullanıcı modu | ❌ ~12 sn sonra reset, tanı kanalı yok |
+| Windows ARM64 dokunmatik sürücüsü | 🧪 KMDF/VHF paketi hazır, cihaz testi bekliyor |
+| Windows WinPE / erken kullanıcı modu | ✅ açılıyor |
 
 Ayrıntı: [`STATUS.md`](STATUS.md)
 

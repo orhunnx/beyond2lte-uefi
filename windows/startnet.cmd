@@ -1,10 +1,11 @@
 @echo off
 setlocal EnableExtensions
-title Beyond2LTE WinPE UFS
+title Beyond2LTE WinPE UFS + Touch
 mode con: cols=112 lines=72 >nul 2>&1
 
 rem Klavye/dokunmatik zorunlu degildir; guvenli CACHE yazma testi otomatiktir.
 set "B2LUFSDIR=%SystemRoot%\B2LUFS"
+set "B2LTOUCHDIR=%SystemRoot%\B2LTOUCH"
 set "B2LCACHEMOUNT=%SystemDrive%\B2LCACHE-MOUNT.TXT"
 set "B2LCACHEVOLREPORT=%SystemDrive%\B2LCACHE-VOL.TXT"
 
@@ -12,6 +13,10 @@ echo.
 echo === Beyond2LTE WinPE UFS ===
 echo PnP baslatiliyor...
 %SystemRoot%\System32\wpeinit.exe
+
+echo.
+echo [B2LTOUCH kurulumu]
+call :B2LTouchInstall
 
 rem Android RAW bolumlerinin C:-Z: harflerini tuketmesini engelle. Bu ayar
 rem yalniz calisan WinPE oturumunun mount manager durumunu degistirir.
@@ -32,6 +37,29 @@ echo === Test sonu ===
 echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
 cmd.exe /k
 goto :eof
+
+:B2LTouchInstall
+if not exist "%B2LTOUCHDIR%\b2ltouch.inf" (
+  echo B2LTOUCH paketi bu WIM'de yok; atlandi.
+  exit /b 0
+)
+if not exist "%B2LTOUCHDIR%\manifest.txt" (
+  echo HATA: B2LTOUCH manifest yok; yari paket reddedildi.
+  exit /b 1
+)
+echo Paket kimligi:
+type "%B2LTOUCHDIR%\manifest.txt"
+pnputil /add-driver "%B2LTOUCHDIR%\b2ltouch.inf" /install > "%SystemDrive%\B2LTOUCH-PNP.TXT" 2>&1
+if errorlevel 1 (
+  type "%SystemDrive%\B2LTOUCH-PNP.TXT"
+  exit /b 1
+)
+pnputil /scan-devices >> "%SystemDrive%\B2LTOUCH-PNP.TXT" 2>&1
+timeout /t 3 /nobreak >nul 2>&1
+echo PnP kurulum sonucu:
+type "%SystemDrive%\B2LTOUCH-PNP.TXT"
+pnputil /enum-devices /deviceid "ACPI\BYN0001" 2>nul
+exit /b 0
 
 :B2LUfsInstall
 if not exist "%B2LUFSDIR%\b2lufs.inf" (

@@ -226,6 +226,31 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             }
         }
 
+        // Samsung sec_ts touchscreen on HSI2C10.  The controller does not
+        // implement HID-over-I2C, so ACPI exposes a vendor function device
+        // and b2ltouch.sys converts sec_ts events through Windows VHF.
+        //
+        // Safety boundary: these are the two device-MMIO pages verified by
+        // the on-device UEFI test.  No DRAM/reserved-memory range, PMIC,
+        // GPIO bank, other HSI2C controller or interrupt is claimed here.
+        Device (TSP0)
+        {
+            Name (_HID, "BYN0001")
+            Name (_UID, Zero)
+            Name (_CCA, Zero)
+
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x104B0000, 0x00001000)
+                Memory32Fixed (ReadWrite, 0x10421000, 0x00001000)
+            })
+        }
+
         // Device (UFS0)
         // {
         // //

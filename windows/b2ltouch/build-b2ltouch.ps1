@@ -1,0 +1,168 @@
+<#
+ .SYNOPSIS
+   Builds the Beyond2LTE sec_ts KMDF/VHF driver for Windows ARM64.
+
+ .DESCRIPTION
+   Sources are copied from WSL to a local Windows TEMP directory before
+   invoking the native MSVC ARM64 compiler and WDK linker.  Packaging,
+   catalog generation and WinPE injection remain in tools_b2ltouch.sh.
+#>
+[CmdletBinding()]
+param(
+    [string]$ProjectRoot,
+    [string]$OutDir,
+    [string]$KitsRoot,
+    [string]$WdkVersion
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+function Fail([string]$Message) { throw "HATA: $Message" }
+
+function Resolve-Directory([string]$Path, [string]$Description) {
+    if ([string]::IsNullOrWhiteSpace($Path) -or
+        -not (Test-Path -LiteralPath $Path -PathType Container)) {
+        Fail "$Description yok: $Path"
+    }
+    return (Resolve-Path -LiteralPath $Path).Path
+}
+
+if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
+    $ProjectRoot = Join-Path $PSScriptRoot '..\..'
+}
+$ProjectRoot = Resolve-Directory $ProjectRoot 'Proje dizini'
+if ([string]::IsNullOrWhiteSpace($OutDir)) {
+    $OutDir = Join-Path $ProjectRoot 'out\b2ltouch'
+}
+$SourceDir = Resolve-Directory (Join-Path $ProjectRoot 'windows\b2ltouch') 'B2LTOUCH kaynak dizini'
+
+if ([string]::IsNullOrWhiteSpace($KitsRoot)) {
+    $KitsRoot = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Windows Kits\10'
+}
+$KitsRoot = Resolve-Directory $KitsRoot 'Windows Kits dizini'
+$IncludeRoot = Resolve-Directory (Join-Path $KitsRoot 'Include') 'WDK Include dizini'
+
+if ([string]::IsNullOrWhiteSpace($WdkVersion)) {
+    $Candidate = Get-ChildItem -LiteralPath $IncludeRoot -Directory |
+        Where-Object {
+            (Test-Path -LiteralPath (Join-Path $_.FullName 'km\ntddk.h') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName 'km\vhf.h') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $KitsRoot ("Lib\{0}\km\arm64\VhfKm.lib" -f $_.Name)) -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $KitsRoot ("Lib\{0}\km\arm64\ntoskrnl.lib" -f $_.Name)) -PathType Leaf)
+        } |
+        Where-Object { $_.Name -match '^\d+(\.\d+){1,3}$' } |
+        Sort-Object { [Version]$_.Name } -Descending |
+        Select-Object -First 1
+    if ($null -eq $Candidate) {
+        Fail 'vhf.h, ARM64 VhfKm.lib ve ntoskrnl.lib iceren Windows WDK bulunamadi'
+    }
+    $WdkVersion = $Candidate.Name
+}
+
+$WdkInclude = Resolve-Directory (Join-Path $KitsRoot ("Include\{0}" -f $WdkVersion)) 'Secilen WDK Include dizini'
+$WdkLib = Resolve-Directory (Join-Path $KitsRoot ("Lib\{0}\km\arm64" -f $WdkVersion)) 'Secilen WDK ARM64 kutuphane dizini'
+foreach ($Library in @('VhfKm.lib', 'ntoskrnl.lib', 'hal.lib', 'BufferOverflowFastFailK.lib')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $WdkLib $Library) -PathType Leaf)) {
+        Fail "$Library yok: $WdkLib"
+    }
+}
+$KmdfInclude = Resolve-Directory (Join-Path $KitsRoot 'Include\wdf\kmdf\1.15') 'KMDF 1.15 Include dizini'
+$KmdfLib = Resolve-Directory (Join-Path $KitsRoot 'Lib\wdf\kmdf\arm64\1.15') 'KMDF 1.15 ARM64 kutuphane dizini'
+foreach ($Library in @('WdfDriverEntry.lib', 'WdfLdr.lib')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $KmdfLib $Library) -PathType Leaf)) {
+        Fail "$Library yok: $KmdfLib"
+    }
+}
+
+$VcvarsCandidates = @()
+foreach ($ProgramFilesRoot in @(
+        [Environment]::GetFolderPath('ProgramFiles'),
+        [Environment]::GetFolderPath('ProgramFilesX86'))) {
+    if ([string]::IsNullOrWhiteSpace($ProgramFilesRoot)) { continue }
+    $Vs = Join-Path $ProgramFilesRoot 'Microsoft Visual Studio'
+    if (Test-Path -LiteralPath $Vs -PathType Container) {
+        $VcvarsCandidates += Get-ChildItem -LiteralPath $Vs -Recurse -Filter 'vcvarsamd64_arm64.bat' -File
+    }
+}
+$Vcvars = $VcvarsCandidates | Sort-Object FullName -Descending | Select-Object -First 1
+if ($null -eq $Vcvars) {
+    Fail 'vcvarsamd64_arm64.bat yok; Visual Studio C++ ARM64 build tools bilesenini kur'
+}
+
+$VsRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $Vcvars.FullName)))
+$ToolsetRoot = Resolve-Directory (Join-Path $VsRoot 'VC\Tools\MSVC') 'MSVC toolset dizini'
+$Toolset = Get-ChildItem -LiteralPath $ToolsetRoot -Directory |
+    Where-Object {
+        (Test-Path -LiteralPath (Join-Path $_.FullName 'bin\Hostx64\arm64\cl.exe') -PathType Leaf) -and
+        (Test-Path -LiteralPath (Join-Path $_.FullName 'bin\Hostx64\arm64\link.exe') -PathType Leaf)
+    } |
+    Where-Object { $_.Name -match '^\d+(\.\d+){1,3}$' } |
+    Sort-Object { [Version]$_.Name } -Descending |
+    Select-Object -First 1
+if ($null -eq $Toolset) { Fail 'MSVC ARM64 cl.exe/link.exe bulunamadi' }
+$Arm64Bin = Join-Path $Toolset.FullName 'bin\Hostx64\arm64'
+
+$StageRoot = Join-Path ([IO.Path]::GetTempPath()) ("b2ltouch-arm64-{0}" -f [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $StageRoot -Force | Out-Null
+
+try {
+    foreach ($Name in @('b2ltouch.h', 'b2ltouch.c', 'b2ltouch_hw.c', 'b2ltouch_parser.h', 'b2ltouch_parser.c')) {
+        Copy-Item -LiteralPath (Join-Path $SourceDir $Name) -Destination (Join-Path $StageRoot $Name) -Force
+    }
+
+    $Compiler = Join-Path $Arm64Bin 'cl.exe'
+    $Linker = Join-Path $Arm64Bin 'link.exe'
+    $Flags = "/nologo /c /TC /kernel /Zl /GS- /W4 /WX /wd4324 /O1 /D_WIN32_WINNT=0x0A00 /D_ARM64_=1 /DKMDF_VERSION_MAJOR=1 /DKMDF_VERSION_MINOR=15 /I`"$KmdfInclude`" /I`"$WdkInclude\km`" /I`"$WdkInclude\shared`" /I`"$WdkInclude\ucrt`" /I`"$WdkInclude\um`""
+    $Lines = @(
+        '@echo off',
+        'setlocal EnableExtensions DisableDelayedExpansion',
+        "cd /d `"$StageRoot`"",
+        "call `"$($Vcvars.FullName)`" >nul",
+        'if errorlevel 1 exit /b 1',
+        "`"$Compiler`" $Flags /Fo`"b2ltouch.obj`" `"b2ltouch.c`"",
+        'if errorlevel 1 exit /b 1',
+        "`"$Compiler`" $Flags /Fo`"b2ltouch_hw.obj`" `"b2ltouch_hw.c`"",
+        'if errorlevel 1 exit /b 1',
+        "`"$Compiler`" $Flags /Fo`"b2ltouch_parser.obj`" `"b2ltouch_parser.c`"",
+        'if errorlevel 1 exit /b 1',
+        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2ltouch.sys`" `"b2ltouch.obj`" `"b2ltouch_hw.obj`" `"b2ltouch_parser.obj`" WdfDriverEntry.lib WdfLdr.lib VhfKm.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
+        'exit /b %errorlevel%'
+    )
+    $BuildCmd = Join-Path $StageRoot 'build-b2ltouch-arm64.cmd'
+    [IO.File]::WriteAllText($BuildCmd, (($Lines -join "`r`n") + "`r`n"), [Text.Encoding]::ASCII)
+
+    Write-Host ''
+    Write-Host '==> B2LTOUCH derleniyor (Windows MSVC ARM64 + KMDF 1.15 + VHF)' -ForegroundColor Cyan
+    Write-Host "  WDK    : $WdkVersion"
+    Write-Host "  vcvars : $($Vcvars.FullName)"
+    Push-Location -LiteralPath $StageRoot
+    try {
+        & $env:ComSpec '/d' '/c' $BuildCmd
+        if ($LASTEXITCODE -ne 0) { Fail "MSVC derlemesi basarisiz (kod $LASTEXITCODE)" }
+    }
+    finally { Pop-Location }
+
+    $Built = Join-Path $StageRoot 'b2ltouch.sys'
+    if (-not (Test-Path -LiteralPath $Built -PathType Leaf)) { Fail 'b2ltouch.sys uretilmedi' }
+    $Bytes = [IO.File]::ReadAllBytes($Built)
+    if ($Bytes.Length -lt 0x40 -or $Bytes[0] -ne 0x4D -or $Bytes[1] -ne 0x5A) {
+        Fail 'b2ltouch.sys MZ/PE imzasi tasimiyor'
+    }
+    $PeOffset = [BitConverter]::ToInt32($Bytes, 0x3C)
+    if ($PeOffset -lt 0 -or $PeOffset + 6 -gt $Bytes.Length -or
+        [BitConverter]::ToUInt16($Bytes, $PeOffset + 4) -ne 0xAA64) {
+        Fail 'b2ltouch.sys ARM64 PE degil'
+    }
+
+    New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+    $Destination = Join-Path $OutDir 'b2ltouch.sys'
+    Copy-Item -LiteralPath $Built -Destination $Destination -Force
+    Write-Host "  yazildi: $Destination"
+    Write-Host "  SHA256 : $((Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash)"
+}
+finally {
+    if (Test-Path -LiteralPath $StageRoot) {
+        Remove-Item -LiteralPath $StageRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}

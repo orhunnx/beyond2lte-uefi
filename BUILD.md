@@ -102,6 +102,30 @@ test ise tuşla veya 45 saniyede kapanır ve Windows yolu devam eder.
 REV5 sürücüsü 32'den büyük olay kuyruğunu bozuk sayıp temizlemez; olayları
 32'şer adet güvenli turlarla tüketir ve dokunmatik polling'ini açık tutar.
 
+### Windows ARM64 dokunmatik
+
+UEFI kareli testinde doğrulanan `sec_ts` yolu Windows'a standart KMDF/VHF HID
+kaynağı olarak aktarılmıştır. Panel yerel HID-over-I²C konuşmadığı için inbox
+`HIDI2C.sys` doğrudan kullanılamaz; `b2ltouch.sys` Samsung olaylarını Windows
+Touch Screen HID raporlarına dönüştürür. ACPI yalnız doğrulanmış HSI2C10 ve USI
+4 KiB device-MMIO sayfalarını yayınlar; kısıtlı bellek, PMIC ve diğer I²C
+aygıtları bu sürücünün kapsamı dışındadır.
+
+WSL'de Windows WDK/Visual Studio ARM64 araçlarını kullanarak tam sıra:
+
+```bash
+cd ~/beyond2lte-uefi-8549
+bash yap.sh --touch --acpi --clean
+bash tools_winpe_adk.sh "/mnt/c/Program Files (x86)/Windows Kits/10/Assessment and Deployment Kit/Windows Preinstallation Environment/arm64/Media"
+bash tools_b2lufs.sh       # UFS paketi yeniden hazırlanacaksa
+bash tools_b2ltouch.sh
+bash cache_esp.sh --win --system
+```
+
+`boot.wim` zaten güncel ve UFS paketi içindeyse yalnız son iki komut yeterlidir.
+PowerShell komutlarında Bash'teki `\` satır devamı kullanılmaz. Ayrıntılı
+Windows sürücü açıklaması `windows/b2ltouch/README.md` içindedir.
+
 Test uygulaması artık DXE aşamasında çalışmaz; EFI Shell açıldıktan sonra
 başlatılır. Dokunmatik build'inden sonra test uygulamasını SYSTEM ESP'ye koy:
 
