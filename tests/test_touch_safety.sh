@@ -46,6 +46,23 @@ grep -q '^#define HSI2C_ADDRESS           0x70$' "$TOUCH_DIR/B2LHsI2c.c"
 grep -q 'gB2LTouchDiagnosticProtocolGuid' "$TOUCH_DIR/B2LTouchDxe.c"
 grep -q 'AKTIF TARAMA YOK' "$TEST_DIR/B2LTouchTest.c"
 grep -q 'AKTIF PROBE YOK' "$TEST_DIR/B2LTouchTest.c"
+grep -q 'B2L_TOUCH_DVDD_LDO        19' "$TOUCH_DIR/B2LTouchDxe.c"
+grep -q 'B2L_TOUCH_AVDD_LDO        27' "$TOUCH_DIR/B2LTouchDxe.c"
+grep -q 'gEfiHsI2cProtocolGuid AND gEfiPmicRegulatorProtocolGuid' "$TOUCH_DIR/B2LTouchDxe.inf"
+
+if rg -n 'SetBuck|SetLdo' "$TOUCH_DIR"/*.c | rg -v 'B2LTouchDxe.c'; then
+  echo "HATA: PMIC yazimi yalniz dar dokunmatik guc yolunda olmali"
+  exit 1
+fi
+test "$(rg -c 'Pmic->SetLdo' "$TOUCH_DIR/B2LTouchDxe.c")" -eq 2
+if rg -U 'Pmic->SetLdo \([^;]*FALSE' "$TOUCH_DIR/B2LTouchDxe.c"; then
+  echo "HATA: dokunmatik tani profili regulator kapatamaz"
+  exit 1
+fi
+if rg -n 'EFISpeedy|S2MPS19_PM_' "$TOUCH_DIR"/*.c; then
+  echo "HATA: dogrudan PMIC/Speedy erisimi yerine mevcut regulator protokolu kullanilmali"
+  exit 1
+fi
 
 if rg -n 'B2LHsI2cWriteRead|InitBus|Mmio(Read|Write|Or|And)' "$TEST_DIR/B2LTouchTest.c"; then
   echo "HATA: test uygulamasi HSI2C envanteri gosterirken donanimi taramaya calisiyor"

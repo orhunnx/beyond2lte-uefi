@@ -225,6 +225,9 @@ ShowTouchDiagnostic (
     return;
   }
 
+  Print (L"PWR=%r IO19=%r AV27=%r\n",
+         Data.PowerProtocolStatus, Data.PowerDvddStatus,
+         Data.PowerAvddStatus);
   Print (L"PTR=%s INIT=%r PROBE=%r RESET=%r\n",
          (mPointer == NULL) ? L"YOK" : L"VAR",
          Data.InitStatus, Data.ProbeStatus, Data.ResetStatus);
@@ -283,7 +286,10 @@ ShowTouchHardware (
     return;
   }
 
-  Print (L"SCL=%u (%r) SDA=%u (%r)  IDLE BEKLENEN: 1 1\n",
+  Print (L"ILK SCL=%u (%r) SDA=%u (%r)  BEKLENEN: 1 1\n",
+         Data.InitialSclHigh, Data.InitialSclStatus,
+         Data.InitialSdaHigh, Data.InitialSdaStatus);
+  Print (L"SIMDI SCL=%u (%r) SDA=%u (%r)  BEKLENEN: 1 1\n",
          Data.SclHigh, Data.SclStatus, Data.SdaHigh, Data.SdaStatus);
   Print (L"CLK_CTRL=%08x CLK_SLOT=%08x USI_MODE=%08x\n",
          Data.ClockControl, Data.ClockSlot, Data.UsiMode);

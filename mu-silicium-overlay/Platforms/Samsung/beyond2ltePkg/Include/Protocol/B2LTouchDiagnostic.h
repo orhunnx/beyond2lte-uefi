@@ -3,7 +3,7 @@
 
 #include <Uefi.h>
 
-#define B2L_TOUCH_DIAGNOSTIC_REVISION  3
+#define B2L_TOUCH_DIAGNOSTIC_REVISION  4
 #define B2L_TOUCH_DIAGNOSTIC_READ_MAX  32
 
 typedef struct {
@@ -15,6 +15,9 @@ typedef struct {
   UINT64      ControllerAddress;
   UINT64      UsiAddress;
   EFI_STATUS  InitStatus;
+  EFI_STATUS  PowerProtocolStatus;
+  EFI_STATUS  PowerDvddStatus;
+  EFI_STATUS  PowerAvddStatus;
   EFI_STATUS  ProbeStatus;
   EFI_STATUS  ResetStatus;
   EFI_STATUS  PointerStatus;
@@ -61,8 +64,12 @@ typedef struct {
   UINT32      LastFifoStatusRaw;
   EFI_STATUS  SclStatus;
   EFI_STATUS  SdaStatus;
+  EFI_STATUS  InitialSclStatus;
+  EFI_STATUS  InitialSdaStatus;
   BOOLEAN     SclHigh;
   BOOLEAN     SdaHigh;
+  BOOLEAN     InitialSclHigh;
+  BOOLEAN     InitialSdaHigh;
 } B2L_TOUCH_DIAGNOSTIC_DATA;
 
 typedef struct _B2L_TOUCH_DIAGNOSTIC_PROTOCOL B2L_TOUCH_DIAGNOSTIC_PROTOCOL;

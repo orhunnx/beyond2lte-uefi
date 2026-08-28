@@ -4,7 +4,7 @@
   The stock device tree places sec_ts at address 0x48 on HSI2C10 and reports
   12-bit coordinates.  This DXE driver exposes the first supported contact as
   EFI_ABSOLUTE_POINTER_PROTOCOL.  It neither updates firmware nor power-cycles
-  the boot-on touchscreen regulators.
+  the touchscreen regulators.
 **/
 
 #include <Uefi.h>
@@ -17,6 +17,7 @@
 #include <Guid/EventGroup.h>
 #include <Protocol/AbsolutePointer.h>
 #include <Protocol/B2LTouchDiagnostic.h>
+#include <Protocol/EFIPmicRegulator.h>
 
 #include "B2LHsI2c.h"
 #include "B2LSecTsParser.h"
@@ -49,6 +50,9 @@ typedef struct {
   EFI_EVENT                      PollTimer;
   EFI_EVENT                      ExitBootServicesEvent;
   EFI_STATUS                     InitStatus;
+  EFI_STATUS                     PowerProtocolStatus;
+  EFI_STATUS                     PowerDvddStatus;
+  EFI_STATUS                     PowerAvddStatus;
   EFI_STATUS                     ProbeStatus;
   EFI_STATUS                     ResetStatus;
   EFI_STATUS                     PointerStatus;
@@ -63,6 +67,11 @@ typedef struct {
 
 STATIC B2L_TOUCH_CONTEXT  mTouch;
 
+#define B2L_TOUCH_DVDD_LDO        19
+#define B2L_TOUCH_AVDD_LDO        27
+#define B2L_TOUCH_DVDD_SETTLE_US  1000
+#define B2L_TOUCH_POWER_SETTLE_US 70000
+
 STATIC
 EFI_STATUS
 EFIAPI
@@ -75,6 +84,53 @@ STATIC B2L_TOUCH_DIAGNOSTIC_PROTOCOL  mDiagnostic = {
   B2L_TOUCH_DIAGNOSTIC_REVISION,
   TouchGetDiagnostic
 };
+
+STATIC
+EFI_STATUS
+EnableTouchPower (
+  IN OUT B2L_TOUCH_CONTEXT  *Context
+  )
+{
+  EFI_PMIC_REGULATOR_PROTOCOL  *Pmic;
+
+  Context->PowerProtocolStatus = gBS->LocateProtocol (
+                                        &gEfiPmicRegulatorProtocolGuid,
+                                        NULL,
+                                        (VOID **)&Pmic
+                                        );
+  if (EFI_ERROR (Context->PowerProtocolStatus)) {
+    return Context->PowerProtocolStatus;
+  }
+
+  // Stock DT maps tsp_io to S2MPS19 LDO19M and marks it boot-on.  The PMIC
+  // protocol performs a read/modify/write, preserving the configured 1.8 V.
+  Context->PowerDvddStatus = Pmic->SetLdo (
+                                      ID_S2MPS19,
+                                      B2L_TOUCH_DVDD_LDO,
+                                      S2MPS_MODE_NORMAL,
+                                      TRUE
+                                      );
+  if (EFI_ERROR (Context->PowerDvddStatus)) {
+    return Context->PowerDvddStatus;
+  }
+
+  gBS->Stall (B2L_TOUCH_DVDD_SETTLE_US);
+
+  // Stock DT maps tsp_avdd to LDO27M.  Enable only; never power-cycle it and
+  // never disable either rail when leaving UEFI.
+  Context->PowerAvddStatus = Pmic->SetLdo (
+                                      ID_S2MPS19,
+                                      B2L_TOUCH_AVDD_LDO,
+                                      S2MPS_MODE_NORMAL,
+                                      TRUE
+                                      );
+  if (EFI_ERROR (Context->PowerAvddStatus)) {
+    return Context->PowerAvddStatus;
+  }
+
+  gBS->Stall (B2L_TOUCH_POWER_SETTLE_US);
+  return EFI_SUCCESS;
+}
 
 STATIC
 EFI_STATUS
@@ -350,6 +406,9 @@ TouchGetDiagnostic (
   ZeroMem (Data, sizeof (*Data));
   Data->Revision            = B2L_TOUCH_DIAGNOSTIC_REVISION;
   Data->InitStatus          = mTouch.InitStatus;
+  Data->PowerProtocolStatus = mTouch.PowerProtocolStatus;
+  Data->PowerDvddStatus     = mTouch.PowerDvddStatus;
+  Data->PowerAvddStatus     = mTouch.PowerAvddStatus;
   Data->ProbeStatus         = mTouch.ProbeStatus;
   Data->ResetStatus         = mTouch.ResetStatus;
   Data->PointerStatus       = mTouch.PointerStatus;
@@ -462,11 +521,14 @@ B2LTouchEntry (
   EFI_STATUS  Status;
 
   ZeroMem (&mTouch, sizeof (mTouch));
-  mTouch.InitStatus     = EFI_NOT_READY;
-  mTouch.ProbeStatus    = EFI_NOT_READY;
-  mTouch.ResetStatus    = EFI_NOT_READY;
-  mTouch.PointerStatus  = EFI_NOT_READY;
-  mTouch.LastPollStatus = EFI_NOT_READY;
+  mTouch.InitStatus          = EFI_NOT_READY;
+  mTouch.PowerProtocolStatus = EFI_NOT_READY;
+  mTouch.PowerDvddStatus     = EFI_NOT_READY;
+  mTouch.PowerAvddStatus     = EFI_NOT_READY;
+  mTouch.ProbeStatus         = EFI_NOT_READY;
+  mTouch.ResetStatus         = EFI_NOT_READY;
+  mTouch.PointerStatus       = EFI_NOT_READY;
+  mTouch.LastPollStatus      = EFI_NOT_READY;
 
   Status = gBS->InstallProtocolInterface (
                   &ImageHandle,
@@ -476,6 +538,16 @@ B2LTouchEntry (
                   );
   if (EFI_ERROR (Status)) {
     return Status;
+  }
+
+  mTouch.InitStatus = EnableTouchPower (&mTouch);
+  if (EFI_ERROR (mTouch.InitStatus)) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "B2LTouch: touchscreen power enable failed: %r\n",
+      mTouch.InitStatus
+      ));
+    return EFI_SUCCESS;
   }
 
   mTouch.InitStatus = B2LHsI2cInitialize ();

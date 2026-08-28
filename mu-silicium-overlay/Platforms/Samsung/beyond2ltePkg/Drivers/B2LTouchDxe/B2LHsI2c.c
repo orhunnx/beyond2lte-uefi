@@ -97,6 +97,10 @@ STATIC UINT32      mLastIntStatusRaw;
 STATIC UINT32      mLastErrorStatusRaw;
 STATIC UINT32      mLastTransferStatusRaw;
 STATIC UINT32      mLastFifoStatusRaw;
+STATIC EFI_STATUS  mInitialSclStatus = EFI_NOT_READY;
+STATIC EFI_STATUS  mInitialSdaStatus = EFI_NOT_READY;
+STATIC BOOLEAN     mInitialSclHigh;
+STATIC BOOLEAN     mInitialSdaHigh;
 
 STATIC
 UINTN
@@ -117,6 +121,32 @@ CaptureHardwareStatus (
   mLastErrorStatusRaw    = MmioRead32 (Reg (HSI2C_ERR_STATUS));
   mLastTransferStatusRaw = MmioRead32 (Reg (HSI2C_TRANS_STATUS));
   mLastFifoStatusRaw     = MmioRead32 (Reg (HSI2C_FIFO_STATUS));
+}
+
+STATIC
+VOID
+CaptureInitialLineState (
+  VOID
+  )
+{
+  if (mGpio == NULL) {
+    mInitialSclStatus = EFI_NOT_FOUND;
+    mInitialSdaStatus = EFI_NOT_FOUND;
+    return;
+  }
+
+  mInitialSclStatus = mGpio->GetState (
+                              BANK_ID_P,
+                              1,
+                              4,
+                              &mInitialSclHigh
+                              );
+  mInitialSdaStatus = mGpio->GetState (
+                              BANK_ID_P,
+                              1,
+                              5,
+                              &mInitialSdaHigh
+                              );
 }
 
 STATIC
@@ -180,6 +210,10 @@ B2LHsI2cPopulateDiagnostic (
   Data->LastFifoStatusRaw    = mLastFifoStatusRaw;
   Data->SclStatus            = EFI_NOT_READY;
   Data->SdaStatus            = EFI_NOT_READY;
+  Data->InitialSclStatus     = mInitialSclStatus;
+  Data->InitialSdaStatus     = mInitialSdaStatus;
+  Data->InitialSclHigh       = mInitialSclHigh;
+  Data->InitialSdaHigh       = mInitialSdaHigh;
   for (Index = 0; Index < B2L_TOUCH_DIAGNOSTIC_READ_MAX; Index++) {
     Data->LastRead[Index] = mLastRead[Index];
   }
@@ -340,6 +374,10 @@ TransferMessage (
   }
 
   CaptureHardwareStatus ();
+  // A timed-out Exynos transfer can keep the pin function driving the bus.
+  // Reset only this already mapped controller so SCL/SDA are released before
+  // the diagnostic screen and before Windows inherits the hardware.
+  ResetController ();
   B2LHsI2cQuiesce ();
   return EFI_TIMEOUT;
 }
@@ -394,6 +432,9 @@ B2LHsI2cInitialize (
 
   Status = HsI2c->InitBus (B2L_HSI2C_BUS);
   mInitialized = (BOOLEAN)!EFI_ERROR (Status);
+  if (mInitialized) {
+    CaptureInitialLineState ();
+  }
   return Status;
 }
 

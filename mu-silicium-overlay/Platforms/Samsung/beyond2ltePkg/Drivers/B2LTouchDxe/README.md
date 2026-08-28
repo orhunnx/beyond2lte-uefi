@@ -14,8 +14,11 @@ okuması ayrı mesajlardır ve ikisi de STOP ile tamamlanır.
 
 Güvenlik sınırları:
 
-- Firmware güncellemesi, regülatör güç çevrimi ve GPIO/IRQ kurulumu yapmaz.
-- HSI2C kesmesini açmaz; durum bitini sınırlı süreyle polling yapar.
+- Firmware güncellemesi veya regülatör güç çevrimi yapmaz. DT'deki yalnız
+  `tsp_io` (S2MPS19 LDO19M) ve `tsp_avdd` (LDO27M) hatlarını mevcut PMIC
+  protokolüyle açar; voltaj ayarını korur ve UEFI'den çıkarken kapatmaz.
+- Aktarım süresince yalnız `TRANSFER_DONE` kaynağını açar, sınırlı süreyle
+  polling yapar ve her çıkış yolunda yeniden kapatır.
 - İlk çalışma zamanı I2C hatasında polling'i o boot için tamamen kapatır.
 - `WaitForInput` ve `GetState` içinde donanıma erişmez.
 - `ExitBootServices` sırasında HSI2C10'u susturur.
