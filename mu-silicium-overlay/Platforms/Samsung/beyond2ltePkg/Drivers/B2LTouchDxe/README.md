@@ -23,6 +23,8 @@ Güvenlik sınırları:
   açtıktan sonra `SENSE_ON` gönderir.
 - Tek bir geçici I2C hatasından sonra polling'e devam eder; yalnız üç ardışık
   hata olursa o boot için tamamen kapatır.
+- Denetleyicinin büyük olay kuyruğunu bozuk veri sayıp silmez; her timer
+  çağrısında en fazla 32 olayı tek tek tüketip kalanını sonraki tura bırakır.
 - `WaitForInput` ve `GetState` içinde donanıma erişmez.
 - `ExitBootServices` sırasında HSI2C10'u susturur.
 - APRIORI listesinde değildir ve normal derlemede firmware'e gömülmez.

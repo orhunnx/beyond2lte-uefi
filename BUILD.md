@@ -99,6 +99,8 @@ Diğer tanı ekranları probe sonucunu, son komutu, son ham 8 baytlık olayı, s
 yanıt baytını ve aktarım/olay/hata sayaçlarını gösterir. Kareli testten sonra aynı
 canlı tanılar yeniden açılır. Her tanı sayfası tuşla veya 20 saniyede, kareli
 test ise tuşla veya 45 saniyede kapanır ve Windows yolu devam eder.
+REV5 sürücüsü 32'den büyük olay kuyruğunu bozuk sayıp temizlemez; olayları
+32'şer adet güvenli turlarla tüketir ve dokunmatik polling'ini açık tutar.
 
 Test uygulaması artık DXE aşamasında çalışmaz; EFI Shell açıldıktan sonra
 başlatılır. Dokunmatik build'inden sonra test uygulamasını SYSTEM ESP'ye koy:

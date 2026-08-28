@@ -51,6 +51,12 @@ grep -q 'B2L_TOUCH_AVDD_LDO        27' "$TOUCH_DIR/B2LTouchDxe.c"
 grep -q 'SEC_TS_DEFAULT_TOUCH_FUNCTIONS 0x0061' "$TOUCH_DIR/B2LTouchDxe.c"
 grep -q 'SEC_TS_CMD_SET_TOUCHFUNCTION' "$TOUCH_DIR/B2LTouchDxe.c"
 grep -q 'Touch->ErrorCount >= B2L_TOUCH_MAX_CONSECUTIVE_ERRORS' "$TOUCH_DIR/B2LTouchDxe.c"
+grep -q 'ReadCount = SEC_TS_MAX_EVENT_COUNT - 1' "$TOUCH_DIR/B2LTouchDxe.c"
+if rg -q 'invalid event count' "$TOUCH_DIR/B2LTouchDxe.c"; then
+  echo "HATA: buyuk sec_ts kuyrugu bozuk veri sayilmamali"
+  exit 1
+fi
+test "$(rg -c 'WriteCommand \(SEC_TS_CMD_CLEAR_EVENT_STACK\)' "$TOUCH_DIR/B2LTouchDxe.c")" -eq 1
 grep -q 'gEfiHsI2cProtocolGuid AND gEfiPmicRegulatorProtocolGuid' "$TOUCH_DIR/B2LTouchDxe.inf"
 
 if rg -n 'SetBuck|SetLdo' "$TOUCH_DIR"/*.c | rg -v 'B2LTouchDxe.c'; then

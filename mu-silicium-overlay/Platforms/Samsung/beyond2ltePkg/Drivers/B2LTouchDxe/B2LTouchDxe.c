@@ -238,6 +238,7 @@ PollEvents (
   )
 {
   UINT8       Events[SEC_TS_MAX_EVENT_COUNT][B2L_SEC_TS_EVENT_SIZE];
+  UINT8       ReadCount;
   UINT8       Remaining;
   UINTN       Index;
   EFI_STATUS  Status;
@@ -257,36 +258,35 @@ PollEvents (
     goto Exit;
   }
 
-  // Samsung sec_ts returns an all-zero first byte when its event FIFO is empty.
+  // Samsung sec_ts returns an all-zero first byte when its FIFO is empty.
   if (Events[0][0] == 0) {
     Status = EFI_SUCCESS;
     goto Exit;
   }
 
   Remaining = B2LSecTsRemainingEvents (Events[0]);
-  if (Remaining >= SEC_TS_MAX_EVENT_COUNT) {
-    DEBUG ((
-      DEBUG_ERROR,
-      "B2LTouch: invalid event count %u; clearing controller queue\n",
-      Remaining
-      ));
-    WriteCommand (SEC_TS_CMD_CLEAR_EVENT_STACK);
-    Status = EFI_COMPROMISED_DATA;
-    goto Exit;
+
+  // Some beyond2lte firmware revisions report more than 31 queued events.
+  // Cap each bulk read to this fixed local buffer and leave any excess for
+  // the next timer tick.  A large queue is backlog, not corrupt data, and
+  // must never cause valid events to be discarded or polling to be disabled.
+  ReadCount = Remaining;
+  if (ReadCount > (SEC_TS_MAX_EVENT_COUNT - 1)) {
+    ReadCount = SEC_TS_MAX_EVENT_COUNT - 1;
   }
 
-  if (Remaining != 0) {
+  if (ReadCount != 0) {
     Status = ReadCommand (
                SEC_TS_READ_ALL_EVENT,
                &Events[1][0],
-               (UINTN)Remaining * B2L_SEC_TS_EVENT_SIZE
+               (UINTN)ReadCount * B2L_SEC_TS_EVENT_SIZE
                );
     if (EFI_ERROR (Status)) {
       goto Exit;
     }
   }
 
-  for (Index = 0; Index <= Remaining; Index++) {
+  for (Index = 0; Index <= ReadCount; Index++) {
     ConsumeEvent (Context, Events[Index]);
   }
 
