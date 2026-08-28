@@ -22,6 +22,8 @@ grep -q 'VHF_CONFIG_INIT' "$WIN/b2ltouch.c"
 grep -q 'VhfReadReportSubmit' "$WIN/b2ltouch.c"
 grep -Fq "'shared\\vhf.h'" "$WIN/build-b2ltouch.ps1"
 grep -Fq 'shared/vhf.h' "$ROOT/tools_b2ltouch.sh"
+grep -Fq "'libcntpr.lib'" "$WIN/build-b2ltouch.ps1"
+grep -q 'VhfKm.lib libcntpr.lib ntoskrnl.lib' "$WIN/build-b2ltouch.ps1"
 grep -q 'Usage (Contact Count)' "$WIN/b2ltouch.c"
 grep -q 'Usage (Contact Count Maximum)' "$WIN/b2ltouch.c"
 

@@ -67,7 +67,7 @@ foreach ($Header in @('km\ntddk.h', 'shared\vhf.h')) {
     }
 }
 $WdkLib = Resolve-Directory (Join-Path $KitsRoot ("Lib\{0}\km\arm64" -f $WdkVersion)) 'Secilen WDK ARM64 kutuphane dizini'
-foreach ($Library in @('VhfKm.lib', 'ntoskrnl.lib', 'hal.lib', 'BufferOverflowFastFailK.lib')) {
+foreach ($Library in @('VhfKm.lib', 'ntoskrnl.lib', 'hal.lib', 'libcntpr.lib', 'BufferOverflowFastFailK.lib')) {
     if (-not (Test-Path -LiteralPath (Join-Path $WdkLib $Library) -PathType Leaf)) {
         Fail "$Library yok: $WdkLib"
     }
@@ -131,7 +131,7 @@ try {
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $Flags /Fo`"b2ltouch_parser.obj`" `"b2ltouch_parser.c`"",
         'if errorlevel 1 exit /b 1',
-        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2ltouch.sys`" `"b2ltouch.obj`" `"b2ltouch_hw.obj`" `"b2ltouch_parser.obj`" WdfDriverEntry.lib WdfLdr.lib VhfKm.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
+        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2ltouch.sys`" `"b2ltouch.obj`" `"b2ltouch_hw.obj`" `"b2ltouch_parser.obj`" WdfDriverEntry.lib WdfLdr.lib VhfKm.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
         'exit /b %errorlevel%'
     )
     $BuildCmd = Join-Path $StageRoot 'build-b2ltouch-arm64.cmd'

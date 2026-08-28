@@ -25,6 +25,7 @@ while IFS= read -r Candidate; do
   if [ -f "$KITS/Include/$Candidate/km/ntddk.h" ] && \
      [ -f "$KITS/Include/$Candidate/shared/vhf.h" ] && \
      [ -f "$KITS/Lib/$Candidate/km/arm64/VhfKm.lib" ] && \
+     [ -f "$KITS/Lib/$Candidate/km/arm64/libcntpr.lib" ] && \
      [ -f "$KITS/Lib/$Candidate/km/arm64/ntoskrnl.lib" ] && \
      [ -f "$KITS/Lib/$Candidate/km/arm64/BufferOverflowFastFailK.lib" ]; then
     WDK_VERSION="$Candidate"
