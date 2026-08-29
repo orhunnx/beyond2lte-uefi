@@ -27,7 +27,10 @@ grep -q 'VhfKm.lib libcntpr.lib ntoskrnl.lib' "$WIN/build-b2ltouch.ps1"
 grep -q 'Usage (Contact Count)' "$WIN/b2ltouch.c"
 grep -q 'Usage (Contact Count Maximum)' "$WIN/b2ltouch.c"
 grep -q 'B2L_TOUCH_STAGE_VHF_CREATED' "$WIN/b2ltouch.c"
+grep -q 'B2L_TOUCH_STAGE_ADD_ENTERED' "$WIN/b2ltouch.c"
+grep -q 'B2L_TOUCH_STAGE_DEVICE_CREATE' "$WIN/b2ltouch.c"
 grep -q 'B2lTouchPublishDiagnostic' "$WIN/b2ltouch.c"
+grep -q 'B2lTouchPublishServiceDiagnostic' "$WIN/b2ltouch.c"
 grep -q 'B2LDriverStatus' "$WIN/b2ltouch.c"
 grep -q 'B2LTouchStage' "$ROOT/windows/startnet.cmd"
 grep -q 'VHF_SYS=' "$ROOT/windows/startnet.cmd"
@@ -39,8 +42,9 @@ if rg -q 'sc\.exe' "$ROOT/windows/startnet.cmd"; then
   echo "HATA: WinPE imajinda bulunmayan sc.exe kullaniliyor" >&2
   exit 1
 fi
-grep -q 'DriverVer=08/30/2026,0.1.3.0' "$INF"
-grep -q 'B2LTOUCH_DRIVER_VERSION=0.1.3.0' "$ROOT/tools_b2ltouch.sh"
+grep -q 'Services\\b2ltouch" /v B2LTouchStage' "$ROOT/windows/startnet.cmd"
+grep -q 'DriverVer=08/30/2026,0.1.4.0' "$INF"
+grep -q 'B2LTOUCH_DRIVER_VERSION=0.1.4.0' "$ROOT/tools_b2ltouch.sh"
 
 grep -q '#define B2L_HSI2C_PHYSICAL_BASE 0x104B0000ULL' "$WIN/b2ltouch.h"
 grep -q '#define B2L_USI_PHYSICAL_BASE    0x10421000ULL' "$WIN/b2ltouch.h"

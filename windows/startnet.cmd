@@ -77,9 +77,9 @@ if errorlevel 1 (
 )
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2ltouch" /v B2LDriverStatus 2>nul || echo B2L_DRIVER_STATUS=YOK
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\BYN0001\0" /v LowerFilters 2>nul || echo LOWER_FILTERS=YOK
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\BYN0001\0" /v B2LTouchStage 2>nul || echo B2L_STAGE=YOK
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\BYN0001\0" /v B2LTouchStatus 2>nul || echo B2L_STATUS=YOK
-echo Asama: 10=Device 20=Timer 30=VhfCreate 40=VhfStart 50=Resources 60-64=sec_ts 70=D0Ready
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2ltouch" /v B2LTouchStage 2>nul || echo B2L_STAGE=YOK
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2ltouch" /v B2LTouchStatus 2>nul || echo B2L_STATUS=YOK
+echo Asama: 01=AddEntry 02=DeviceCreate 10=Device 20=Timer 30=VhfCreate 40=VhfStart 50=Resources 60-64=sec_ts 70=D0Ready
 exit /b 0
 
 :B2LTouchEnsureVhfService

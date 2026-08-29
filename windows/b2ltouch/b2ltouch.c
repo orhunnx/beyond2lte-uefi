@@ -27,6 +27,8 @@
 #define B2L_TOUCH_STAGE_FUNCTIONS      0x63U
 #define B2L_TOUCH_STAGE_SENSE_ON       0x64U
 #define B2L_TOUCH_STAGE_D0_READY       0x70U
+#define B2L_TOUCH_STAGE_ADD_ENTERED    0x01U
+#define B2L_TOUCH_STAGE_DEVICE_CREATE  0x02U
 
 /*
  * Windows Touchscreen HID top-level collection.  The report follows the
@@ -94,6 +96,53 @@ static UCHAR B2lTouchReportDescriptor[] = {
  * veya kalici cihaza dokunmaz ve asil hata durumunu degistirmez.
  */
 static VOID
+B2lTouchPublishServiceDiagnostic(
+    ULONG Stage,
+    NTSTATUS Status
+    )
+{
+    static const WCHAR ServicePathBuffer[] =
+        L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\b2ltouch";
+    OBJECT_ATTRIBUTES Attributes;
+    UNICODE_STRING ServicePath;
+    UNICODE_STRING StageName;
+    UNICODE_STRING StatusName;
+    HANDLE Key = NULL;
+
+    RtlInitUnicodeString(&ServicePath, ServicePathBuffer);
+    InitializeObjectAttributes(
+        &Attributes,
+        &ServicePath,
+        OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+        NULL,
+        NULL
+        );
+    if (!NT_SUCCESS(ZwOpenKey(&Key, KEY_SET_VALUE, &Attributes))) {
+        return;
+    }
+
+    RtlInitUnicodeString(&StageName, L"B2LTouchStage");
+    RtlInitUnicodeString(&StatusName, L"B2LTouchStatus");
+    (VOID)ZwSetValueKey(
+        Key,
+        &StageName,
+        0UL,
+        REG_DWORD,
+        &Stage,
+        (ULONG)sizeof(Stage)
+        );
+    (VOID)ZwSetValueKey(
+        Key,
+        &StatusName,
+        0UL,
+        REG_DWORD,
+        &Status,
+        (ULONG)sizeof(Status)
+        );
+    ZwClose(Key);
+}
+
+static VOID
 B2lTouchPublishDiagnostic(
     WDFDEVICE Device,
     ULONG Stage,
@@ -104,6 +153,7 @@ B2lTouchPublishDiagnostic(
     UNICODE_STRING StageName;
     UNICODE_STRING StatusName;
 
+    B2lTouchPublishServiceDiagnostic(Stage, Status);
     if (!NT_SUCCESS(WdfDeviceOpenRegistryKey(
             Device,
             PLUGPLAY_REGKEY_DEVICE,
@@ -578,6 +628,10 @@ B2lTouchEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     NTSTATUS Status;
 
     UNREFERENCED_PARAMETER(Driver);
+    B2lTouchPublishServiceDiagnostic(
+        B2L_TOUCH_STAGE_ADD_ENTERED,
+        STATUS_SUCCESS
+        );
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&PnpCallbacks);
     PnpCallbacks.EvtDevicePrepareHardware = B2lTouchEvtPrepareHardware;
     PnpCallbacks.EvtDeviceReleaseHardware = B2lTouchEvtReleaseHardware;
@@ -589,6 +643,10 @@ B2lTouchEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Attributes.EvtCleanupCallback = B2lTouchEvtCleanup;
     Attributes.ExecutionLevel = WdfExecutionLevelPassive;
     Status = WdfDeviceCreate(&DeviceInit, &Attributes, &Device);
+    B2lTouchPublishServiceDiagnostic(
+        B2L_TOUCH_STAGE_DEVICE_CREATE,
+        Status
+        );
     if (!NT_SUCCESS(Status)) {
         return Status;
     }
