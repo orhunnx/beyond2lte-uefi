@@ -130,7 +130,7 @@ rm -f "$PFX"
 MANIFEST="$OUT/b2ltouch-manifest.txt"
 {
   echo "B2LTOUCH_PACKAGE=sec-ts-kmdf-vhf-single-touch"
-  echo "B2LTOUCH_DRIVER_VERSION=0.1.2.0"
+  echo "B2LTOUCH_DRIVER_VERSION=0.1.3.0"
   echo "B2LTOUCH_ACPI_ID=ACPI\\BYN0001"
   echo "B2LTOUCH_INF_SHA256=$(sha256sum "$OUT/b2ltouch.inf" | awk '{print $1}')"
   echo "B2LTOUCH_SYS_SHA256=$(sha256sum "$OUT/b2ltouch.sys" | awk '{print $1}')"

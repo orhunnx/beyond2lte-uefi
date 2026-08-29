@@ -68,7 +68,13 @@ if exist "%SystemRoot%\System32\drivers\vhf.sys" (
 ) else (
   echo VHF_SYS=YOK
 )
-sc.exe query vhf 2>nul || echo VHF_SERVICE=YOK
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\vhf" >nul 2>&1
+if errorlevel 1 (
+  echo VHF_SERVICE=YOK
+) else (
+  echo VHF_SERVICE=VAR
+  reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\vhf" 2>nul
+)
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2ltouch" /v B2LDriverStatus 2>nul || echo B2L_DRIVER_STATUS=YOK
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\BYN0001\0" /v LowerFilters 2>nul || echo LOWER_FILTERS=YOK
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\BYN0001\0" /v B2LTouchStage 2>nul || echo B2L_STAGE=YOK
@@ -77,21 +83,33 @@ echo Asama: 10=Device 20=Timer 30=VhfCreate 40=VhfStart 50=Resources 60-64=sec_t
 exit /b 0
 
 :B2LTouchEnsureVhfService
-sc.exe query vhf >nul 2>&1
+set "B2LVHFSVC=HKLM\SYSTEM\CurrentControlSet\Services\vhf"
+reg.exe query "%B2LVHFSVC%" >nul 2>&1
 if not errorlevel 1 exit /b 0
 if not exist "%SystemRoot%\System32\drivers\vhf.sys" (
   echo HATA: Microsoft VHF surucusu yok: %SystemRoot%\System32\drivers\vhf.sys
   exit /b 1
 )
 echo WinPE VHF dosyasini iceriyor fakat servis kaydi yok; oturumluk kayit olusturuluyor...
-sc.exe create vhf type= kernel start= demand error= normal binPath= "\SystemRoot\System32\drivers\vhf.sys" DisplayName= "Virtual HID Framework (VHF) Driver" > "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
-if errorlevel 1 (
-  type "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT"
-  exit /b 1
-)
-sc.exe query vhf >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
+> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" echo VHF servis kaydi reg.exe ile olusturuluyor
+reg.exe add "%B2LVHFSVC%" /v Type /t REG_DWORD /d 1 /f >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
+if errorlevel 1 goto :B2LTouchVhfServiceFail
+reg.exe add "%B2LVHFSVC%" /v Start /t REG_DWORD /d 3 /f >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
+if errorlevel 1 goto :B2LTouchVhfServiceFail
+reg.exe add "%B2LVHFSVC%" /v ErrorControl /t REG_DWORD /d 1 /f >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
+if errorlevel 1 goto :B2LTouchVhfServiceFail
+reg.exe add "%B2LVHFSVC%" /v ImagePath /t REG_EXPAND_SZ /d "\SystemRoot\System32\drivers\vhf.sys" /f >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
+if errorlevel 1 goto :B2LTouchVhfServiceFail
+reg.exe add "%B2LVHFSVC%" /v DisplayName /t REG_SZ /d "Virtual HID Framework (VHF) Driver" /f >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
+if errorlevel 1 goto :B2LTouchVhfServiceFail
+reg.exe query "%B2LVHFSVC%" >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
+if errorlevel 1 goto :B2LTouchVhfServiceFail
 type "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT"
 exit /b 0
+
+:B2LTouchVhfServiceFail
+type "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT"
+exit /b 1
 
 :B2LUfsInstall
 if not exist "%B2LUFSDIR%\b2lufs.inf" (

@@ -73,7 +73,7 @@ B2L_SKIP_MSVC_BUILD=1 bash tools_b2ltouch.sh
 ## WinPE'de beklenen sonuç
 
 `startnet.cmd`, `wpeinit` sonrasında WinPE'de dosyası bulunduğu halde eksik olan
-Microsoft `vhf` kernel-service kaydını oturumluk oluşturur, ardından
+Microsoft `vhf` kernel-service kaydını mevcut `reg.exe` ile oturumluk oluşturur, ardından
 `b2ltouch.inf` paketini kurar ve PnP taraması yapar. Başarılı durumda Device Manager/PnP görünümünde kaynak aygıt
 `ACPI\BYN0001`, onun VHF çocuğu ise HID uyumlu dokunmatik ekran olarak görünür.
 Kurulum çıktısı `X:\B2LTOUCH-PNP.TXT` dosyasındadır.
