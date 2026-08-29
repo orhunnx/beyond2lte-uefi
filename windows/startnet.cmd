@@ -49,6 +49,8 @@ if not exist "%B2LTOUCHDIR%\manifest.txt" (
 )
 echo Paket kimligi:
 type "%B2LTOUCHDIR%\manifest.txt"
+call :B2LTouchEnsureVhfService
+if errorlevel 1 exit /b 1
 pnputil /add-driver "%B2LTOUCHDIR%\b2ltouch.inf" /install > "%SystemDrive%\B2LTOUCH-PNP.TXT" 2>&1
 if errorlevel 1 (
   type "%SystemDrive%\B2LTOUCH-PNP.TXT"
@@ -72,6 +74,23 @@ reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\BYN0001\0" /v LowerFilter
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\BYN0001\0" /v B2LTouchStage 2>nul || echo B2L_STAGE=YOK
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\BYN0001\0" /v B2LTouchStatus 2>nul || echo B2L_STATUS=YOK
 echo Asama: 10=Device 20=Timer 30=VhfCreate 40=VhfStart 50=Resources 60-64=sec_ts 70=D0Ready
+exit /b 0
+
+:B2LTouchEnsureVhfService
+sc.exe query vhf >nul 2>&1
+if not errorlevel 1 exit /b 0
+if not exist "%SystemRoot%\System32\drivers\vhf.sys" (
+  echo HATA: Microsoft VHF surucusu yok: %SystemRoot%\System32\drivers\vhf.sys
+  exit /b 1
+)
+echo WinPE VHF dosyasini iceriyor fakat servis kaydi yok; oturumluk kayit olusturuluyor...
+sc.exe create vhf type= kernel start= demand error= normal binPath= "\SystemRoot\System32\drivers\vhf.sys" DisplayName= "Virtual HID Framework (VHF) Driver" > "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
+if errorlevel 1 (
+  type "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT"
+  exit /b 1
+)
+sc.exe query vhf >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
+type "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT"
 exit /b 0
 
 :B2LUfsInstall
