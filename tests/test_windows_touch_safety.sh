@@ -43,8 +43,8 @@ if rg -q 'sc\.exe' "$ROOT/windows/startnet.cmd"; then
   exit 1
 fi
 grep -q 'Services\\b2ltouch" /v B2LTouchStage' "$ROOT/windows/startnet.cmd"
-grep -q 'DriverVer=08/30/2026,0.1.4.0' "$INF"
-grep -q 'B2LTOUCH_DRIVER_VERSION=0.1.4.0' "$ROOT/tools_b2ltouch.sh"
+grep -q 'DriverVer=08/30/2026,0.1.5.0' "$INF"
+grep -q 'B2LTOUCH_DRIVER_VERSION=0.1.5.0' "$ROOT/tools_b2ltouch.sh"
 
 grep -q '#define B2L_HSI2C_PHYSICAL_BASE 0x104B0000ULL' "$WIN/b2ltouch.h"
 grep -q '#define B2L_USI_PHYSICAL_BASE    0x10421000ULL' "$WIN/b2ltouch.h"
@@ -58,6 +58,12 @@ if rg -n 'MmMapIoSpaceEx\([^\n]*0x|SetLdo|SetBuck|S2MPS|firmware.update|flash' "
 fi
 
 grep -q '#define B2L_HSI2C_TIMEOUT_US    100000UL' "$WIN/b2ltouch_hw.c"
+grep -q 'WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lTouchEvtTimer)' "$WIN/b2ltouch.c"
+if rg -q 'WDF_TIMER_CONFIG_INIT_PERIODIC' "$WIN/b2ltouch.c"; then
+  echo "HATA: passive-level timer periyodik yapilandirilmis" >&2
+  exit 1
+fi
+test "$(rg -c 'WdfTimerStart\(' "$WIN/b2ltouch.c")" -eq 2
 grep -q 'B2lHsI2cQuiesce(Context)' "$WIN/b2ltouch.c"
 grep -q 'B2L_TOUCH_MAX_EVENTS - 1U' "$WIN/b2ltouch.c"
 grep -q 'SEC_TS_CMD_CLEAR_EVENT_STACK' "$WIN/b2ltouch.c"

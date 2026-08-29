@@ -17,6 +17,10 @@ collection verilir.
 Identifier, X, Y ve Contact Count alanlarını; feature raporu da maksimum temas
 sayısını içerir.
 
+HSI2C olay kuyruğu 20 ms aralıkla passive-level, tek-seferlik KMDF timer ile
+okunur. Passive timer periyodik yapılandırılmaz; callback başarılı kaldığı
+sürece kendisini yeniden kurar.
+
 ## Donanım ve güvenlik sınırı
 
 ACPI `TSP0` yalnız şu iki 4 KiB device-MMIO kaynağını verir:

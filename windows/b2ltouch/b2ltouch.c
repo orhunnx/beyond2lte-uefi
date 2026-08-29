@@ -403,18 +403,24 @@ B2lTouchEvtTimer(WDFTIMER Timer)
     Status = B2lTouchPoll(Context);
     if (NT_SUCCESS(Status)) {
         Context->ConsecutiveErrors = 0UL;
-        return;
+    } else {
+        ++Context->ConsecutiveErrors;
+        if (Context->ConsecutiveErrors >= 3UL) {
+            if (Context->Pointer.Active) {
+                Context->Pointer.Active = 0U;
+                B2lTouchSubmitPointer(Context);
+            }
+            Context->TouchReady = FALSE;
+            B2lHsI2cQuiesce(Context);
+            (VOID)B2lTouchStartController(Context);
+        }
     }
 
-    ++Context->ConsecutiveErrors;
-    if (Context->ConsecutiveErrors >= 3UL) {
-        if (Context->Pointer.Active) {
-            Context->Pointer.Active = 0U;
-            B2lTouchSubmitPointer(Context);
-        }
-        Context->TouchReady = FALSE;
-        B2lHsI2cQuiesce(Context);
-        (VOID)B2lTouchStartController(Context);
+    if (Context->HardwareReady && Context->TouchReady) {
+        WdfTimerStart(
+            Context->PollTimer,
+            WDF_REL_TIMEOUT_IN_MS(B2L_TOUCH_POLL_MS)
+            );
     }
 }
 
@@ -539,6 +545,7 @@ B2lTouchEvtReleaseHardware(
     PB2L_TOUCH_CONTEXT Context = B2lTouchGetContext(Device);
 
     UNREFERENCED_PARAMETER(ResourcesTranslated);
+    Context->TouchReady = FALSE;
     (VOID)WdfTimerStop(Context->PollTimer, TRUE);
     B2lHsI2cQuiesce(Context);
     B2lTouchUnmapResources(Context);
@@ -572,12 +579,12 @@ B2lTouchEvtD0Exit(
     PB2L_TOUCH_CONTEXT Context = B2lTouchGetContext(Device);
 
     UNREFERENCED_PARAMETER(TargetState);
+    Context->TouchReady = FALSE;
     (VOID)WdfTimerStop(Context->PollTimer, TRUE);
     if (Context->Pointer.Active) {
         Context->Pointer.Active = 0U;
         B2lTouchSubmitPointer(Context);
     }
-    Context->TouchReady = FALSE;
     B2lHsI2cQuiesce(Context);
     return STATUS_SUCCESS;
 }
@@ -654,11 +661,8 @@ B2lTouchEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Context = B2lTouchGetContext(Device);
     Context->Device = Device;
     B2lTouchPublishDiagnostic(Device, B2L_TOUCH_STAGE_DEVICE_CREATED, STATUS_SUCCESS);
-    WDF_TIMER_CONFIG_INIT_PERIODIC(
-        &TimerConfig,
-        B2lTouchEvtTimer,
-        B2L_TOUCH_POLL_MS
-        );
+    /* Passive-level KMDF timers must be one-shot; the callback rearms it. */
+    WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lTouchEvtTimer);
     TimerConfig.AutomaticSerialization = FALSE;
     WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
     Attributes.ParentObject = Device;
