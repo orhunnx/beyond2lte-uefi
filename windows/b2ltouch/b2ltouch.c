@@ -16,6 +16,18 @@
 #define B2L_TOUCH_FEATURE_REPORT_ID    2U
 #define B2L_TOUCH_MAX_CONTACTS         1U
 
+#define B2L_TOUCH_STAGE_DEVICE_CREATED 0x10U
+#define B2L_TOUCH_STAGE_TIMER_CREATED  0x20U
+#define B2L_TOUCH_STAGE_VHF_CREATED    0x30U
+#define B2L_TOUCH_STAGE_VHF_STARTED    0x40U
+#define B2L_TOUCH_STAGE_RESOURCES      0x50U
+#define B2L_TOUCH_STAGE_I2C_INIT       0x60U
+#define B2L_TOUCH_STAGE_PROBE          0x61U
+#define B2L_TOUCH_STAGE_CLEAR_EVENTS   0x62U
+#define B2L_TOUCH_STAGE_FUNCTIONS      0x63U
+#define B2L_TOUCH_STAGE_SENSE_ON       0x64U
+#define B2L_TOUCH_STAGE_D0_READY       0x70U
+
 /*
  * Windows Touchscreen HID top-level collection.  The report follows the
  * mandatory Windows usages: Tip Switch, Contact Identifier, X, Y and
@@ -74,6 +86,73 @@ static UCHAR B2lTouchReportDescriptor[] = {
     0xB1, 0x02,             /* Feature (Data, Variable, Absolute) */
     0xC0
 };
+
+/*
+ * UFS miniportundaki tani yaklasimi gibi, PnP'nin tek Code 31 sonucunu
+ * hangi baslatma adiminin dondurdugunu gosteren iki REG_DWORD'a ayirir.
+ * Kayit yalniz WinPE'nin gecici device registry anahtarina yazilir; MMIO'ya
+ * veya kalici cihaza dokunmaz ve asil hata durumunu degistirmez.
+ */
+static VOID
+B2lTouchPublishDiagnostic(
+    WDFDEVICE Device,
+    ULONG Stage,
+    NTSTATUS Status
+    )
+{
+    WDFKEY Key = NULL;
+    UNICODE_STRING StageName;
+    UNICODE_STRING StatusName;
+
+    if (!NT_SUCCESS(WdfDeviceOpenRegistryKey(
+            Device,
+            PLUGPLAY_REGKEY_DEVICE,
+            KEY_SET_VALUE,
+            WDF_NO_OBJECT_ATTRIBUTES,
+            &Key))) {
+        return;
+    }
+
+    RtlInitUnicodeString(&StageName, L"B2LTouchStage");
+    RtlInitUnicodeString(&StatusName, L"B2LTouchStatus");
+    (VOID)WdfRegistryAssignULong(Key, &StageName, Stage);
+    (VOID)WdfRegistryAssignULong(Key, &StatusName, (ULONG)Status);
+    WdfRegistryClose(Key);
+}
+
+static VOID
+B2lTouchPublishDriverStatus(
+    PUNICODE_STRING RegistryPath,
+    NTSTATUS Status
+    )
+{
+    OBJECT_ATTRIBUTES Attributes;
+    UNICODE_STRING ValueName;
+    HANDLE Key = NULL;
+    ULONG Value = (ULONG)Status;
+
+    InitializeObjectAttributes(
+        &Attributes,
+        RegistryPath,
+        OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE,
+        NULL,
+        NULL
+        );
+    if (!NT_SUCCESS(ZwOpenKey(&Key, KEY_SET_VALUE, &Attributes))) {
+        return;
+    }
+
+    RtlInitUnicodeString(&ValueName, L"B2LDriverStatus");
+    (VOID)ZwSetValueKey(
+        Key,
+        &ValueName,
+        0UL,
+        REG_DWORD,
+        &Value,
+        (ULONG)sizeof(Value)
+        );
+    ZwClose(Key);
+}
 
 static NTSTATUS
 B2lTouchReadCommand(
@@ -170,17 +249,22 @@ B2lTouchStartController(PB2L_TOUCH_CONTEXT Context)
 
     RtlZeroMemory(&Context->Pointer, sizeof(Context->Pointer));
     Status = B2lHsI2cInitialize(Context);
+    B2lTouchPublishDiagnostic(Context->Device, B2L_TOUCH_STAGE_I2C_INIT, Status);
     if (NT_SUCCESS(Status)) {
         Status = B2lTouchProbe(Context);
+        B2lTouchPublishDiagnostic(Context->Device, B2L_TOUCH_STAGE_PROBE, Status);
     }
     if (NT_SUCCESS(Status)) {
         Status = B2lTouchWriteCommand(Context, SEC_TS_CMD_CLEAR_EVENT_STACK);
+        B2lTouchPublishDiagnostic(Context->Device, B2L_TOUCH_STAGE_CLEAR_EVENTS, Status);
     }
     if (NT_SUCCESS(Status)) {
         Status = B2lTouchSetFunctions(Context);
+        B2lTouchPublishDiagnostic(Context->Device, B2L_TOUCH_STAGE_FUNCTIONS, Status);
     }
     if (NT_SUCCESS(Status)) {
         Status = B2lTouchWriteCommand(Context, SEC_TS_CMD_SENSE_ON);
+        B2lTouchPublishDiagnostic(Context->Device, B2L_TOUCH_STAGE_SENSE_ON, Status);
     }
 
     Context->TouchReady = (BOOLEAN)NT_SUCCESS(Status);
@@ -327,12 +411,22 @@ B2lTouchEvtPrepareHardware(
             ((Start != B2L_HSI2C_PHYSICAL_BASE) &&
              (Start != B2L_USI_PHYSICAL_BASE))) {
             B2lTouchUnmapResources(Context);
+            B2lTouchPublishDiagnostic(
+                Device,
+                B2L_TOUCH_STAGE_RESOURCES,
+                STATUS_DEVICE_CONFIGURATION_ERROR
+                );
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         }
 
         if (Start == B2L_HSI2C_PHYSICAL_BASE) {
             if (Context->HsI2cRegisters != NULL) {
                 B2lTouchUnmapResources(Context);
+                B2lTouchPublishDiagnostic(
+                    Device,
+                    B2L_TOUCH_STAGE_RESOURCES,
+                    STATUS_DEVICE_CONFIGURATION_ERROR
+                    );
                 return STATUS_DEVICE_CONFIGURATION_ERROR;
             }
             Context->HsI2cRegisters = (PUCHAR)MmMapIoSpaceEx(
@@ -344,6 +438,11 @@ B2lTouchEvtPrepareHardware(
         } else {
             if (Context->UsiRegisters != NULL) {
                 B2lTouchUnmapResources(Context);
+                B2lTouchPublishDiagnostic(
+                    Device,
+                    B2L_TOUCH_STAGE_RESOURCES,
+                    STATUS_DEVICE_CONFIGURATION_ERROR
+                    );
                 return STATUS_DEVICE_CONFIGURATION_ERROR;
             }
             Context->UsiRegisters = (PUCHAR)MmMapIoSpaceEx(
@@ -357,6 +456,11 @@ B2lTouchEvtPrepareHardware(
         if ((Context->HsI2cRegisters == NULL) &&
             (Context->UsiRegisters == NULL)) {
             B2lTouchUnmapResources(Context);
+            B2lTouchPublishDiagnostic(
+                Device,
+                B2L_TOUCH_STAGE_RESOURCES,
+                STATUS_INSUFFICIENT_RESOURCES
+                );
             return STATUS_INSUFFICIENT_RESOURCES;
         }
     }
@@ -364,9 +468,15 @@ B2lTouchEvtPrepareHardware(
     if ((Context->HsI2cRegisters == NULL) ||
         (Context->UsiRegisters == NULL)) {
         B2lTouchUnmapResources(Context);
+        B2lTouchPublishDiagnostic(
+            Device,
+            B2L_TOUCH_STAGE_RESOURCES,
+            STATUS_DEVICE_CONFIGURATION_ERROR
+            );
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
     Context->HardwareReady = TRUE;
+    B2lTouchPublishDiagnostic(Device, B2L_TOUCH_STAGE_RESOURCES, STATUS_SUCCESS);
     return STATUS_SUCCESS;
 }
 
@@ -398,6 +508,7 @@ B2lTouchEvtD0Entry(
     Status = B2lTouchStartController(Context);
     if (NT_SUCCESS(Status)) {
         WdfTimerStart(Context->PollTimer, WDF_REL_TIMEOUT_IN_MS(B2L_TOUCH_POLL_MS));
+        B2lTouchPublishDiagnostic(Device, B2L_TOUCH_STAGE_D0_READY, Status);
     }
     return Status;
 }
@@ -484,6 +595,7 @@ B2lTouchEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 
     Context = B2lTouchGetContext(Device);
     Context->Device = Device;
+    B2lTouchPublishDiagnostic(Device, B2L_TOUCH_STAGE_DEVICE_CREATED, STATUS_SUCCESS);
     WDF_TIMER_CONFIG_INIT_PERIODIC(
         &TimerConfig,
         B2lTouchEvtTimer,
@@ -494,6 +606,7 @@ B2lTouchEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Attributes.ParentObject = Device;
     Attributes.ExecutionLevel = WdfExecutionLevelPassive;
     Status = WdfTimerCreate(&TimerConfig, &Attributes, &Context->PollTimer);
+    B2lTouchPublishDiagnostic(Device, B2L_TOUCH_STAGE_TIMER_CREATED, Status);
     if (!NT_SUCCESS(Status)) {
         return Status;
     }
@@ -510,23 +623,29 @@ B2lTouchEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     VhfConfig.VersionNumber = 0x0001U;
     VhfConfig.EvtVhfAsyncOperationGetFeature = B2lTouchEvtGetFeature;
     Status = VhfCreate(&VhfConfig, &Context->VhfHandle);
+    B2lTouchPublishDiagnostic(Device, B2L_TOUCH_STAGE_VHF_CREATED, Status);
     if (!NT_SUCCESS(Status)) {
         return Status;
     }
-    return VhfStart(Context->VhfHandle);
+    Status = VhfStart(Context->VhfHandle);
+    B2lTouchPublishDiagnostic(Device, B2L_TOUCH_STAGE_VHF_STARTED, Status);
+    return Status;
 }
 
 NTSTATUS
 DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
     WDF_DRIVER_CONFIG Config;
+    NTSTATUS Status;
 
     WDF_DRIVER_CONFIG_INIT(&Config, B2lTouchEvtDeviceAdd);
-    return WdfDriverCreate(
+    Status = WdfDriverCreate(
         DriverObject,
         RegistryPath,
         WDF_NO_OBJECT_ATTRIBUTES,
         &Config,
         WDF_NO_HANDLE
         );
+    B2lTouchPublishDriverStatus(RegistryPath, Status);
+    return Status;
 }
