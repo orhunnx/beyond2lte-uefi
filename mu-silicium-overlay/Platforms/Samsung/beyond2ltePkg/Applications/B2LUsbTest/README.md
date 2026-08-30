@@ -25,6 +25,14 @@ R2 cihaz testinde FSYS0A `CONFIG/STATUS=1`, `OPTION=0x10`; PMU
 etkin DWC3 ve üç PHY aralığını platform `MemoryMapLib` tablosunda non-secure
 Device MMIO olarak eşler. DRAM veya reserved-memory bölgelerini değiştirmez.
 
+R3 cihaz testinde `GSNPSID=0x33313130` ile DWC_usb31 çekirdeği ve geçerli xHCI
+1.10 capability alanı okundu. Denetleyici `DEVICE` rolde, xHCI halted ve
+hatasız; iki port powered fakat bağlantısızdı. Eski doğrulama yalnız
+`0x5533xxxx` DWC_usb3 kimliğini kabul ettiği için sonucu yanlışlıkla
+`BEKLENMEDIK` saydı. R4, Linux DWC3 çekirdeğindeki `DWC31_IP=0x3331`
+kimliğini kabul eder, DWC_usb31 `VER_NUMBER/VER_TYPE` alanlarını gösterir ve
+salt-okuma role/PHY aşamalarını açar.
+
 Her sayfa sonraki erişimden **önce** fotoğraflanmalıdır. Bir pencere saat veya
 güç kapalı olduğu için sistemi kilitlerse son görülen sayfa erişim sınırını
 belirler. `Esc` veya `Q` sonraki pencereyi okumadan uygulamadan çıkar.

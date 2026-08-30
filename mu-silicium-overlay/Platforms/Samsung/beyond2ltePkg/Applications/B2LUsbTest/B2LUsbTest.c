@@ -24,7 +24,7 @@
 #include <Library/UefiLib.h>
 #include <Protocol/SimpleTextIn.h>
 
-#define B2L_USB_TEST_REVISION       3
+#define B2L_USB_TEST_REVISION       4
 
 #define B2L_DWC3_BASE               0x10C00000ULL
 #define B2L_USB_PHY_BASE            0x10B00000ULL
@@ -48,6 +48,8 @@
 #define DWC3_GHWPARAMS1             0xC144
 #define DWC3_GHWPARAMS2             0xC148
 #define DWC3_GHWPARAMS3             0xC14C
+#define DWC3_VER_NUMBER             0xC1A0
+#define DWC3_VER_TYPE               0xC1A4
 #define DWC3_GUSB2PHYCFG0           0xC200
 #define DWC3_GUSB3PIPECTL0          0xC2C0
 #define DWC3_DCFG                   0xC700
@@ -67,6 +69,10 @@
 #define DWC3_GUSB2PHYCFG_SUSPHY     (1U << 6)
 #define DWC3_GUSB3PIPECTL_SOFTRST   (1U << 31)
 #define DWC3_GUSB3PIPECTL_SUSPHY    (1U << 17)
+#define DWC3_GSNPSID_MASK           0xFFFF0000U
+#define DWC3_IP_DWC3                0x55330000U
+#define DWC3_IP_DWC31               0x33310000U
+#define DWC3_IP_DWC32               0x33320000U
 
 #define XHCI_HCSPARAMS1             0x04
 #define XHCI_HCSPARAMS2             0x08
@@ -137,6 +143,24 @@ CurrentModeName (
       return L"HOST";
     default:
       return L"UNKNOWN";
+  }
+}
+
+STATIC
+CONST CHAR16 *
+CoreIdName (
+  IN UINT32  Id
+  )
+{
+  switch (Id & DWC3_GSNPSID_MASK) {
+    case DWC3_IP_DWC3:
+      return L"DWC_USB3";
+    case DWC3_IP_DWC31:
+      return L"DWC_USB31";
+    case DWC3_IP_DWC32:
+      return L"DWC_USB32";
+    default:
+      return L"BEKLENMEDIK";
   }
 }
 
@@ -246,8 +270,11 @@ ShowDwc3AndXhci (
   UINT32  Gctl;
   UINT32  Gsts;
   UINT32  Id;
+  UINT32  Ip;
   UINT32  Usb2;
   UINT32  Usb3;
+  UINT32  Version;
+  UINT32  VersionType;
   UINT32  MaxPorts;
   UINT32  MaxSlots;
   UINT32  CapLength;
@@ -270,9 +297,20 @@ ShowDwc3AndXhci (
   Usb2  = Read32 (B2L_DWC3_BASE, DWC3_GUSB2PHYCFG0);
   Usb3  = Read32 (B2L_DWC3_BASE, DWC3_GUSB3PIPECTL0);
 
-  CoreSane = (Id & 0xFFFF0000U) == 0x55330000U;
-  Print (L"GSNPSID=%08x  CORE_ID=%s\n", Id,
-         CoreSane ? L"DWC3" : L"BEKLENMEDIK");
+  Ip          = Id & DWC3_GSNPSID_MASK;
+  CoreSane    = (Ip == DWC3_IP_DWC3) || (Ip == DWC3_IP_DWC31) ||
+                (Ip == DWC3_IP_DWC32);
+  Version     = 0;
+  VersionType = 0;
+  if ((Ip == DWC3_IP_DWC31) || (Ip == DWC3_IP_DWC32)) {
+    Version     = Read32 (B2L_DWC3_BASE, DWC3_VER_NUMBER);
+    VersionType = Read32 (B2L_DWC3_BASE, DWC3_VER_TYPE);
+  }
+
+  Print (L"GSNPSID=%08x  CORE_ID=%s\n", Id, CoreIdName (Id));
+  if ((Ip == DWC3_IP_DWC31) || (Ip == DWC3_IP_DWC32)) {
+    Print (L"VER_NUMBER=%08x VER_TYPE=%08x\n", Version, VersionType);
+  }
   Print (L"GCTL=%08x PRTCAP=%s CORE_SRST=%u\n", Gctl,
          PortCapabilityName ((Gctl >> DWC3_GCTL_PRTCAP_SHIFT) &
                              DWC3_GCTL_PRTCAP_MASK),
@@ -431,7 +469,7 @@ B2LUsbTestEntry (
 
   Dwc3Sane = ShowDwc3AndXhci ();
   if (!Dwc3Sane) {
-    Print (L"\nDWC3 GSNPSID dogrulanmadi; PHY asamalari kapatildi.\n");
+    Print (L"\nDWC3 ailesi GSNPSID ile dogrulanmadi; PHY asamalari kapatildi.\n");
     PromptForNextStage (L"guvenli cikis");
     return EFI_DEVICE_ERROR;
   }

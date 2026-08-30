@@ -125,6 +125,12 @@ translation fault verdi. R3, merged stok DT'de `okay` olan DWC3 ve üç PHY
 penceresini mevcut güvenli `MemoryMapLib` device-MMIO mekanizmasıyla eşler;
 DRAM ve reserved-memory descriptor'larına dokunmaz.
 
+R3 ölçümünde eşleme çalıştı: `GSNPSID=0x33313130` bir DWC_usb31 çekirdeğidir;
+xHCI 1.10 capability geçerli, denetleyici `DEVICE` rolde, host halted fakat
+hatasız ve iki port powered/bağlantısızdır. R4, Linux'un doğruladığı
+`DWC31_IP=0x3331` kimliğini kabul eder, ayrı `VER_NUMBER/VER_TYPE` alanlarını
+okur ve kalan role/PHY salt-okuma aşamalarına devam eder.
+
 `--touch-test` önce Android DT'deki 47 HSI2C denetleyicisinin adres ve açık/
 kapalı haritasını, ardından DT'de ilan edilmiş slave adlarını gösterir. Kamera,
 EEPROM, PMIC ve şarj cihazlarına kör aktif tarama göndermez. Yalnız firmware'in

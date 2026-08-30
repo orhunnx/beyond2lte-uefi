@@ -13,6 +13,8 @@ grep -q -- '--usb-test' "$ROOT/yap.sh"
 grep -q 'B2LUSB.EFI' "$ROOT/esp/startup.nsh"
 grep -q 'B2LUSB.EFI' "$ROOT/esp/startup-baseline.nsh"
 grep -q 'beyond2lte-usb-diag.tar' "$ROOT/cache_esp.sh"
+grep -q 'DWC3_IP_DWC31[[:space:]]*0x33310000U' "$APP"
+grep -q 'DWC3_VER_NUMBER[[:space:]]*0xC1A0' "$APP"
 
 for Address in 10C00000 10B00000 10AE0000 10AF0000 15860000 15862200; do
   grep -q "$Address" "$APP"
