@@ -88,9 +88,16 @@ Microsoft `vhf` kernel-service kaydını mevcut `reg.exe` ile oturumluk oluştur
 Kurulum çıktısı `X:\B2LTOUCH-PNP.TXT` dosyasındadır. Test sonunda WinPE/Windows
 içindeki yerel dokunmatik klavye (`TabTip.exe`), o yoksa yerel ekran klavyesi
 (`osk.exe`) açılır; paket ayrı bir klavye uygulaması içermez. Çıplak WinPE
-imajında bu iki Windows bileşeni de yoksa durum konsolda açıkça yazılır.
+imajında bu iki Windows bileşeni de yoksa `tools_b2ltouch.sh`, aynı build'deki
+ARM64 Windows ISO/install.wim içinden Microsoft'un klasik `osk.exe` dosyasını,
+MUI kaynağını ve WinPE'de eksik olan PE bağımlılık kapanımını alır. Hedef ve
+kaynak mimarisi/build'i eşleşmeden WIM değiştirilmez. Kaynak otomatik
+bulunamazsa `B2L_WINDOWS_ARM64_SOURCE=/mnt/c/.../Windows_Arm64.iso` ayarlanır;
+özel bir klavye derlenmez veya paketlenmez.
 
-Ardından `b2lmt.exe` tam ekran açılır. Uygulama Windows'un gerçek
+Multi-touch tanısı yeniden gerekirse konsoldan `%SystemRoot%\B2LTOUCH\b2lmt.exe`
+çalıştırılır; native OSK'nin üstünü kapatmaması için artık otomatik açılmaz.
+Uygulama Windows'un gerçek
 `WM_POINTER`/`WM_TOUCH` olaylarını dinler; aktif parmak sayısını, her temasın
 Windows pointer kimliğini ve piksel X/Y konumunu canlı gösterir. Yalnız imleç
 emülasyonu gelirse üstte `MOUSE ONLY` yazar. İki parmakla aynı anda dokunulduğunda

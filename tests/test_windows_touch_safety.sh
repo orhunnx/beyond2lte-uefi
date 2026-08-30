@@ -53,11 +53,11 @@ grep -q 'B2LTOUCH_PACKAGE=sec-ts-kmdf-vhf-ten-contact-live-diag' "$ROOT/tools_b2
 grep -q 'B2LTouchLaunchKeyboard' "$ROOT/windows/startnet.cmd"
 grep -q 'TabTip.exe' "$ROOT/windows/startnet.cmd"
 grep -q 'System32\\osk.exe' "$ROOT/windows/startnet.cmd"
+grep -q 'B2LOSK\\manifest.txt' "$ROOT/windows/startnet.cmd"
 if rg -q 'b2losk|B2LTOUCH_OSK_SHA256' "$ROOT/windows" "$ROOT/tools_b2ltouch.sh"; then
   echo "HATA: yerel Windows klavyesi yerine paketlenmis ozel OSK bulundu" >&2
   exit 1
 fi
-grep -q 'B2LTouchLaunchMultiTouchTest' "$ROOT/windows/startnet.cmd"
 grep -q 'b2lmt.exe' "$ROOT/windows/startnet.cmd"
 grep -q 'B2LTOUCH_MT_SHA256=' "$ROOT/tools_b2ltouch.sh"
 grep -Fq "'b2lmt.c'" "$WIN/build-b2ltouch.ps1"
@@ -66,6 +66,19 @@ grep -q 'WM_POINTERDOWN' "$WIN/b2lmt.c"
 grep -q 'GetPointerInfo' "$WIN/b2lmt.c"
 grep -q 'WM_TOUCH' "$WIN/b2lmt.c"
 grep -q 'MOUSE ONLY' "$WIN/b2lmt.c"
+if grep -q 'start .*b2lmt.exe' "$ROOT/windows/startnet.cmd"; then
+  echo "HATA: multi-touch tani uygulamasi native OSK'nin ustune otomatik aciliyor" >&2
+  exit 1
+fi
+grep -q 'tools_winpe_native_osk.sh' "$ROOT/tools_b2ltouch.sh"
+grep -q 'B2LOSK_PACKAGE=microsoft-classic-osk-import-closure' "$ROOT/tools_winpe_native_osk.sh"
+grep -q 'same Windows build' "$ROOT/tools_winpe_native_osk.sh" || \
+  grep -q 'ayni build' "$ROOT/tools_winpe_native_osk.sh"
+if rg -q 'b2losk\.(c|exe)|custom.*keyboard|ozel.*klavye' \
+    "$ROOT/windows" "$ROOT/tools_winpe_native_osk.sh"; then
+  echo "HATA: Microsoft native OSK yerine ozel klavye bulundu" >&2
+  exit 1
+fi
 
 grep -q '#define B2L_HSI2C_PHYSICAL_BASE 0x104B0000ULL' "$WIN/b2ltouch.h"
 grep -q '#define B2L_USI_PHYSICAL_BASE    0x10421000ULL' "$WIN/b2ltouch.h"

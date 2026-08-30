@@ -188,4 +188,9 @@ wimlib-imagex extract "$WIM" 1 /Windows/System32/startnet.cmd \
   "$(sha256sum "$CHECK/startnet.cmd" | awk '{print $1}')" ] || die "startnet.cmd WIM'de farkli"
 
 say "B2LTOUCH hazir"
+if [ "${B2L_SKIP_NATIVE_OSK:-0}" != "1" ]; then
+  "$HERE/tools_winpe_native_osk.sh"
+else
+  echo "Native Windows OSK enjeksiyonu B2L_SKIP_NATIVE_OSK=1 ile atlandi"
+fi
 echo "Sonraki adim: bash cache_esp.sh --win --system"
