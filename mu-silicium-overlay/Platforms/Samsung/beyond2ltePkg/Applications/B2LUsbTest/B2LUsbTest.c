@@ -1,11 +1,11 @@
 /** @file
   Read-only staged USB diagnostic for Samsung beyond2lte.
 
-  This first bring-up revision deliberately contains no MMIO writes, no reset,
-  no clock or regulator programming, no MAX77705 I2C transaction and no USB
-  transfer.  Every new MMIO window is opened only after an explicit key press,
-  so a bus fault or a clock-gated register window can be localized from the
-  last photographed page.
+  Early stages are passive MMIO diagnostics.  R8 adds separately confirmed
+  HSI2C45 controller access and targeted MAX77705 reads; it never writes PMIC
+  configuration, reset, role or power registers and starts no USB transfer.
+  Every new MMIO window or I2C action is opened only after an explicit key
+  press, so a fault can be localized from the last photographed page.
 
   Address contract (merged stock beyond2lte DT):
     DWC3/xHCI       0x10C00000 + 0x10000, SPI 241 (GSIV 273)
@@ -14,6 +14,7 @@
     combo PHY PMA   0x10AF0000 + 0x00800
     PMU syscon      0x15860000; USB PHY offsets 0x72C and 0x704
     FSYS0A PD       0x15862200 + 0x20
+    HSI2C45         0x15D60000 + 0x1000, MAX77705 0x66 / fuel gauge 0x36
 **/
 
 #include <Uefi.h>
@@ -24,7 +25,7 @@
 #include <Library/UefiLib.h>
 #include <Protocol/SimpleTextIn.h>
 
-#define B2L_USB_TEST_REVISION       7
+#include "B2LMax77705.h"
 
 #define B2L_DWC3_BASE               0x10C00000ULL
 #define B2L_USB_PHY_BASE            0x10B00000ULL
@@ -422,7 +423,7 @@ ShowDwc3RoleRegisters (
   Print (L"OEVT=%08x OEVTEN=%08x\n",
          Read32 (B2L_DWC3_BASE, DWC3_OEVT),
          Read32 (B2L_DWC3_BASE, DWC3_OEVTEN));
-  Print (L"\nMAX77705 henuz okunmadi; I2C/PD/rol komutu yok.\n");
+  Print (L"\nMAX77705 sonraki ayri onayli asamalarda incelenir.\n");
 }
 
 STATIC
@@ -529,7 +530,27 @@ B2LUsbTestEntry (
   }
   ShowSkippedComboPma ();
 
-  Print (L"\nR%u SALT OKUMA TURLARI TAMAMLANDI.\n", B2L_USB_TEST_REVISION);
+  if (!PromptForNextStage (L"MAX77705 IRQ ve HSI2C45 GPIO ham seviyeleri")) {
+    return EFI_SUCCESS;
+  }
+  B2LMax77705ShowGpio ();
+
+  if (!PromptForNextStage (L"HSI2C45 controller salt-okuma 15D60000")) {
+    return EFI_SUCCESS;
+  }
+  if (!B2LMax77705ShowController ()) {
+    Print (L"\nHSI2C45 kalitim clock/timing uygun degil; aktif veri asamasi kapali.\n");
+    PromptForNextStage (L"EFI Shell'e guvenli donus");
+    return EFI_SUCCESS;
+  }
+
+  if (!PromptForNextStage (L"MAX77705 A66 ve fuel-gauge A36 hedefli veri okuma")) {
+    return EFI_SUCCESS;
+  }
+  B2LMax77705ShowData ();
+
+  Print (L"\nR%u USB/MAX77705 TANI TURLARI TAMAMLANDI.\n",
+         B2L_USB_TEST_REVISION);
   Print (L"Son sayfayi fotografla; tusa basinca EFI Shell'e doner.\n");
   PromptForNextStage (L"EFI Shell'e donus");
   return EFI_SUCCESS;

@@ -569,10 +569,10 @@ if [ "$PART" = system ] && [ -s "$PROJ/esp/B2LTOUCH.EFI" ] && \
   fi
 fi
 
-# USB R3 tanisi da iki bolumu birlikte gerektirir: BOOT'taki platform memory
-# map DWC3/PHY pencerelerini esler, SYSTEM ESP'deki B2LUSB.EFI ise salt-okuma
-# olcumunu yapar. Iki dosyanin farkli turlardan kalmasini onlemek icin tek
-# Odin AP arsivi uret.
+# USB tanisi da iki bolumu birlikte gerektirir: BOOT'taki platform memory map
+# DWC3/PHY ve R8 HSI2C45 pencerelerini esler, SYSTEM ESP'deki B2LUSB.EFI ise
+# asamali olcumu yapar. Iki dosyanin farkli turlardan kalmasini onlemek icin
+# tek Odin AP arsivi uret.
 if [ "$PART" = system ] && [ -s "$PROJ/esp/B2LUSB.EFI" ]; then
   if [ ! -s "$OUT/uefi-boot.tar" ]; then
     echo "HATA: B2LUSB.EFI var ama out/uefi-boot.tar yok; once yap.sh --usb-test calistir."

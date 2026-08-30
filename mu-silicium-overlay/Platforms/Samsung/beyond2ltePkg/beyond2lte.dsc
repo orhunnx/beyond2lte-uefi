@@ -152,7 +152,7 @@
   #
   beyond2ltePkg/Applications/EbsTest/EbsTest.inf
   beyond2ltePkg/Applications/B2LTouchTest/B2LTouchTest.inf
-  # USB ilk bring-up: yalniz salt-okuma, asamali EFI Shell tanisi.
+  # USB bring-up: pasif MMIO ve ayri onayli hedefli MAX77705 EFI Shell tanisi.
   # FV'ye girmez; yap.sh --usb-test ile SYSTEM ESP'ye kopyalanir.
   beyond2ltePkg/Applications/B2LUsbTest/B2LUsbTest.inf
 

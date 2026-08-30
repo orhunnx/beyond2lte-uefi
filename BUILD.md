@@ -77,7 +77,7 @@ bash yap.sh --touch --acpi --clean
 # Windows'tan once kareli fabrika tipi dokunmatik testi
 bash yap.sh --touch-test --acpi --clean
 
-# Salt-okuma USB bring-up + Windows dokunmatik hazırlığını birlikte koru
+# Aşamali USB/MAX77705 tanısı + Windows dokunmatiğini birlikte koru
 bash yap.sh --touch --usb-test --clean
 ```
 
@@ -91,7 +91,7 @@ Bu sürücü UEFI `AbsolutePointer` sağlar. `ExitBootServices` sırasında I²C
 susturur; dolayısıyla Windows açıldıktan sonraki dokunmatik için ayrıca bir
 Windows sürücüsü gerekir.
 
-### EFI Shell USB salt-okuma tanısı
+### EFI Shell USB ve MAX77705 tanısı
 
 USB host veya Windows sürücüsü eklenmeden önce DWC3/xHCI/PHY handoff durumu
 ayrı bir EFI Shell uygulamasıyla ölçülür:
@@ -103,13 +103,15 @@ bash cache_esp.sh --win --system --baseline
 ```
 
 `B2LUSB.EFI` SYSTEM ESP'ye konur ve `startup.nsh` tarafından Windows'tan önce
-çalıştırılır. Her sayfayı fotoğrafladıktan sonra bir tuşla sonraki MMIO
-penceresine geçilir; `Esc` veya `Q` yeni pencereyi okumadan çıkar. Uygulama
-register yazmaz, reset/clock/regulator işlemi yapmaz, MAX77705'e I²C komutu
-göndermez ve USB transferi başlatmaz. R3'te platform memory map de değiştiği
-için `cache_esp.sh`, BOOT ve SYSTEM'i `out/beyond2lte-usb-diag.tar` içinde
-birleştirir. Odin AP alanına yalnız bu tek arşiv verilir; Re-Partition kapalı
-kalır.
+çalıştırılır. Her sayfayı fotoğrafladıktan sonra bir tuşla sonraki aşamaya
+geçilir; `Esc` veya `Q` yeni pencereyi/işlemi başlatmadan çıkar. İlk dokuz
+sayfa pasiftir. R8'in son sayfası ayrı onayla MAX77705 `0x66` kimlik/şarj ve
+fuel-gauge `0x36` pil kayıtlarını hedefli okur. Yalnız register pointer baytı
+gönderilir; PMIC config, reset, güç veya rol verisi yazılmaz ve USB transferi
+başlatılmaz. HSI2C45'in kalıtılan controller durumu sonda geri yüklenir.
+Platform memory map de değiştiği için `cache_esp.sh`, BOOT ve SYSTEM'i
+`out/beyond2lte-usb-diag.tar` içinde birleştirir. Odin AP alanına yalnız bu tek
+arşiv verilir; Re-Partition kapalı kalır.
 
 Bu üç komut WSL'de çalıştırılır. Birinci komuttaki `--touch`, BOOT içinde
 B2LTouchDxe, HSI2C hazırlığı ve TSP0 ACPI tanımını korurken `--usb-test` ayrı
@@ -119,8 +121,10 @@ WinPE'ye yeniden yerleştirir. USB tanı dosyası varken `cache_esp.sh`, yerel
 flash arşivi üretmez.
 
 Sayfalar sırasıyla FSYS0A'nın doğrulanmış `CONFIG/STATUS/OPTION` alanlarını,
-PMU USB kontrollerini, DWC3+xHCI, device/OTG rolü, USB DRD PHY, combo PCS ve
-combo PMA değerlerini gösterir. R1 cihaz testinde `FSYS0A + 0x14` erişimi
+PMU USB kontrollerini, DWC3+xHCI, device/OTG rolü, USB DRD PHY, combo PCS/PMA
+sonuçlarını, MAX77705 IRQ ve HSI2C45 hat seviyelerini, HSI2C45 controller
+durumunu ve en son hedefli MAX77705 verisini gösterir. R1 cihaz testinde
+`FSYS0A + 0x14` erişimi
 synchronous external abort verdiğinden R2, `+0x10/+0x14` duration alanlarını
 okumaz ve PMU USB kontrollerini ayrı bir kullanıcı-onaylı aşamada açar. Bir
 sonraki yazmalı host-init turu ancak bu değerler cihazda fotoğraflanıp DWC3
@@ -162,11 +166,11 @@ R1-R6 cihaz ölçümlerinin tamamı USB-C kablosu takılı değilken yapıldı. 
 PMA'nın ilk erişimi `0x10AF0000 + 0x00` da synchronous external abort verdi.
 Bu sonuçlar combo PHY'nin kablosuz/attach olmayan durumda power-clock veya
 izolasyon altında olmasıyla uyumludur; kalıcı donanım arızası kanıtı değildir.
-R7 hem PCS hem PMA sayfalarında hiç MMIO okumaz, önceki sonucu gösterip
-Windows'a güvenli biçimde döner. Sonraki karşılaştırma cihaz açılmadan önce
-PC'ye USB veri kablosu takılarak yapılır; PMU, DWC3/xHCI `PORTSC/GSTS` ve ana
-DRD PHY sayfaları fotoğraflanır. Combo pencereler, attach durumunda bile bu
-güvenli alanlarda bir değişiklik görülmeden tekrar okunmaz.
+R7 hem PCS hem PMA sayfalarında hiç MMIO okumaz ve Windows'a güvenli biçimde
+döner. Boot öncesi PC veri kablosu takılarak yapılan R7 karşılaştırmasında da
+PMU `USBDP/USBPHY=0`, DWC3 `DEVICE`, USB3 PHY suspend ve iki xHCI portunda
+`CCS=0` görüldü; ana DRD PHY değerleri de kablosuz turla aynıydı. Dolayısıyla
+kablo attach bilgisi DWC3'e ulaşmıyor ve bir sonraki sınır HSI2C45/MAX77705'tir.
 
 DT ve platform bellek haritası denetiminde kablo durumu için kullanılabilecek
 başka bir güvenli RAM hücresi bulunmadı. Mevcut eşli ve cihazda doğrulanmış
@@ -176,10 +180,13 @@ controller `0x1A240000` eşlidir; fakat DT clock kimlikleri (`0x11D/0x120` ve
 tablosu bulunmadan kör okunmaz veya yazılmaz. Gerçek Type-C attach/CC/PD
 durumu rezerve DRAM'de değil, DT'ye göre HSI2C45 `0x15D60000` üzerindeki
 MAX77705 `0x66` aygıtındadır; IRQ hattı `GPA1-6`, HSI2C IRQ'su SPI `0x52`
-(GSIV 114), pinleri `GPM12-0/GPM13-0` function 2'dir. Bu denetleyici mevcut
-USB uygulamasında map edilmez veya probe edilmez. Bir sonraki aktif keşif,
-Samsung MAX77705 register sözleşmesi doğrulanıp yalnız hedefli kimlik ve
-CC-status okumaları tanımlandıktan sonra ayrı kullanıcı-onaylı aşama olacaktır.
+(GSIV 114), pinleri `GPM12-0/GPM13-0` function 2'dir. R8 controller
+`0x15D60000` sayfasını non-secure Device MMIO olarak eşler. Önce GPIO ve
+controller salt okunur; clock/timing kalıtımı uygunsa ayrıca onay alınarak ana
+PMIC/şarj `0x66` ve fuel-gauge `0x36` okunur. Fuel-gauge register listesi
+Linux MAX77705 tanımıyla sınırlandırılmıştır: `STATUS`, `SOCREP`, `TEMP`,
+`VCELL`, `CURRENT`, `AVG_CURRENT`, `AVG_VCELL`, `OCV`. CC/PD alt aygıtı ve rol
+komutları henüz bu kapsamda değildir.
 DT ayrıca PHY init için altı HS ve yirmi SS tune değeri, GPG0-4 PHY port pini
 ve ana PMIC LDO `10/11/12` bağımlılığını içerir; bunlar RAM taraması değil,
 yazmalı init sürücüsünün statik donanım sözleşmesidir.

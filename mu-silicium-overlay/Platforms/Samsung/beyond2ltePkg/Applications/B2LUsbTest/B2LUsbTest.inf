@@ -8,12 +8,17 @@
 
 [Sources]
   B2LUsbTest.c
+  B2LMax77705.c
 
 [Packages]
   MdePkg/MdePkg.dec
+  SamsungPkg/SamsungPkg.dec
 
 [LibraryClasses]
   IoLib
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
   UefiLib
+
+[Protocols]
+  gEfiGpioProtocolGuid

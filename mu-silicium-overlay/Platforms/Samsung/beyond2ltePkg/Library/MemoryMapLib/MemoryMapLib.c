@@ -206,6 +206,12 @@ gMemoryDescriptor[] = {
   {"USB Combo PMA",      0x10AF0000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"USB DWC3 xHCI",      0x10C00000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
 
+  // DT-enabled HSI2C45 carries MAX77705 (PMIC/charger at 0x66 and fuel gauge
+  // at 0x36). B2LUsbTest R8 first validates GPIO and passive controller state,
+  // then performs only separately confirmed target reads.  This is device
+  // MMIO, not reserved DRAM.
+  {"MAX77705 HSI2C45",   0x15D60000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
+
   {"PMU",                0x15860000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"Decon",              0x19030000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"Clock Controller",   0x1A240000, 0x00008000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
