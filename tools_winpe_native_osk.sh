@@ -11,7 +11,8 @@
 #
 # With no argument, B2L_WINDOWS_ARM64_SOURCE and the same ISO locations used by
 # tools_winboot.sh are searched.  The source and target must have the same
-# major.minor.build number and both must be ARM64.
+# major/minor Windows line and both must be ARM64.  An older Windows desktop
+# OSK may run on a newer WinPE build; the unsafe opposite direction is denied.
 
 set -euo pipefail
 
@@ -101,16 +102,38 @@ wim_field() {
 
 TARGET_ARCH="$(wim_field "$TARGET_WIM" 1 Architecture)"
 SOURCE_ARCH="$(wim_field "$SOURCE_WIM" "$SOURCE_INDEX" Architecture)"
-TARGET_VERSION="$(wim_field "$TARGET_WIM" 1 'Major Version').$(wim_field "$TARGET_WIM" 1 'Minor Version').$(wim_field "$TARGET_WIM" 1 Build)"
-SOURCE_VERSION="$(wim_field "$SOURCE_WIM" "$SOURCE_INDEX" 'Major Version').$(wim_field "$SOURCE_WIM" "$SOURCE_INDEX" 'Minor Version').$(wim_field "$SOURCE_WIM" "$SOURCE_INDEX" Build)"
+TARGET_MAJOR="$(wim_field "$TARGET_WIM" 1 'Major Version')"
+TARGET_MINOR="$(wim_field "$TARGET_WIM" 1 'Minor Version')"
+TARGET_BUILD="$(wim_field "$TARGET_WIM" 1 Build)"
+SOURCE_MAJOR="$(wim_field "$SOURCE_WIM" "$SOURCE_INDEX" 'Major Version')"
+SOURCE_MINOR="$(wim_field "$SOURCE_WIM" "$SOURCE_INDEX" 'Minor Version')"
+SOURCE_BUILD="$(wim_field "$SOURCE_WIM" "$SOURCE_INDEX" Build)"
+TARGET_VERSION="$TARGET_MAJOR.$TARGET_MINOR.$TARGET_BUILD"
+SOURCE_VERSION="$SOURCE_MAJOR.$SOURCE_MINOR.$SOURCE_BUILD"
 TARGET_LANG="$(wim_field "$TARGET_WIM" 1 'Default Language')"
 SOURCE_LANG="$(wim_field "$SOURCE_WIM" "$SOURCE_INDEX" 'Default Language')"
 
 case "${TARGET_ARCH,,}" in *arm64*|*aarch64*) ;; *) die "hedef WinPE ARM64 degil: ${TARGET_ARCH:-bilinmiyor}" ;; esac
 case "${SOURCE_ARCH,,}" in *arm64*|*aarch64*) ;; *) die "Windows kaynagi ARM64 degil: ${SOURCE_ARCH:-bilinmiyor}" ;; esac
-[ "$TARGET_VERSION" = "$SOURCE_VERSION" ] || {
-  die "WinPE ve OSK kaynagi ayni build degil: hedef=$TARGET_VERSION kaynak=$SOURCE_VERSION"
+for VersionPart in \
+  "$TARGET_MAJOR" "$TARGET_MINOR" "$TARGET_BUILD" \
+  "$SOURCE_MAJOR" "$SOURCE_MINOR" "$SOURCE_BUILD"; do
+  case "$VersionPart" in
+    ''|*[!0-9]*) die "WinPE/Windows surum bilgisi okunamadi: hedef=$TARGET_VERSION kaynak=$SOURCE_VERSION" ;;
+  esac
+done
+[ "$TARGET_MAJOR" = "$SOURCE_MAJOR" ] && [ "$TARGET_MINOR" = "$SOURCE_MINOR" ] || {
+  die "WinPE ve OSK kaynagi ayni Windows surum ailesinde degil: hedef=$TARGET_VERSION kaynak=$SOURCE_VERSION"
 }
+if [ "$SOURCE_BUILD" -gt "$TARGET_BUILD" ]; then
+  die "daha yeni OSK eski WinPE'ye eklenmez: hedef=$TARGET_VERSION kaynak=$SOURCE_VERSION"
+fi
+if [ "$SOURCE_BUILD" -lt "$TARGET_BUILD" ]; then
+  OSK_COMPATIBILITY="older-source-on-newer-winpe"
+  echo "  UYARI: kaynak OSK hedef WinPE'den eski; yalniz hedefte eksik importlar eklenecek"
+else
+  OSK_COMPATIBILITY="exact-build"
+fi
 
 say "Native Windows OSK kaynagi dogrulandi"
 echo "  kaynak : $SOURCE"
@@ -213,7 +236,9 @@ done
 MANIFEST="$WORK/manifest.txt"
 {
   echo "B2LOSK_PACKAGE=microsoft-classic-osk-import-closure"
+  echo "B2LOSK_TARGET_BUILD=$TARGET_VERSION"
   echo "B2LOSK_SOURCE_BUILD=$SOURCE_VERSION"
+  echo "B2LOSK_COMPATIBILITY=$OSK_COMPATIBILITY"
   echo "B2LOSK_SOURCE_ARCH=$SOURCE_ARCH"
   echo "B2LOSK_LANGUAGE=$LANGUAGE"
   echo "B2LOSK_OSK_SHA256=$(sha256sum "$SOURCE_FILES/osk.exe" | awk '{print $1}')"

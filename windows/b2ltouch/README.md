@@ -90,8 +90,10 @@ içindeki yerel dokunmatik klavye (`TabTip.exe`), o yoksa yerel ekran klavyesi
 (`osk.exe`) açılır; paket ayrı bir klavye uygulaması içermez. Çıplak WinPE
 imajında bu iki Windows bileşeni de yoksa `tools_b2ltouch.sh`, aynı build'deki
 ARM64 Windows ISO/install.wim içinden Microsoft'un klasik `osk.exe` dosyasını,
-MUI kaynağını ve WinPE'de eksik olan PE bağımlılık kapanımını alır. Hedef ve
-kaynak mimarisi/build'i eşleşmeden WIM değiştirilmez. Kaynak otomatik
+MUI kaynağını ve WinPE'de eksik olan PE bağımlılık kapanımını alır. Mimariler
+ve Windows major/minor sürümü eşleşmelidir. Aynı build tercih edilir; daha eski
+native OSK daha yeni WinPE üzerinde kabul edilir, fakat daha yeni OSK'nin eski
+WinPE'ye eklenmesi reddedilir. Kaynak otomatik
 bulunamazsa `B2L_WINDOWS_ARM64_SOURCE=/mnt/c/.../Windows_Arm64.iso` ayarlanır;
 özel bir klavye derlenmez veya paketlenmez.
 

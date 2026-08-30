@@ -72,8 +72,8 @@ if grep -q 'start .*b2lmt.exe' "$ROOT/windows/startnet.cmd"; then
 fi
 grep -q 'tools_winpe_native_osk.sh' "$ROOT/tools_b2ltouch.sh"
 grep -q 'B2LOSK_PACKAGE=microsoft-classic-osk-import-closure' "$ROOT/tools_winpe_native_osk.sh"
-grep -q 'same Windows build' "$ROOT/tools_winpe_native_osk.sh" || \
-  grep -q 'ayni build' "$ROOT/tools_winpe_native_osk.sh"
+grep -q 'older-source-on-newer-winpe' "$ROOT/tools_winpe_native_osk.sh"
+grep -q "daha yeni OSK eski WinPE'ye eklenmez" "$ROOT/tools_winpe_native_osk.sh"
 if rg -q 'b2losk\.(c|exe)|custom.*keyboard|ozel.*klavye' \
     "$ROOT/windows" "$ROOT/tools_winpe_native_osk.sh"; then
   echo "HATA: Microsoft native OSK yerine ozel klavye bulundu" >&2
