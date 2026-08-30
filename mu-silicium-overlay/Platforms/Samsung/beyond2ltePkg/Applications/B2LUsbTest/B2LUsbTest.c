@@ -24,7 +24,7 @@
 #include <Library/UefiLib.h>
 #include <Protocol/SimpleTextIn.h>
 
-#define B2L_USB_TEST_REVISION       5
+#define B2L_USB_TEST_REVISION       6
 
 #define B2L_DWC3_BASE               0x10C00000ULL
 #define B2L_USB_PHY_BASE            0x10B00000ULL
@@ -35,7 +35,8 @@
 
 #define B2L_PMU_USBDP_CTRL          0x0704
 #define B2L_PMU_USB_PHY_CTRL        0x072C
-#define B2L_USB_PCS_ABORT_OFFSET    0x000C
+#define B2L_USB_PCS_ABORT_OFFSET_0  0x0000
+#define B2L_USB_PCS_ABORT_OFFSET_C  0x000C
 
 #define DWC3_GSBUSCFG0              0xC100
 #define DWC3_GSBUSCFG1              0xC104
@@ -430,9 +431,7 @@ ShowPhyWindow (
   IN UINTN          Base,
   IN UINTN          Length,
   IN UINTN          ReadLength,
-  IN UINTN          Stage,
-  IN BOOLEAN        SkipOffsetValid,
-  IN UINTN          SkipOffset
+  IN UINTN          Stage
   )
 {
   UINTN   Offset;
@@ -444,17 +443,30 @@ ShowPhyWindow (
   Print (L"BASE=%08x DT_LEN=%x OKUNAN=0..%02x\n\n",
          Base, Length, ReadLength - sizeof (UINT32));
   for (Offset = 0; Offset < ReadLength; Offset += sizeof (UINT32)) {
-    if (SkipOffsetValid && (Offset == SkipOffset)) {
-      Print (L"%03x: ATLANDI - R4 cihaz testinde external abort\n", Offset);
-      continue;
-    }
-
     // Adresi MMIO'dan once yazdir: yeni bir abort olursa son erisim bellidir.
     Print (L"%03x: ", Offset);
     Value = Read32 (Base, Offset);
     Print (L"%08x\n", Value);
   }
   Print (L"\nGenis tarama yok; read-clear olabilecek bilinmeyen alanlar okunmadi.\n");
+}
+
+STATIC
+VOID
+ShowSkippedComboPcs (
+  VOID
+  )
+{
+  gST->ConOut->ClearScreen (gST->ConOut);
+  Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA 6 COMBO PHY PCS ===\n",
+         B2L_USB_TEST_REVISION);
+  Print (L"BASE=%08x DT_LEN=2800 OKUMA YOK\n\n", B2L_USB_PCS_BASE);
+  Print (L"%03x: R5 cihaz testinde synchronous external abort\n",
+         B2L_USB_PCS_ABORT_OFFSET_0);
+  Print (L"%03x: R4 cihaz testinde synchronous external abort\n",
+         B2L_USB_PCS_ABORT_OFFSET_C);
+  Print (L"\nPCS penceresi mevcut power clock izolasyon durumunda atlandi.\n");
+  Print (L"Sebep kanitlanmadan bu pencerede baska MMIO okunmayacak.\n");
 }
 
 EFI_STATUS
@@ -495,19 +507,18 @@ B2LUsbTestEntry (
     return EFI_SUCCESS;
   }
   ShowPhyWindow (L"USB DRD PHY", B2L_USB_PHY_BASE, 0x200, 0x40,
-                 5, FALSE, 0);
+                 5);
 
-  if (!PromptForNextStage (L"combo PHY PCS penceresi 10AE0000")) {
+  if (!PromptForNextStage (L"combo PHY PCS sonucu; MMIO okuma yok")) {
     return EFI_SUCCESS;
   }
-  ShowPhyWindow (L"COMBO PHY PCS", B2L_USB_PCS_BASE, 0x2800, 0x10,
-                 6, TRUE, B2L_USB_PCS_ABORT_OFFSET);
+  ShowSkippedComboPcs ();
 
-  if (!PromptForNextStage (L"combo PHY PMA penceresi 10AF0000")) {
+  if (!PromptForNextStage (L"combo PHY PMA tek register 10AF0000")) {
     return EFI_SUCCESS;
   }
-  ShowPhyWindow (L"COMBO PHY PMA", B2L_USB_PMA_BASE, 0x800, 0x10,
-                 7, FALSE, 0);
+  ShowPhyWindow (L"COMBO PHY PMA", B2L_USB_PMA_BASE, 0x800, 0x04,
+                 7);
 
   Print (L"\nR%u SALT OKUMA TURLARI TAMAMLANDI.\n", B2L_USB_TEST_REVISION);
   Print (L"Son sayfayi fotografla; tusa basinca EFI Shell'e doner.\n");

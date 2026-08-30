@@ -150,6 +150,14 @@ yalnız ilk dört 32-bit kaydı okur. Her adres değerden önce ayrı yazdırıl
 her MMIO çağrısı ayrı tam ifadedir; yeni bir abortun kesin kaydı ve sırası
 fotoğraftan belirlenebilir.
 
+R5 ölçümünde sıralı ilk PCS erişimi olan `0x10AE0000 + 0x00` da synchronous
+external abort verdi; dolayısıyla `+0x04/+0x08` ve PMA aşamasına ulaşılmadı.
+R6, iki ayrı adreste abort veren PCS penceresinden hiçbir MMIO okumaz ve önceki
+sonuçları salt metin olarak gösterir. Ardından ayrıca onay istenir; devam
+edilirse combo PMA'da yalnız `0x10AF0000 + 0x00` okunur. Bu onay ekranında
+`Esc` veya `Q`, PMA erişimini yapmadan uygulamadan çıkar ve startup betiğinin
+Windows yoluna devam etmesini sağlar.
+
 `--touch-test` önce Android DT'deki 47 HSI2C denetleyicisinin adres ve açık/
 kapalı haritasını, ardından DT'de ilan edilmiş slave adlarını gösterir. Kamera,
 EEPROM, PMIC ve şarj cihazlarına kör aktif tarama göndermez. Yalnız firmware'in

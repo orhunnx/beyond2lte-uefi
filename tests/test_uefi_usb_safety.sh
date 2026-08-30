@@ -15,10 +15,11 @@ grep -q 'B2LUSB.EFI' "$ROOT/esp/startup-baseline.nsh"
 grep -q 'beyond2lte-usb-diag.tar' "$ROOT/cache_esp.sh"
 grep -q 'DWC3_IP_DWC31[[:space:]]*0x33310000U' "$APP"
 grep -q 'DWC3_VER_NUMBER[[:space:]]*0xC1A0' "$APP"
-grep -q 'B2L_USB_TEST_REVISION[[:space:]]*5' "$APP"
-grep -q 'B2L_USB_PCS_ABORT_OFFSET[[:space:]]*0x000C' "$APP"
-rg -q -U 'ShowPhyWindow \(L"COMBO PHY PCS", B2L_USB_PCS_BASE, 0x2800, 0x10,\s+6, TRUE, B2L_USB_PCS_ABORT_OFFSET\)' "$APP"
-grep -q 'if (SkipOffsetValid && (Offset == SkipOffset))' "$APP"
+grep -q 'B2L_USB_TEST_REVISION[[:space:]]*6' "$APP"
+grep -q 'B2L_USB_PCS_ABORT_OFFSET_0[[:space:]]*0x0000' "$APP"
+grep -q 'B2L_USB_PCS_ABORT_OFFSET_C[[:space:]]*0x000C' "$APP"
+grep -q 'ShowSkippedComboPcs' "$APP"
+rg -q -U 'ShowPhyWindow \(L"COMBO PHY PMA", B2L_USB_PMA_BASE, 0x800, 0x04,\s+7\)' "$APP"
 grep -q 'bash yap.sh --touch --usb-test --clean' "$ROOT/BUILD.md"
 grep -q 'USB tani paketi Windows dokunmatigi korumali; b2ltouch.sys yok' "$ROOT/cache_esp.sh"
 
@@ -56,8 +57,8 @@ if rg -n 'B2L_PD_FSYS0A_BASE, 0x1[04]' "$APP"; then
   exit 1
 fi
 
-if rg -n 'Read32 \(B2L_USB_PCS_BASE, B2L_USB_PCS_ABORT_OFFSET\)' "$APP"; then
-  echo 'HATA: cihazda external abort veren combo PCS +0x0C dogrudan okunuyor' >&2
+if rg -n 'Read32 \(B2L_USB_PCS_BASE|ShowPhyWindow \(L"COMBO PHY PCS"' "$APP"; then
+  echo 'HATA: iki ayri adreste external abort veren combo PCS penceresi okunuyor' >&2
   exit 1
 fi
 
