@@ -356,7 +356,7 @@ verify_winpe_b2lufs_package() {
 # Windows touch build exists, require the WIM to contain its exact manifest
 # hash before producing the sparse ESP image.
 verify_winpe_b2ltouch_package() {
-  local VerifyDir ExpectedSys ManifestSys
+  local VerifyDir ExpectedSys ManifestSys OskDir OskManifestDir ExpectedOsk ManifestOsk
 
   [ -s "$PROJ/out/b2ltouch/b2ltouch.sys" ] || return 0
   [ -s "$PROJ/esp/sources/boot.wim" ] || {
@@ -390,6 +390,38 @@ verify_winpe_b2ltouch_package() {
 
   say "WinPE B2LTOUCH paketi dogrulandi"
   echo "  SYS SHA256: ${ExpectedSys:0:16}"
+
+  # startnet.cmd native Windows OSK'yi acmayi bekliyorsa, klavyesiz bir WIM
+  # artik flash paketine donusturulmez. Onceki turda guncel startnet vardi
+  # fakat osk.exe WIM'e hic girmemisti; cihaz bunu ancak acilista gosterebildi.
+  if grep -q 'B2LOSK\\manifest.txt' "$PROJ/windows/startnet.cmd"; then
+    OskDir="$(mktemp -d)" || return 1
+    OskManifestDir="$(mktemp -d)" || { rm -rf "$OskDir"; return 1; }
+    if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
+        /Windows/System32/osk.exe --dest-dir="$OskDir" --no-acls >/dev/null; then
+      rm -rf "$OskDir" "$OskManifestDir"
+      echo "HATA: boot.wim'de native Windows osk.exe yok; klavyesiz paket reddedildi."
+      echo "Once: B2L_WINDOWS_ARM64_SOURCE=/mnt/c/.../Windows11_ARM64.iso bash tools_winpe_native_osk.sh"
+      return 1
+    fi
+    if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
+        /Windows/B2LOSK/manifest.txt --dest-dir="$OskManifestDir" --no-acls >/dev/null; then
+      rm -rf "$OskDir" "$OskManifestDir"
+      echo "HATA: boot.wim'de B2LOSK manifest yok; dogrulanmamis OSK reddedildi."
+      return 1
+    fi
+    ExpectedOsk="$(sha256sum "$OskDir/osk.exe" | awk '{print $1}')"
+    ManifestOsk="$(sed -n 's/^B2LOSK_OSK_SHA256=//p' "$OskManifestDir/manifest.txt" | head -n 1)"
+    rm -rf "$OskDir" "$OskManifestDir"
+    if [ "$ManifestOsk" != "$ExpectedOsk" ]; then
+      echo "HATA: boot.wim native OSK hash'i manifest ile ayni degil."
+      echo "  WIM: $ExpectedOsk"
+      echo "  MAN: ${ManifestOsk:-YOK}"
+      return 1
+    fi
+    say "WinPE native Windows OSK dogrulandi"
+    echo "  OSK SHA256: ${ExpectedOsk:0:16}"
+  fi
 }
 
 if [ "$WINONLY" = 1 ]; then

@@ -286,3 +286,6 @@ verify_wim_file "$MANIFEST" /Windows/B2LOSK/manifest.txt manifest
 say "Windows native OSK hazir"
 echo "  acilis: %SystemRoot%\\System32\\osk.exe"
 echo "  manifest: %SystemRoot%\\B2LOSK\\manifest.txt"
+echo "  WIM kaniti:"
+wimlib-imagex dir "$TARGET_WIM" 1 /Windows/System32/osk.exe | sed 's/^/    /'
+wimlib-imagex dir "$TARGET_WIM" 1 /Windows/B2LOSK/manifest.txt | sed 's/^/    /'

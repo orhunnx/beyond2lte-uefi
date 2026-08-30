@@ -71,6 +71,9 @@ if grep -q 'start .*b2lmt.exe' "$ROOT/windows/startnet.cmd"; then
   exit 1
 fi
 grep -q 'tools_winpe_native_osk.sh' "$ROOT/tools_b2ltouch.sh"
+grep -q 'klavyesiz paket reddedildi' "$ROOT/cache_esp.sh"
+grep -q '/Windows/System32/osk.exe' "$ROOT/cache_esp.sh"
+grep -q '/Windows/B2LOSK/manifest.txt' "$ROOT/cache_esp.sh"
 grep -q 'B2LOSK_PACKAGE=microsoft-classic-osk-import-closure' "$ROOT/tools_winpe_native_osk.sh"
 grep -q 'older-source-on-newer-winpe' "$ROOT/tools_winpe_native_osk.sh"
 grep -q "daha yeni OSK eski WinPE'ye eklenmez" "$ROOT/tools_winpe_native_osk.sh"
