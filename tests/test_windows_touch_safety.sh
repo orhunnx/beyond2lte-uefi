@@ -77,6 +77,11 @@ grep -q '/Windows/B2LOSK/manifest.txt' "$ROOT/cache_esp.sh"
 grep -q 'B2LOSK_PACKAGE=microsoft-classic-osk-import-closure' "$ROOT/tools_winpe_native_osk.sh"
 grep -q 'older-source-on-newer-winpe' "$ROOT/tools_winpe_native_osk.sh"
 grep -q "daha yeni OSK eski WinPE'ye eklenmez" "$ROOT/tools_winpe_native_osk.sh"
+if grep -Eq 'local .*Name=.*Output=.*\$Name|local .*Label=.*ExtractDir=.*\$Label' \
+    "$ROOT/tools_winpe_native_osk.sh"; then
+  echo "HATA: set -u altinda ayni local satirinda henuz atanmamis degisken kullaniliyor" >&2
+  exit 1
+fi
 if rg -q 'b2losk\.(c|exe)|custom.*keyboard|ozel.*klavye' \
     "$ROOT/windows" "$ROOT/tools_winpe_native_osk.sh"; then
   echo "HATA: Microsoft native OSK yerine ozel klavye bulundu" >&2

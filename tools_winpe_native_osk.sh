@@ -145,7 +145,8 @@ echo "  dil    : ${SOURCE_LANG:-bilinmiyor}"
 SOURCE_FILES="$WORK/source-files"
 mkdir -p "$SOURCE_FILES"
 extract_source_system32() {
-  local Name="$1" Output="$SOURCE_FILES/$Name"
+  local Name="$1"
+  local Output="$SOURCE_FILES/$Name"
   local Found
   [ -s "$Output" ] && return 0
   wimlib-imagex extract "$SOURCE_WIM" "$SOURCE_INDEX" \
@@ -266,7 +267,10 @@ wimlib-imagex update "$TARGET_WIM" 1 \
 VERIFY="$WORK/verify"
 mkdir -p "$VERIFY"
 verify_wim_file() {
-  local SourceFile="$1" WimPath="$2" Label="$3" ExtractDir="$VERIFY/$Label"
+  local SourceFile="$1"
+  local WimPath="$2"
+  local Label="$3"
+  local ExtractDir="$VERIFY/$Label"
   mkdir -p "$ExtractDir"
   wimlib-imagex extract "$TARGET_WIM" 1 "$WimPath" \
     --dest-dir="$ExtractDir" --no-acls >/dev/null
