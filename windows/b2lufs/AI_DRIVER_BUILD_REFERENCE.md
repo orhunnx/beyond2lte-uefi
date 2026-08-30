@@ -6,8 +6,11 @@ WinPE'ye yerleştirmek ve Odin paketine dönüştürmek için kullanılan araçl
 açıklar. Başka bir dil modeline veya sürücü geliştiricisine doğrudan bağlam
 olarak verilebilmesi için hazırlanmıştır.
 
-Belgenin kapsamı yalnız mimari, dosya sorumlulukları, veri/çağrı akışı,
-derleme seçenekleri ve paketleme araçlarıdır.
+Belgenin ilk bölümleri B2LUFS mimarisi ve araç zinciridir. Son bölümler,
+B2LTOUCH geliştirmesi sırasında cihazda doğrulanan yöntemleri kullanarak yeni
+Windows ARM64 sürücülerinde uygulanacak tasarım, tanı, build, WinPE, flash ve
+geri dönüş disiplinini anlatır. Böylece belge farklı bir sohbete tek başına
+bağlam olarak verilebilir.
 
 ## 1. Kısa mimari özeti
 
@@ -1198,3 +1201,540 @@ Bir özelliğin hangi dosyada değiştirilmesi gerektiğini hızlı belirlemek i
 - `out/` dosyaları yeniden üretilebilir build artefaktlarıdır; gerçek kaynak
   değişiklikleri `windows/b2lufs`, ACPI/UEFI overlay ve kök build scriptlerinde
   yapılır.
+
+## 17. Cihazda doğrulanan ortak geliştirme yöntemi
+
+Bu bölüm B2LTOUCH geliştirmesinden çıkarılmış, yeni Windows ARM64 aygıt
+sürücülerinde tekrar uygulanacak çalışma düzenidir. B2LUFS ve B2LTOUCH aynı
+flash paketinde bulunsa da dört ayrı katman olarak ele alınmalıdır:
+
+| Katman | Sorumluluk | Başlıca araç |
+|---|---|---|
+| UEFI/BOOT | Güç, saat, pin, reset, güvenli ilk donanım hazırlığı ve ACPI | `yap.sh` |
+| Windows kernel driver | WDF/StorPort/VHF callback'leri ve donanım protokolü | MSVC + WDK PowerShell scripti |
+| WinPE | INF kurulumu, servis/PnP hazırlığı ve tanı uygulamaları | `tools_b2lufs.sh`, `tools_b2ltouch.sh`, `wimlib` |
+| Flash paketi | BOOT, SYSTEM ve gerekirse CACHE sparse imajları | `cache_esp.sh` |
+
+Bir değişiklik yapıldığında yalnız ilgili katman yeniden üretilmelidir. Bu hem
+tur süresini kısaltır hem de her flash turunda tek değişken ilkesini korur.
+
+### 17.1 Doğrulanmış günlük tam sıra
+
+Dokunmatik UEFI ve Windows katmanları birlikte değiştiğinde:
+
+```bash
+cd ~/beyond2lte-uefi-8549
+bash yap.sh --touch-test --acpi --clean
+bash tools_b2ltouch.sh
+bash cache_esp.sh --win --system --baseline
+tar -tf out/beyond2lte-touch-diag.tar
+```
+
+Komutların anlamı:
+
+1. `yap.sh`, güncel UEFI BOOT imajını ve ACPI tablolarını temiz derler.
+2. `tools_b2ltouch.sh`, Windows ARM64 SYS ve `b2lmt.exe` dosyasını derler;
+   INF/CAT üretir, imzalar ve güncel `boot.wim` içine ekler.
+3. `cache_esp.sh`, güncel WinPE içeren SYSTEM ile UEFI içeren BOOT'u tek Odin
+   AP arşivine koyar.
+4. `tar -tf`, flash öncesi arşivde en az `boot.img` ve `system.img` bulunduğunu
+   gözle doğrular.
+
+Nihai dosya:
+
+```text
+out/beyond2lte-touch-diag.tar
+```
+
+Odin'de yalnız **AP** alanına verilir ve **Re-Partition kapalı** tutulur.
+
+### 17.2 Değişiklik türüne göre en kısa doğru sıra
+
+| Değişiklik | Gerekli komutlar |
+|---|---|
+| UEFI güç/pin/reset, ACPI veya touch test | `yap.sh` → `cache_esp.sh` |
+| Yalnız `b2ltouch` C/INF kaynağı | `tools_b2ltouch.sh` → `cache_esp.sh` |
+| Yalnız `b2lufs` C/INF kaynağı | `tools_b2lufs.sh` → `cache_esp.sh` |
+| Yalnız `startnet.cmd` veya WinPE içeriği | ilgili `tools_*.sh` → `cache_esp.sh` |
+| Yalnız paketleme kuralı | `cache_esp.sh` |
+| Temiz ADK WinPE tabanı | `tools_winpe_adk.sh` → UFS → touch → paketleme |
+
+Yalnız Windows dokunmatik sürücüsü değiştiğinde UEFI'yi tekrar derlemek
+gerekmez:
+
+```bash
+cd ~/beyond2lte-uefi-8549
+bash tools_b2ltouch.sh
+bash cache_esp.sh --win --system --baseline
+tar -tf out/beyond2lte-touch-diag.tar
+```
+
+### 17.3 Temiz ADK tabanı oluşturma
+
+WinPE `boot.wim` sıfırdan hazırlanacaksa:
+
+```bash
+bash tools_winpe_adk.sh \
+  "/mnt/c/Program Files (x86)/Windows Kits/10/Assessment and Deployment Kit/Windows Preinstallation Environment/arm64/Media"
+bash tools_b2lufs.sh
+bash tools_b2ltouch.sh
+bash cache_esp.sh --win --system --baseline
+```
+
+UFS önce eklenir; aksi halde WinPE sistem diskine erişemeyebilir. Touch bunun
+üzerine eklenir. Temiz WIM kullanmak, daha önceki paketten kalan sürücü veya
+registry durumunun sonucu maskelemesini engeller.
+
+### 17.4 Yalnız MSVC/WDK derlemesi ve hazır SYS kullanımı
+
+PowerShell'de doğrudan ARM64 touch build'i:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\wsl.localhost\Ubuntu-24.04\home\orhun\beyond2lte-uefi-8549\windows\b2ltouch\build-b2ltouch.ps1" -WdkVersion "10.0.28000.0"
+```
+
+Sonra WSL'de mevcut çıktıyı imzalama/WIM paketleme aşamasına geçirmek için:
+
+```bash
+B2L_SKIP_MSVC_BUILD=1 bash tools_b2ltouch.sh
+```
+
+`B2L_SKIP_MSVC_BUILD=1`, SYS veya tanı EXE'si yoksa hata verir. Çıktı kaynak
+dosyalarından eskiyse de normalde reddedilir. `B2L_ALLOW_STALE_SYS=1` yalnız
+acil teşhis kapısıdır; günlük build'de kullanılmamalıdır. PowerShell satırında
+Bash'in `\` satır devamı sözdizimi kullanılmaz.
+
+## 18. B2LTOUCH: UEFI keşfinden Windows multi-touch'a
+
+### 18.1 Güvenli keşif ve aktif tarama sınırı
+
+Android DT incelemesinde 47 HSI2C denetleyicisi ve önceden eşlenmiş slave
+adresleri bulundu. Kamera, EEPROM, PMIC ve şarj entegrelerine kör aktif tarama
+gönderilmedi. Aktif okuma yalnız dokümante edilmiş touch yolu olan B10 üzerinde
+yapıldı:
+
+| Kaynak | Fiziksel taban | Uzunluk | Rol |
+|---|---:|---:|---|
+| B10 HSI2C10 | `0x104B0000` | `0x1000` | sec_ts I²C denetleyicisi |
+| B10 USI | `0x10421000` | `0x1000` | HSI2C çalışma modu |
+
+Bu sınır Windows ACPI `_CRS` ve sürücü kaynak doğrulamasında da aynen
+korundu. Sürücü rasgele fiziksel adres eşlemez; yalnız bu iki tam 4 KiB kaynağı
+kabul eder. DRAM, PMIC veya firmware yazma yolu yoktur.
+
+### 18.2 UEFI sırasında çözülen donanım sorunları
+
+İlk denemelerde `Not Ready`, `Device Error` ve HSI2C timeout görüldü. Çözüm
+tek bir register tahmin etmek değil, stok DT ve sürücü sırasını izlemek oldu:
+
+1. Gerekli touch güç hatları açıldı.
+2. USI/HSI2C çalışma modu ve hedef slave adresi programlandı.
+3. GPIO pinmux ile reset/interrupt yönü hazırlandı.
+4. sec_ts reset ve handshake sırası uygulandı.
+5. ID okuması ile gerçek cihaz yanıtı doğrulandı; örnek kimlik
+   `53 45 37 71 00` oldu.
+
+Kritik parser hatası event kuyruğundaydı. Donanım bazen 32–35 olay raporladı;
+sayım 32'yi geçtiğinde bütün kuyruğu temizlemek geçerli koordinatları da
+siliyordu. Kuyruk 32 olaylık güvenli parçalar hâlinde boşaltılıp tekrar
+poll edilince gerçek temas verileri görünür oldu. UEFI kareli testte farklı
+noktalara yapılan dokunmaların koordinatları ve çizgi izi doğrulandı.
+
+### 18.3 Neden inbox HIDI2C yerine KMDF + VHF?
+
+Samsung `sec_ts`, Windows HID-over-I²C descriptor/register protokolünü doğal
+olarak sunmuyor. Bu nedenle ACPI'ye sahte HID-over-I²C tanımı ekleyip
+`HIDI2C.sys` bağlamak doğru mimari değildir.
+
+B2LTOUCH iki katmanlıdır:
+
+```text
+sec_ts donanımı
+  -> B10 HSI2C MMIO ve Samsung event parser
+  -> b2ltouch.sys (ARM64 KMDF function driver)
+  -> Microsoft Virtual HID Framework (VHF)
+  -> standart Windows HID Touch Screen child aygıtı
+  -> Windows pointer/touch yığını
+```
+
+VHF ile üreticiye özel transport kernel sürücüsünde kalırken Windows'a
+standart bir HID rapor tanımı sunulur. INF kaynak aygıta `LowerFilters=vhf`
+ekler. VHF child oluşturma ve başlatma işlemleri PASSIVE_LEVEL'da yapılır.
+
+Microsoft referansları:
+
+- [Virtual HID Framework (VHF)](https://learn.microsoft.com/en-us/windows-hardware/drivers/hid/virtual-hid-framework--vhf-)
+- [Touchscreen required HID top-level collections](https://learn.microsoft.com/en-us/windows-hardware/design/component-guidelines/touchscreen-required-hid-top-level-collections)
+- [HID over I2C guide](https://learn.microsoft.com/en-us/windows-hardware/drivers/hid/hid-over-i2c-guide)
+
+### 18.4 Polling ve yaşam döngüsü
+
+Donanım interrupt yolu henüz Windows'a taşınmadığından sürücü PASSIVE_LEVEL
+one-shot KMDF timer ile event kuyruğunu poll eder. Callback bitince timer
+yeniden kurulur. Periyodik passive timer ile yaşanan yaşam döngüsü sorunu
+`a78cd83` değişikliğinde bu yapıya çevrilerek giderildi.
+
+UEFI güç/pin/reset hazırlığını yapar; Windows sürücüsü regülatörleri tekrar
+programlamaz. Böylece çalışan firmware handoff'u bozulmaz ve riskli PMIC
+yazmaları kernel sürücüsüne taşınmaz.
+
+### 18.5 Multi-touch HID sözleşmesi
+
+Doğrulanan HID descriptor en çok 10 temas sunar. Her temas için en az şu
+kullanımlar korunmalıdır:
+
+- `Contact ID`
+- `X` ve `Y`
+- `Tip Switch`
+- rapor başına `Contact Count`
+- feature raporunda `Contact Count Maximum`
+
+Aktif temas boyunca Contact ID kararlı kalır. Parmak bırakıldığında aynı ID
+için bir kez `Tip Switch=0` raporu gönderilir; aksi hâlde Windows temasın hâlâ
+ekranda olduğunu düşünebilir. Kullanıcı cihazda iki farklı pointer ID ve aynı
+anda hareket eden birden fazla temas ile gerçek multi-touch'ı doğruladı.
+
+Tanı uygulaması:
+
+```cmd
+X:\Windows\B2LTOUCH\b2lmt.exe
+```
+
+`b2lmt.exe`, `WM_POINTER` ve `WM_TOUCH` üzerinden aktif parmak sayısını,
+pointer kimliklerini ve X/Y konumlarını canlı gösterir. Yalnız mouse mesajı
+gelirse bunu `MOUSE ONLY` olarak belirginleştirir; böylece imlecin hareket
+etmesi ile gerçek multi-touch desteği karıştırılmaz.
+
+## 19. ARM64 WDK/VHF build sorunları ve kalıcı çözüm
+
+### 19.1 WDK sürümü seçimi
+
+Makinede şu bileşenler bulundu:
+
+```text
+Include\10.0.26100.0\shared\vhf.h
+Include\10.0.28000.0\shared\vhf.h
+Lib\10.0.28000.0\km\arm64\VhfKm.lib
+Lib\10.0.28000.0\km\arm64\ntoskrnl.lib
+```
+
+Önemli iki sonuç:
+
+1. `vhf.h`, `km` değil WDK `shared` include dizinindedir.
+2. ARM64 `VhfKm.lib` yalnız 10.0.28000.0 kitinde bulunduğu için header ve lib
+   aynı sürümden seçilmelidir.
+
+Bu yüzden build scripti gerekirse açıkça şununla çağrılır:
+
+```powershell
+-WdkVersion "10.0.28000.0"
+```
+
+### 19.2 VhfKm.lib unresolved external hataları
+
+İlk link şu sembollerde durdu:
+
+```text
+_InterlockedCompareExchange
+_InterlockedDecrement
+_InterlockedExchange
+__security_pop_cookie
+__security_push_cookie
+```
+
+Sorun VHF API kullanımı değil, ARM64 kernel runtime kütüphanelerinin link
+sırasında eksik olmasıydı. Çözüm kullanıcı-modu CRT eklemek değil;
+`ntoskrnl.lib`, `hal.lib`, `VhfKm.lib` yanında WDK kernel runtime
+`libcntpr.lib` ve `BufferOverflowFastFailK.lib` kütüphanelerini bağlamaktır.
+KMDF 1.15/WdfLdr girişi de build sözleşmesinin parçasıdır.
+
+### 19.3 WSL ve Windows araç zincirini ayırma
+
+WSL repo UNC yolu `cmd.exe` veya bazı Visual Studio araçları için çalışma
+dizini olamaz. PowerShell build scripti kaynakları Windows `%TEMP%` altında
+bir staging dizinine taşır, `vcvarsamd64_arm64.bat` ortamını açar ve çıktıları
+UNC yoluyla `out/b2ltouch` dizinine geri koyar.
+
+Rol ayrımı:
+
+| İş | Araç ortamı |
+|---|---|
+| ARM64 C derleme/link | Windows MSVC + WDK |
+| INF/CAT doğrulama | Windows Inf2Cat |
+| CAT imzalama/doğrulama | Windows SignTool ve WSL OpenSSL araçları |
+| WIM değiştirme | WSL `wimlib-imagex` |
+| FAT/sparse/TAR | WSL Linux araçları |
+
+WSL burada Windows kernel driver compiler'ı değildir; yalnız orkestrasyon ve
+paketleme katmanıdır.
+
+## 20. WinPE PnP ve VHF hata ayıklama düzeni
+
+### 20.1 Code 31 tek başına kök neden değildir
+
+İlk Windows denemelerinde aygıt:
+
+```text
+Problem Code: 31 (CM_PROB_FAILED_ADD)
+Problem Status: 0xC00000BB
+```
+
+gösterdi. Bu durum AddDevice callback hatası, eksik bağımlı servis veya daha
+sonraki start aşamasındaki hata olabilir. Bu yüzden sürücü aşağıdaki aşamaları
+registry'ye kalıcı olarak yazar:
+
+| Değer | Aşama |
+|---:|---|
+| `0x01` | driver entry/add başlangıcı |
+| `0x02` | WDF device create |
+| `0x10` | device context hazır |
+| `0x20` | timer hazır |
+| `0x30` | `VhfCreate` |
+| `0x40` | `VhfStart` |
+| `0x50` | ACPI kaynakları doğrulandı |
+| `0x60`–`0x64` | sec_ts başlatma alt aşamaları |
+| `0x70` | `D0Ready`, çalışma hazır |
+
+Değerler:
+
+```text
+HKLM\SYSTEM\CurrentControlSet\Services\b2ltouch\B2LTouchStage
+HKLM\SYSTEM\CurrentControlSet\Services\b2ltouch\B2LTouchStatus
+```
+
+Son doğrulamada aygıt `Started`, stage `0x70`, status `0x0` oldu.
+
+Microsoft Code 31 kaynağı:
+[Device Manager problem codes](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/device-manager-problem-codes).
+
+### 20.2 Bare WinPE'de VHF servis kaydı
+
+WinPE imajında `vhf.sys` dosyasının bulunması servis kaydının da var olduğu
+anlamına gelmedi. Üstelik minimal imajda `sc.exe` yoktu. Şu hata önemli bir
+ipuçuydu:
+
+```text
+'sc.exe' is not recognized as an internal or external command
+```
+
+Çözüm `sc.exe` kopyalamak değil, `reg.exe` ile yalnız RAM'deki WinPE oturumu
+için `HKLM\SYSTEM\CurrentControlSet\Services\vhf` servis anahtarını doğru
+ImagePath/Type/Start/Group değerleriyle oluşturmak oldu. INF'deki
+`LowerFilters=vhf` ile birlikte inbox `vhf.sys` yüklenebildi. Kurulu tam
+Windows'ta mevcut VHF kaydı zorla ezilmemelidir.
+
+### 20.3 Tanı çıktısında birlikte kaydedilecek veriler
+
+Her cihaz testinde tek fotoğraf veya log içinde şunlar bulunmalıdır:
+
+- PnP instance ID, driver name, status, Problem Code ve Problem Status,
+- `vhf` servis anahtarı ve kaynak aygıt `LowerFilters`,
+- `B2LTouchStage` ve `B2LTouchStatus`,
+- paket version/hash manifesti,
+- UFS PnP sonucu,
+- CACHE yaz/geri-oku sonucu,
+- gerekirse `b2lmt.exe` temas sayısı/ID/koordinat ekranı.
+
+Bu kayıt, “sürücü yüklendi” ile “donanım gerçekten çalışıyor” ayrımını korur.
+
+## 21. WIM, imza ve flash bütünlüğü
+
+### 21.1 Her enjeksiyonda geri okuma
+
+WIM güncellemesinde yalnız `wimlib-imagex update` başarı koduna güvenilmez:
+
+1. Eski hedef dosya WIM'den silinir.
+2. Yeni dosya eklenir.
+3. Dosya WIM'den geçici dizine geri çıkarılır.
+4. Kaynak ve geri okunan dosyanın SHA-256 değeri karşılaştırılır.
+
+Eski WIM'de kalan SYS/INF, cihazda bir önceki sürümün çalışmasına ve doğru kod
+değişikliğinin yanlış yorumlanmasına yol açmıştır. Manifest; package adı,
+driver version ve INF/SYS/CAT/EXE hash'lerini taşır. `cache_esp.sh` bu
+manifesti ve dosya eşleşmelerini son flash paketi öncesinde kapı olarak
+denetler.
+
+### 21.2 wimlib tuzakları
+
+- `wimlib-imagex dir`, tek dosya varlığını sınamak için güvenilir değildir;
+  gerçek doğrulama `extract` ve hash ile yapılır.
+- Windows WIM yolları case-insensitive olsa da Unix'teki wimlib çağrıları
+  büyük/küçük harfe duyarlı davranabilir. Windows kaynak aramasında
+  `WIMLIB_IMAGEX_IGNORE_CASE=1` kullanılmalıdır.
+- Bash `set -u` altında şu kalıp hatalıdır:
+
+  ```bash
+  local Name="$1" Output="$Directory/$Name"
+  ```
+
+  Aynı `local` deyiminde `Name` henüz tanımlı olmayabilir. Güvenli biçim:
+
+  ```bash
+  local Name Output
+  Name="$1"
+  Output="$Directory/$Name"
+  ```
+
+### 21.3 Test imzası
+
+Catalog SignTool ile test sertifikası kullanılarak imzalanır. Build bilgisayarı
+test köküne güvenmiyorsa “zincir güvenilmiyor” uyarısı tek başına bozuk imza
+anlamına gelmez; CAT imzası, SYS katalog eşleşmesi ve hedef WinPE'nin test
+signing durumu ayrı ayrı doğrulanır. Manifest hash'i Authenticode catalog
+imzasının yerine geçmez.
+
+## 22. Hata kataloğu
+
+| Belirti | Kök neden | Kalıcı çözüm | Durum |
+|---|---|---|---|
+| HSI2C `Not Ready`/timeout | Güç, USI modu, slave adresi veya reset sırası eksik | Stok DT/sürücü sırasına göre UEFI init | Çözüldü |
+| Temas anında event count 32–35 | 32 üstünde bütün kuyruk temizleniyordu | 32'lik parçalarla güvenli drain ve tekrar poll | Çözüldü |
+| `vhf.h`/ARM64 VhfKm bulunamadı | Header `shared` altında; lib yalnız 28000 kitinde | Aynı 28000 WDK include/lib çiftini seç | Çözüldü |
+| `_Interlocked*`, security cookie link hatası | ARM64 kernel runtime libleri eksik | `libcntpr` + `BufferOverflowFastFailK` | Çözüldü |
+| Code 31, stage yok | Add/start akışı görünmüyordu | Registry stage/status telemetrisi | Çözüldü |
+| `VHF_SERVICE=YOK` | WinPE'de dosya var, servis kaydı yok | `reg.exe` ile geçici `vhf` service + LowerFilter | Çözüldü |
+| `sc.exe` bulunamadı | Minimal WinPE bileşeni yok | `sc.exe` bağımlılığı kaldırıldı | Çözüldü |
+| Stage `0x20` civarında kalma | Passive periyodik timer yaşam döngüsü | One-shot timer ve callback sonunda rearm | Çözüldü |
+| İmleç çalışıyor ama multi-touch belirsiz | Mouse emülasyonu gerçek touch'ı maskeleyebilir | 10-contact HID + `b2lmt.exe` WM_POINTER tanısı | Çözüldü |
+| Eski davranış flash sonrası sürüyor | WIM'de eski artefakt veya stale SYS | Sil/ekle/geri-oku/hash kapısı | Çözüldü |
+| OSK script `Name: unbound variable` | `set -u` ve aynı satır local genişlemesi | Declaration ve assignment ayırma | Çözüldü |
+| OSK kaynakta `ADVAPI32.dll` yok göründü | WIM yolunda harf duyarlılığı | Case-insensitive extract | Çözüldü |
+| `Could not start On-Screen Keyboard` | 28000 WinPE ile 26200 OSK runtime uyumsuzluğu veya eksik masaüstü servisleri | Aynı-build kaynakla yeniden inceleme gerekli | **Ertelendi** |
+
+İlgili touch kilometre taşları git geçmişinde `971be69`–`e3bbd8f`, UEFI
+sec_ts düzeltmeleri `55a34a4`–`42412d0`, OSK deneyi ise `d447c1d`–`97ed290`
+aralığındadır.
+
+## 23. Native Windows OSK deneyi: mevcut sınır
+
+Kullanıcı isteği gereği özel klavye yazılmadı; yalnız Microsoft'un native
+`osk.exe` uygulaması denendi. Komut:
+
+```bash
+B2L_WINDOWS_ARM64_SOURCE="/mnt/c/Users/orhun/Downloads/Windows11_25H2_ARM64.iso" \
+  bash tools_winpe_native_osk.sh
+```
+
+`tools_b2ltouch.sh`, `B2L_SKIP_NATIVE_OSK=1` verilmediğinde bu adımı da
+çağırabilir. Fakat temiz WIM/paketleme akışında OSK manifest kapıları olduğu
+için bu değişkenin etkisi build scriptleri okunmadan varsayılmamalıdır.
+
+Deneyde:
+
+- hedef ADK WinPE: ARM64 `10.0.28000`,
+- kaynak Windows/OSK: ARM64 en-US `10.0.26200`,
+- `osk.exe`, MUI, recursive eksik PE importları,
+- doğrudan eksik bulunan `MSCTF.dll` ve `OSKSUPPORT.dll`,
+- TSF `CLSID_TF_ThreadMgr` COM kaydı
+
+WIM'e eklendi ve hash/geri-okuma doğrulaması geçti. Yeni kaynaktan eski hedefe
+core DLL karıştırılmasına izin verilmedi; yalnız eski OSK'nin yeni hedefte
+eksik importlarını tamamlama denendi. Loader/import kapanışı ve TSF kayıtları
+geçmesine rağmen OSK kendi `Could not start On-Screen Keyboard` mesajıyla
+kapanıyor.
+
+Sonuç: **OSK çalışıyor kabul edilmemelidir.** Touch ve multi-touch bundan
+bağımsız olarak tamamen çalışmaktadır. İleride yeniden ele alınırsa ilk temiz
+deney, OSK/runtime ile WinPE'yi aynı Windows build'inden üretmek olmalıdır.
+Rastgele system DLL'lerini 28000 WinPE üzerine ezmek güvenli bir çözüm değildir.
+
+## 24. Yeni Windows ARM64 sürücüsü için kontrol listesi
+
+### 24.1 Araştırma ve güvenlik
+
+- Android DT'den gerçek MMIO, IRQ, clock, regulator, GPIO ve firmware
+  bağımlılıklarını çıkar.
+- Stok Linux/Android sürücüsündeki init sırasını referans al; register anlamı
+  doğrulanmadan yazma yapma.
+- İlk UEFI tanısını salt-okuma ile başlat; sonra yalnız doğrulanmış güç/init
+  adımlarını ayrı ayrı aç.
+- ACPI `_CRS` kaynaklarını tam boyut ve allowlist ile sınırla.
+- PMIC, kamera EEPROM'u, flash/NVRAM veya geniş DRAM alanına kör probe yapma.
+
+### 24.2 Windows mimari kararı
+
+- Önce Windows inbox class/transport sürücüsü var mı araştır.
+- Donanım standarda uyuyorsa ACPI `_CID` ve `_CRS` ile inbox sürücüyü kullan.
+- Donanım standarda uymuyorsa üretici transport'unu KMDF içinde tutup mümkünse
+  VHF, NetAdapterCx, SPB, SensorCx gibi uygun Microsoft class extension'a bağla.
+- PnP, power, interrupt/timer ve donanım protokolü katmanlarını ayrı dosyalara
+  böl.
+- İlk günden registry stage/status ve küçük bir kullanıcı-modu tanı aracı ekle.
+
+### 24.3 Build ve cihaz turu
+
+1. Host parser/protokol testlerini çalıştır.
+2. ARM64 WDK build ve link'i tamamla.
+3. INF/CAT/sign doğrulamasını yap.
+4. WIM'e sil/ekle/geri-oku/hash yöntemiyle enjekte et.
+5. Manifest hash'leri ile final sparse/TAR paketini kapat.
+6. Tek Odin AP, Re-Partition kapalı flash yap.
+7. PnP + stage/status + gerçek işlev testini aynı turda kaydet.
+8. Çalışan ilk sürümü ayrı baseline commit olarak işaretle.
+
+### 24.4 Host doğrulama komutları
+
+```bash
+git diff --check
+bash -n tools_b2ltouch.sh tools_winpe_native_osk.sh cache_esp.sh
+bash tests/test_windows_touch_safety.sh
+cc -std=c11 -Wall -Wextra -Werror \
+  tests/test_windows_touch_parser.c \
+  windows/b2ltouch/b2ltouch_parser.c \
+  -o /tmp/b2ltouch-parser-test
+/tmp/b2ltouch-parser-test
+```
+
+Test geçmesi cihaz doğrulamasının yerine geçmez; MMIO, PnP, HID report ve
+gerçek çoklu temas yalnız donanım turunda kesinleşir.
+
+## 25. Sıradaki özellik seçimi
+
+### 25.1 Adayların değerlendirmesi
+
+| Özellik | Kullanıcı değeri | Zorluk/risk | Not |
+|---|---|---|---|
+| USB host/xHCI | Çok yüksek | Orta-yüksek | Klavye, depolama, log alma ve USB ağ adaptörü açabilir |
+| Güç/ses tuşları | Orta | Düşük-orta | Hızlı kazanım; dokunmasız kurtarma kontrolü sağlar |
+| Batarya/şarj göstergesi | Yüksek | Yüksek | PMIC yazma riski; salt-okuma tanısıyla başlanmalı |
+| Ses | Yüksek | Çok yüksek | Codec, DSP, firmware ve saat zinciri karmaşık |
+| Wi-Fi/Bluetooth | Yüksek | Çok yüksek | Firmware, bus ve Windows vendor driver bağımlılığı |
+| Kamera | Orta | Çok yüksek | Sensör/ISP/firmware ve güvenli güç sırası gerekir |
+| Native OSK | Orta | Orta-yüksek | Touch'ı engellemiyor; aynı-build runtime bekliyor |
+
+### 25.2 Öneri: USB host/xHCI
+
+Sıradaki ana hedef **USB host desteği** olmalıdır. Nedeni yalnız bir çevre
+birimi açması değil, sonraki bütün geliştirmelerin hızını artırmasıdır:
+
+- fiziksel klavye OSK bağımlılığını kaldırır,
+- USB bellek ile log/driver taşımayı kolaylaştırır,
+- USB Ethernet daha sonra ağ tanısını mümkün kılar,
+- standart xHCI ise Windows inbox `USBXHCI.sys` kullanılabilir ve yeni bir USB
+  host sürücüsü yazmak gerekmez.
+
+Repo DT'sinde ilk aday DWC3 host bloğu `usb@10C00000`/`0x10C00000` olarak
+görülür. PHY alanları ve interrupt dönüşümü stok DT ile Exynos sürücüsünden
+kesinleştirilmeden ACPI'ye yazılmamalıdır. Önerilen güvenli sıra:
+
+1. UEFI'de DWC3/PHY/clock/power durumunu yalnız okuyup raporla.
+2. Stok DT ve Samsung DWC3/PHY sürücüsünden doğrulanmış init/handoff sırasını
+   çıkar.
+3. ACPI'de vendor `_HID`, debug yeteneği olmayan standart xHCI için önce
+   `_CID=PNP0D15` ve dar `_CRS` kaynaklarını ilan et. `PNP0D10`, standart debug
+   yolu gerçekten DBG2/KDNET ile doğrulandıktan sonra değerlendirilmelidir.
+4. WinPE'de inbox xHCI sürücüsünün bağlanıp bağlanmadığını PnP stage ve USB
+   aygıt ağacıyla ölç.
+5. Önce düşük riskli USB klavye, sonra USB depolama ile gerçek işlev testi yap.
+
+Microsoft'un ACPI bring-up dokümanı SoC üzerindeki xHCI denetleyicisinin ACPI
+ile tanıtılıp inbox sürücüye bağlanmasını açıklar:
+[Other ACPI namespace objects](https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/other-acpi-namespace-objects).
+Microsoft'un aygıt kimliği tablosu `PNP0D10` ile standart debug bulunan,
+`PNP0D15` ile standart debug bulunmayan xHCI denetleyicisini ayırır:
+[Device management namespace objects](https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/device-management-namespace-objects).
+
+USB üzerinde donanımsal bir engel çıkarsa paralel ana iş açmadan önce hızlı
+kazanım olarak ACPI button array ile ses/power tuşları ele alınabilir. Batarya,
+ses, Wi-Fi ve kamera ise USB ve temel güç yönetimi gözlemlenebilir hâle
+geldikten sonraya bırakılmalıdır.

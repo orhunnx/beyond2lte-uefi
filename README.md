@@ -26,7 +26,8 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | **Linux (ACPI, DTB yok)** | ✅ 8 CPU açılıyor, initramfs'e kadar |
 | Windows Boot Manager | ✅ çalışıyor, ekran çiziyor, ESP'den okuyor |
 | Windows çekirdeği (`ntoskrnl`) | ✅ başlıyor |
-| Windows ARM64 dokunmatik sürücüsü | 🧪 KMDF/VHF paketi hazır, cihaz testi bekliyor |
+| Windows ARM64 dokunmatik sürücüsü | ✅ KMDF/VHF, 10 temas ve gerçek multi-touch cihazda doğrulandı |
+| WinPE yerel ekran klavyesi | ⏸️ Microsoft OSK yükleniyor fakat 28000/26200 ortamında başlatılamıyor; ertelendi |
 | Windows WinPE / erken kullanıcı modu | ✅ açılıyor |
 
 Ayrıntı: [`STATUS.md`](STATUS.md)
@@ -65,6 +66,7 @@ masaüstüne atar ve FV kullanımını raporlar.
 | [`PARTITIONS.md`](PARTITIONS.md) | Bölüm tablosu (PIT'ten çıkarıldı) |
 | [`BUILD.md`](BUILD.md) | Derleme ve flash |
 | [`ORTAM.md`](ORTAM.md) | Cihaz/bilgisayar referansı (projeden bağımsız) |
+| [`windows/b2lufs/AI_DRIVER_BUILD_REFERENCE.md`](windows/b2lufs/AI_DRIVER_BUILD_REFERENCE.md) | Windows ARM64 sürücü tasarım, build, WinPE, imza, flash ve hata ayıklama çalışma kitabı |
 
 ## Upstream'e gönderilecek düzeltmeler
 

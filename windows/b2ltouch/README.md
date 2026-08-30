@@ -3,6 +3,17 @@
 `b2ltouch.sys`, Galaxy S10+ üzerindeki Samsung `sec_ts` denetleyicisini
 Windows dokunmatik yığınına bağlayan ARM64 KMDF function driver'dır.
 
+## Doğrulanmış durum
+
+- `ACPI\BYN0001` kaynak aygıtı Windows PnP'de `Started` durumuna geliyor.
+- VHF çocuk aygıtı Windows'a standart HID Touch Screen olarak açılıyor.
+- Tek temas, imleç hareketi, temas bırakma ve gerçek eşzamanlı multi-touch
+  cihazda doğrulandı.
+- `b2lmt.exe` iki parmakta iki ayrı Windows pointer ID'si ve canlı X/Y
+  koordinatları gösterdi.
+- Native Windows `osk.exe` taşıma denemesi dokunmatik sürücüsünün parçası
+  değildir ve şu an ertelenmiştir; ayrıntı aşağıdadır.
+
 ## Neden HIDI2C.sys değil?
 
 Windows'un yerleşik `HIDI2C.sys` sürücüsü, aygıtın HID-over-I²C descriptor ve
@@ -87,9 +98,10 @@ Microsoft `vhf` kernel-service kaydını mevcut `reg.exe` ile oturumluk oluştur
 `ACPI\BYN0001`, onun VHF çocuğu ise HID uyumlu dokunmatik ekran olarak görünür.
 Kurulum çıktısı `X:\B2LTOUCH-PNP.TXT` dosyasındadır. Test sonunda WinPE/Windows
 içindeki yerel dokunmatik klavye (`TabTip.exe`), o yoksa yerel ekran klavyesi
-(`osk.exe`) açılır; paket ayrı bir klavye uygulaması içermez. Çıplak WinPE
-imajında bu iki Windows bileşeni de yoksa `tools_b2ltouch.sh`, aynı build'deki
-ARM64 Windows ISO/install.wim içinden Microsoft'un klasik `osk.exe` dosyasını,
+(`osk.exe`) başlatılmaya çalışılır; paket ayrı bir klavye uygulaması içermez.
+Çıplak WinPE imajında bu iki Windows bileşeni de yoksa `tools_b2ltouch.sh`,
+tercihen aynı build'deki ARM64 Windows ISO/install.wim içinden Microsoft'un
+klasik `osk.exe` dosyasını,
 MUI kaynağını ve WinPE'de eksik olan PE bağımlılık kapanımını alır. Mimariler
 ve Windows major/minor sürümü eşleşmelidir. Aynı build tercih edilir; daha eski
 native OSK daha yeni WinPE üzerinde kabul edilir, fakat daha yeni OSK'nin eski
@@ -103,6 +115,13 @@ kaynağından ekler; `startnet.cmd` ise OSK'yi açmadan önce Microsoft
 `msctf.dll` dosyasının kendi `DllRegisterServer` giriş noktasını çağırır ve
 `CLSID_TF_ThreadMgr` kaydını doğrular. Bu kayıt yalnız RAM'deki WinPE oturumu
 içindir. Sonuç `X:\B2LOSK-RUNTIME.TXT` dosyasına yazılır.
+
+Bu hazırlıklar dosya/loader ve TSF kayıt aşamalarını geçirdi, fakat cihazdaki
+sonuç hâlâ OSK'nin kendi `Could not start On-Screen Keyboard` hata penceresidir.
+Hedef WinPE build'i `10.0.28000`, eldeki ARM64 Windows/OSK kaynağı
+`10.0.26200` olduğundan aynı-build çalışma zamanı henüz doğrulanmadı. OSK
+başarılı kabul edilmemeli; dokunmatik ve multi-touch başarısı OSK'den
+bağımsızdır. Şimdilik bu eksen ertelenmiştir.
 
 Multi-touch tanısı yeniden gerekirse konsoldan `%SystemRoot%\B2LTOUCH\b2lmt.exe`
 çalıştırılır; native OSK'nin üstünü kapatmaması için artık otomatik açılmaz.

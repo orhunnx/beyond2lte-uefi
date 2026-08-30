@@ -115,16 +115,32 @@ WSL'de Windows WDK/Visual Studio ARM64 araçlarını kullanarak tam sıra:
 
 ```bash
 cd ~/beyond2lte-uefi-8549
-bash yap.sh --touch --acpi --clean
-bash tools_winpe_adk.sh "/mnt/c/Program Files (x86)/Windows Kits/10/Assessment and Deployment Kit/Windows Preinstallation Environment/arm64/Media"
-bash tools_b2lufs.sh       # UFS paketi yeniden hazırlanacaksa
+bash yap.sh --touch-test --acpi --clean
 bash tools_b2ltouch.sh
-bash cache_esp.sh --win --system
+bash cache_esp.sh --win --system --baseline
+tar -tf out/beyond2lte-touch-diag.tar
 ```
 
-`boot.wim` zaten güncel ve UFS paketi içindeyse yalnız son iki komut yeterlidir.
-PowerShell komutlarında Bash'teki `\` satır devamı kullanılmaz. Ayrıntılı
-Windows sürücü açıklaması `windows/b2ltouch/README.md` içindedir.
+Bu dört komut cihazda doğrulanan günlük yoldur. İlk komut BOOT/ACPI ve UEFI
+dokunmatik hazırlığını, ikinci komut Windows ARM64 SYS/CAT/INF ile tanı
+uygulamasını, üçüncü komut SYSTEM imajı ve tek Odin AP arşivini üretir. Son
+komut arşivde `boot.img` ile `system.img` bulunduğunu gözle doğrular.
+
+ADK `boot.wim` sıfırdan kurulacaksa günlük sıranın önüne yalnız bir kez şunu
+ekle:
+
+```bash
+bash tools_winpe_adk.sh "/mnt/c/Program Files (x86)/Windows Kits/10/Assessment and Deployment Kit/Windows Preinstallation Environment/arm64/Media"
+bash tools_b2lufs.sh       # UFS paketi de bu yeni WIM'e girecekse
+```
+
+Yalnız dokunmatik C kaynakları değiştiyse UEFI'yi yeniden derlemek gerekmez;
+mevcut `out/uefi-boot.tar` korunarak `bash tools_b2ltouch.sh` ve paketleme
+adımları çalıştırılır. Windows PowerShell'de doğrudan `.ps1` çağrılırken
+Bash'teki `\` satır devamı kullanılmaz. Ayrıntılı sürücü açıklaması
+`windows/b2ltouch/README.md`, bütün sürücüler için tekrar kullanılabilir
+tasarım/build/flash rehberi ise
+`windows/b2lufs/AI_DRIVER_BUILD_REFERENCE.md` içindedir.
 
 Test uygulaması artık DXE aşamasında çalışmaz; EFI Shell açıldıktan sonra
 başlatılır. Dokunmatik build'inden sonra test uygulamasını SYSTEM ESP'ye koy:
@@ -137,6 +153,17 @@ Test uygulaması bulunduğunda ikinci komut BOOT ve SYSTEM sparse imajlarını
 `out/beyond2lte-touch-diag.tar` içinde birleştirir. Odin'de yalnızca bu tek
 dosyayı AP alanından, **Re-Partition kapalıyken** flashla. BCD yeniden
 üretilmez; mevcut `esp/` içeriği aynen kullanılır.
+
+Dokunmatik cihazda doğrulanmıştır: Windows PnP kaynağı `ACPI\BYN0001` started
+durumuna geliyor, VHF çocuk aygıtı standart HID Touch Screen olarak açılıyor,
+imleç hareketi ve eşzamanlı birden fazla temas çalışıyor. `%SystemRoot%\B2LTOUCH\b2lmt.exe`
+aktif temas sayısını, pointer kimliklerini ve X/Y konumlarını canlı gösterir.
+
+Microsoft native `osk.exe` denemesi şu an build/flash başarısı sayılmaz.
+Hedef ADK WinPE `10.0.28000`, eldeki ARM64 Windows kaynağı `10.0.26200` olduğu
+için OSK, MUI, eksik PE importları ve TSF COM kaydı taşınmasına rağmen kendi
+`Could not start On-Screen Keyboard` penceresiyle kapanmaktadır. Dokunmatik ve
+multi-touch bundan bağımsız olarak çalışır; OSK işi ertelenmiştir.
 
 Doğrudan Mu-Silicium komutu aşağıda referans olarak duruyor; günlük beyond2lte
 derlemelerinde yukarıdaki `yap.sh` yolu kullanılmalıdır.
