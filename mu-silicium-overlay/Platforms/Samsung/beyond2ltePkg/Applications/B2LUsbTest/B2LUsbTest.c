@@ -1,11 +1,12 @@
 /** @file
-  Read-only staged USB diagnostic for Samsung beyond2lte.
+  Staged USB diagnostic for Samsung beyond2lte.
 
-  All active R9 stages are passive MMIO diagnostics.  Its final page refreshes
+  R10 keeps the R9 passive MMIO diagnostics.  Its monitor refreshes
   every two seconds so cable-attached and cable-removed states can be captured
-  in the same boot.  The monitor never starts DWC3/xHCI, changes role, resets a
-  PHY or performs an I2C/USB transfer.  Every new MMIO window is opened only
-  after an explicit key press, so a fault can be localized from the last page.
+  in the same boot.  A final, separately confirmed helper owns a reserved event
+  DMA page and briefly sets DCTL.RUN_STOP.  It never writes PMU, PHY, role,
+  reset or endpoint registers.  Every new MMIO window is opened only after an
+  explicit key press, so a fault can be localized from the last page.
 
   Address contract (merged stock beyond2lte DT):
     DWC3/xHCI       0x10C00000 + 0x10000, SPI 241 (GSIV 273)
@@ -25,7 +26,7 @@
 #include <Library/UefiLib.h>
 #include <Protocol/SimpleTextIn.h>
 
-#define B2L_USB_TEST_REVISION       9
+#include "B2LDwc3Probe.h"
 
 #define B2L_DWC3_BASE               0x10C00000ULL
 #define B2L_USB_PHY_BASE            0x10B00000ULL
@@ -122,6 +123,7 @@
 #define DWC3_DCTL_RUN_STOP          (1U << 31)
 #define DWC3_DSTS_CONNECTSPD_MASK   7U
 #define DWC3_DSTS_RXFIFOEMPTY       (1U << 17)
+#define DWC3_DSTS_SOFFN_MASK        (0x3FFFU << 3)
 #define DWC3_DSTS_USBLNKST_SHIFT    18
 #define DWC3_DSTS_USBLNKST_MASK     (0xFU << DWC3_DSTS_USBLNKST_SHIFT)
 #define DWC3_DSTS_DEVCTRLHLT        (1U << 22)
@@ -413,7 +415,8 @@ UsbAttachDiffMask (
   }
   if ((Previous->Dcfg != Current->Dcfg) ||
       (Previous->Dctl != Current->Dctl) ||
-      (Previous->Dsts != Current->Dsts)) {
+      ((Previous->Dsts & ~DWC3_DSTS_SOFFN_MASK) !=
+       (Current->Dsts & ~DWC3_DSTS_SOFFN_MASK))) {
     Mask |= B2L_USB_DIFF_DEVICE;
   }
   if ((Previous->Ocfg != Current->Ocfg) ||
@@ -511,7 +514,7 @@ ShowUsbAttachMonitor (
     gST->ConOut->ClearScreen (gST->ConOut);
     Print (L"=== B2L USB TANI R%u - CANLI ATTACH MONITOR ===\n",
            B2L_USB_TEST_REVISION);
-    Print (L"ORNEK=%u ARALIK=2sn ATTACH_GORULEN=%s  Q/ESC=Cikis\n",
+    Print (L"ORNEK=%u ARALIK=2sn ATTACH_GORULEN=%s  Q/ESC=Monitorden cik\n",
            Sample, AttachSeen ? L"EVET" : L"HAYIR");
     Print (L"Once kablo TAKILI fotograf; sonra CIKAR, ornek artinca tekrar.\n");
     Print (L"Yalniz salt-okuma; DWC3/xHCI/PHY/rol/reset/transfer yazmasi yok.\n\n");
@@ -535,10 +538,11 @@ ShowUsbAttachMonitor (
     Print (L"DWC GCTL=%08x GSTS=%08x USB2=%08x USB3=%08x\n",
            Current.Gctl, Current.Gsts,
            Current.Usb2PhyCfg, Current.Usb3PipeCtl);
-    Print (L"DEV DCFG=%08x DCTL=%08x RUN=%u DSTS=%08x\n",
+    Print (L"DEV DCFG=%08x DCTL=%08x RUN=%u DSTS=%08x SOFN=%04x\n",
            Current.Dcfg, Current.Dctl,
            (Current.Dctl & DWC3_DCTL_RUN_STOP) != 0,
-           Current.Dsts);
+           Current.Dsts,
+           (Current.Dsts & DWC3_DSTS_SOFFN_MASK) >> 3);
     Print (L"DEV SPD=%s LINK=%s HLT=%u IDLE=%u RXEMPTY=%u\n",
            Dwc3SpeedName (Current.Dsts), Dwc3LinkStateName (Current.Dsts),
            (Current.Dsts & DWC3_DSTS_DEVCTRLHLT) != 0,
@@ -901,6 +905,7 @@ B2LUsbTestEntry (
   )
 {
   BOOLEAN  Dwc3Sane;
+  EFI_STATUS ProbeStatus;
 
   (VOID)ImageHandle;
   (VOID)SystemTable;
@@ -949,7 +954,14 @@ B2LUsbTestEntry (
   }
   ShowUsbAttachMonitor ();
 
-  Print (L"\nR%u USB CANLI ATTACH TANI TAMAMLANDI.\n",
-         B2L_USB_TEST_REVISION);
-  return EFI_SUCCESS;
+  if (!PromptForNextStage (
+         L"R10 AKTIF DWC3 event/soft-connect; veri kablosu PC'ye TAKILI"
+         )) {
+    return EFI_SUCCESS;
+  }
+  ProbeStatus = B2LDwc3RunEventProbe ();
+  if (EFI_ERROR (ProbeStatus)) {
+    Print (L"R10 aktif DWC3 probu tamamlanamadi: %r\n", ProbeStatus);
+  }
+  return ProbeStatus;
 }

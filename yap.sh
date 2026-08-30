@@ -361,8 +361,9 @@ if [ -n "$EBS" ]; then
 fi
 
 #
-# B2LUsbTest.efi - ilk USB bring-up turu. Uygulama salt-okumadir ve her yeni
-# MMIO penceresinden once kullanici onayi ister. FV'ye gomulmez; yalniz
+# B2LUsbTest.efi - USB bring-up. R10 eski salt-okuma sayfalarini korur; son
+# ayri onayda yalniz event DMA + DWC3 RUN_STOP probu yapar. FV'ye gomulmez;
+# her yeni MMIO penceresinden once kullanici onayi ister ve yalniz
 # --usb-test secilen turda ESP'ye konur. Secenek verilmeyen sonraki build eski
 # bir USB testini sessizce yeniden paketleyemez.
 #

@@ -103,13 +103,15 @@ bash cache_esp.sh --win --system --baseline
 ```
 
 `B2LUSB.EFI` SYSTEM ESP'ye konur ve `startup.nsh` tarafından Windows'tan önce
-çalıştırılır. Eski doğrulanmış salt-okuma sayfalarından sonra R9 tek canlı
+çalıştırılır. Eski doğrulanmış salt-okuma sayfalarından sonra R10 tek canlı
 ekranda PMU, DWC3 device/OTG, xHCI portları ve ana DRD PHY değerlerini iki
 saniyede bir yeniler. Önce PC veri kablosu takılıyken ekranın fotoğrafı çekilir;
 sonra kablo çıkarılır, `ORNEK` sayacı ilerleyince ikinci fotoğraf çekilir.
-`Esc` veya `Q` monitörü kapatır. R9 DWC3/xHCI başlatmaz; PMU/PHY/rol yazmaz,
-I2C veya USB transferi yapmaz. R8 MAX77705 kaynakları korunur ancak uygulamaya
-bağlanmadığı için bu turda çalıştırılmaz.
+`Esc` veya `Q` monitörü kapatır. Sonraki ayrı onay R10'un 4 KiB reserved event
+DMA halkasını kurup DWC3 device `RUN_STOP` bitini en çok 30 saniye açtığı aktif
+proba geçer. Bu prob PMU/PHY/rol/reset/endpoint yazmaz; çıkışta DWC3'ü halt edip
+event registerlerini geri yükler. R8 MAX77705 kaynakları korunur ancak
+uygulamaya bağlanmadığı için bu turda çalıştırılmaz.
 Platform memory map de değiştiği için `cache_esp.sh`, BOOT ve SYSTEM'i
 `out/beyond2lte-usb-diag.tar` içinde birleştirir. Odin AP alanına yalnız bu tek
 arşiv verilir; Re-Partition kapalı kalır.
@@ -195,6 +197,18 @@ durumunu farklı bootlarda değil aynı boot içinde izleyerek S-Boot başlangı
 durumunu attach değişiminden ayırır. OTG `VBUS/BSES`, xHCI `CCS/change`, DWC3
 device link state ve bilinen DRD PHY kayıtlarından hangisinin kablo çıkarılırken
 değiştiği iki fotoğrafla görülecektir.
+R9'un PC/Mac/kablosuz/şarj adaptörü karşılaştırmasında gerçek attach deltası
+çıkmadı; `DEV=1` yalnız DSTS SOFN sayacıydı. R10 SOFN'yi delta dışına alır ve
+ilk aktif sınır olarak yalnız kontrollü event DMA + `RUN_STOP` probu uygular.
+`USB_RESET/CONNECT_DONE` görülmeden descriptor, EP0 veya bulk transfer koduna
+geçilmez.
+Windows kalıcı yolu için ACPI'ye URS üst düğümü ile `_ADR=0` host ve `_ADR=1`
+function çocukları, Synopsys URS/UFX Include-Needs paketleri ve MAX77705
+CC/PD durumunu UcmCx'e bildiren connector client gerekecektir. Windows desktop
+ARM64 imajında `UfxSynopsys.sys`, `Ufx01000.sys` ve `GenericUSBFn.sys` varlığı
+WSL'de doğrulanacak; GenericUSBFn yoksa dosya protokolü ayrıca yazılacaktır.
+MAX77705 için UCSI-compliant EC/ACPI transport kanıtı olmadığından UCSI in-box
+yolu şimdilik seçilmez.
 DT ayrıca PHY init için altı HS ve yirmi SS tune değeri, GPG0-4 PHY port pini
 ve ana PMIC LDO `10/11/12` bağımlılığını içerir; bunlar RAM taraması değil,
 yazmalı init sürücüsünün statik donanım sözleşmesidir.

@@ -1,12 +1,14 @@
 # B2LUsbTest EFI Shell USB tanısı
 
-`B2LUSB.EFI`, beyond2lte USB yolunun aşamalı EFI tanısıdır. R9, eski pasif
+`B2LUSB.EFI`, beyond2lte USB yolunun aşamalı EFI tanısıdır. R10, eski pasif
 harita sayfalarının ardından tek ekranda iki saniyede bir PMU, DWC3 device/OTG,
 xHCI portları ve doğrulanmış ana DRD PHY kayıtlarını yeniler. Önce PC veri
 kablosu takılıyken, sonra aynı boot içinde kablo çıkarıldıktan sonra bu ekranın
-fotoğrafı alınır. Uygulama DWC3/xHCI başlatmaz; PHY, rol veya PMU yazmaz ve USB
-transferi yapmaz. R8 MAX77705 yardımcı kaynağı ağaçta korunur fakat R9
-uygulamasına bağlanmaz ve çalıştırılmaz.
+fotoğrafı alınır. R9 ölçümlerinde yalnız DSTS içindeki serbest akan SOFN sayacı
+değiştiği için R10 bu alanı delta hesabından çıkarır. Son, ayrı onaylı sayfa
+kontrollü bir DWC3 event-DMA halkası kurup `DCTL.RUN_STOP` ile 30 saniyelik
+device soft-connect probu yapar. R8 MAX77705 yardımcı kaynağı ağaçta korunur
+fakat R10 uygulamasına bağlanmaz ve çalıştırılmaz.
 
 Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
 
@@ -20,6 +22,8 @@ Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
 8. tek ekranlı canlı attach monitörü: iki saniyelik örneklerle anlık ve birikmiş
    `PWR/DWC/DEV/OTG/XHC/PHY` değişim bayrakları, DWC3 bağlantı hızı/link state,
    OTG `VBUS/B-session`, xHCI `CCS/PLS/change` ve DRD PHY `0x00..0x3c`.
+9. ayrı onaylı aktif event probu: ayrılmış 4 KiB DMA halkası, maskeli event
+   interrupt, device-event sayaçları ve geçici `RUN_STOP`.
 
 R1 cihaz testinde `FSYS0A + 0x14` (`0x15862214`) erişimi synchronous external
 abort üretti. R2 bu erişimi ve aynı bilinmeyen duration grubundaki `+0x10`
@@ -62,6 +66,26 @@ karşılaştırmak yerine aynı bootta canlı değişimi yakalar: monitor açıl
 kablo PC'ye takılı tutulur ve ilk fotoğraf çekilir; kablo çıkarılır, `ORNEK`
 sayacı arttıktan sonra ikinci fotoğraf çekilir. `Q` veya `Esc` monitörü kapatır.
 
+R9'un PC, Mac, kablosuz ve şarj adaptörü fotoğraflarında PMU, DWC3 global/OTG,
+xHCI port ve DRD PHY değerleri aynı kaldı. Her karede görülen `DEV=1`, DSTS
+`SOFN[16:3]` sayacından kaynaklanan sahte deltadır; sabit durumun maskeli değeri
+`0x00D20004` idi. R10 monitörü SOFN'yi ayrıca gösterir fakat delta saymaz.
+
+R10 aktif sayfası yalnız şu preflight koşulları sağlanırsa yazmaya geçer:
+DWC_usb31 kimliği, device/OTG capability, device current mode, `RUN_STOP=0`,
+`DEVCTRLHLT=1`, `DALEPENA=0`, EP0/EP1 command inactive, `DEVTEN=0` ve boş event
+count. DMA için `EfiReservedMemoryType` 4 KiB sayfa ayırır; yalnız event adresi,
+event size/count, `DEVTEN` ve `DCTL` allow-list üzerinden yazılabilir. PMU, PHY,
+rol, reset ve endpoint registerleri yazılmaz. Normal çıkışta controller halt
+edilir, kalan olaylar tüketilir, registerler geri yüklenir ve sayfa bırakılır.
+İki saniyede halt olmazsa DMA sayfası reserved tutulur ve uygulama Windows'a
+geçişi bilerek engeller; cihaz donanım tuşuyla yeniden başlatılmalıdır.
+
+Bu R10 turu henüz descriptor veya EP0 sunmaz; hedef PC'den `USB_RESET` ve/veya
+`CONNECT_DONE` olayının DWC3 event halkasına ulaştığını kanıtlamaktır. Geçici
+olarak hostta bilinmeyen USB aygıtı görülebilir. Olay kanıtından sonraki aşama
+EP0 descriptor yanıtları, ardından bulk endpoint ve dosya aktarım protokolüdür.
+
 Her sayfa sonraki erişimden **önce** fotoğraflanmalıdır. Bir pencere saat veya
 güç kapalı olduğu için sistemi kilitlerse son görülen sayfa erişim sınırını
 belirler. `Esc` veya `Q` sonraki pencereyi okumadan uygulamadan çıkar.
@@ -80,9 +104,43 @@ yalnız bu dosya AP alanından, **Re-Partition kapalı** olarak flashlanır.
 Uygulama SYSTEM ESP kökünde `B2LUSB.EFI` adıyla bulunur ve `startup.nsh` dosya
 mevcutsa onu Windows'tan önce çalıştırır.
 
-Bu turun başarı ölçütü USB enumeration değildir. İki fotoğrafta `ORNEK`
-sayısının farklı olması ve kablo çıkarıldığında hangi blokların `DELTA ANLIK`
-ve `DELTA BIRIKIM` bayrağı ürettiğinin görülmesi yeterlidir. Hiçbir blok
-değişmezse sorun DWC3/xHCI'den önceki attach/role handoff sınırındadır; OTG
-`VBUS/BSES` değişip device `RUN=0/HLT=1` kalırsa sonraki kontrollü adım DWC3
-device başlatmasıdır.
+R10 başarı ölçütü canlı aktif ekranda `USB_RESET` veya `CONNECT_DONE` sayacının
+artması ve çıkışta `HLT=1 ... DMA ve registerler geri alindi` mesajıdır. Bu iki
+ekran fotoğraflanır. Sayaçlar sıfır kalırsa sonraki tur event/EP0 eklemek değil,
+Exynos USB PHY/role/Type-C yolunu kontrollü olarak başlatmaktır.
+
+## Windows'ta kalıcı dosya aktarımı mimarisi
+
+Microsoft'un Synopsys dual-role mimarisi DWC3 registerlerine doğrudan bağlanan
+tek bir özel sürücüden ibaret değildir. ACPI'de URS üst aygıtı; `_ADR=0` host
+ve `_ADR=1` function çocukları gerekir. Synopsys denetleyiciler için in-box
+`UrsSynopsys.inf`, function controller tarafı için `UfxSynopsys.inf` Include/
+Needs yoluyla eşlenebilir. Type-C CC/PD attach ve data-role bilgisi ise donanımı
+okuyan ayrı UCM/UcmCx connector client tarafından URS'e bildirilir. Mevcut
+`DSDT_minimal.dsl` ve Windows sürücü paketinde bu URS/UFX/UCM düğüm ve
+sürücüleri henüz yoktur.
+
+Kaynaklar:
+
+- [USB dual-role controller bring-up](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/dual-role-controller-bringup-for-a-usb-type-c-system)
+- [USB dual-role driver stack architecture](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-dual-role-driver-stack-architecture)
+- [USB Type-C connector client driver](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/bring-up-a-usb-type-c-connector-on-a-windows-system)
+- [Developing USB function-controller drivers](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/developing-windows-drivers-for-usb-function-controllers)
+- [Windows USB Type-C architecture](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/architecture--usb-type-c-in-a-windows-system)
+- [Windows UCSI driver](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/ucsi)
+
+Güncel UFX özeti `UfxSynopsys.sys`, `Ufx01000.sys` ve user-mode istekleri için
+`GenericUSBFn.sys` bileşenlerini in-box olarak listeler. Daha eski dual-role
+tablosu desktop function-class desteği konusunda daha kısıtlıdır; bu nedenle
+hedef Windows ARM64 imajında bu üç bileşenin gerçekten bulunduğu WSL'de ayrıca
+doğrulanmadan özel function-class sürücüsü yazılmayacaktır. Dosya aktarımı
+hedefi şu sırayla ilerleyecek: R10 fiziksel attach/event kanıtı; Samsung
+PHY/Type-C handoff; ACPI URS + Synopsys UFX controller; in-box GenericUSBFn
+varsa kontrollü user-mode aktarım, yoksa özel function protocolü. Windows
+dokunmatik paketi bu zincirden bağımsız olarak korunur.
+
+UCSI yolu yalnız UCSI-compliant bir embedded controller ve ACPI transport
+varsa `UcmUcsiCx.sys`/`UcmUcsiAcpiClient.sys` ile kullanılabilir. MAX77705 için
+bu firmware/ACPI sözleşmesini gösteren kanıt bulunmadığından UCSI uyumluluğu
+varsayılmaz; mevcut donanım bulguları doğrudan HSI2C45 üzerindeki PMIC/CC-PD
+aygıtını gösterdiği için ilk Windows connector adayı özel UCM client'tır.

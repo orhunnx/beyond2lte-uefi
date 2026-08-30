@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LUsbTest.c"
+PROBE="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LDwc3Probe.c"
+PROBE_HEADER="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LDwc3Probe.h"
 MAX="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LMax77705.c"
 INF="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LUsbTest.inf"
 DSC="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/beyond2lte.dsc"
@@ -16,7 +18,7 @@ grep -q 'B2LUSB.EFI' "$ROOT/esp/startup-baseline.nsh"
 grep -q 'beyond2lte-usb-diag.tar' "$ROOT/cache_esp.sh"
 grep -q 'DWC3_IP_DWC31[[:space:]]*0x33310000U' "$APP"
 grep -q 'DWC3_VER_NUMBER[[:space:]]*0xC1A0' "$APP"
-grep -q 'B2L_USB_TEST_REVISION[[:space:]]*9' "$APP"
+grep -q 'B2L_USB_TEST_REVISION[[:space:]]*10' "$PROBE_HEADER"
 grep -q 'B2L_USB_PCS_ABORT_OFFSET_0[[:space:]]*0x0000' "$APP"
 grep -q 'B2L_USB_PCS_ABORT_OFFSET_C[[:space:]]*0x000C' "$APP"
 grep -q 'B2L_USB_PMA_ABORT_OFFSET_0[[:space:]]*0x0000' "$APP"
@@ -30,8 +32,23 @@ grep -q 'gBS->Stall (100000)' "$APP"
 grep -q 'Once kablo TAKILI fotograf; sonra CIKAR' "$APP"
 grep -q 'DWC3_OSTS_VBUSVLD' "$APP"
 grep -q 'XHCI_PORTSC_CSC' "$APP"
+grep -q 'B2LDwc3Probe.c' "$INF"
+grep -q 'B2LDwc3RunEventProbe' "$APP"
+grep -q 'DWC3_DSTS_SOFFN_MASK' "$APP"
+grep -q 'Previous->Dsts & ~DWC3_DSTS_SOFFN_MASK' "$APP"
+grep -q 'AllocatePages' "$PROBE"
+grep -q 'AllocateMaxAddress' "$PROBE"
+grep -q 'BufferAddress = MAX_UINT32' "$PROBE"
+grep -q 'EfiReservedMemoryType' "$PROBE"
+grep -q 'WriteBackInvalidateDataCacheRange' "$PROBE"
+grep -q 'DWC3_DALEPENA' "$PROBE"
+grep -q 'DWC3_DEPCMD_CMDACT' "$PROBE"
+grep -q 'FailStoppedWithReservedDma' "$PROBE"
+grep -q 'DWC3_STOP_TIMEOUT_MS[[:space:]]*2000' "$PROBE"
+grep -q 'DWC3_EVENT_BUFFER_SIZE & DWC3_GEVNTSIZ_SIZE_MASK' "$PROBE"
+grep -q 'Saved.DeviceControl | DWC3_DCTL_RUN_STOP' "$PROBE"
 if grep -q 'B2LMax77705.c' "$INF"; then
-  echo 'HATA: R9 USB monitor uygulamasina MAX77705 aktif kodu baglanmis' >&2
+  echo 'HATA: R10 USB uygulamasina MAX77705 aktif kodu baglanmis' >&2
   exit 1
 fi
 grep -q 'bash yap.sh --touch --usb-test --clean' "$ROOT/BUILD.md"
@@ -68,7 +85,27 @@ grep -Eq '\{"USB DWC3 xHCI",[[:space:]]*0x10C00000,[[:space:]]*0x00010000, AddDe
 grep -Eq '\{"MAX77705 HSI2C45",[[:space:]]*0x15D60000,[[:space:]]*0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,[[:space:]]*NS_DEVICE\}' "$MAP"
 
 if rg -n 'MmioWrite|IoWrite|PciWrite|WriteRegister|MmioBitFieldWrite|MmioAnd|MmioOr' "$APP"; then
-  echo 'HATA: USB/PHY tanisi pasif asamalarda register yazma islemi iceriyor' >&2
+  echo 'HATA: USB/PHY tanisinin pasif ana kaynagi register yaziyor' >&2
+  exit 1
+fi
+
+# R10 aktif helper'inda tek fiziksel MMIO write noktasi ve dar bir runtime
+# allow-list vardir. PMU/PHY/rol/reset/endpoint registerleri listeye giremez.
+if [ "$(rg -c 'MmioWrite32' "$PROBE")" -ne 1 ]; then
+  echo 'HATA: R10 helper tek allow-list disinda MMIO write iceriyor' >&2
+  exit 1
+fi
+for Register in DWC3_GEVNTADRLO0 DWC3_GEVNTADRHI0 DWC3_GEVNTSIZ0 \
+                DWC3_GEVNTCOUNT0 DWC3_DEVTEN DWC3_DCTL; do
+  grep -q "case $Register:" "$PROBE"
+done
+if rg -n 'case DWC3_(GCTL|GSTS|GUSB|OCFG|OCTL|OEVT|OEVTEN|OSTS|DALEPENA|DEP)' "$PROBE"; then
+  echo 'HATA: R10 allow-list PHY/rol/reset/endpoint yazmasina genislemis' >&2
+  exit 1
+fi
+if rg -n 'MmioWrite|IoWrite|PciWrite|MmioBitFieldWrite|MmioAnd|MmioOr' "$PROBE" | \
+   grep -v 'MmioWrite32 (Dwc3Register (Offset), Value);'; then
+  echo 'HATA: R10 helper allow-list disinda yazma iceriyor' >&2
   exit 1
 fi
 

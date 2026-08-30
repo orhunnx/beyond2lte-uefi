@@ -7,6 +7,8 @@
   ENTRY_POINT                    = B2LUsbTestEntry
 
 [Sources]
+  B2LDwc3Probe.c
+  B2LDwc3Probe.h
   B2LUsbTest.c
 
 [Packages]
@@ -14,6 +16,8 @@
   SamsungPkg/SamsungPkg.dec
 
 [LibraryClasses]
+  BaseMemoryLib
+  CacheMaintenanceLib
   IoLib
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
