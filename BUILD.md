@@ -76,6 +76,9 @@ bash yap.sh --touch --acpi --clean
 
 # Windows'tan once kareli fabrika tipi dokunmatik testi
 bash yap.sh --touch-test --acpi --clean
+
+# Salt-okuma USB bring-up uygulamasi (Windows/ACPI USB aygiti eklemez)
+bash yap.sh --usb-test --clean
 ```
 
 `--touch`, `--acpi` seçeneğini zaten zorunlu kılar; komutta ayrıca yazılması
@@ -87,6 +90,28 @@ için `bash yap.sh --acpi --clean` çalıştırıp oluşan BOOT tar'ını flashl
 Bu sürücü UEFI `AbsolutePointer` sağlar. `ExitBootServices` sırasında I²C'yi
 susturur; dolayısıyla Windows açıldıktan sonraki dokunmatik için ayrıca bir
 Windows sürücüsü gerekir.
+
+### EFI Shell USB salt-okuma tanısı
+
+USB host veya Windows sürücüsü eklenmeden önce DWC3/xHCI/PHY handoff durumu
+ayrı bir EFI Shell uygulamasıyla ölçülür:
+
+```bash
+bash yap.sh --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+`B2LUSB.EFI` SYSTEM ESP'ye konur ve `startup.nsh` tarafından Windows'tan önce
+çalıştırılır. Her sayfayı fotoğrafladıktan sonra bir tuşla sonraki MMIO
+penceresine geçilir; `Esc` veya `Q` yeni pencereyi okumadan çıkar. Uygulama
+register yazmaz, reset/clock/regulator işlemi yapmaz, MAX77705'e I²C komutu
+göndermez ve USB transferi başlatmaz. İlk turda Odin'e yalnız
+`out/system-esp.tar` AP alanından verilir; Re-Partition kapalı kalır.
+
+Sayfalar sırasıyla PMU/FSYS0A, DWC3+xHCI, device/OTG rolü, USB DRD PHY,
+combo PCS ve combo PMA değerlerini gösterir. Bir sonraki yazmalı host-init
+turu ancak bu değerler cihazda fotoğraflanıp DWC3 kimliği ve xHCI capability
+alanları doğrulandıktan sonra hazırlanır.
 
 `--touch-test` önce Android DT'deki 47 HSI2C denetleyicisinin adres ve açık/
 kapalı haritasını, ardından DT'de ilan edilmiş slave adlarını gösterir. Kamera,

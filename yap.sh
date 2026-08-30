@@ -11,6 +11,7 @@
 #   yap.sh --acpi          ACPI tablolarini derle + etkinlestir
 #   yap.sh --touch         deneysel UEFI dokunmatik + zorunlu ACPI yenileme
 #   yap.sh --touch-test    kareli UEFI dokunmatik testi + Windows'a devam
+#   yap.sh --usb-test      salt-okuma DWC3/xHCI/PHY EFI Shell tanisi
 #   yap.sh --psci-hvc      deneysel: Windows PSCI'sini EL2 HVC koprusune yonlendir
 #   (Odin .tar ve .img her zaman uretilir)
 #   yap.sh --clean         temiz derleme (-c)
@@ -19,7 +20,7 @@ set -euo pipefail
 
 PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MU="${MU_SILICIUM:-$HOME/Mu-Silicium}"
-REL="DEBUG"; CLEAN=""; DO_ACPI=0; DO_TAR=0; PSCI_HVC=0; TOUCH=0; TOUCH_TEST=0
+REL="DEBUG"; CLEAN=""; DO_ACPI=0; DO_TAR=0; PSCI_HVC=0; TOUCH=0; TOUCH_TEST=0; USB_TEST=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -27,10 +28,11 @@ while [ $# -gt 0 ]; do
     --acpi)  DO_ACPI=1; shift ;;
     --touch) TOUCH=1; DO_ACPI=1; shift ;;
     --touch-test) TOUCH=1; TOUCH_TEST=1; DO_ACPI=1; shift ;;
+    --usb-test) USB_TEST=1; shift ;;
     --psci-hvc) PSCI_HVC=1; DO_ACPI=1; shift ;;
     --tar)   shift ;;   # geriye donuk uyumluluk, artik varsayilan
     --clean) CLEAN="-c"; shift ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
     *) echo "Bilinmeyen secenek: $1"; exit 1 ;;
   esac
 done
@@ -356,6 +358,26 @@ if [ -n "$EBS" ]; then
   echo "EbsTest hazir: out/EbsTest.efi"
   echo "  Denemek icin:  cp out/EbsTest.efi esp/EBSTEST.EFI && bash cache_esp.sh --win --system"
   echo "  Geri almak icin: rm esp/EBSTEST.EFI"
+fi
+
+#
+# B2LUsbTest.efi - ilk USB bring-up turu. Uygulama salt-okumadir ve her yeni
+# MMIO penceresinden once kullanici onayi ister. FV'ye gomulmez; yalniz
+# --usb-test secilen turda ESP'ye konur. Secenek verilmeyen sonraki build eski
+# bir USB testini sessizce yeniden paketleyemez.
+#
+if [ "$USB_TEST" = 1 ]; then
+  USB_APP="$(find "$MU/Build" -name 'B2LUsbTest.efi' 2>/dev/null | head -1)"
+  [ -n "$USB_APP" ] && [ -f "$USB_APP" ] || {
+    echo "HATA: B2LUsbTest.efi derlenmedi"
+    exit 1
+  }
+  mkdir -p "$PROJ/out"
+  cp -f "$USB_APP" "$PROJ/out/B2LUsbTest.efi"
+  cp -f "$USB_APP" "$PROJ/esp/B2LUSB.EFI"
+  echo "B2LUsbTest hazir: esp/B2LUSB.EFI"
+else
+  rm -f "$PROJ/esp/B2LUSB.EFI"
 fi
 
 if [ "$TOUCH_TEST" = 1 ]; then

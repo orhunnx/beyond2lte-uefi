@@ -29,6 +29,22 @@
 #
 mode 80 25
 
+# USB ilk bring-up tanisi. Dosya yalniz yap.sh --usb-test ile uretilir.
+# Uygulama her yeni MMIO penceresinden once fotograf ve tus bekler; MMIO
+# yazmaz ve donunce mevcut tani/Windows yolu aynen devam eder.
+if exist fs0:\B2LUSB.EFI then
+    fs0:\B2LUSB.EFI
+endif
+if exist fs1:\B2LUSB.EFI then
+    fs1:\B2LUSB.EFI
+endif
+if exist fs2:\B2LUSB.EFI then
+    fs2:\B2LUSB.EFI
+endif
+if exist fs3:\B2LUSB.EFI then
+    fs3:\B2LUSB.EFI
+endif
+
 # UEFI dokunmatik fabrika testi. Dosya yalniz yap.sh --touch-test ile
 # uretilir; uygulama donunce mevcut tani ve Windows yolu aynen devam eder.
 if exist fs0:\B2LTOUCH.EFI then
