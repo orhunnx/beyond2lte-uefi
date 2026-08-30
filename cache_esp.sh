@@ -570,7 +570,7 @@ if [ "$PART" = system ] && [ -s "$PROJ/esp/B2LTOUCH.EFI" ] && \
 fi
 
 # USB tanisi da iki bolumu birlikte gerektirir: BOOT'taki platform memory map
-# DWC3/PHY ve R8 HSI2C45 pencerelerini esler, SYSTEM ESP'deki B2LUSB.EFI ise
+# DWC3/PHY ve korunmus R8 HSI2C45 pencerelerini esler; R9 B2LUSB.EFI ise
 # asamali olcumu yapar. Iki dosyanin farkli turlardan kalmasini onlemek icin
 # tek Odin AP arsivi uret.
 if [ "$PART" = system ] && [ -s "$PROJ/esp/B2LUSB.EFI" ]; then

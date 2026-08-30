@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LUsbTest.c"
 MAX="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LMax77705.c"
-MAX_H="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LMax77705.h"
 INF="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LUsbTest.inf"
 DSC="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/beyond2lte.dsc"
 MAP="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Library/MemoryMapLib/MemoryMapLib.c"
@@ -17,17 +16,24 @@ grep -q 'B2LUSB.EFI' "$ROOT/esp/startup-baseline.nsh"
 grep -q 'beyond2lte-usb-diag.tar' "$ROOT/cache_esp.sh"
 grep -q 'DWC3_IP_DWC31[[:space:]]*0x33310000U' "$APP"
 grep -q 'DWC3_VER_NUMBER[[:space:]]*0xC1A0' "$APP"
-grep -q 'B2L_USB_TEST_REVISION[[:space:]]*8' "$MAX_H"
+grep -q 'B2L_USB_TEST_REVISION[[:space:]]*9' "$APP"
 grep -q 'B2L_USB_PCS_ABORT_OFFSET_0[[:space:]]*0x0000' "$APP"
 grep -q 'B2L_USB_PCS_ABORT_OFFSET_C[[:space:]]*0x000C' "$APP"
 grep -q 'B2L_USB_PMA_ABORT_OFFSET_0[[:space:]]*0x0000' "$APP"
 grep -q 'ShowSkippedComboPcs' "$APP"
 grep -q 'ShowSkippedComboPma' "$APP"
 grep -q 'Value = Read32 (B2L_USB_PHY_BASE, Offset);' "$APP"
-grep -q 'B2LMax77705ShowGpio' "$APP"
-grep -q 'B2LMax77705ShowController' "$APP"
-grep -q 'B2LMax77705ShowData' "$APP"
-grep -q 'B2LMax77705.c' "$INF"
+grep -q 'ShowUsbAttachMonitor' "$APP"
+grep -q 'CaptureUsbAttachSnapshot' "$APP"
+grep -q 'WaitForMonitorTick' "$APP"
+grep -q 'gBS->Stall (100000)' "$APP"
+grep -q 'Once kablo TAKILI fotograf; sonra CIKAR' "$APP"
+grep -q 'DWC3_OSTS_VBUSVLD' "$APP"
+grep -q 'XHCI_PORTSC_CSC' "$APP"
+if grep -q 'B2LMax77705.c' "$INF"; then
+  echo 'HATA: R9 USB monitor uygulamasina MAX77705 aktif kodu baglanmis' >&2
+  exit 1
+fi
 grep -q 'bash yap.sh --touch --usb-test --clean' "$ROOT/BUILD.md"
 grep -q 'bash yap.sh --touch --usb-test --clean' \
   "$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/README.md"
@@ -66,9 +72,9 @@ if rg -n 'MmioWrite|IoWrite|PciWrite|WriteRegister|MmioBitFieldWrite|MmioAnd|Mmi
   exit 1
 fi
 
-# R8'in aktif yazmalari yalniz HSI2C45 denetleyicisini gecici programlamak
-# icindir. PMIC'e giden write mesaji tam bir byte register pointer olmalidir;
-# MAX77705 config/rol/reset verisi yazan genel bir API bulunmamalidir.
+# R8 yardimcisi kaynak agacinda saklanir fakat R9 uygulamasina baglanmaz.
+# Yeniden etkinlestirilirse PMIC'e giden write mesaji tam bir byte register
+# pointer olmali; MAX77705 config/rol/reset verisi yazan API bulunmamalidir.
 grep -q 'RegisterPointer = Register;' "$MAX"
 grep -q 'TransferMessage (Slave, &RegisterPointer, 1, FALSE)' "$MAX"
 grep -q 'RestoreControllerState (&Saved);' "$MAX"

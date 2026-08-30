@@ -1,11 +1,11 @@
 /** @file
   Read-only staged USB diagnostic for Samsung beyond2lte.
 
-  Early stages are passive MMIO diagnostics.  R8 adds separately confirmed
-  HSI2C45 controller access and targeted MAX77705 reads; it never writes PMIC
-  configuration, reset, role or power registers and starts no USB transfer.
-  Every new MMIO window or I2C action is opened only after an explicit key
-  press, so a fault can be localized from the last photographed page.
+  All active R9 stages are passive MMIO diagnostics.  Its final page refreshes
+  every two seconds so cable-attached and cable-removed states can be captured
+  in the same boot.  The monitor never starts DWC3/xHCI, changes role, resets a
+  PHY or performs an I2C/USB transfer.  Every new MMIO window is opened only
+  after an explicit key press, so a fault can be localized from the last page.
 
   Address contract (merged stock beyond2lte DT):
     DWC3/xHCI       0x10C00000 + 0x10000, SPI 241 (GSIV 273)
@@ -14,7 +14,7 @@
     combo PHY PMA   0x10AF0000 + 0x00800
     PMU syscon      0x15860000; USB PHY offsets 0x72C and 0x704
     FSYS0A PD       0x15862200 + 0x20
-    HSI2C45         0x15D60000 + 0x1000, MAX77705 0x66 / fuel gauge 0x36
+    HSI2C45         0x15D60000 + 0x1000, retained for the completed R8 probe
 **/
 
 #include <Uefi.h>
@@ -25,7 +25,7 @@
 #include <Library/UefiLib.h>
 #include <Protocol/SimpleTextIn.h>
 
-#include "B2LMax77705.h"
+#define B2L_USB_TEST_REVISION       9
 
 #define B2L_DWC3_BASE               0x10C00000ULL
 #define B2L_USB_PHY_BASE            0x10B00000ULL
@@ -99,12 +99,62 @@
 
 #define XHCI_USBSTS_HCH             (1U << 0)
 #define XHCI_USBSTS_HSE             (1U << 2)
+#define XHCI_USBSTS_PCD             (1U << 4)
 #define XHCI_USBSTS_CNR             (1U << 11)
 #define XHCI_USBSTS_HCE             (1U << 12)
 #define XHCI_PORTSC_CCS             (1U << 0)
 #define XHCI_PORTSC_PED             (1U << 1)
 #define XHCI_PORTSC_OCA             (1U << 3)
 #define XHCI_PORTSC_PP              (1U << 9)
+#define XHCI_PORTSC_CSC             (1U << 17)
+#define XHCI_PORTSC_PEC             (1U << 18)
+#define XHCI_PORTSC_WRC             (1U << 19)
+#define XHCI_PORTSC_OCC             (1U << 20)
+#define XHCI_PORTSC_PRC             (1U << 21)
+#define XHCI_PORTSC_PLC             (1U << 22)
+#define XHCI_PORTSC_CEC             (1U << 23)
+#define XHCI_PORTSC_CAS             (1U << 24)
+#define XHCI_PORTSC_CHANGE_MASK     (XHCI_PORTSC_CSC | XHCI_PORTSC_PEC | \
+                                     XHCI_PORTSC_WRC | XHCI_PORTSC_OCC | \
+                                     XHCI_PORTSC_PRC | XHCI_PORTSC_PLC | \
+                                     XHCI_PORTSC_CEC)
+
+#define DWC3_DCTL_RUN_STOP          (1U << 31)
+#define DWC3_DSTS_CONNECTSPD_MASK   7U
+#define DWC3_DSTS_RXFIFOEMPTY       (1U << 17)
+#define DWC3_DSTS_USBLNKST_SHIFT    18
+#define DWC3_DSTS_USBLNKST_MASK     (0xFU << DWC3_DSTS_USBLNKST_SHIFT)
+#define DWC3_DSTS_DEVCTRLHLT        (1U << 22)
+#define DWC3_DSTS_COREIDLE          (1U << 23)
+
+#define DWC3_OSTS_CONIDSTS          (1U << 0)
+#define DWC3_OSTS_VBUSVLD           (1U << 1)
+#define DWC3_OSTS_BSESVLD           (1U << 2)
+#define DWC3_OSTS_XHCIPRTPOWER      (1U << 3)
+#define DWC3_OSTS_PERIPHERALSTATE   (1U << 4)
+
+#define B2L_USB_PHY_SAMPLE_COUNT    16
+
+typedef struct {
+  UINT32  PmuUsbDp;
+  UINT32  PmuUsbPhy;
+  UINT32  Gctl;
+  UINT32  Gsts;
+  UINT32  Usb2PhyCfg;
+  UINT32  Usb3PipeCtl;
+  UINT32  Dcfg;
+  UINT32  Dctl;
+  UINT32  Dsts;
+  UINT32  Ocfg;
+  UINT32  Octl;
+  UINT32  Oevt;
+  UINT32  Oevten;
+  UINT32  Osts;
+  UINT32  XhciUsbSts;
+  UINT32  PortSc[2];
+  UINT32  Phy[B2L_USB_PHY_SAMPLE_COUNT];
+  BOOLEAN XhciValid;
+} B2L_USB_ATTACH_SNAPSHOT;
 
 STATIC
 UINT32
@@ -165,6 +215,368 @@ CoreIdName (
       return L"DWC_USB32";
     default:
       return L"BEKLENMEDIK";
+  }
+}
+
+STATIC
+CONST CHAR16 *
+XhciLinkStateName (
+  IN UINT32  PortSc
+  )
+{
+  switch ((PortSc >> 5) & 0xF) {
+    case 0:
+      return L"U0";
+    case 1:
+      return L"U1";
+    case 2:
+      return L"U2";
+    case 3:
+      return L"U3";
+    case 4:
+      return L"DISABLED";
+    case 5:
+      return L"RXDETECT";
+    case 6:
+      return L"INACTIVE";
+    case 7:
+      return L"POLLING";
+    case 8:
+      return L"RECOVERY";
+    case 9:
+      return L"HOTRESET";
+    case 10:
+      return L"COMPLIANCE";
+    case 11:
+      return L"TEST";
+    case 15:
+      return L"RESUME";
+    default:
+      return L"UNKNOWN";
+  }
+}
+
+STATIC
+CONST CHAR16 *
+Dwc3LinkStateName (
+  IN UINT32  Dsts
+  )
+{
+  switch ((Dsts & DWC3_DSTS_USBLNKST_MASK) >>
+          DWC3_DSTS_USBLNKST_SHIFT) {
+    case 0:
+      return L"U0";
+    case 1:
+      return L"U1";
+    case 2:
+      return L"U2";
+    case 3:
+      return L"U3";
+    case 4:
+      return L"SS_DIS";
+    case 5:
+      return L"RX_DET";
+    case 6:
+      return L"SS_INACT";
+    case 7:
+      return L"POLL";
+    case 8:
+      return L"RECOV";
+    case 9:
+      return L"HOT_RST";
+    case 10:
+      return L"COMP";
+    case 11:
+      return L"LOOPBACK";
+    case 14:
+      return L"RESET";
+    case 15:
+      return L"RESUME";
+    default:
+      return L"UNKNOWN";
+  }
+}
+
+STATIC
+CONST CHAR16 *
+Dwc3SpeedName (
+  IN UINT32  Dsts
+  )
+{
+  switch (Dsts & DWC3_DSTS_CONNECTSPD_MASK) {
+    case 0:
+      return L"HS";
+    case 1:
+      return L"FS";
+    case 2:
+      return L"LS";
+    case 3:
+      return L"FS48";
+    case 4:
+      return L"SS";
+    case 5:
+      return L"SSP";
+    default:
+      return L"UNKNOWN";
+  }
+}
+
+STATIC
+VOID
+CaptureUsbAttachSnapshot (
+  OUT B2L_USB_ATTACH_SNAPSHOT  *Snapshot
+  )
+{
+  UINT32  Cap;
+  UINT32  CapLength;
+  UINT32  Hcs1;
+  UINT32  MaxPorts;
+  UINT32  OpBase;
+  UINTN   Index;
+
+  Snapshot->PmuUsbDp    = Read32 (B2L_PMU_BASE, B2L_PMU_USBDP_CTRL);
+  Snapshot->PmuUsbPhy   = Read32 (B2L_PMU_BASE, B2L_PMU_USB_PHY_CTRL);
+  Snapshot->Gctl        = Read32 (B2L_DWC3_BASE, DWC3_GCTL);
+  Snapshot->Gsts        = Read32 (B2L_DWC3_BASE, DWC3_GSTS);
+  Snapshot->Usb2PhyCfg  = Read32 (B2L_DWC3_BASE, DWC3_GUSB2PHYCFG0);
+  Snapshot->Usb3PipeCtl = Read32 (B2L_DWC3_BASE, DWC3_GUSB3PIPECTL0);
+  Snapshot->Dcfg        = Read32 (B2L_DWC3_BASE, DWC3_DCFG);
+  Snapshot->Dctl        = Read32 (B2L_DWC3_BASE, DWC3_DCTL);
+  Snapshot->Dsts        = Read32 (B2L_DWC3_BASE, DWC3_DSTS);
+  Snapshot->Ocfg        = Read32 (B2L_DWC3_BASE, DWC3_OCFG);
+  Snapshot->Octl        = Read32 (B2L_DWC3_BASE, DWC3_OCTL);
+  Snapshot->Oevt        = Read32 (B2L_DWC3_BASE, DWC3_OEVT);
+  Snapshot->Oevten      = Read32 (B2L_DWC3_BASE, DWC3_OEVTEN);
+  Snapshot->Osts        = Read32 (B2L_DWC3_BASE, DWC3_OSTS);
+
+  Snapshot->XhciValid  = FALSE;
+  Snapshot->XhciUsbSts = 0xFFFFFFFFU;
+  Snapshot->PortSc[0]  = 0xFFFFFFFFU;
+  Snapshot->PortSc[1]  = 0xFFFFFFFFU;
+  Cap                   = Read32 (B2L_DWC3_BASE, 0x00);
+  Hcs1                  = Read32 (B2L_DWC3_BASE, XHCI_HCSPARAMS1);
+  CapLength             = Cap & 0xFF;
+  MaxPorts              = (Hcs1 >> 24) & 0xFF;
+  if ((CapLength >= 0x20) && (CapLength <= 0x100) &&
+      (MaxPorts >= 2) && (MaxPorts <= 16)) {
+    OpBase                = CapLength;
+    Snapshot->XhciUsbSts  = Read32 (
+                              B2L_DWC3_BASE,
+                              OpBase + XHCI_USBSTS
+                              );
+    Snapshot->PortSc[0]   = Read32 (
+                              B2L_DWC3_BASE,
+                              OpBase + XHCI_PORTSC
+                              );
+    Snapshot->PortSc[1]   = Read32 (
+                              B2L_DWC3_BASE,
+                              OpBase + XHCI_PORTSC + XHCI_PORT_STRIDE
+                              );
+    Snapshot->XhciValid   = TRUE;
+  }
+
+  for (Index = 0; Index < B2L_USB_PHY_SAMPLE_COUNT; Index++) {
+    Snapshot->Phy[Index] = Read32 (
+                             B2L_USB_PHY_BASE,
+                             Index * sizeof (UINT32)
+                             );
+  }
+}
+
+#define B2L_USB_DIFF_POWER  BIT0
+#define B2L_USB_DIFF_GLOBAL BIT1
+#define B2L_USB_DIFF_DEVICE BIT2
+#define B2L_USB_DIFF_OTG    BIT3
+#define B2L_USB_DIFF_XHCI   BIT4
+#define B2L_USB_DIFF_PHY    BIT5
+
+STATIC
+UINT32
+UsbAttachDiffMask (
+  IN CONST B2L_USB_ATTACH_SNAPSHOT  *Previous,
+  IN CONST B2L_USB_ATTACH_SNAPSHOT  *Current
+  )
+{
+  UINT32  Mask;
+  UINTN   Index;
+
+  Mask = 0;
+  if ((Previous->PmuUsbDp != Current->PmuUsbDp) ||
+      (Previous->PmuUsbPhy != Current->PmuUsbPhy)) {
+    Mask |= B2L_USB_DIFF_POWER;
+  }
+  if ((Previous->Gctl != Current->Gctl) ||
+      (Previous->Gsts != Current->Gsts) ||
+      (Previous->Usb2PhyCfg != Current->Usb2PhyCfg) ||
+      (Previous->Usb3PipeCtl != Current->Usb3PipeCtl)) {
+    Mask |= B2L_USB_DIFF_GLOBAL;
+  }
+  if ((Previous->Dcfg != Current->Dcfg) ||
+      (Previous->Dctl != Current->Dctl) ||
+      (Previous->Dsts != Current->Dsts)) {
+    Mask |= B2L_USB_DIFF_DEVICE;
+  }
+  if ((Previous->Ocfg != Current->Ocfg) ||
+      (Previous->Octl != Current->Octl) ||
+      (Previous->Oevt != Current->Oevt) ||
+      (Previous->Oevten != Current->Oevten) ||
+      (Previous->Osts != Current->Osts)) {
+    Mask |= B2L_USB_DIFF_OTG;
+  }
+  if ((Previous->XhciValid != Current->XhciValid) ||
+      (Previous->XhciUsbSts != Current->XhciUsbSts) ||
+      (Previous->PortSc[0] != Current->PortSc[0]) ||
+      (Previous->PortSc[1] != Current->PortSc[1])) {
+    Mask |= B2L_USB_DIFF_XHCI;
+  }
+  for (Index = 0; Index < B2L_USB_PHY_SAMPLE_COUNT; Index++) {
+    if (Previous->Phy[Index] != Current->Phy[Index]) {
+      Mask |= B2L_USB_DIFF_PHY;
+      break;
+    }
+  }
+  return Mask;
+}
+
+STATIC
+VOID
+PrintMonitorPort (
+  IN UINTN   Port,
+  IN UINT32  PortSc
+  )
+{
+  Print (L"P%u=%08x CCS=%u PED=%u PP=%u PLS=%s SPD=%x CHG=%02x CAS=%u\n",
+         Port, PortSc,
+         (PortSc & XHCI_PORTSC_CCS) != 0,
+         (PortSc & XHCI_PORTSC_PED) != 0,
+         (PortSc & XHCI_PORTSC_PP) != 0,
+         XhciLinkStateName (PortSc),
+         (PortSc >> 10) & 0xF,
+         (PortSc & XHCI_PORTSC_CHANGE_MASK) >> 17,
+         (PortSc & XHCI_PORTSC_CAS) != 0);
+}
+
+STATIC
+BOOLEAN
+WaitForMonitorTick (
+  VOID
+  )
+{
+  EFI_INPUT_KEY  Key;
+  EFI_STATUS     Status;
+  UINTN          Slice;
+
+  for (Slice = 0; Slice < 20; Slice++) {
+    if ((gST->ConIn != NULL) && (gST->ConIn->ReadKeyStroke != NULL)) {
+      Status = gST->ConIn->ReadKeyStroke (gST->ConIn, &Key);
+      if (!EFI_ERROR (Status) &&
+          ((Key.ScanCode == SCAN_ESC) || (Key.UnicodeChar == L'q') ||
+           (Key.UnicodeChar == L'Q'))) {
+        return FALSE;
+      }
+    }
+    gBS->Stall (100000);
+  }
+  return TRUE;
+}
+
+STATIC
+VOID
+ShowUsbAttachMonitor (
+  VOID
+  )
+{
+  B2L_USB_ATTACH_SNAPSHOT  Current;
+  B2L_USB_ATTACH_SNAPSHOT  Previous;
+  BOOLEAN                  AttachSeen;
+  BOOLEAN                  HavePrevious;
+  UINT32                   Diff;
+  UINT32                   StickyDiff;
+  UINTN                    Index;
+  UINTN                    Sample;
+
+  HavePrevious = FALSE;
+  StickyDiff   = 0;
+  Sample       = 1;
+  for (;;) {
+    CaptureUsbAttachSnapshot (&Current);
+    Diff = HavePrevious ? UsbAttachDiffMask (&Previous, &Current) : 0;
+    StickyDiff |= Diff;
+    AttachSeen = (BOOLEAN)(((Current.Osts &
+                             (DWC3_OSTS_VBUSVLD | DWC3_OSTS_BSESVLD)) != 0) ||
+                           (Current.XhciValid &&
+                            (((Current.PortSc[0] | Current.PortSc[1]) &
+                              XHCI_PORTSC_CCS) != 0)));
+
+    gST->ConOut->ClearScreen (gST->ConOut);
+    Print (L"=== B2L USB TANI R%u - CANLI ATTACH MONITOR ===\n",
+           B2L_USB_TEST_REVISION);
+    Print (L"ORNEK=%u ARALIK=2sn ATTACH_GORULEN=%s  Q/ESC=Cikis\n",
+           Sample, AttachSeen ? L"EVET" : L"HAYIR");
+    Print (L"Once kablo TAKILI fotograf; sonra CIKAR, ornek artinca tekrar.\n");
+    Print (L"Yalniz salt-okuma; DWC3/xHCI/PHY/rol/reset/transfer yazmasi yok.\n\n");
+
+    Print (L"DELTA ANLIK PWR=%u DWC=%u DEV=%u OTG=%u XHC=%u PHY=%u\n",
+           (Diff & B2L_USB_DIFF_POWER) != 0,
+           (Diff & B2L_USB_DIFF_GLOBAL) != 0,
+           (Diff & B2L_USB_DIFF_DEVICE) != 0,
+           (Diff & B2L_USB_DIFF_OTG) != 0,
+           (Diff & B2L_USB_DIFF_XHCI) != 0,
+           (Diff & B2L_USB_DIFF_PHY) != 0);
+    Print (L"DELTA BIRIKIM PWR=%u DWC=%u DEV=%u OTG=%u XHC=%u PHY=%u\n",
+           (StickyDiff & B2L_USB_DIFF_POWER) != 0,
+           (StickyDiff & B2L_USB_DIFF_GLOBAL) != 0,
+           (StickyDiff & B2L_USB_DIFF_DEVICE) != 0,
+           (StickyDiff & B2L_USB_DIFF_OTG) != 0,
+           (StickyDiff & B2L_USB_DIFF_XHCI) != 0,
+           (StickyDiff & B2L_USB_DIFF_PHY) != 0);
+    Print (L"PMU DP=%08x USBPHY=%08x\n",
+           Current.PmuUsbDp, Current.PmuUsbPhy);
+    Print (L"DWC GCTL=%08x GSTS=%08x USB2=%08x USB3=%08x\n",
+           Current.Gctl, Current.Gsts,
+           Current.Usb2PhyCfg, Current.Usb3PipeCtl);
+    Print (L"DEV DCFG=%08x DCTL=%08x RUN=%u DSTS=%08x\n",
+           Current.Dcfg, Current.Dctl,
+           (Current.Dctl & DWC3_DCTL_RUN_STOP) != 0,
+           Current.Dsts);
+    Print (L"DEV SPD=%s LINK=%s HLT=%u IDLE=%u RXEMPTY=%u\n",
+           Dwc3SpeedName (Current.Dsts), Dwc3LinkStateName (Current.Dsts),
+           (Current.Dsts & DWC3_DSTS_DEVCTRLHLT) != 0,
+           (Current.Dsts & DWC3_DSTS_COREIDLE) != 0,
+           (Current.Dsts & DWC3_DSTS_RXFIFOEMPTY) != 0);
+    Print (L"OTG OCFG=%08x OCTL=%08x OEVT=%08x EN=%08x\n",
+           Current.Ocfg, Current.Octl, Current.Oevt, Current.Oevten);
+    Print (L"OTG OSTS=%08x ID=%u VBUS=%u BSES=%u XHPP=%u PERI=%u\n",
+           Current.Osts,
+           (Current.Osts & DWC3_OSTS_CONIDSTS) != 0,
+           (Current.Osts & DWC3_OSTS_VBUSVLD) != 0,
+           (Current.Osts & DWC3_OSTS_BSESVLD) != 0,
+           (Current.Osts & DWC3_OSTS_XHCIPRTPOWER) != 0,
+           (Current.Osts & DWC3_OSTS_PERIPHERALSTATE) != 0);
+    if (Current.XhciValid) {
+      Print (L"XHCI STS=%08x HCH=%u PCD=%u\n", Current.XhciUsbSts,
+             (Current.XhciUsbSts & XHCI_USBSTS_HCH) != 0,
+             (Current.XhciUsbSts & XHCI_USBSTS_PCD) != 0);
+      PrintMonitorPort (1, Current.PortSc[0]);
+      PrintMonitorPort (2, Current.PortSc[1]);
+    } else {
+      Print (L"XHCI capability gecersiz; operational/port okunmadi.\n");
+    }
+    Print (L"DRD PHY 10B00000, daha once dogrulanan 000..03C:\n");
+    for (Index = 0; Index < B2L_USB_PHY_SAMPLE_COUNT; Index += 4) {
+      Print (L"%03x=%08x %03x=%08x %03x=%08x %03x=%08x\n",
+             Index * 4, Current.Phy[Index],
+             (Index + 1) * 4, Current.Phy[Index + 1],
+             (Index + 2) * 4, Current.Phy[Index + 2],
+             (Index + 3) * 4, Current.Phy[Index + 3]);
+    }
+
+    Previous     = Current;
+    HavePrevious = TRUE;
+    Sample++;
+    if (!WaitForMonitorTick ()) {
+      break;
+    }
   }
 }
 
@@ -530,28 +942,14 @@ B2LUsbTestEntry (
   }
   ShowSkippedComboPma ();
 
-  if (!PromptForNextStage (L"MAX77705 IRQ ve HSI2C45 GPIO ham seviyeleri")) {
+  if (!PromptForNextStage (
+         L"canli USB monitor; veri kablosu PC'ye TAKILI olsun"
+         )) {
     return EFI_SUCCESS;
   }
-  B2LMax77705ShowGpio ();
+  ShowUsbAttachMonitor ();
 
-  if (!PromptForNextStage (L"HSI2C45 controller salt-okuma 15D60000")) {
-    return EFI_SUCCESS;
-  }
-  if (!B2LMax77705ShowController ()) {
-    Print (L"\nHSI2C45 kalitim clock/timing uygun degil; aktif veri asamasi kapali.\n");
-    PromptForNextStage (L"EFI Shell'e guvenli donus");
-    return EFI_SUCCESS;
-  }
-
-  if (!PromptForNextStage (L"MAX77705 A66 ve fuel-gauge A36 hedefli veri okuma")) {
-    return EFI_SUCCESS;
-  }
-  B2LMax77705ShowData ();
-
-  Print (L"\nR%u USB/MAX77705 TANI TURLARI TAMAMLANDI.\n",
+  Print (L"\nR%u USB CANLI ATTACH TANI TAMAMLANDI.\n",
          B2L_USB_TEST_REVISION);
-  Print (L"Son sayfayi fotografla; tusa basinca EFI Shell'e doner.\n");
-  PromptForNextStage (L"EFI Shell'e donus");
   return EFI_SUCCESS;
 }

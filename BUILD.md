@@ -77,7 +77,7 @@ bash yap.sh --touch --acpi --clean
 # Windows'tan once kareli fabrika tipi dokunmatik testi
 bash yap.sh --touch-test --acpi --clean
 
-# Aşamali USB/MAX77705 tanısı + Windows dokunmatiğini birlikte koru
+# Canlı USB attach tanısı + Windows dokunmatiğini birlikte koru
 bash yap.sh --touch --usb-test --clean
 ```
 
@@ -91,7 +91,7 @@ Bu sürücü UEFI `AbsolutePointer` sağlar. `ExitBootServices` sırasında I²C
 susturur; dolayısıyla Windows açıldıktan sonraki dokunmatik için ayrıca bir
 Windows sürücüsü gerekir.
 
-### EFI Shell USB ve MAX77705 tanısı
+### EFI Shell canlı USB attach tanısı
 
 USB host veya Windows sürücüsü eklenmeden önce DWC3/xHCI/PHY handoff durumu
 ayrı bir EFI Shell uygulamasıyla ölçülür:
@@ -103,12 +103,13 @@ bash cache_esp.sh --win --system --baseline
 ```
 
 `B2LUSB.EFI` SYSTEM ESP'ye konur ve `startup.nsh` tarafından Windows'tan önce
-çalıştırılır. Her sayfayı fotoğrafladıktan sonra bir tuşla sonraki aşamaya
-geçilir; `Esc` veya `Q` yeni pencereyi/işlemi başlatmadan çıkar. İlk dokuz
-sayfa pasiftir. R8'in son sayfası ayrı onayla MAX77705 `0x66` kimlik/şarj ve
-fuel-gauge `0x36` pil kayıtlarını hedefli okur. Yalnız register pointer baytı
-gönderilir; PMIC config, reset, güç veya rol verisi yazılmaz ve USB transferi
-başlatılmaz. HSI2C45'in kalıtılan controller durumu sonda geri yüklenir.
+çalıştırılır. Eski doğrulanmış salt-okuma sayfalarından sonra R9 tek canlı
+ekranda PMU, DWC3 device/OTG, xHCI portları ve ana DRD PHY değerlerini iki
+saniyede bir yeniler. Önce PC veri kablosu takılıyken ekranın fotoğrafı çekilir;
+sonra kablo çıkarılır, `ORNEK` sayacı ilerleyince ikinci fotoğraf çekilir.
+`Esc` veya `Q` monitörü kapatır. R9 DWC3/xHCI başlatmaz; PMU/PHY/rol yazmaz,
+I2C veya USB transferi yapmaz. R8 MAX77705 kaynakları korunur ancak uygulamaya
+bağlanmadığı için bu turda çalıştırılmaz.
 Platform memory map de değiştiği için `cache_esp.sh`, BOOT ve SYSTEM'i
 `out/beyond2lte-usb-diag.tar` içinde birleştirir. Odin AP alanına yalnız bu tek
 arşiv verilir; Re-Partition kapalı kalır.
@@ -122,8 +123,8 @@ flash arşivi üretmez.
 
 Sayfalar sırasıyla FSYS0A'nın doğrulanmış `CONFIG/STATUS/OPTION` alanlarını,
 PMU USB kontrollerini, DWC3+xHCI, device/OTG rolü, USB DRD PHY, combo PCS/PMA
-sonuçlarını, MAX77705 IRQ ve HSI2C45 hat seviyelerini, HSI2C45 controller
-durumunu ve en son hedefli MAX77705 verisini gösterir. R1 cihaz testinde
+sonuçlarını ve tek ekranlı canlı attach monitörünü gösterir. Monitör anlık ve
+birikmiş `PWR/DWC/DEV/OTG/XHC/PHY` değişim bayraklarını da yazdırır. R1 cihaz testinde
 `FSYS0A + 0x14` erişimi
 synchronous external abort verdiğinden R2, `+0x10/+0x14` duration alanlarını
 okumaz ve PMU USB kontrollerini ayrı bir kullanıcı-onaylı aşamada açar. Bir
@@ -187,6 +188,13 @@ PMIC/şarj `0x66` ve fuel-gauge `0x36` okunur. Fuel-gauge register listesi
 Linux MAX77705 tanımıyla sınırlandırılmıştır: `STATUS`, `SOCREP`, `TEMP`,
 `VCELL`, `CURRENT`, `AVG_CURRENT`, `AVG_VCELL`, `OCV`. CC/PD alt aygıtı ve rol
 komutları henüz bu kapsamda değildir.
+R8 cihaz ölçümünde MAX77705 IRQ active-low olarak düşük, SCL/SDA yüksek, fakat
+HSI2C45 controller clock/timing/FIFO kayıtlarının tamamı sıfır çıktı; bu yüzden
+aktif veri aşaması hiç çalışmadı. Bundan sonraki odak USB debug'dır. R9 kablo
+durumunu farklı bootlarda değil aynı boot içinde izleyerek S-Boot başlangıç
+durumunu attach değişiminden ayırır. OTG `VBUS/BSES`, xHCI `CCS/change`, DWC3
+device link state ve bilinen DRD PHY kayıtlarından hangisinin kablo çıkarılırken
+değiştiği iki fotoğrafla görülecektir.
 DT ayrıca PHY init için altı HS ve yirmi SS tune değeri, GPG0-4 PHY port pini
 ve ana PMIC LDO `10/11/12` bağımlılığını içerir; bunlar RAM taraması değil,
 yazmalı init sürücüsünün statik donanım sözleşmesidir.

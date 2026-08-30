@@ -1,11 +1,12 @@
 # B2LUsbTest EFI Shell USB tanısı
 
-`B2LUSB.EFI`, beyond2lte USB yolunun aşamalı EFI tanısıdır. İlk dokuz sayfa
-USB/PHY, GPIO ve HSI2C45 controller durumunu pasif okur. R8'in ayrıca onaylanan
-son sayfası yalnız MAX77705 kimlik/şarj durumu ve fuel-gauge pil verisini okur.
-USB transferi, PMIC/rol/reset komutu veya kör I2C taraması başlatmaz. I2C write
-mesajları yalnız bir baytlık register adresini seçer; aygıta config verisi
-yazılmaz ve HSI2C45'in devralınan durumu iş bitince geri yüklenir.
+`B2LUSB.EFI`, beyond2lte USB yolunun aşamalı EFI tanısıdır. R9, eski pasif
+harita sayfalarının ardından tek ekranda iki saniyede bir PMU, DWC3 device/OTG,
+xHCI portları ve doğrulanmış ana DRD PHY kayıtlarını yeniler. Önce PC veri
+kablosu takılıyken, sonra aynı boot içinde kablo çıkarıldıktan sonra bu ekranın
+fotoğrafı alınır. Uygulama DWC3/xHCI başlatmaz; PHY, rol veya PMU yazmaz ve USB
+transferi yapmaz. R8 MAX77705 yardımcı kaynağı ağaçta korunur fakat R9
+uygulamasına bağlanmaz ve çalıştırılmaz.
 
 Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
 
@@ -16,9 +17,9 @@ Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
 5. USB DRD PHY ana penceresinin doğrulanmış ilk 64 baytı,
 6. combo PHY PCS için önceki abort sonucu; MMIO okuması yok,
 7. combo PHY PMA için önceki abort sonucu; MMIO okuması yok,
-8. `GPA1-6` MAX77705 IRQ ile `GPM12-0/GPM13-0` SCL/SDA ham GPIO seviyeleri,
-9. HSI2C45 `0x15D60000` seçili controller/timing registerleri; yalnız okuma,
-10. ayrı onayla MAX77705 `0x66` kimlik/şarj ve fuel-gauge `0x36` pil verisi.
+8. tek ekranlı canlı attach monitörü: iki saniyelik örneklerle anlık ve birikmiş
+   `PWR/DWC/DEV/OTG/XHC/PHY` değişim bayrakları, DWC3 bağlantı hızı/link state,
+   OTG `VBUS/B-session`, xHCI `CCS/PLS/change` ve DRD PHY `0x00..0x3c`.
 
 R1 cihaz testinde `FSYS0A + 0x14` (`0x15862214`) erişimi synchronous external
 abort üretti. R2 bu erişimi ve aynı bilinmeyen duration grubundaki `+0x10`
@@ -53,6 +54,14 @@ R8 bu nedenle GPIO, controller ve aktif veri adımlarını üç ayrı onaya böl
 HSI2C45 clock/timing kalıtımı uygun değilse uygulama MAX77705 transferini
 otomatik atlar. Kullanıcı da her onay ekranında `Esc`/`Q` ile durabilir.
 
+R8 cihaz ölçümünde MAX77705 IRQ hattı active-low olarak düşük, HSI2C45 SCL ve
+SDA yüksek bulundu; buna karşılık HSI2C45 clock, timing ve FIFO kayıtlarının
+tamamı sıfırdı. Aktif MAX77705 veri aşaması bu yüzden güvenli biçimde
+başlatılmadı. Çalışma yönü yeniden USB debug'a çevrildi. R9 farklı bootları
+karşılaştırmak yerine aynı bootta canlı değişimi yakalar: monitor açıldığında
+kablo PC'ye takılı tutulur ve ilk fotoğraf çekilir; kablo çıkarılır, `ORNEK`
+sayacı arttıktan sonra ikinci fotoğraf çekilir. `Q` veya `Esc` monitörü kapatır.
+
 Her sayfa sonraki erişimden **önce** fotoğraflanmalıdır. Bir pencere saat veya
 güç kapalı olduğu için sistemi kilitlerse son görülen sayfa erişim sınırını
 belirler. `Esc` veya `Q` sonraki pencereyi okumadan uygulamadan çıkar.
@@ -71,8 +80,9 @@ yalnız bu dosya AP alanından, **Re-Partition kapalı** olarak flashlanır.
 Uygulama SYSTEM ESP kökünde `B2LUSB.EFI` adıyla bulunur ve `startup.nsh` dosya
 mevcutsa onu Windows'tan önce çalıştırır.
 
-Bu turun başarı ölçütü bir USB aygıtının enumerate olması değildir. Beklenen
-çıktı; HSI2C45'in erişilebilir ve boşta olması, MAX77705 PMIC kimliğinin
-okunması ve fuel-gauge `STATUS/SOC/TEMP/VCELL/CURRENT/AVG/OCV` değerlerinin
-tutarlı görünmesidir. Type-C CC/PD alt aygıtı bu turda hedeflenmez; onun adres
-ve register sözleşmesi ayrıca doğrulanmadan rol komutu eklenmez.
+Bu turun başarı ölçütü USB enumeration değildir. İki fotoğrafta `ORNEK`
+sayısının farklı olması ve kablo çıkarıldığında hangi blokların `DELTA ANLIK`
+ve `DELTA BIRIKIM` bayrağı ürettiğinin görülmesi yeterlidir. Hiçbir blok
+değişmezse sorun DWC3/xHCI'den önceki attach/role handoff sınırındadır; OTG
+`VBUS/BSES` değişip device `RUN=0/HLT=1` kalırsa sonraki kontrollü adım DWC3
+device başlatmasıdır.

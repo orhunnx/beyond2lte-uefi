@@ -8,7 +8,6 @@
 
 [Sources]
   B2LUsbTest.c
-  B2LMax77705.c
 
 [Packages]
   MdePkg/MdePkg.dec
@@ -19,6 +18,3 @@
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
   UefiLib
-
-[Protocols]
-  gEfiGpioProtocolGuid
