@@ -24,7 +24,7 @@
 #include <Library/UefiLib.h>
 #include <Protocol/SimpleTextIn.h>
 
-#define B2L_USB_TEST_REVISION       2
+#define B2L_USB_TEST_REVISION       3
 
 #define B2L_DWC3_BASE               0x10C00000ULL
 #define B2L_USB_PHY_BASE            0x10B00000ULL

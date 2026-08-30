@@ -105,8 +105,10 @@ bash cache_esp.sh --win --system --baseline
 çalıştırılır. Her sayfayı fotoğrafladıktan sonra bir tuşla sonraki MMIO
 penceresine geçilir; `Esc` veya `Q` yeni pencereyi okumadan çıkar. Uygulama
 register yazmaz, reset/clock/regulator işlemi yapmaz, MAX77705'e I²C komutu
-göndermez ve USB transferi başlatmaz. İlk turda Odin'e yalnız
-`out/system-esp.tar` AP alanından verilir; Re-Partition kapalı kalır.
+göndermez ve USB transferi başlatmaz. R3'te platform memory map de değiştiği
+için `cache_esp.sh`, BOOT ve SYSTEM'i `out/beyond2lte-usb-diag.tar` içinde
+birleştirir. Odin AP alanına yalnız bu tek arşiv verilir; Re-Partition kapalı
+kalır.
 
 Sayfalar sırasıyla FSYS0A'nın doğrulanmış `CONFIG/STATUS/OPTION` alanlarını,
 PMU USB kontrollerini, DWC3+xHCI, device/OTG rolü, USB DRD PHY, combo PCS ve
@@ -116,6 +118,12 @@ okumaz ve PMU USB kontrollerini ayrı bir kullanıcı-onaylı aşamada açar. Bi
 sonraki yazmalı host-init turu ancak bu değerler cihazda fotoğraflanıp DWC3
 kimliği ve xHCI capability
 alanları doğrulandıktan sonra hazırlanır.
+
+R2 cihaz ölçümünde FSYS0A `CONFIG/STATUS=1`, `OPTION=0x10`; PMU
+`USBDP/USBPHY=0` bulundu. İlk DWC3 okuması `0x10C0C120` üzerinde level-2
+translation fault verdi. R3, merged stok DT'de `okay` olan DWC3 ve üç PHY
+penceresini mevcut güvenli `MemoryMapLib` device-MMIO mekanizmasıyla eşler;
+DRAM ve reserved-memory descriptor'larına dokunmaz.
 
 `--touch-test` önce Android DT'deki 47 HSI2C denetleyicisinin adres ve açık/
 kapalı haritasını, ardından DT'de ilan edilmiş slave adlarını gösterir. Kamera,

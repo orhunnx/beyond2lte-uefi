@@ -19,6 +19,12 @@ abort üretti. R2 bu erişimi ve aynı bilinmeyen duration grubundaki `+0x10`
 okumasını yapmaz. FSYS0A ile PMU USB kontrolleri de ayrı kullanıcı onaylarına
 bölünmüştür.
 
+R2 cihaz testinde FSYS0A `CONFIG/STATUS=1`, `OPTION=0x10`; PMU
+`USBDP/USBPHY=0` okundu. İlk DWC3 erişimi `GSNPSID @ 0x10C0C120` ise
+`ESR=0x96000006` ile level-2 translation fault verdi. R3, merged stok DT'nin
+etkin DWC3 ve üç PHY aralığını platform `MemoryMapLib` tablosunda non-secure
+Device MMIO olarak eşler. DRAM veya reserved-memory bölgelerini değiştirmez.
+
 Her sayfa sonraki erişimden **önce** fotoğraflanmalıdır. Bir pencere saat veya
 güç kapalı olduğu için sistemi kilitlerse son görülen sayfa erişim sınırını
 belirler. `Esc` veya `Q` sonraki pencereyi okumadan uygulamadan çıkar.
@@ -30,9 +36,11 @@ bash yap.sh --usb-test --clean
 bash cache_esp.sh --win --system --baseline
 ```
 
-Odin'de `out/system-esp.tar` yalnız AP alanından, **Re-Partition kapalı**
-olarak flashlanır. Uygulama SYSTEM ESP kökünde `B2LUSB.EFI` adıyla bulunur ve
-`startup.nsh` dosya mevcutsa onu Windows'tan önce çalıştırır.
+R3'te BOOT sayfa tablosu ile SYSTEM ESP'deki uygulama birlikte değişir.
+Paketleyici ikisini `out/beyond2lte-usb-diag.tar` içinde birleştirir. Odin'de
+yalnız bu dosya AP alanından, **Re-Partition kapalı** olarak flashlanır.
+Uygulama SYSTEM ESP kökünde `B2LUSB.EFI` adıyla bulunur ve `startup.nsh` dosya
+mevcutsa onu Windows'tan önce çalıştırır.
 
 Bu turun başarı ölçütü bir USB aygıtının enumerate olması değildir. Beklenen
 çıktı; tutarlı DWC3 `GSNPSID`, geçerli xHCI `CAPLENGTH/HCIVERSION`, makul port

@@ -194,6 +194,18 @@ gMemoryDescriptor[] = {
   {"WDT CL2",            0x10060000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"GICD",               0x10101000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"GICC",               0x10102000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
+
+  // USB bring-up MMIO pencereleri. R2 EFI Shell tanisinda PMU/FSYS0A
+  // erisimleri tamamlandi, ancak ilk DWC3 erisimi olan GSNPSID
+  // (0x10C0C120) level-2 translation fault verdi. Bu bir DWC3 bus cevabi
+  // degil, CPU sayfa tablosunda 0x10C00000 penceresinin bulunmadiginin
+  // kanitidir. Stock DT boyutlarini 4 KiB sayfa sinirina yukari yuvarlayarak
+  // yalniz gereken dort pencereyi non-secure Device MMIO olarak esliyoruz.
+  {"USB DRD PHY",        0x10B00000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
+  {"USB Combo PCS",      0x10AE0000, 0x00003000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
+  {"USB Combo PMA",      0x10AF0000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
+  {"USB DWC3 xHCI",      0x10C00000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
+
   {"PMU",                0x15860000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"Decon",              0x19030000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"Clock Controller",   0x1A240000, 0x00008000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},

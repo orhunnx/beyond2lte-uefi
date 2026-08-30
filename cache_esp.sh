@@ -531,6 +531,8 @@ fi
 say "Odin icin sparse imaj + tar"
 WORK="$(mktemp -d)"
 TOUCH_BUNDLE=""
+USB_BUNDLE=""
+rm -f "$OUT/beyond2lte-usb-diag.tar"
 if command -v img2simg >/dev/null; then
   img2simg "$IMG" "$WORK/$PART.img"
   MAGIC=$(od -An -tx4 -N4 "$WORK/$PART.img" | tr -d ' ')
@@ -559,6 +561,26 @@ if [ "$PART" = system ] && [ -s "$PROJ/esp/B2LTOUCH.EFI" ] && \
     exit 1
   fi
 fi
+
+# USB R3 tanisi da iki bolumu birlikte gerektirir: BOOT'taki platform memory
+# map DWC3/PHY pencerelerini esler, SYSTEM ESP'deki B2LUSB.EFI ise salt-okuma
+# olcumunu yapar. Iki dosyanin farkli turlardan kalmasini onlemek icin tek
+# Odin AP arsivi uret.
+if [ "$PART" = system ] && [ -s "$PROJ/esp/B2LUSB.EFI" ]; then
+  if [ ! -s "$OUT/uefi-boot.tar" ]; then
+    echo "HATA: B2LUSB.EFI var ama out/uefi-boot.tar yok; once yap.sh --usb-test calistir."
+    rm -rf "$WORK"
+    exit 1
+  elif tar -tf "$OUT/uefi-boot.tar" | grep -qx 'boot.img'; then
+    tar -xf "$OUT/uefi-boot.tar" -C "$WORK" boot.img
+    USB_BUNDLE="$OUT/beyond2lte-usb-diag.tar"
+    ( cd "$WORK" && tar -H ustar -cf "$USB_BUNDLE" boot.img system.img )
+  else
+    echo "HATA: out/uefi-boot.tar icinde boot.img yok; USB tek-flas tani paketi uretilmedi."
+    rm -rf "$WORK"
+    exit 1
+  fi
+fi
 rm -rf "$WORK"
 
 say "Cikti"
@@ -566,6 +588,10 @@ ls -lh "$IMG" "$OUT/$PART-esp.tar"
 if [ -n "$TOUCH_BUNDLE" ]; then
   ls -lh "$TOUCH_BUNDLE"
   echo "  TEK FLAS: beyond2lte-touch-diag.tar -> BOOT + SYSTEM"
+fi
+if [ -n "$USB_BUNDLE" ]; then
+  ls -lh "$USB_BUNDLE"
+  echo "  TEK FLAS: beyond2lte-usb-diag.tar -> BOOT + SYSTEM"
 fi
 
 for p in /mnt/c/Users/*/OneDrive/Masa*st* /mnt/c/Users/*/OneDrive/Desktop \
@@ -576,6 +602,9 @@ for p in /mnt/c/Users/*/OneDrive/Masa*st* /mnt/c/Users/*/OneDrive/Desktop \
   if [ -n "$TOUCH_BUNDLE" ]; then
     cp -f "$TOUCH_BUNDLE" "$p/beyond2lte-flash/"
   fi
+  if [ -n "$USB_BUNDLE" ]; then
+    cp -f "$USB_BUNDLE" "$p/beyond2lte-flash/"
+  fi
   echo
   echo "Masaustune kopyalandi: $p/beyond2lte-flash"
   echo "  $PART-esp.tar  -> Odin, AP slotu (Re-Partition ISARETSIZ)"
@@ -583,6 +612,9 @@ for p in /mnt/c/Users/*/OneDrive/Masa*st* /mnt/c/Users/*/OneDrive/Desktop \
   echo "  hedef bolum: $(echo "$PART" | tr a-z A-Z)"
   if [ -n "$TOUCH_BUNDLE" ]; then
     echo "  beyond2lte-touch-diag.tar -> TEK Odin AP flasi (BOOT + SYSTEM)"
+  fi
+  if [ -n "$USB_BUNDLE" ]; then
+    echo "  beyond2lte-usb-diag.tar -> TEK Odin AP flasi (BOOT + SYSTEM)"
   fi
   break
 done
