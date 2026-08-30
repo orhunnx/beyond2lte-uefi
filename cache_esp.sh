@@ -358,7 +358,14 @@ verify_winpe_b2lufs_package() {
 verify_winpe_b2ltouch_package() {
   local VerifyDir ExpectedSys ManifestSys OskDir OskManifestDir ExpectedOsk ManifestOsk
 
-  [ -s "$PROJ/out/b2ltouch/b2ltouch.sys" ] || return 0
+  if [ ! -s "$PROJ/out/b2ltouch/b2ltouch.sys" ]; then
+    if [ -s "$PROJ/esp/B2LUSB.EFI" ]; then
+      echo "HATA: USB tani paketi Windows dokunmatigi korumali; b2ltouch.sys yok."
+      echo "Once WSL'de: bash tools_b2ltouch.sh"
+      return 1
+    fi
+    return 0
+  fi
   [ -s "$PROJ/esp/sources/boot.wim" ] || {
     echo "HATA: B2LTOUCH SYS var ama boot.wim yok. Once tools_b2ltouch.sh calistir."
     return 1

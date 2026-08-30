@@ -22,7 +22,7 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | DSDT UFS düğümü | ✅ numaralanıyor, `_HID` geçici |
 | UEFI'den UFS'e **yazma** | ✅ çalışıyor (`WriteBlocks` Success, dizin girdisi oluşuyor) |
 | EFI Shell `>a` yönlendirmesi | ❌ `Invalid Parameter` — dosya değil, kabuk sorunu |
-| USB | 🧪 EFI Shell salt-okuma DWC3/xHCI/PHY tanısı hazır; cihaz ölçümü bekleniyor |
+| USB | 🧪 DWC_usb31/xHCI/DRD PHY doğrulandı; combo PCS `+0x0C` abortu R5 ile izole ediliyor |
 | **Linux (ACPI, DTB yok)** | ✅ 8 CPU açılıyor, initramfs'e kadar |
 | Windows Boot Manager | ✅ çalışıyor, ekran çiziyor, ESP'den okuyor |
 | Windows çekirdeği (`ntoskrnl`) | ✅ başlıyor |

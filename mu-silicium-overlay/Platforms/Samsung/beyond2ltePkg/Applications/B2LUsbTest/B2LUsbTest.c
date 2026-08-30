@@ -24,7 +24,7 @@
 #include <Library/UefiLib.h>
 #include <Protocol/SimpleTextIn.h>
 
-#define B2L_USB_TEST_REVISION       4
+#define B2L_USB_TEST_REVISION       5
 
 #define B2L_DWC3_BASE               0x10C00000ULL
 #define B2L_USB_PHY_BASE            0x10B00000ULL
@@ -35,6 +35,7 @@
 
 #define B2L_PMU_USBDP_CTRL          0x0704
 #define B2L_PMU_USB_PHY_CTRL        0x072C
+#define B2L_USB_PCS_ABORT_OFFSET    0x000C
 
 #define DWC3_GSBUSCFG0              0xC100
 #define DWC3_GSBUSCFG1              0xC104
@@ -428,19 +429,30 @@ ShowPhyWindow (
   IN CONST CHAR16  *Name,
   IN UINTN          Base,
   IN UINTN          Length,
-  IN UINTN          Stage
+  IN UINTN          ReadLength,
+  IN UINTN          Stage,
+  IN BOOLEAN        SkipOffsetValid,
+  IN UINTN          SkipOffset
   )
 {
-  UINTN  Offset;
+  UINTN   Offset;
+  UINT32  Value;
 
   gST->ConOut->ClearScreen (gST->ConOut);
   Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA %u %s ===\n",
          B2L_USB_TEST_REVISION, Stage, Name);
-  Print (L"BASE=%08x DT_LEN=%x OKUNAN=0..3C\n\n", Base, Length);
-  for (Offset = 0; Offset < 0x40; Offset += 0x10) {
-    Print (L"%03x: %08x %08x %08x %08x\n", Offset,
-           Read32 (Base, Offset + 0x00), Read32 (Base, Offset + 0x04),
-           Read32 (Base, Offset + 0x08), Read32 (Base, Offset + 0x0C));
+  Print (L"BASE=%08x DT_LEN=%x OKUNAN=0..%02x\n\n",
+         Base, Length, ReadLength - sizeof (UINT32));
+  for (Offset = 0; Offset < ReadLength; Offset += sizeof (UINT32)) {
+    if (SkipOffsetValid && (Offset == SkipOffset)) {
+      Print (L"%03x: ATLANDI - R4 cihaz testinde external abort\n", Offset);
+      continue;
+    }
+
+    // Adresi MMIO'dan once yazdir: yeni bir abort olursa son erisim bellidir.
+    Print (L"%03x: ", Offset);
+    Value = Read32 (Base, Offset);
+    Print (L"%08x\n", Value);
   }
   Print (L"\nGenis tarama yok; read-clear olabilecek bilinmeyen alanlar okunmadi.\n");
 }
@@ -482,17 +494,20 @@ B2LUsbTestEntry (
   if (!PromptForNextStage (L"USB DRD PHY ana pencere 10B00000")) {
     return EFI_SUCCESS;
   }
-  ShowPhyWindow (L"USB DRD PHY", B2L_USB_PHY_BASE, 0x200, 5);
+  ShowPhyWindow (L"USB DRD PHY", B2L_USB_PHY_BASE, 0x200, 0x40,
+                 5, FALSE, 0);
 
   if (!PromptForNextStage (L"combo PHY PCS penceresi 10AE0000")) {
     return EFI_SUCCESS;
   }
-  ShowPhyWindow (L"COMBO PHY PCS", B2L_USB_PCS_BASE, 0x2800, 6);
+  ShowPhyWindow (L"COMBO PHY PCS", B2L_USB_PCS_BASE, 0x2800, 0x10,
+                 6, TRUE, B2L_USB_PCS_ABORT_OFFSET);
 
   if (!PromptForNextStage (L"combo PHY PMA penceresi 10AF0000")) {
     return EFI_SUCCESS;
   }
-  ShowPhyWindow (L"COMBO PHY PMA", B2L_USB_PMA_BASE, 0x800, 7);
+  ShowPhyWindow (L"COMBO PHY PMA", B2L_USB_PMA_BASE, 0x800, 0x10,
+                 7, FALSE, 0);
 
   Print (L"\nR%u SALT OKUMA TURLARI TAMAMLANDI.\n", B2L_USB_TEST_REVISION);
   Print (L"Son sayfayi fotografla; tusa basinca EFI Shell'e doner.\n");

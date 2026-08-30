@@ -15,6 +15,12 @@ grep -q 'B2LUSB.EFI' "$ROOT/esp/startup-baseline.nsh"
 grep -q 'beyond2lte-usb-diag.tar' "$ROOT/cache_esp.sh"
 grep -q 'DWC3_IP_DWC31[[:space:]]*0x33310000U' "$APP"
 grep -q 'DWC3_VER_NUMBER[[:space:]]*0xC1A0' "$APP"
+grep -q 'B2L_USB_TEST_REVISION[[:space:]]*5' "$APP"
+grep -q 'B2L_USB_PCS_ABORT_OFFSET[[:space:]]*0x000C' "$APP"
+rg -q -U 'ShowPhyWindow \(L"COMBO PHY PCS", B2L_USB_PCS_BASE, 0x2800, 0x10,\s+6, TRUE, B2L_USB_PCS_ABORT_OFFSET\)' "$APP"
+grep -q 'if (SkipOffsetValid && (Offset == SkipOffset))' "$APP"
+grep -q 'bash yap.sh --touch --usb-test --clean' "$ROOT/BUILD.md"
+grep -q 'USB tani paketi Windows dokunmatigi korumali; b2ltouch.sys yok' "$ROOT/cache_esp.sh"
 
 for Address in 10C00000 10B00000 10AE0000 10AF0000 15860000 15862200; do
   grep -q "$Address" "$APP"
@@ -47,6 +53,11 @@ fi
 
 if rg -n 'B2L_PD_FSYS0A_BASE, 0x1[04]' "$APP"; then
   echo 'HATA: cihazda external abort veren FSYS0A duration alani okunuyor' >&2
+  exit 1
+fi
+
+if rg -n 'Read32 \(B2L_USB_PCS_BASE, B2L_USB_PCS_ABORT_OFFSET\)' "$APP"; then
+  echo 'HATA: cihazda external abort veren combo PCS +0x0C dogrudan okunuyor' >&2
   exit 1
 fi
 

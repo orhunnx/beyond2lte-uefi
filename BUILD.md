@@ -77,8 +77,8 @@ bash yap.sh --touch --acpi --clean
 # Windows'tan once kareli fabrika tipi dokunmatik testi
 bash yap.sh --touch-test --acpi --clean
 
-# Salt-okuma USB bring-up uygulamasi (Windows/ACPI USB aygiti eklemez)
-bash yap.sh --usb-test --clean
+# Salt-okuma USB bring-up + Windows dokunmatik hazırlığını birlikte koru
+bash yap.sh --touch --usb-test --clean
 ```
 
 `--touch`, `--acpi` seçeneğini zaten zorunlu kılar; komutta ayrıca yazılması
@@ -97,7 +97,8 @@ USB host veya Windows sürücüsü eklenmeden önce DWC3/xHCI/PHY handoff durumu
 ayrı bir EFI Shell uygulamasıyla ölçülür:
 
 ```bash
-bash yap.sh --usb-test --clean
+bash yap.sh --touch --usb-test --clean
+bash tools_b2ltouch.sh
 bash cache_esp.sh --win --system --baseline
 ```
 
@@ -109,6 +110,13 @@ göndermez ve USB transferi başlatmaz. R3'te platform memory map de değiştiğ
 için `cache_esp.sh`, BOOT ve SYSTEM'i `out/beyond2lte-usb-diag.tar` içinde
 birleştirir. Odin AP alanına yalnız bu tek arşiv verilir; Re-Partition kapalı
 kalır.
+
+Bu üç komut WSL'de çalıştırılır. Birinci komuttaki `--touch`, BOOT içinde
+B2LTouchDxe, HSI2C hazırlığı ve TSP0 ACPI tanımını korurken `--usb-test` ayrı
+salt-okuma uygulamasını ekler. İkinci komut ARM64 `b2ltouch.sys` paketini
+WinPE'ye yeniden yerleştirir. USB tanı dosyası varken `cache_esp.sh`, yerel
+`b2ltouch.sys` yoksa veya WIM manifestindeki SYS özeti onunla aynı değilse
+flash arşivi üretmez.
 
 Sayfalar sırasıyla FSYS0A'nın doğrulanmış `CONFIG/STATUS/OPTION` alanlarını,
 PMU USB kontrollerini, DWC3+xHCI, device/OTG rolü, USB DRD PHY, combo PCS ve
@@ -130,6 +138,17 @@ xHCI 1.10 capability geçerli, denetleyici `DEVICE` rolde, host halted fakat
 hatasız ve iki port powered/bağlantısızdır. R4, Linux'un doğruladığı
 `DWC31_IP=0x3331` kimliğini kabul eder, ayrı `VER_NUMBER/VER_TYPE` alanlarını
 okur ve kalan role/PHY salt-okuma aşamalarına devam eder.
+
+R4 ölçümü çekirdeği `VER_NUMBER=0x3137302A` ile DWC_usb31 1.70a olarak
+doğruladı. Device registerleri okunabildi; OTG registerleri sıfır, ana USB DRD
+PHY'nin ilk `0x40` baytı erişilebilir bulundu. Combo PCS'nin `0x10AE000C`
+adresi ise eşlenmiş device-MMIO içinden synchronous external abort verdi. Bu,
+sayfa tablosu eksikliğinden farklı olarak erişim anındaki bus/power/clock veya
+izolasyon durumuna işaret eder; sebep henüz tek başına kanıtlanmış değildir.
+R5, bilinen `PCS +0x0C` erişimini atlar, PCS'de yalnız `+0/+4/+8` ve PMA'da
+yalnız ilk dört 32-bit kaydı okur. Her adres değerden önce ayrı yazdırılır ve
+her MMIO çağrısı ayrı tam ifadedir; yeni bir abortun kesin kaydı ve sırası
+fotoğraftan belirlenebilir.
 
 `--touch-test` önce Android DT'deki 47 HSI2C denetleyicisinin adres ve açık/
 kapalı haritasını, ardından DT'de ilan edilmiş slave adlarını gösterir. Kamera,
