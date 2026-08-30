@@ -10,9 +10,9 @@ Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
 2. PMU içindeki USB PHY kontrol değerleri,
 3. DWC3 kimliği/globalleri ile xHCI capability, operational ve port durumu,
 4. DWC3 device/OTG rol registerleri,
-5. USB DRD PHY ana penceresinin ilk 64 baytı,
-6. combo PHY PCS penceresinin ilk 64 baytı,
-7. combo PHY PMA penceresinin ilk 64 baytı.
+5. USB DRD PHY ana penceresinin doğrulanmış ilk 64 baytı,
+6. combo PHY PCS için önceki abort sonucu; MMIO okuması yok,
+7. combo PHY PMA için önceki abort sonucu; MMIO okuması yok.
 
 R1 cihaz testinde `FSYS0A + 0x14` (`0x15862214`) erişimi synchronous external
 abort üretti. R2 bu erişimi ve aynı bilinmeyen duration grubundaki `+0x10`
@@ -33,6 +33,12 @@ hatasız; iki port powered fakat bağlantısızdı. Eski doğrulama yalnız
 kimliğini kabul eder, DWC_usb31 `VER_NUMBER/VER_TYPE` alanlarını gösterir ve
 salt-okuma role/PHY aşamalarını açar.
 
+R4-R6 ölçümleri kablo takılı değilken yapıldı. Ana DRD PHY okunabildi; combo
+PCS `+0x00/+0x0C` ve combo PMA `+0x00` erişimleri synchronous external abort
+verdi. R7 bu iki combo penceresini hiç okumaz. Kablo etkisi önce PC veri
+kablosu boot öncesinde takılarak güvenli PMU, DWC3/xHCI ve ana DRD PHY
+sayfalarında karşılaştırılır.
+
 Her sayfa sonraki erişimden **önce** fotoğraflanmalıdır. Bir pencere saat veya
 güç kapalı olduğu için sistemi kilitlerse son görülen sayfa erişim sınırını
 belirler. `Esc` veya `Q` sonraki pencereyi okumadan uygulamadan çıkar.
@@ -40,7 +46,8 @@ belirler. `Esc` veya `Q` sonraki pencereyi okumadan uygulamadan çıkar.
 Derleme ve paketleme:
 
 ```bash
-bash yap.sh --usb-test --clean
+bash yap.sh --touch --usb-test --clean
+bash tools_b2ltouch.sh
 bash cache_esp.sh --win --system --baseline
 ```
 

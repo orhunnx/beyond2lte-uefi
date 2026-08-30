@@ -158,6 +158,32 @@ edilirse combo PMA'da yalnız `0x10AF0000 + 0x00` okunur. Bu onay ekranında
 `Esc` veya `Q`, PMA erişimini yapmadan uygulamadan çıkar ve startup betiğinin
 Windows yoluna devam etmesini sağlar.
 
+R1-R6 cihaz ölçümlerinin tamamı USB-C kablosu takılı değilken yapıldı. R6'da
+PMA'nın ilk erişimi `0x10AF0000 + 0x00` da synchronous external abort verdi.
+Bu sonuçlar combo PHY'nin kablosuz/attach olmayan durumda power-clock veya
+izolasyon altında olmasıyla uyumludur; kalıcı donanım arızası kanıtı değildir.
+R7 hem PCS hem PMA sayfalarında hiç MMIO okumaz, önceki sonucu gösterip
+Windows'a güvenli biçimde döner. Sonraki karşılaştırma cihaz açılmadan önce
+PC'ye USB veri kablosu takılarak yapılır; PMU, DWC3/xHCI `PORTSC/GSTS` ve ana
+DRD PHY sayfaları fotoğraflanır. Combo pencereler, attach durumunda bile bu
+güvenli alanlarda bir değişiklik görülmeden tekrar okunmaz.
+
+DT ve platform bellek haritası denetiminde kablo durumu için kullanılabilecek
+başka bir güvenli RAM hücresi bulunmadı. Mevcut eşli ve cihazda doğrulanmış
+salt-okuma yolu PMU `0x15860000`, FSYS0A, DWC3/xHCI ve ana DRD PHY'dir. Clock
+controller `0x1A240000` eşlidir; fakat DT clock kimlikleri (`0x11D/0x120` ve
+`0x01/0x11D`) MMIO offseti değildir, Samsung clock sürücüsünün kimlik-offset
+tablosu bulunmadan kör okunmaz veya yazılmaz. Gerçek Type-C attach/CC/PD
+durumu rezerve DRAM'de değil, DT'ye göre HSI2C45 `0x15D60000` üzerindeki
+MAX77705 `0x66` aygıtındadır; IRQ hattı `GPA1-6`, HSI2C IRQ'su SPI `0x52`
+(GSIV 114), pinleri `GPM12-0/GPM13-0` function 2'dir. Bu denetleyici mevcut
+USB uygulamasında map edilmez veya probe edilmez. Bir sonraki aktif keşif,
+Samsung MAX77705 register sözleşmesi doğrulanıp yalnız hedefli kimlik ve
+CC-status okumaları tanımlandıktan sonra ayrı kullanıcı-onaylı aşama olacaktır.
+DT ayrıca PHY init için altı HS ve yirmi SS tune değeri, GPG0-4 PHY port pini
+ve ana PMIC LDO `10/11/12` bağımlılığını içerir; bunlar RAM taraması değil,
+yazmalı init sürücüsünün statik donanım sözleşmesidir.
+
 `--touch-test` önce Android DT'deki 47 HSI2C denetleyicisinin adres ve açık/
 kapalı haritasını, ardından DT'de ilan edilmiş slave adlarını gösterir. Kamera,
 EEPROM, PMIC ve şarj cihazlarına kör aktif tarama göndermez. Yalnız firmware'in
