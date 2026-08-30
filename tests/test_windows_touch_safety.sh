@@ -49,7 +49,7 @@ fi
 grep -q 'Services\\b2ltouch" /v B2LTouchStage' "$ROOT/windows/startnet.cmd"
 grep -q 'DriverVer=08/30/2026,0.2.0.0' "$INF"
 grep -q 'B2LTOUCH_DRIVER_VERSION=0.2.0.0' "$ROOT/tools_b2ltouch.sh"
-grep -q 'B2LTOUCH_PACKAGE=sec-ts-kmdf-vhf-ten-contact' "$ROOT/tools_b2ltouch.sh"
+grep -q 'B2LTOUCH_PACKAGE=sec-ts-kmdf-vhf-ten-contact-live-diag' "$ROOT/tools_b2ltouch.sh"
 grep -q 'B2LTouchLaunchKeyboard' "$ROOT/windows/startnet.cmd"
 grep -q 'TabTip.exe' "$ROOT/windows/startnet.cmd"
 grep -q 'System32\\osk.exe' "$ROOT/windows/startnet.cmd"
@@ -57,6 +57,15 @@ if rg -q 'b2losk|B2LTOUCH_OSK_SHA256' "$ROOT/windows" "$ROOT/tools_b2ltouch.sh";
   echo "HATA: yerel Windows klavyesi yerine paketlenmis ozel OSK bulundu" >&2
   exit 1
 fi
+grep -q 'B2LTouchLaunchMultiTouchTest' "$ROOT/windows/startnet.cmd"
+grep -q 'b2lmt.exe' "$ROOT/windows/startnet.cmd"
+grep -q 'B2LTOUCH_MT_SHA256=' "$ROOT/tools_b2ltouch.sh"
+grep -Fq "'b2lmt.c'" "$WIN/build-b2ltouch.ps1"
+grep -q '/MT ' "$WIN/build-b2ltouch.ps1"
+grep -q 'WM_POINTERDOWN' "$WIN/b2lmt.c"
+grep -q 'GetPointerInfo' "$WIN/b2lmt.c"
+grep -q 'WM_TOUCH' "$WIN/b2lmt.c"
+grep -q 'MOUSE ONLY' "$WIN/b2lmt.c"
 
 grep -q '#define B2L_HSI2C_PHYSICAL_BASE 0x104B0000ULL' "$WIN/b2ltouch.h"
 grep -q '#define B2L_USI_PHYSICAL_BASE    0x10421000ULL' "$WIN/b2ltouch.h"

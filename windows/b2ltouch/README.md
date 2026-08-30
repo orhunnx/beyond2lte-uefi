@@ -61,9 +61,10 @@ tar -tf out/beyond2lte-touch-diag.tar
 
 `tools_b2ltouch.sh`, PowerShell'i WSL'den tek satırda çağırır. PowerShell
 kaynakları Windows TEMP'e kopyalar, yerel `cl.exe/link.exe` ile ARM64 KMDF 1.15
-ve `VhfKm.lib` kullanarak derler. Ardından WSL tarafı mevcut beyond2lte test
-sertifikasıyla SYS/CAT paketini imzalar, WinPE WIM'e ekler ve geri okuyup hash
-doğrulaması yapar.
+ve `VhfKm.lib` kullanarak sürücüyü; `/MT` ile de bağımsız ARM64 multi-touch test
+uygulamasını derler. Ardından WSL tarafı mevcut beyond2lte test sertifikasıyla
+SYS/CAT/EXE paketini imzalar, WinPE WIM'e ekler ve geri okuyup hash doğrulaması
+yapar.
 
 PowerShell derlemesini tek başına çalıştırmak gerekirse Windows PowerShell'de
 satır sonuna `\` koymadan tek satır kullan:
@@ -86,4 +87,11 @@ Microsoft `vhf` kernel-service kaydını mevcut `reg.exe` ile oturumluk oluştur
 `ACPI\BYN0001`, onun VHF çocuğu ise HID uyumlu dokunmatik ekran olarak görünür.
 Kurulum çıktısı `X:\B2LTOUCH-PNP.TXT` dosyasındadır. Test sonunda WinPE/Windows
 içindeki yerel dokunmatik klavye (`TabTip.exe`), o yoksa yerel ekran klavyesi
-(`osk.exe`) açılır; paket ayrı bir klavye uygulaması içermez.
+(`osk.exe`) açılır; paket ayrı bir klavye uygulaması içermez. Çıplak WinPE
+imajında bu iki Windows bileşeni de yoksa durum konsolda açıkça yazılır.
+
+Ardından `b2lmt.exe` tam ekran açılır. Uygulama Windows'un gerçek
+`WM_POINTER`/`WM_TOUCH` olaylarını dinler; aktif parmak sayısını, her temasın
+Windows pointer kimliğini ve piksel X/Y konumunu canlı gösterir. Yalnız imleç
+emülasyonu gelirse üstte `MOUSE ONLY` yazar. İki parmakla aynı anda dokunulduğunda
+sayaç `2` ve iki ayrı ID görünüyorsa multi-touch yolu uçtan uca doğrulanmıştır.

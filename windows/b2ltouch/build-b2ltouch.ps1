@@ -28,6 +28,19 @@ function Resolve-Directory([string]$Path, [string]$Description) {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Assert-Arm64Pe([string]$Path, [string]$Description) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { Fail "$Description uretilmedi" }
+    $Bytes = [IO.File]::ReadAllBytes($Path)
+    if ($Bytes.Length -lt 0x40 -or $Bytes[0] -ne 0x4D -or $Bytes[1] -ne 0x5A) {
+        Fail "$Description MZ/PE imzasi tasimiyor"
+    }
+    $PeOffset = [BitConverter]::ToInt32($Bytes, 0x3C)
+    if ($PeOffset -lt 0 -or $PeOffset + 6 -gt $Bytes.Length -or
+        [BitConverter]::ToUInt16($Bytes, $PeOffset + 4) -ne 0xAA64) {
+        Fail "$Description ARM64 PE degil"
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
     $ProjectRoot = Join-Path $PSScriptRoot '..\..'
 }
@@ -72,6 +85,12 @@ foreach ($Library in @('VhfKm.lib', 'ntoskrnl.lib', 'hal.lib', 'libcntpr.lib', '
         Fail "$Library yok: $WdkLib"
     }
 }
+$WdkUserLib = Resolve-Directory (Join-Path $KitsRoot ("Lib\{0}\um\arm64" -f $WdkVersion)) 'Secilen SDK ARM64 kullanici kutuphane dizini'
+foreach ($Library in @('kernel32.lib', 'user32.lib', 'gdi32.lib')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $WdkUserLib $Library) -PathType Leaf)) {
+        Fail "$Library yok: $WdkUserLib"
+    }
+}
 $KmdfInclude = Resolve-Directory (Join-Path $KitsRoot 'Include\wdf\kmdf\1.15') 'KMDF 1.15 Include dizini'
 $KmdfLib = Resolve-Directory (Join-Path $KitsRoot 'Lib\wdf\kmdf\arm64\1.15') 'KMDF 1.15 ARM64 kutuphane dizini'
 foreach ($Library in @('WdfDriverEntry.lib', 'WdfLdr.lib')) {
@@ -112,13 +131,14 @@ $StageRoot = Join-Path ([IO.Path]::GetTempPath()) ("b2ltouch-arm64-{0}" -f [Guid
 New-Item -ItemType Directory -Path $StageRoot -Force | Out-Null
 
 try {
-    foreach ($Name in @('b2ltouch.h', 'b2ltouch.c', 'b2ltouch_hw.c', 'b2ltouch_parser.h', 'b2ltouch_parser.c')) {
+    foreach ($Name in @('b2ltouch.h', 'b2ltouch.c', 'b2ltouch_hw.c', 'b2ltouch_parser.h', 'b2ltouch_parser.c', 'b2lmt.c')) {
         Copy-Item -LiteralPath (Join-Path $SourceDir $Name) -Destination (Join-Path $StageRoot $Name) -Force
     }
 
     $Compiler = Join-Path $Arm64Bin 'cl.exe'
     $Linker = Join-Path $Arm64Bin 'link.exe'
     $Flags = "/nologo /c /TC /kernel /Zl /GS- /W4 /WX /wd4324 /O1 /D_WIN32_WINNT=0x0A00 /D_ARM64_=1 /DKMDF_VERSION_MAJOR=1 /DKMDF_VERSION_MINOR=15 /I`"$KmdfInclude`" /I`"$WdkInclude\km`" /I`"$WdkInclude\shared`" /I`"$WdkInclude\ucrt`" /I`"$WdkInclude\um`""
+    $UserFlags = "/nologo /TC /O1 /W4 /WX /MT /DUNICODE /D_UNICODE /D_WIN32_WINNT=0x0A00 /I`"$WdkInclude\um`" /I`"$WdkInclude\shared`" /I`"$WdkInclude\ucrt`""
     $Lines = @(
         '@echo off',
         'setlocal EnableExtensions DisableDelayedExpansion',
@@ -132,6 +152,8 @@ try {
         "`"$Compiler`" $Flags /Fo`"b2ltouch_parser.obj`" `"b2ltouch_parser.c`"",
         'if errorlevel 1 exit /b 1',
         "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2ltouch.sys`" `"b2ltouch.obj`" `"b2ltouch_hw.obj`" `"b2ltouch_parser.obj`" WdfDriverEntry.lib WdfLdr.lib VhfKm.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
+        'if errorlevel 1 exit /b 1',
+        "`"$Compiler`" $UserFlags /Fo`"b2lmt.obj`" `"b2lmt.c`" /Fe:`"b2lmt.exe`" /link /machine:arm64 /subsystem:windows /libpath:`"$WdkUserLib`" kernel32.lib user32.lib gdi32.lib",
         'exit /b %errorlevel%'
     )
     $BuildCmd = Join-Path $StageRoot 'build-b2ltouch-arm64.cmd'
@@ -149,22 +171,19 @@ try {
     finally { Pop-Location }
 
     $Built = Join-Path $StageRoot 'b2ltouch.sys'
-    if (-not (Test-Path -LiteralPath $Built -PathType Leaf)) { Fail 'b2ltouch.sys uretilmedi' }
-    $Bytes = [IO.File]::ReadAllBytes($Built)
-    if ($Bytes.Length -lt 0x40 -or $Bytes[0] -ne 0x4D -or $Bytes[1] -ne 0x5A) {
-        Fail 'b2ltouch.sys MZ/PE imzasi tasimiyor'
-    }
-    $PeOffset = [BitConverter]::ToInt32($Bytes, 0x3C)
-    if ($PeOffset -lt 0 -or $PeOffset + 6 -gt $Bytes.Length -or
-        [BitConverter]::ToUInt16($Bytes, $PeOffset + 4) -ne 0xAA64) {
-        Fail 'b2ltouch.sys ARM64 PE degil'
-    }
+    $BuiltMt = Join-Path $StageRoot 'b2lmt.exe'
+    Assert-Arm64Pe $Built 'b2ltouch.sys'
+    Assert-Arm64Pe $BuiltMt 'b2lmt.exe'
 
     New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
     $Destination = Join-Path $OutDir 'b2ltouch.sys'
+    $MtDestination = Join-Path $OutDir 'b2lmt.exe'
     Copy-Item -LiteralPath $Built -Destination $Destination -Force
+    Copy-Item -LiteralPath $BuiltMt -Destination $MtDestination -Force
     Write-Host "  yazildi: $Destination"
     Write-Host "  SHA256 : $((Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash)"
+    Write-Host "  yazildi: $MtDestination"
+    Write-Host "  SHA256 : $((Get-FileHash -LiteralPath $MtDestination -Algorithm SHA256).Hash)"
 }
 finally {
     if (Test-Path -LiteralPath $StageRoot) {

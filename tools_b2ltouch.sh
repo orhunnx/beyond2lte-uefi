@@ -52,11 +52,16 @@ PS_BUILD="$SRC/build-b2ltouch.ps1"
 [ -s "$PS_BUILD" ] || die "PowerShell derleme betigi yok: $PS_BUILD"
 if [ "${B2L_SKIP_MSVC_BUILD:-0}" = "1" ]; then
   [ -s "$OUT/b2ltouch.sys" ] || die "B2L_SKIP_MSVC_BUILD=1 ama b2ltouch.sys yok"
+  [ -s "$OUT/b2lmt.exe" ] || die "B2L_SKIP_MSVC_BUILD=1 ama b2lmt.exe yok"
   NEWER="$(find "$SRC" -maxdepth 1 -newer "$OUT/b2ltouch.sys" \
-    \( -name 'b2ltouch*.c' -o -name 'b2ltouch*.h' -o -name 'build-b2ltouch.ps1' \) \
+    \( -name 'b2ltouch*.c' -o -name 'b2ltouch*.h' -o -name 'b2lmt.c' -o -name 'build-b2ltouch.ps1' \) \
     -printf '%f\n' 2>/dev/null || true)"
-  if [ -n "$NEWER" ] && [ "${B2L_ALLOW_STALE_SYS:-0}" != "1" ]; then
-    printf 'HATA: b2ltouch.sys kaynaklardan eski:\n%s\n' "$NEWER" >&2
+  NEWER_MT="$(find "$SRC" -maxdepth 1 -newer "$OUT/b2lmt.exe" \
+    \( -name 'b2lmt.c' -o -name 'build-b2ltouch.ps1' \) \
+    -printf '%f\n' 2>/dev/null || true)"
+  if { [ -n "$NEWER" ] || [ -n "$NEWER_MT" ]; } && \
+     [ "${B2L_ALLOW_STALE_SYS:-0}" != "1" ]; then
+    printf 'HATA: B2LTOUCH ARM64 ciktilari kaynaklardan eski:\n%s\n%s\n' "$NEWER" "$NEWER_MT" >&2
     exit 1
   fi
   say "Var olan B2LTOUCH SYS kullaniliyor"
@@ -70,7 +75,9 @@ else
     -WdkVersion "$WDK_VERSION"
 fi
 [ -s "$OUT/b2ltouch.sys" ] || die "b2ltouch.sys uretilmedi"
+[ -s "$OUT/b2lmt.exe" ] || die "b2lmt.exe uretilmedi"
 file "$OUT/b2ltouch.sys" | grep -qi 'aarch64\|arm64' || die "b2ltouch.sys ARM64 degil"
+file "$OUT/b2lmt.exe" | grep -qi 'aarch64\|arm64' || die "b2lmt.exe ARM64 degil"
 
 CERT="$HERE/windows/b2lfb/b2l-test.pem"
 KEY="$HERE/windows/b2lfb/b2l-test.key"
@@ -85,6 +92,10 @@ osslsigncode sign -certs "$CERT" -key "$KEY" \
   -n "beyond2lte sec_ts HID source" -h sha256 \
   -in "$OUT/b2ltouch.sys" -out "$OUT/b2ltouch-signed.sys" >/dev/null
 mv -f "$OUT/b2ltouch-signed.sys" "$OUT/b2ltouch.sys"
+osslsigncode sign -certs "$CERT" -key "$KEY" \
+  -n "beyond2lte multi-touch test" -h sha256 \
+  -in "$OUT/b2lmt.exe" -out "$OUT/b2lmt-signed.exe" >/dev/null
+mv -f "$OUT/b2lmt-signed.exe" "$OUT/b2lmt.exe"
 cp "$SRC/b2ltouch.inf.in" "$OUT/b2ltouch.inf"
 rm -f "$OUT/b2ltouch.cat"
 "$INF2CAT" /driver:"$(wslpath -w "$OUT")" /os:10_GE_ARM64
@@ -125,20 +136,22 @@ verify_test_signature() {
 verify_test_signature "b2ltouch.cat" /v /pa "$(wslpath -w "$OUT/b2ltouch.cat")"
 verify_test_signature "b2ltouch.sys katalog eslesmesi" /v /pa /c \
   "$(wslpath -w "$OUT/b2ltouch.cat")" "$(wslpath -w "$OUT/b2ltouch.sys")"
+verify_test_signature "b2lmt.exe" /v /pa "$(wslpath -w "$OUT/b2lmt.exe")"
 rm -f "$PFX"
 
 MANIFEST="$OUT/b2ltouch-manifest.txt"
 {
-  echo "B2LTOUCH_PACKAGE=sec-ts-kmdf-vhf-ten-contact"
+  echo "B2LTOUCH_PACKAGE=sec-ts-kmdf-vhf-ten-contact-live-diag"
   echo "B2LTOUCH_DRIVER_VERSION=0.2.0.0"
   echo "B2LTOUCH_ACPI_ID=ACPI\\BYN0001"
   echo "B2LTOUCH_INF_SHA256=$(sha256sum "$OUT/b2ltouch.inf" | awk '{print $1}')"
   echo "B2LTOUCH_SYS_SHA256=$(sha256sum "$OUT/b2ltouch.sys" | awk '{print $1}')"
   echo "B2LTOUCH_CAT_SHA256=$(sha256sum "$OUT/b2ltouch.cat" | awk '{print $1}')"
+  echo "B2LTOUCH_MT_SHA256=$(sha256sum "$OUT/b2lmt.exe" | awk '{print $1}')"
 } > "$MANIFEST"
 
 say "B2LTOUCH paketi boot.wim'e ekleniyor"
-for Item in b2ltouch.inf b2ltouch.sys b2ltouch.cat; do
+for Item in b2ltouch.inf b2ltouch.sys b2ltouch.cat b2lmt.exe; do
   wimlib-imagex update "$WIM" 1 \
     --command="delete --force /Windows/B2LTOUCH/$Item" >/dev/null 2>&1 || true
   wimlib-imagex update "$WIM" 1 \
@@ -157,7 +170,7 @@ wimlib-imagex update "$WIM" 1 \
   --command="add '$SNTMP' /Windows/System32/startnet.cmd" >/dev/null
 
 CHECK="$(mktemp -d)"
-for Item in b2ltouch.inf b2ltouch.sys b2ltouch.cat; do
+for Item in b2ltouch.inf b2ltouch.sys b2ltouch.cat b2lmt.exe; do
   wimlib-imagex extract "$WIM" 1 "/Windows/B2LTOUCH/$Item" \
     --dest-dir="$CHECK" --no-acls >/dev/null
   WANT="$(sha256sum "$OUT/$Item" | awk '{print $1}')"

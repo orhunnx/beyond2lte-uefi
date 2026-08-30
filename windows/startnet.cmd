@@ -37,6 +37,7 @@ echo.
 echo === Test sonu ===
 echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
 call :B2LTouchLaunchKeyboard
+call :B2LTouchLaunchMultiTouchTest
 cmd.exe /k
 goto :eof
 
@@ -99,6 +100,16 @@ if exist "%SystemRoot%\System32\osk.exe" (
 )
 echo Windows yerel ekran klavyesi bu WinPE imajinda yok.
 exit /b 1
+
+:B2LTouchLaunchMultiTouchTest
+if not "%B2LTOUCHREADY%"=="1" exit /b 0
+if not exist "%B2LTOUCHDIR%\b2lmt.exe" (
+  echo B2LTOUCH multi-touch test uygulamasi pakette yok.
+  exit /b 1
+)
+echo Beyond2LTE multi-touch test uygulamasi aciliyor...
+start "" "%B2LTOUCHDIR%\b2lmt.exe"
+exit /b 0
 
 :B2LTouchEnsureVhfService
 set "B2LVHFSVC=HKLM\SYSTEM\CurrentControlSet\Services\vhf"
