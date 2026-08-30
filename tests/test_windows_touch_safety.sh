@@ -75,6 +75,11 @@ grep -q 'klavyesiz paket reddedildi' "$ROOT/cache_esp.sh"
 grep -q '/Windows/System32/osk.exe' "$ROOT/cache_esp.sh"
 grep -q '/Windows/B2LOSK/manifest.txt' "$ROOT/cache_esp.sh"
 grep -q 'B2LOSK_PACKAGE=microsoft-classic-osk-import-closure' "$ROOT/tools_winpe_native_osk.sh"
+grep -q 'WIMLIB_IMAGEX_IGNORE_CASE=1' "$ROOT/tools_winpe_native_osk.sh"
+if grep -q 'wimlib-imagex dir .*System32/osk.exe' "$ROOT/tools_winpe_native_osk.sh"; then
+  echo "HATA: wimlib dir dosya-varlik testi olarak kullaniliyor" >&2
+  exit 1
+fi
 grep -q 'older-source-on-newer-winpe' "$ROOT/tools_winpe_native_osk.sh"
 grep -q "daha yeni OSK eski WinPE'ye eklenmez" "$ROOT/tools_winpe_native_osk.sh"
 if grep -Eq 'local .*Name=.*Output=.*\$Name|local .*Label=.*ExtractDir=.*\$Label' \

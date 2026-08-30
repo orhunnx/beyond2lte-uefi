@@ -27,6 +27,10 @@ die() { printf '\nHATA: %s\n' "$*" >&2; exit 1; }
 for Tool in wimlib-imagex 7z file sha256sum; do
   command -v "$Tool" >/dev/null || die "$Tool yok"
 done
+# wimlib UNIX sistemlerde WIM yollarini varsayilan olarak harf-duyarli arar,
+# Windows'ta ise harf-duyarsiz arar. PE importlari ADVAPI32.dll gibi buyuk
+# harfle gelebilirken WIM ayni dosyayi advapi32.dll olarak saklar.
+export WIMLIB_IMAGEX_IGNORE_CASE=1
 if command -v llvm-readobj >/dev/null; then
   IMPORT_TOOL=llvm-readobj
 elif command -v llvm-readobj-18 >/dev/null; then
@@ -42,13 +46,24 @@ case "$SOURCE_INDEX" in
   ''|*[!0-9]*) die "Windows kaynak indeksi sayi olmali: $SOURCE_INDEX" ;;
 esac
 
-# Repeated touch-driver builds must not unpack the multi-gigabyte install.wim
-# again.  A native OSK already present in the target is left byte-for-byte
-# untouched.
-if wimlib-imagex dir "$TARGET_WIM" 1 /Windows/System32/osk.exe >/dev/null 2>&1; then
-  say "WinPE zaten native osk.exe iceriyor"
-  exit 0
+# Repeated builds must not unpack the multi-gigabyte install.wim again.  `dir`
+# only accepts directory paths, so presence and manifest integrity are tested
+# by extracting both files.
+PRECHECK="$(mktemp -d)"
+mkdir -p "$PRECHECK/osk" "$PRECHECK/manifest"
+if wimlib-imagex extract "$TARGET_WIM" 1 /Windows/System32/osk.exe \
+     --dest-dir="$PRECHECK/osk" --no-acls >/dev/null 2>&1 && \
+   wimlib-imagex extract "$TARGET_WIM" 1 /Windows/B2LOSK/manifest.txt \
+     --dest-dir="$PRECHECK/manifest" --no-acls >/dev/null 2>&1; then
+  PRECHECK_OSK="$(sha256sum "$PRECHECK/osk/osk.exe" | awk '{print $1}')"
+  PRECHECK_MANIFEST="$(sed -n 's/^B2LOSK_OSK_SHA256=//p' "$PRECHECK/manifest/manifest.txt" | head -n 1)"
+  if [ "$PRECHECK_OSK" = "$PRECHECK_MANIFEST" ]; then
+    rm -rf "$PRECHECK"
+    say "WinPE zaten dogrulanmis native osk.exe iceriyor"
+    exit 0
+  fi
 fi
+rm -rf "$PRECHECK"
 
 if [ -z "$SOURCE" ]; then
   for Candidate in \
@@ -171,7 +186,11 @@ pe_imports() {
 }
 
 target_has_system32() {
-  wimlib-imagex dir "$TARGET_WIM" 1 "/Windows/System32/$1" >/dev/null 2>&1
+  local Name="$1"
+  local ProbeDir="$WORK/target-probe/${Name,,}"
+  mkdir -p "$ProbeDir"
+  wimlib-imagex extract "$TARGET_WIM" 1 "/Windows/System32/$Name" \
+    --dest-dir="$ProbeDir" --no-acls >/dev/null 2>&1
 }
 
 extract_source_system32 osk.exe || die "kaynak Windows imajinda System32/osk.exe yok"
@@ -253,6 +272,8 @@ MANIFEST="$WORK/manifest.txt"
 say "Native OSK ve eksik bagimliliklari boot.wim'e ekleniyor"
 echo "  eklenecek DLL: $(grep -c . "$COPY_FILE" || true)"
 wimlib-imagex update "$TARGET_WIM" 1 \
+  --command="delete --force /Windows/System32/osk.exe" >/dev/null 2>&1 || true
+wimlib-imagex update "$TARGET_WIM" 1 \
   --command="add '$SOURCE_FILES/osk.exe' /Windows/System32/osk.exe" >/dev/null
 while IFS= read -r Dependency; do
   [ -n "$Dependency" ] || continue
@@ -260,7 +281,11 @@ while IFS= read -r Dependency; do
     --command="add '$SOURCE_FILES/$Dependency' /Windows/System32/$Dependency" >/dev/null
 done < "$COPY_FILE"
 wimlib-imagex update "$TARGET_WIM" 1 \
+  --command="delete --force /Windows/System32/$LANGUAGE/osk.exe.mui" >/dev/null 2>&1 || true
+wimlib-imagex update "$TARGET_WIM" 1 \
   --command="add '$MUI_SOURCE' /Windows/System32/$LANGUAGE/osk.exe.mui" >/dev/null
+wimlib-imagex update "$TARGET_WIM" 1 \
+  --command="delete --force /Windows/B2LOSK/manifest.txt" >/dev/null 2>&1 || true
 wimlib-imagex update "$TARGET_WIM" 1 \
   --command="add '$MANIFEST' /Windows/B2LOSK/manifest.txt" >/dev/null
 
@@ -290,6 +315,5 @@ verify_wim_file "$MANIFEST" /Windows/B2LOSK/manifest.txt manifest
 say "Windows native OSK hazir"
 echo "  acilis: %SystemRoot%\\System32\\osk.exe"
 echo "  manifest: %SystemRoot%\\B2LOSK\\manifest.txt"
-echo "  WIM kaniti:"
-wimlib-imagex dir "$TARGET_WIM" 1 /Windows/System32/osk.exe | sed 's/^/    /'
-wimlib-imagex dir "$TARGET_WIM" 1 /Windows/B2LOSK/manifest.txt | sed 's/^/    /'
+echo "  OSK SHA256: $(sha256sum "$SOURCE_FILES/osk.exe" | awk '{print $1}')"
+echo "  WIM geri-okuma: OSK + MUI + manifest + eksik DLL'ler dogrulandi"
