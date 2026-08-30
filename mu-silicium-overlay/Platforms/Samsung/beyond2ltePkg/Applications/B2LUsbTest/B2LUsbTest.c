@@ -24,7 +24,7 @@
 #include <Library/UefiLib.h>
 #include <Protocol/SimpleTextIn.h>
 
-#define B2L_USB_TEST_REVISION       1
+#define B2L_USB_TEST_REVISION       2
 
 #define B2L_DWC3_BASE               0x10C00000ULL
 #define B2L_USB_PHY_BASE            0x10B00000ULL
@@ -190,32 +190,45 @@ ShowPowerDomain (
   UINT32  Config;
   UINT32  Status;
   UINT32  Option;
-  UINT32  Duration0;
-  UINT32  Duration1;
+
+  gST->ConOut->ClearScreen (gST->ConOut);
+  Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA 1 FSYS0A ===\n",
+         B2L_USB_TEST_REVISION);
+  Print (L"HICBIR MMIO YAZMASI, RESET, I2C VEYA USB TRANSFERI YOK.\n\n");
+
+  Config = Read32 (B2L_PD_FSYS0A_BASE, 0x00);
+  Print (L"CONFIG [15862200]=%08x\n", Config);
+  Status = Read32 (B2L_PD_FSYS0A_BASE, 0x04);
+  Print (L"STATUS [15862204]=%08x\n", Status);
+  Option = Read32 (B2L_PD_FSYS0A_BASE, 0x08);
+  Print (L"OPTION [15862208]=%08x\n", Option);
+
+  Print (L"\nDT PD FSYS0A BASE=15862200 LEN=20\n");
+  Print (L"CFG_STAT_ESIT=%s  STAT_ALT_NIBBLE=%x\n",
+         (Config == Status) ? L"EVET" : L"HAYIR", Status & 0xF);
+  Print (L"15862210 ve 15862214 okunmadi: R1'de 15862214 external abort verdi.\n");
+  Print (L"Bu sayfa FSYS0A disinda register okumadi.\n");
+}
+
+STATIC
+VOID
+ShowPmuUsbControls (
+  VOID
+  )
+{
   UINT32  UsbPhy;
   UINT32  UsbDp;
 
   gST->ConOut->ClearScreen (gST->ConOut);
-  Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA 1 PMU ===\n",
+  Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA 2 PMU USB ===\n",
          B2L_USB_TEST_REVISION);
-  Print (L"HICBIR MMIO YAZMASI, RESET, I2C VEYA USB TRANSFERI YOK.\n\n");
+  Print (L"Her deger okunduktan hemen sonra yazdirilir.\n\n");
 
-  Config    = Read32 (B2L_PD_FSYS0A_BASE, 0x00);
-  Status    = Read32 (B2L_PD_FSYS0A_BASE, 0x04);
-  Option    = Read32 (B2L_PD_FSYS0A_BASE, 0x08);
-  Duration0 = Read32 (B2L_PD_FSYS0A_BASE, 0x10);
-  Duration1 = Read32 (B2L_PD_FSYS0A_BASE, 0x14);
-  UsbDp     = Read32 (B2L_PMU_BASE, B2L_PMU_USBDP_CTRL);
-  UsbPhy    = Read32 (B2L_PMU_BASE, B2L_PMU_USB_PHY_CTRL);
-
-  Print (L"DT PD FSYS0A  BASE=15862200 LEN=20\n");
-  Print (L"CONFIG=%08x STATUS=%08x OPTION=%08x\n", Config, Status, Option);
-  Print (L"DURATION0=%08x DURATION1=%08x\n", Duration0, Duration1);
-  Print (L"CFG_STAT_ESIT=%s  STAT_ALT_NIBBLE=%x\n",
-         (Config == Status) ? L"EVET" : L"HAYIR", Status & 0xF);
+  UsbDp = Read32 (B2L_PMU_BASE, B2L_PMU_USBDP_CTRL);
   Print (L"PMU USBDP  [15860704]=%08x\n", UsbDp);
+  UsbPhy = Read32 (B2L_PMU_BASE, B2L_PMU_USB_PHY_CTRL);
   Print (L"PMU USBPHY [1586072C]=%08x\n", UsbPhy);
-  Print (L"\nBu sayfa PMU disinda USB registeri okumadi.\n");
+  Print (L"\nBu sayfa PMU USB kontrolleri disinda register okumadi.\n");
 }
 
 STATIC
@@ -247,7 +260,7 @@ ShowDwc3AndXhci (
   BOOLEAN CapSane;
 
   gST->ConOut->ClearScreen (gST->ConOut);
-  Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA 2 DWC3 XHCI ===\n",
+  Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA 3 DWC3 XHCI ===\n",
          B2L_USB_TEST_REVISION);
   Print (L"BASE=10C00000 LEN=10000 IRQ SPI=241 GSIV=273\n\n");
 
@@ -354,7 +367,7 @@ ShowDwc3RoleRegisters (
   )
 {
   gST->ConOut->ClearScreen (gST->ConOut);
-  Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA 3 ROL ===\n",
+  Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA 4 ROL ===\n",
          B2L_USB_TEST_REVISION);
   Print (L"DWC3 device ve OTG registerleri; yalniz okuma.\n\n");
   Print (L"DCFG=%08x DCTL=%08x DSTS=%08x\n",
@@ -407,6 +420,11 @@ B2LUsbTestEntry (
   (VOID)SystemTable;
 
   ShowPowerDomain ();
+  if (!PromptForNextStage (L"PMU USB kontrol registerleri 15860704/1586072C")) {
+    return EFI_SUCCESS;
+  }
+  ShowPmuUsbControls ();
+
   if (!PromptForNextStage (L"DWC3 ve xHCI penceresi 10C00000")) {
     return EFI_SUCCESS;
   }
@@ -426,17 +444,17 @@ B2LUsbTestEntry (
   if (!PromptForNextStage (L"USB DRD PHY ana pencere 10B00000")) {
     return EFI_SUCCESS;
   }
-  ShowPhyWindow (L"USB DRD PHY", B2L_USB_PHY_BASE, 0x200, 4);
+  ShowPhyWindow (L"USB DRD PHY", B2L_USB_PHY_BASE, 0x200, 5);
 
   if (!PromptForNextStage (L"combo PHY PCS penceresi 10AE0000")) {
     return EFI_SUCCESS;
   }
-  ShowPhyWindow (L"COMBO PHY PCS", B2L_USB_PCS_BASE, 0x2800, 5);
+  ShowPhyWindow (L"COMBO PHY PCS", B2L_USB_PCS_BASE, 0x2800, 6);
 
   if (!PromptForNextStage (L"combo PHY PMA penceresi 10AF0000")) {
     return EFI_SUCCESS;
   }
-  ShowPhyWindow (L"COMBO PHY PMA", B2L_USB_PMA_BASE, 0x800, 6);
+  ShowPhyWindow (L"COMBO PHY PMA", B2L_USB_PMA_BASE, 0x800, 7);
 
   Print (L"\nR%u SALT OKUMA TURLARI TAMAMLANDI.\n", B2L_USB_TEST_REVISION);
   Print (L"Son sayfayi fotografla; tusa basinca EFI Shell'e doner.\n");

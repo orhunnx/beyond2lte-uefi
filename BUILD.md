@@ -108,9 +108,13 @@ register yazmaz, reset/clock/regulator işlemi yapmaz, MAX77705'e I²C komutu
 göndermez ve USB transferi başlatmaz. İlk turda Odin'e yalnız
 `out/system-esp.tar` AP alanından verilir; Re-Partition kapalı kalır.
 
-Sayfalar sırasıyla PMU/FSYS0A, DWC3+xHCI, device/OTG rolü, USB DRD PHY,
-combo PCS ve combo PMA değerlerini gösterir. Bir sonraki yazmalı host-init
-turu ancak bu değerler cihazda fotoğraflanıp DWC3 kimliği ve xHCI capability
+Sayfalar sırasıyla FSYS0A'nın doğrulanmış `CONFIG/STATUS/OPTION` alanlarını,
+PMU USB kontrollerini, DWC3+xHCI, device/OTG rolü, USB DRD PHY, combo PCS ve
+combo PMA değerlerini gösterir. R1 cihaz testinde `FSYS0A + 0x14` erişimi
+synchronous external abort verdiğinden R2, `+0x10/+0x14` duration alanlarını
+okumaz ve PMU USB kontrollerini ayrı bir kullanıcı-onaylı aşamada açar. Bir
+sonraki yazmalı host-init turu ancak bu değerler cihazda fotoğraflanıp DWC3
+kimliği ve xHCI capability
 alanları doğrulandıktan sonra hazırlanır.
 
 `--touch-test` önce Android DT'deki 47 HSI2C denetleyicisinin adres ve açık/

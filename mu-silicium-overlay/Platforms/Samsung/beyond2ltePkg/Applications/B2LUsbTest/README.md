@@ -6,12 +6,18 @@ göndermez ve USB transferi başlatmaz.
 
 Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
 
-1. PMU içindeki FSYS0A power-domain ve USB PHY kontrol değerleri,
-2. DWC3 kimliği/globalleri ile xHCI capability, operational ve port durumu,
-3. DWC3 device/OTG rol registerleri,
-4. USB DRD PHY ana penceresinin ilk 64 baytı,
-5. combo PHY PCS penceresinin ilk 64 baytı,
-6. combo PHY PMA penceresinin ilk 64 baytı.
+1. FSYS0A power-domain içindeki doğrulanmış `CONFIG/STATUS/OPTION` değerleri,
+2. PMU içindeki USB PHY kontrol değerleri,
+3. DWC3 kimliği/globalleri ile xHCI capability, operational ve port durumu,
+4. DWC3 device/OTG rol registerleri,
+5. USB DRD PHY ana penceresinin ilk 64 baytı,
+6. combo PHY PCS penceresinin ilk 64 baytı,
+7. combo PHY PMA penceresinin ilk 64 baytı.
+
+R1 cihaz testinde `FSYS0A + 0x14` (`0x15862214`) erişimi synchronous external
+abort üretti. R2 bu erişimi ve aynı bilinmeyen duration grubundaki `+0x10`
+okumasını yapmaz. FSYS0A ile PMU USB kontrolleri de ayrı kullanıcı onaylarına
+bölünmüştür.
 
 Her sayfa sonraki erişimden **önce** fotoğraflanmalıdır. Bir pencere saat veya
 güç kapalı olduğu için sistemi kilitlerse son görülen sayfa erişim sınırını

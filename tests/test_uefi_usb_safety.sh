@@ -33,4 +33,9 @@ if rg -n '#include.*I2c|gEfiI2c|HsI2c|I2cWrite|I2cTransfer' "$APP"; then
   exit 1
 fi
 
+if rg -n 'B2L_PD_FSYS0A_BASE, 0x1[04]' "$APP"; then
+  echo 'HATA: cihazda external abort veren FSYS0A duration alani okunuyor' >&2
+  exit 1
+fi
+
 echo 'B2LUsbTest safety checks passed'
