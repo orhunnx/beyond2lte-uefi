@@ -412,11 +412,18 @@ verify_winpe_b2ltouch_package() {
     fi
     ExpectedOsk="$(sha256sum "$OskDir/osk.exe" | awk '{print $1}')"
     ManifestOsk="$(sed -n 's/^B2LOSK_OSK_SHA256=//p' "$OskManifestDir/manifest.txt" | head -n 1)"
+    ManifestOskPackage="$(sed -n 's/^B2LOSK_PACKAGE=//p' "$OskManifestDir/manifest.txt" | head -n 1)"
     rm -rf "$OskDir" "$OskManifestDir"
     if [ "$ManifestOsk" != "$ExpectedOsk" ]; then
       echo "HATA: boot.wim native OSK hash'i manifest ile ayni degil."
       echo "  WIM: $ExpectedOsk"
       echo "  MAN: ${ManifestOsk:-YOK}"
+      return 1
+    fi
+    if [ "$ManifestOskPackage" != "microsoft-classic-osk-winpe-runtime-v2" ]; then
+      echo "HATA: boot.wim native OSK runtime paketi eski veya eksik."
+      echo "  WIM: ${ManifestOskPackage:-YOK}"
+      echo "Once: B2L_WINDOWS_ARM64_SOURCE=/mnt/c/.../Windows11_ARM64.iso bash tools_winpe_native_osk.sh"
       return 1
     fi
     say "WinPE native Windows OSK dogrulandi"

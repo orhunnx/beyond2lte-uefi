@@ -72,9 +72,14 @@ if grep -q 'start .*b2lmt.exe' "$ROOT/windows/startnet.cmd"; then
 fi
 grep -q 'tools_winpe_native_osk.sh' "$ROOT/tools_b2ltouch.sh"
 grep -q 'klavyesiz paket reddedildi' "$ROOT/cache_esp.sh"
+grep -q 'microsoft-classic-osk-winpe-runtime-v2' "$ROOT/cache_esp.sh"
 grep -q '/Windows/System32/osk.exe' "$ROOT/cache_esp.sh"
 grep -q '/Windows/B2LOSK/manifest.txt' "$ROOT/cache_esp.sh"
-grep -q 'B2LOSK_PACKAGE=microsoft-classic-osk-import-closure' "$ROOT/tools_winpe_native_osk.sh"
+grep -q 'B2LOSK_PACKAGE=microsoft-classic-osk-winpe-runtime-v2' "$ROOT/tools_winpe_native_osk.sh"
+grep -q 'B2LOSK_MSCTF_COM_REGISTRATION=runtime' "$ROOT/tools_winpe_native_osk.sh"
+grep -q 'B2LTouchPrepareNativeOsk' "$ROOT/windows/startnet.cmd"
+grep -Fq 'regsvr32.exe" /s "%SystemRoot%\System32\msctf.dll' "$ROOT/windows/startnet.cmd"
+grep -q '529A9E6B-6587-4F23-AB9E-9C7D683E3C50' "$ROOT/windows/startnet.cmd"
 grep -q 'WIMLIB_IMAGEX_IGNORE_CASE=1' "$ROOT/tools_winpe_native_osk.sh"
 if grep -q 'wimlib-imagex dir .*System32/osk.exe' "$ROOT/tools_winpe_native_osk.sh"; then
   echo "HATA: wimlib dir dosya-varlik testi olarak kullaniliyor" >&2

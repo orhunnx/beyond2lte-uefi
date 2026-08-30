@@ -96,11 +96,62 @@ if exist "%ProgramFiles%\Common Files\microsoft shared\ink\TabTip.exe" (
 if exist "%SystemRoot%\System32\osk.exe" (
   echo Windows ekran klavyesi aciliyor...
   if exist "%SystemRoot%\B2LOSK\manifest.txt" type "%SystemRoot%\B2LOSK\manifest.txt"
+  call :B2LTouchPrepareNativeOsk
+  if errorlevel 1 exit /b 1
   start "" "%SystemRoot%\System32\osk.exe"
   exit /b 0
 )
 echo Windows yerel ekran klavyesi bu WinPE imajinda yok.
 exit /b 1
+
+:B2LTouchPrepareNativeOsk
+set "B2LOSKLOG=%SystemDrive%\B2LOSK-RUNTIME.TXT"
+set "B2LTSFCLSID=HKCR\CLSID\{529A9E6B-6587-4F23-AB9E-9C7D683E3C50}\InprocServer32"
+> "%B2LOSKLOG%" echo Microsoft native OSK runtime hazirligi
+
+rem Ciplak ADK WinPE, msctf.dll dosyasini icermeyebilir. Native OSK import
+rem kapanimi dosyayi ekler; ancak TSF Thread Manager bir COM sinifi oldugu
+rem icin yalniz dosyanin bulunmasi yetmez. Tam Windows'ta Component Based
+rem Servicing'in olusturdugu kaydi bu gecici WinPE oturumunda Microsoft'un
+rem kendi DllRegisterServer giris noktasi olusturur.
+reg.exe query "%B2LTSFCLSID%" >> "%B2LOSKLOG%" 2>&1
+if errorlevel 1 (
+  if not exist "%SystemRoot%\System32\msctf.dll" (
+    echo HATA: native OSK icin msctf.dll yok.
+    >> "%B2LOSKLOG%" echo MSCTF_DLL=YOK
+    type "%B2LOSKLOG%"
+    exit /b 1
+  )
+  if not exist "%SystemRoot%\System32\regsvr32.exe" (
+    echo HATA: native OSK icin regsvr32.exe yok.
+    >> "%B2LOSKLOG%" echo REGSVR32=YOK
+    type "%B2LOSKLOG%"
+    exit /b 1
+  )
+  "%SystemRoot%\System32\regsvr32.exe" /s "%SystemRoot%\System32\msctf.dll" >> "%B2LOSKLOG%" 2>&1
+  if errorlevel 1 (
+    echo HATA: msctf.dll COM kaydi basarisiz.
+    >> "%B2LOSKLOG%" echo MSCTF_REGSVR32=HATA
+    type "%B2LOSKLOG%"
+    exit /b 1
+  )
+  >> "%B2LOSKLOG%" echo MSCTF_REGSVR32=0
+)
+
+reg.exe query "%B2LTSFCLSID%" >> "%B2LOSKLOG%" 2>&1
+if errorlevel 1 (
+  echo HATA: Microsoft Text Services Framework COM kaydi olusturulamadi.
+  >> "%B2LOSKLOG%" echo TSF_THREADMGR=YOK
+  type "%B2LOSKLOG%"
+  exit /b 1
+)
+
+rem WinPE'nin Default kullanici hive'inda kalmis veya uyumsuz bir OSK ayari
+rem olmamali. Bu yalniz RAM'deki gecici WinPE oturumunun HKCU anahtaridir.
+reg.exe delete "HKCU\Software\Microsoft\Osk" /f >> "%B2LOSKLOG%" 2>&1
+>> "%B2LOSKLOG%" echo TSF_THREADMGR=HAZIR
+type "%B2LOSKLOG%"
+exit /b 0
 
 :B2LTouchEnsureVhfService
 set "B2LVHFSVC=HKLM\SYSTEM\CurrentControlSet\Services\vhf"

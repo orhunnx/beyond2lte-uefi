@@ -57,7 +57,9 @@ if wimlib-imagex extract "$TARGET_WIM" 1 /Windows/System32/osk.exe \
      --dest-dir="$PRECHECK/manifest" --no-acls >/dev/null 2>&1; then
   PRECHECK_OSK="$(sha256sum "$PRECHECK/osk/osk.exe" | awk '{print $1}')"
   PRECHECK_MANIFEST="$(sed -n 's/^B2LOSK_OSK_SHA256=//p' "$PRECHECK/manifest/manifest.txt" | head -n 1)"
-  if [ "$PRECHECK_OSK" = "$PRECHECK_MANIFEST" ]; then
+  PRECHECK_PACKAGE="$(sed -n 's/^B2LOSK_PACKAGE=//p' "$PRECHECK/manifest/manifest.txt" | head -n 1)"
+  if [ "$PRECHECK_OSK" = "$PRECHECK_MANIFEST" ] && \
+     [ "$PRECHECK_PACKAGE" = "microsoft-classic-osk-winpe-runtime-v2" ]; then
     rm -rf "$PRECHECK"
     say "WinPE zaten dogrulanmis native osk.exe iceriyor"
     exit 0
@@ -255,12 +257,13 @@ done
 
 MANIFEST="$WORK/manifest.txt"
 {
-  echo "B2LOSK_PACKAGE=microsoft-classic-osk-import-closure"
+  echo "B2LOSK_PACKAGE=microsoft-classic-osk-winpe-runtime-v2"
   echo "B2LOSK_TARGET_BUILD=$TARGET_VERSION"
   echo "B2LOSK_SOURCE_BUILD=$SOURCE_VERSION"
   echo "B2LOSK_COMPATIBILITY=$OSK_COMPATIBILITY"
   echo "B2LOSK_SOURCE_ARCH=$SOURCE_ARCH"
   echo "B2LOSK_LANGUAGE=$LANGUAGE"
+  echo "B2LOSK_MSCTF_COM_REGISTRATION=runtime"
   echo "B2LOSK_OSK_SHA256=$(sha256sum "$SOURCE_FILES/osk.exe" | awk '{print $1}')"
   while IFS= read -r Dependency; do
     [ -n "$Dependency" ] || continue

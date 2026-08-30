@@ -97,6 +97,13 @@ WinPE'ye eklenmesi reddedilir. Kaynak otomatik
 bulunamazsa `B2L_WINDOWS_ARM64_SOURCE=/mnt/c/.../Windows_Arm64.iso` ayarlanır;
 özel bir klavye derlenmez veya paketlenmez.
 
+Çıplak ADK WinPE'de `msctf.dll` dosyası ve Text Services Framework COM kaydı
+birlikte bulunmayabilir. OSK paketleyicisi eksik DLL'yi aynı ARM64 Windows
+kaynağından ekler; `startnet.cmd` ise OSK'yi açmadan önce Microsoft
+`msctf.dll` dosyasının kendi `DllRegisterServer` giriş noktasını çağırır ve
+`CLSID_TF_ThreadMgr` kaydını doğrular. Bu kayıt yalnız RAM'deki WinPE oturumu
+içindir. Sonuç `X:\B2LOSK-RUNTIME.TXT` dosyasına yazılır.
+
 Multi-touch tanısı yeniden gerekirse konsoldan `%SystemRoot%\B2LTOUCH\b2lmt.exe`
 çalıştırılır; native OSK'nin üstünü kapatmaması için artık otomatik açılmaz.
 Uygulama Windows'un gerçek
