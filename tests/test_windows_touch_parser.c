@@ -29,29 +29,39 @@ int
 main(void)
 {
     B2L_U8 Event[B2L_SEC_TS_EVENT_SIZE];
-    B2L_SEC_TS_POINTER Pointer = { 0 };
+    B2L_SEC_TS_UPDATE Update = { 0 };
 
     BuildEvent(Event, 1, 2, 0x123, 0xABC, 17, 0, 31);
     assert(B2lSecTsRemainingEvents(Event) == 31);
-    assert(B2lSecTsParseEvent(Event, &Pointer) == B2lSecTsUpdated);
-    assert(Pointer.Active == 1 && Pointer.TouchId == 2);
-    assert(Pointer.X == 0x123 && Pointer.Y == 0xABC);
+    assert(B2lSecTsParseEvent(Event, &Update) == B2lSecTsUpdated);
+    assert(Update.Action == B2L_SEC_TS_ACTION_PRESS && Update.TouchId == 2);
+    assert(Update.X == 0x123 && Update.Y == 0xABC && Update.Pressure == 17);
 
     BuildEvent(Event, 2, 2, 4095, 0, 0, 0, 0);
-    assert(B2lSecTsParseEvent(Event, &Pointer) == B2lSecTsUpdated);
-    assert(Pointer.X == B2L_SEC_TS_MAX_COORD && Pointer.Y == 0);
+    assert(B2lSecTsParseEvent(Event, &Update) == B2lSecTsUpdated);
+    assert(Update.Action == B2L_SEC_TS_ACTION_MOVE && Update.TouchId == 2);
+    assert(Update.X == B2L_SEC_TS_MAX_COORD && Update.Y == 0);
+    assert(Update.Pressure == 1);
 
     BuildEvent(Event, 1, 3, 10, 20, 1, 0, 0);
-    assert(B2lSecTsParseEvent(Event, &Pointer) == B2lSecTsIgnored);
+    assert(B2lSecTsParseEvent(Event, &Update) == B2lSecTsUpdated);
+    assert(Update.Action == B2L_SEC_TS_ACTION_PRESS && Update.TouchId == 3);
     BuildEvent(Event, 3, 2, 4000, 100, 0, 0, 0);
-    assert(B2lSecTsParseEvent(Event, &Pointer) == B2lSecTsUpdated);
-    assert(Pointer.Active == 0 && Pointer.X == 4000 && Pointer.Y == 100);
+    assert(B2lSecTsParseEvent(Event, &Update) == B2lSecTsUpdated);
+    assert(Update.Action == B2L_SEC_TS_ACTION_RELEASE && Update.TouchId == 2);
+    assert(Update.X == 4000 && Update.Y == 100 && Update.Pressure == 0);
 
     BuildEvent(Event, 0, 1, 10, 20, 1, 0, 0);
-    assert(B2lSecTsParseEvent(Event, &Pointer) == B2lSecTsInvalid);
+    assert(B2lSecTsParseEvent(Event, &Update) == B2lSecTsInvalid);
+    BuildEvent(Event, 1, B2L_SEC_TS_MAX_TOUCH_ID, 10, 20, 1, 3, 0);
+    assert(B2lSecTsParseEvent(Event, &Update) == B2lSecTsUpdated);
+    assert(Update.TouchId == B2L_SEC_TS_MAX_TOUCH_ID);
+    BuildEvent(Event, 2, 1, 10, 20, 1, 1, 0);
+    assert(B2lSecTsParseEvent(Event, &Update) == B2lSecTsIgnored);
     Event[0] = 1;
-    assert(B2lSecTsParseEvent(Event, &Pointer) == B2lSecTsIgnored);
-    assert(B2lSecTsParseEvent(NULL, &Pointer) == B2lSecTsInvalid);
+    assert(B2lSecTsParseEvent(Event, &Update) == B2lSecTsIgnored);
+    assert(B2lSecTsParseEvent(NULL, &Update) == B2lSecTsInvalid);
+    assert(B2lSecTsParseEvent(Event, NULL) == B2lSecTsInvalid);
     assert(B2lSecTsRemainingEvents(NULL) == 0);
 
     puts("Windows sec_ts parser tests: PASS");

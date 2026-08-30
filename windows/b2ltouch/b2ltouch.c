@@ -14,7 +14,6 @@
 
 #define B2L_TOUCH_REPORT_ID            1U
 #define B2L_TOUCH_FEATURE_REPORT_ID    2U
-#define B2L_TOUCH_MAX_CONTACTS         1U
 
 #define B2L_TOUCH_STAGE_DEVICE_CREATED 0x10U
 #define B2L_TOUCH_STAGE_TIMER_CREATED  0x20U
@@ -30,59 +29,73 @@
 #define B2L_TOUCH_STAGE_ADD_ENTERED    0x01U
 #define B2L_TOUCH_STAGE_DEVICE_CREATE  0x02U
 
+#define B2L_TOUCH_CONTACT_DESCRIPTOR                                      \
+    0x05, 0x0D,             /* Usage Page (Digitizers) */                 \
+    0x09, 0x22,             /* Usage (Finger) */                          \
+    0xA1, 0x02,             /* Collection (Logical) */                   \
+    0x09, 0x42,             /* Usage (Tip Switch) */                      \
+    0x15, 0x00,                                                            \
+    0x25, 0x01,                                                            \
+    0x75, 0x01,                                                            \
+    0x95, 0x01,                                                            \
+    0x81, 0x02,                                                            \
+    0x75, 0x01,                                                            \
+    0x95, 0x07,                                                            \
+    0x81, 0x03,             /* Seven padding bits */                     \
+    0x75, 0x08,                                                            \
+    0x95, 0x01,                                                            \
+    0x09, 0x51,             /* Usage (Contact Identifier) */             \
+    0x15, 0x00,                                                            \
+    0x25, B2L_SEC_TS_MAX_TOUCH_ID,                                         \
+    0x81, 0x02,                                                            \
+    0x05, 0x01,             /* Usage Page (Generic Desktop) */            \
+    0x15, 0x00,                                                            \
+    0x26, 0xFF, 0x0F,       /* Logical Maximum (4095) */                  \
+    0x35, 0x00,                                                            \
+    0x55, 0x0E,             /* Unit Exponent (-2) */                      \
+    0x65, 0x11,             /* Unit (centimeter, SI linear) */            \
+    0x09, 0x30,             /* Usage (X) */                               \
+    0x46, 0xAB, 0x02,       /* Physical Maximum (683 = 6.83 cm) */        \
+    0x75, 0x10,                                                            \
+    0x95, 0x01,                                                            \
+    0x81, 0x02,                                                            \
+    0x09, 0x31,             /* Usage (Y) */                               \
+    0x46, 0xA3, 0x05,       /* Physical Maximum (1443 = 14.43 cm) */      \
+    0x81, 0x02,                                                            \
+    0xC0                    /* End Collection (Finger) */
+
 /*
- * Windows Touchscreen HID top-level collection.  The report follows the
- * mandatory Windows usages: Tip Switch, Contact Identifier, X, Y and
- * Contact Count.  Feature report 2 publishes Contact Count Maximum.
- * Coordinates remain in the native sec_ts 0..4095 range used by UEFI.
+ * Parallel-mode Windows Touchscreen report.  Every embedded Finger logical
+ * collection is one contact slot, and each submitted frame carries all live
+ * contacts plus a one-frame Tip=0 record for contacts that just departed.
  */
 static UCHAR B2lTouchReportDescriptor[] = {
     0x05, 0x0D,             /* Usage Page (Digitizers) */
     0x09, 0x04,             /* Usage (Touch Screen) */
     0xA1, 0x01,             /* Collection (Application) */
     0x85, B2L_TOUCH_REPORT_ID,
-    0x09, 0x22,             /* Usage (Finger) */
-    0xA1, 0x02,             /* Collection (Logical) */
-    0x09, 0x42,             /* Usage (Tip Switch) */
-    0x15, 0x00,
-    0x25, 0x01,
-    0x75, 0x01,
-    0x95, 0x01,
-    0x81, 0x02,
-    0x75, 0x01,
-    0x95, 0x07,
-    0x81, 0x03,             /* Seven padding bits */
-    0x75, 0x08,
-    0x95, 0x01,
-    0x09, 0x51,             /* Usage (Contact Identifier) */
-    0x81, 0x02,
-    0x05, 0x01,             /* Usage Page (Generic Desktop) */
-    0x15, 0x00,
-    0x26, 0xFF, 0x0F,       /* Logical Maximum (4095) */
-    0x35, 0x00,
-    0x55, 0x0E,             /* Unit Exponent (-2) */
-    0x65, 0x11,             /* Unit (centimeter, SI linear) */
-    0x09, 0x30,             /* Usage (X) */
-    0x46, 0xAB, 0x02,       /* Physical Maximum (683 = 6.83 cm) */
-    0x75, 0x10,
-    0x95, 0x01,
-    0x81, 0x02,
-    0x09, 0x31,             /* Usage (Y) */
-    0x46, 0xA3, 0x05,       /* Physical Maximum (1443 = 14.43 cm) */
-    0x81, 0x02,
-    0xC0,                   /* End Collection (Finger) */
+    B2L_TOUCH_CONTACT_DESCRIPTOR,
+    B2L_TOUCH_CONTACT_DESCRIPTOR,
+    B2L_TOUCH_CONTACT_DESCRIPTOR,
+    B2L_TOUCH_CONTACT_DESCRIPTOR,
+    B2L_TOUCH_CONTACT_DESCRIPTOR,
+    B2L_TOUCH_CONTACT_DESCRIPTOR,
+    B2L_TOUCH_CONTACT_DESCRIPTOR,
+    B2L_TOUCH_CONTACT_DESCRIPTOR,
+    B2L_TOUCH_CONTACT_DESCRIPTOR,
+    B2L_TOUCH_CONTACT_DESCRIPTOR,
     0x05, 0x0D,
     0x55, 0x00,             /* Unit Exponent (0) */
     0x65, 0x00,             /* Unit (None) */
     0x09, 0x54,             /* Usage (Contact Count) */
     0x15, 0x00,
-    0x25, 0x01,
+    0x25, B2L_TOUCH_MAX_CONTACTS,
     0x75, 0x08,
     0x95, 0x01,
     0x81, 0x02,
     0x85, B2L_TOUCH_FEATURE_REPORT_ID,
     0x09, 0x55,             /* Usage (Contact Count Maximum) */
-    0x25, 0x01,
+    0x25, B2L_TOUCH_MAX_CONTACTS,
     0x75, 0x08,
     0x95, 0x01,
     0xB1, 0x02,             /* Feature (Data, Variable, Absolute) */
@@ -297,7 +310,7 @@ B2lTouchStartController(PB2L_TOUCH_CONTEXT Context)
 {
     NTSTATUS Status;
 
-    RtlZeroMemory(&Context->Pointer, sizeof(Context->Pointer));
+    RtlZeroMemory(Context->Contacts, sizeof(Context->Contacts));
     Status = B2lHsI2cInitialize(Context);
     B2lTouchPublishDiagnostic(Context->Device, B2L_TOUCH_STAGE_I2C_INIT, Status);
     if (NT_SUCCESS(Status)) {
@@ -325,25 +338,120 @@ B2lTouchStartController(PB2L_TOUCH_CONTEXT Context)
     return Status;
 }
 
-static VOID
-B2lTouchSubmitPointer(PB2L_TOUCH_CONTEXT Context)
+static ULONG
+B2lTouchActiveContactCount(PB2L_TOUCH_CONTEXT Context)
 {
-    Context->Report.ReportId = B2L_TOUCH_REPORT_ID;
-    Context->Report.Tip = Context->Pointer.Active ? 1U : 0U;
-    if (Context->Pointer.Active) {
-        Context->HidContactId = Context->Pointer.TouchId;
+    ULONG Count = 0UL;
+    UCHAR TouchId;
+
+    for (TouchId = 1U; TouchId <= B2L_SEC_TS_MAX_TOUCH_ID; ++TouchId) {
+        if (Context->Contacts[TouchId].Active) {
+            ++Count;
+        }
     }
-    Context->Report.ContactId = Context->HidContactId;
-    Context->Report.X = Context->Pointer.X;
-    Context->Report.Y = Context->Pointer.Y;
-    Context->Report.ContactCount = Context->Pointer.Active ? 1U : 0U;
+    return Count;
+}
+
+static BOOLEAN
+B2lTouchApplyUpdate(
+    PB2L_TOUCH_CONTEXT Context,
+    const B2L_SEC_TS_UPDATE *Update
+    )
+{
+    B2L_TOUCH_CONTACT_STATE *Contact;
+
+    if ((Update == NULL) || (Update->TouchId == 0U) ||
+        (Update->TouchId > B2L_SEC_TS_MAX_TOUCH_ID)) {
+        return FALSE;
+    }
+
+    Contact = &Context->Contacts[Update->TouchId];
+    if (Update->Action == B2L_SEC_TS_ACTION_RELEASE) {
+        if (!Contact->Active) {
+            return FALSE;
+        }
+        Contact->Active = FALSE;
+        Contact->PendingRelease = TRUE;
+        return TRUE;
+    }
+
+    if (Update->Action == B2L_SEC_TS_ACTION_MOVE) {
+        if (!Contact->Active) {
+            return FALSE;
+        }
+    } else if (Update->Action == B2L_SEC_TS_ACTION_PRESS) {
+        if (!Contact->Active &&
+            (B2lTouchActiveContactCount(Context) >= B2L_TOUCH_MAX_CONTACTS)) {
+            return FALSE;
+        }
+        Contact->Active = TRUE;
+        Contact->PendingRelease = FALSE;
+    } else {
+        return FALSE;
+    }
+
+    Contact->X = Update->X;
+    Contact->Y = Update->Y;
+    return TRUE;
+}
+
+static NTSTATUS
+B2lTouchSubmitFrame(PB2L_TOUCH_CONTEXT Context)
+{
+    B2L_TOUCH_CONTACT_REPORT *ReportContact;
+    B2L_TOUCH_CONTACT_STATE *Contact;
+    NTSTATUS Status;
+    UCHAR Count = 0U;
+    UCHAR TouchId;
+
+    RtlZeroMemory(&Context->Report, sizeof(Context->Report));
+    Context->Report.ReportId = B2L_TOUCH_REPORT_ID;
+    for (TouchId = 1U;
+         (TouchId <= B2L_SEC_TS_MAX_TOUCH_ID) &&
+         (Count < B2L_TOUCH_MAX_CONTACTS);
+         ++TouchId) {
+        Contact = &Context->Contacts[TouchId];
+        if (!Contact->Active && !Contact->PendingRelease) {
+            continue;
+        }
+        ReportContact = &Context->Report.Contacts[Count];
+        ReportContact->Tip = Contact->Active ? 1U : 0U;
+        ReportContact->ContactId = TouchId;
+        ReportContact->X = Contact->X;
+        ReportContact->Y = Contact->Y;
+        ++Count;
+    }
+    if (Count == 0U) {
+        return STATUS_SUCCESS;
+    }
+
+    Context->Report.ContactCount = Count;
     Context->ReportPacket.reportBuffer = (PUCHAR)&Context->Report;
     Context->ReportPacket.reportBufferLen = (ULONG)sizeof(Context->Report);
     Context->ReportPacket.reportId = B2L_TOUCH_REPORT_ID;
-    (VOID)VhfReadReportSubmit(Context->VhfHandle, &Context->ReportPacket);
-    if (!Context->Pointer.Active) {
-        Context->HidContactId = 0U;
+    Status = VhfReadReportSubmit(Context->VhfHandle, &Context->ReportPacket);
+    if (NT_SUCCESS(Status)) {
+        for (TouchId = 1U; TouchId <= B2L_SEC_TS_MAX_TOUCH_ID; ++TouchId) {
+            Context->Contacts[TouchId].PendingRelease = FALSE;
+        }
     }
+    return Status;
+}
+
+static NTSTATUS
+B2lTouchReleaseAll(PB2L_TOUCH_CONTEXT Context)
+{
+    BOOLEAN Changed = FALSE;
+    UCHAR TouchId;
+
+    for (TouchId = 1U; TouchId <= B2L_SEC_TS_MAX_TOUCH_ID; ++TouchId) {
+        if (Context->Contacts[TouchId].Active) {
+            Context->Contacts[TouchId].Active = FALSE;
+            Context->Contacts[TouchId].PendingRelease = TRUE;
+            Changed = TRUE;
+        }
+    }
+    return Changed ? B2lTouchSubmitFrame(Context) : STATUS_SUCCESS;
 }
 
 static NTSTATUS
@@ -352,6 +460,7 @@ B2lTouchPoll(PB2L_TOUCH_CONTEXT Context)
     UCHAR Events[B2L_TOUCH_MAX_EVENTS][B2L_SEC_TS_EVENT_SIZE];
     UCHAR ReadCount;
     UCHAR Remaining;
+    B2L_SEC_TS_UPDATE Update;
     ULONG Index;
     NTSTATUS Status;
 
@@ -381,9 +490,12 @@ B2lTouchPoll(PB2L_TOUCH_CONTEXT Context)
     }
 
     for (Index = 0UL; Index <= ReadCount; ++Index) {
-        if (B2lSecTsParseEvent(Events[Index], &Context->Pointer) ==
-            B2lSecTsUpdated) {
-            B2lTouchSubmitPointer(Context);
+        if ((B2lSecTsParseEvent(Events[Index], &Update) == B2lSecTsUpdated) &&
+            B2lTouchApplyUpdate(Context, &Update)) {
+            Status = B2lTouchSubmitFrame(Context);
+            if (!NT_SUCCESS(Status)) {
+                return Status;
+            }
         }
     }
     return STATUS_SUCCESS;
@@ -406,10 +518,7 @@ B2lTouchEvtTimer(WDFTIMER Timer)
     } else {
         ++Context->ConsecutiveErrors;
         if (Context->ConsecutiveErrors >= 3UL) {
-            if (Context->Pointer.Active) {
-                Context->Pointer.Active = 0U;
-                B2lTouchSubmitPointer(Context);
-            }
+            (VOID)B2lTouchReleaseAll(Context);
             Context->TouchReady = FALSE;
             B2lHsI2cQuiesce(Context);
             (VOID)B2lTouchStartController(Context);
@@ -581,10 +690,7 @@ B2lTouchEvtD0Exit(
     UNREFERENCED_PARAMETER(TargetState);
     Context->TouchReady = FALSE;
     (VOID)WdfTimerStop(Context->PollTimer, TRUE);
-    if (Context->Pointer.Active) {
-        Context->Pointer.Active = 0U;
-        B2lTouchSubmitPointer(Context);
-    }
+    (VOID)B2lTouchReleaseAll(Context);
     B2lHsI2cQuiesce(Context);
     return STATUS_SUCCESS;
 }

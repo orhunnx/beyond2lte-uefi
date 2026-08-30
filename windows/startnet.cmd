@@ -6,6 +6,7 @@ mode con: cols=112 lines=72 >nul 2>&1
 rem Klavye/dokunmatik zorunlu degildir; guvenli CACHE yazma testi otomatiktir.
 set "B2LUFSDIR=%SystemRoot%\B2LUFS"
 set "B2LTOUCHDIR=%SystemRoot%\B2LTOUCH"
+set "B2LTOUCHREADY=0"
 set "B2LCACHEMOUNT=%SystemDrive%\B2LCACHE-MOUNT.TXT"
 set "B2LCACHEVOLREPORT=%SystemDrive%\B2LCACHE-VOL.TXT"
 
@@ -35,6 +36,7 @@ call :B2LUfsMountCache
 echo.
 echo === Test sonu ===
 echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
+call :B2LTouchLaunchKeyboard
 cmd.exe /k
 goto :eof
 
@@ -80,7 +82,23 @@ reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\BYN0001\0" /v LowerFilter
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2ltouch" /v B2LTouchStage 2>nul || echo B2L_STAGE=YOK
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2ltouch" /v B2LTouchStatus 2>nul || echo B2L_STATUS=YOK
 echo Asama: 01=AddEntry 02=DeviceCreate 10=Device 20=Timer 30=VhfCreate 40=VhfStart 50=Resources 60-64=sec_ts 70=D0Ready
+set "B2LTOUCHREADY=1"
 exit /b 0
+
+:B2LTouchLaunchKeyboard
+if not "%B2LTOUCHREADY%"=="1" exit /b 0
+if exist "%ProgramFiles%\Common Files\microsoft shared\ink\TabTip.exe" (
+  echo Windows dokunmatik klavyesi aciliyor...
+  start "" "%ProgramFiles%\Common Files\microsoft shared\ink\TabTip.exe"
+  exit /b 0
+)
+if exist "%SystemRoot%\System32\osk.exe" (
+  echo Windows ekran klavyesi aciliyor...
+  start "" "%SystemRoot%\System32\osk.exe"
+  exit /b 0
+)
+echo Windows yerel ekran klavyesi bu WinPE imajinda yok.
+exit /b 1
 
 :B2LTouchEnsureVhfService
 set "B2LVHFSVC=HKLM\SYSTEM\CurrentControlSet\Services\vhf"

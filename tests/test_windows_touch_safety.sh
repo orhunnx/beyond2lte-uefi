@@ -26,6 +26,10 @@ grep -Fq "'libcntpr.lib'" "$WIN/build-b2ltouch.ps1"
 grep -q 'VhfKm.lib libcntpr.lib ntoskrnl.lib' "$WIN/build-b2ltouch.ps1"
 grep -q 'Usage (Contact Count)' "$WIN/b2ltouch.c"
 grep -q 'Usage (Contact Count Maximum)' "$WIN/b2ltouch.c"
+grep -q '#define B2L_TOUCH_MAX_CONTACTS   10U' "$WIN/b2ltouch.h"
+test "$(rg -c 'B2L_TOUCH_CONTACT_DESCRIPTOR,' "$WIN/b2ltouch.c")" -eq 10
+grep -q 'B2lTouchSubmitFrame' "$WIN/b2ltouch.c"
+grep -q 'PendingRelease' "$WIN/b2ltouch.c"
 grep -q 'B2L_TOUCH_STAGE_VHF_CREATED' "$WIN/b2ltouch.c"
 grep -q 'B2L_TOUCH_STAGE_ADD_ENTERED' "$WIN/b2ltouch.c"
 grep -q 'B2L_TOUCH_STAGE_DEVICE_CREATE' "$WIN/b2ltouch.c"
@@ -43,8 +47,16 @@ if rg -q 'sc\.exe' "$ROOT/windows/startnet.cmd"; then
   exit 1
 fi
 grep -q 'Services\\b2ltouch" /v B2LTouchStage' "$ROOT/windows/startnet.cmd"
-grep -q 'DriverVer=08/30/2026,0.1.5.0' "$INF"
-grep -q 'B2LTOUCH_DRIVER_VERSION=0.1.5.0' "$ROOT/tools_b2ltouch.sh"
+grep -q 'DriverVer=08/30/2026,0.2.0.0' "$INF"
+grep -q 'B2LTOUCH_DRIVER_VERSION=0.2.0.0' "$ROOT/tools_b2ltouch.sh"
+grep -q 'B2LTOUCH_PACKAGE=sec-ts-kmdf-vhf-ten-contact' "$ROOT/tools_b2ltouch.sh"
+grep -q 'B2LTouchLaunchKeyboard' "$ROOT/windows/startnet.cmd"
+grep -q 'TabTip.exe' "$ROOT/windows/startnet.cmd"
+grep -q 'System32\\osk.exe' "$ROOT/windows/startnet.cmd"
+if rg -q 'b2losk|B2LTOUCH_OSK_SHA256' "$ROOT/windows" "$ROOT/tools_b2ltouch.sh"; then
+  echo "HATA: yerel Windows klavyesi yerine paketlenmis ozel OSK bulundu" >&2
+  exit 1
+fi
 
 grep -q '#define B2L_HSI2C_PHYSICAL_BASE 0x104B0000ULL' "$WIN/b2ltouch.h"
 grep -q '#define B2L_USI_PHYSICAL_BASE    0x10421000ULL' "$WIN/b2ltouch.h"

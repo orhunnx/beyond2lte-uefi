@@ -1,10 +1,6 @@
 #include "b2ltouch_parser.h"
 
 #define SEC_TS_COORDINATE_EVENT          0U
-#define SEC_TS_COORDINATE_ACTION_PRESS   1U
-#define SEC_TS_COORDINATE_ACTION_MOVE    2U
-#define SEC_TS_COORDINATE_ACTION_RELEASE 3U
-
 #define SEC_TS_TOUCHTYPE_NORMAL 0U
 #define SEC_TS_TOUCHTYPE_GLOVE  3U
 #define SEC_TS_TOUCHTYPE_STYLUS 4U
@@ -20,7 +16,7 @@ B2lIsPointerTouchType(B2L_U8 TouchType)
 B2L_SEC_TS_PARSE_RESULT
 B2lSecTsParseEvent(
     const B2L_U8 Event[B2L_SEC_TS_EVENT_SIZE],
-    B2L_SEC_TS_POINTER *Pointer
+    B2L_SEC_TS_UPDATE *Update
     )
 {
     B2L_U8 Action;
@@ -31,7 +27,7 @@ B2lSecTsParseEvent(
     B2L_U16 X;
     B2L_U16 Y;
 
-    if ((Event == 0) || (Pointer == 0)) {
+    if ((Event == 0) || (Update == 0)) {
         return B2lSecTsInvalid;
     }
 
@@ -51,40 +47,23 @@ B2lSecTsParseEvent(
     Y = (B2L_U16)(((B2L_U16)Event[2] << 4) | (Event[3] & 0x0FU));
     Pressure = Event[6] & 0x3FU;
 
-    if (Action == SEC_TS_COORDINATE_ACTION_PRESS) {
-        if (Pointer->Active || !B2lIsPointerTouchType(TouchType)) {
-            return B2lSecTsIgnored;
-        }
-        Pointer->Active = 1U;
-        Pointer->TouchId = TouchId;
-        Pointer->X = X;
-        Pointer->Y = Y;
-        Pointer->Pressure = (Pressure == 0U) ? 1U : Pressure;
-        return B2lSecTsUpdated;
+    if ((Action != B2L_SEC_TS_ACTION_PRESS) &&
+        (Action != B2L_SEC_TS_ACTION_MOVE) &&
+        (Action != B2L_SEC_TS_ACTION_RELEASE)) {
+        return B2lSecTsIgnored;
     }
-
-    if (!Pointer->Active || (TouchId != Pointer->TouchId)) {
+    if ((Action != B2L_SEC_TS_ACTION_RELEASE) &&
+        !B2lIsPointerTouchType(TouchType)) {
         return B2lSecTsIgnored;
     }
 
-    if (Action == SEC_TS_COORDINATE_ACTION_RELEASE) {
-        Pointer->Active = 0U;
-        Pointer->TouchId = 0U;
-        Pointer->X = X;
-        Pointer->Y = Y;
-        Pointer->Pressure = 0U;
-        return B2lSecTsUpdated;
-    }
-
-    if ((Action == SEC_TS_COORDINATE_ACTION_MOVE) &&
-        B2lIsPointerTouchType(TouchType)) {
-        Pointer->X = X;
-        Pointer->Y = Y;
-        Pointer->Pressure = (Pressure == 0U) ? 1U : Pressure;
-        return B2lSecTsUpdated;
-    }
-
-    return B2lSecTsIgnored;
+    Update->Action = Action;
+    Update->TouchId = TouchId;
+    Update->X = X;
+    Update->Y = Y;
+    Update->Pressure = (Action == B2L_SEC_TS_ACTION_RELEASE) ?
+        0U : ((Pressure == 0U) ? 1U : Pressure);
+    return B2lSecTsUpdated;
 }
 
 B2L_U8

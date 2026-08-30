@@ -12,10 +12,11 @@ Microsoft'un Virtual HID Framework (VHF) modelini kullanır: fiziksel taşıma v
 `sec_ts` çözümleme burada yapılır, Windows'a standart Touch Screen HID top-level
 collection verilir.
 
-İlk sürüm tek temaslıdır ve UEFI'de cihaz üzerinde doğrulanmış parser ile aynı
-12-bit X/Y formatını kullanır. HID raporu Windows'un zorunlu Tip Switch, Contact
-Identifier, X, Y ve Contact Count alanlarını; feature raporu da maksimum temas
-sayısını içerir.
+Sürücü UEFI'de cihaz üzerinde doğrulanmış parser ile aynı 12-bit X/Y formatını
+kullanır. Paralel HID raporu en fazla 10 eşzamanlı `sec_ts` temasını, kararlı
+Contact Identifier değerleriyle aynı pakette taşır. Parmak kalkışı son koordinat
+korunarak Tip Switch=0 ile bir kez bildirilir. Feature raporu maksimum temas
+sayısını 10 olarak yayınlar.
 
 HSI2C olay kuyruğu 20 ms aralıkla passive-level, tek-seferlik KMDF timer ile
 okunur. Passive timer periyodik yapılandırılmaz; callback başarılı kaldığı
@@ -46,13 +47,16 @@ kurulu olmalıdır. Komutlar WSL terminalinde çalıştırılır:
 cd ~/beyond2lte-uefi-8549
 
 # TSP0 ACPI tanımı + dokunmatik güç/pin hazırlığı olan BOOT
-bash yap.sh --touch --acpi --clean
+bash yap.sh --touch-test --acpi --clean
 
 # Mevcut boot.wim içine ARM64 SYS/INF/CAT ekle
 bash tools_b2ltouch.sh
 
 # WinPE ESP'sini SYSTEM bölümü için paketle
-bash cache_esp.sh --win --system
+bash cache_esp.sh --win --system --baseline
+
+# Son paketi listele
+tar -tf out/beyond2lte-touch-diag.tar
 ```
 
 `tools_b2ltouch.sh`, PowerShell'i WSL'den tek satırda çağırır. PowerShell
@@ -80,4 +84,6 @@ B2L_SKIP_MSVC_BUILD=1 bash tools_b2ltouch.sh
 Microsoft `vhf` kernel-service kaydını mevcut `reg.exe` ile oturumluk oluşturur, ardından
 `b2ltouch.inf` paketini kurar ve PnP taraması yapar. Başarılı durumda Device Manager/PnP görünümünde kaynak aygıt
 `ACPI\BYN0001`, onun VHF çocuğu ise HID uyumlu dokunmatik ekran olarak görünür.
-Kurulum çıktısı `X:\B2LTOUCH-PNP.TXT` dosyasındadır.
+Kurulum çıktısı `X:\B2LTOUCH-PNP.TXT` dosyasındadır. Test sonunda WinPE/Windows
+içindeki yerel dokunmatik klavye (`TabTip.exe`), o yoksa yerel ekran klavyesi
+(`osk.exe`) açılır; paket ayrı bir klavye uygulaması içermez.

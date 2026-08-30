@@ -14,17 +14,34 @@
 #define B2L_HSI2C_SLAVE          0x48U
 #define B2L_TOUCH_POLL_MS        20UL
 #define B2L_TOUCH_MAX_EVENTS     32U
+#define B2L_TOUCH_MAX_CONTACTS   10U
+
+typedef struct _B2L_TOUCH_CONTACT_STATE {
+    BOOLEAN Active;
+    BOOLEAN PendingRelease;
+    USHORT X;
+    USHORT Y;
+} B2L_TOUCH_CONTACT_STATE;
 
 #pragma pack(push, 1)
-typedef struct _B2L_TOUCH_REPORT {
-    UCHAR ReportId;
+typedef struct _B2L_TOUCH_CONTACT_REPORT {
     UCHAR Tip;
     UCHAR ContactId;
     USHORT X;
     USHORT Y;
+} B2L_TOUCH_CONTACT_REPORT;
+
+typedef struct _B2L_TOUCH_REPORT {
+    UCHAR ReportId;
+    B2L_TOUCH_CONTACT_REPORT Contacts[B2L_TOUCH_MAX_CONTACTS];
     UCHAR ContactCount;
 } B2L_TOUCH_REPORT;
 #pragma pack(pop)
+
+C_ASSERT(
+    (sizeof(B2L_TOUCH_CONTACT_REPORT) == 6U) &&
+    (sizeof(B2L_TOUCH_REPORT) == 62U)
+    );
 
 typedef struct _B2L_TOUCH_CONTEXT {
     WDFDEVICE Device;
@@ -37,8 +54,7 @@ typedef struct _B2L_TOUCH_CONTEXT {
     BOOLEAN HardwareReady;
     BOOLEAN TouchReady;
     ULONG ConsecutiveErrors;
-    B2L_SEC_TS_POINTER Pointer;
-    UCHAR HidContactId;
+    B2L_TOUCH_CONTACT_STATE Contacts[B2L_SEC_TS_MAX_TOUCH_ID + 1U];
     B2L_TOUCH_REPORT Report;
     HID_XFER_PACKET ReportPacket;
 } B2L_TOUCH_CONTEXT, *PB2L_TOUCH_CONTEXT;
