@@ -131,6 +131,12 @@
 
 #define DWC3_DCTL_RUN_STOP           BIT31
 #define DWC3_DCTL_CSFTRST            BIT30
+#define DWC3_DCTL_ULSTCHNGREQ_SHIFT  5
+#define DWC3_DCTL_ULSTCHNGREQ_MASK   (0xFU << DWC3_DCTL_ULSTCHNGREQ_SHIFT)
+#define DWC3_DCTL_ULSTCHNGREQ(Value) \
+  (((Value) << DWC3_DCTL_ULSTCHNGREQ_SHIFT) & \
+   DWC3_DCTL_ULSTCHNGREQ_MASK)
+#define DWC3_DCTL_ULSTCHNG_RX_DETECT DWC3_DCTL_ULSTCHNGREQ (0x5U)
 #define DWC3_DCFG_DEVSPD_MASK        7U
 #define DWC3_DCFG_DEVSPD_HS          0U
 #define DWC3_DSTS_COREIDLE           BIT23
@@ -261,7 +267,7 @@ Dwc3ProbeWrite32 (
       MmioWrite32 (Dwc3Register (Offset), Value);
       return TRUE;
     default:
-      Print (L"R12 IC HATA: izin verilmeyen DWC3 write offset=%x\n", Offset);
+      Print (L"R13 IC HATA: izin verilmeyen DWC3 write offset=%x\n", Offset);
       return FALSE;
   }
 }
@@ -590,18 +596,21 @@ RememberEvent (
   }
 
   Stats->Total++;
-  if ((Event & BIT0) != 0) {
+  // Bit 0 set selects the device/global format; zero is an endpoint event.
+  // R12 had this polarity reversed, which hid the observed USB_RESET (0x101)
+  // and CONNECT_DONE (0x201) events in the endpoint counter.
+  if ((Event & BIT0) == 0) {
     Stats->EndpointTotal++;
     return;
   }
 
-  if (((Event >> 1) & 0x7F) != 0) {
-    Stats->OtherTotal++;
+  if (((Event >> 1) & 0x7F) == 0) {
+    Type = (Event >> 8) & 0xF;
+    Stats->DeviceType[Type]++;
     return;
   }
 
-  Type = (Event >> 8) & 0xF;
-  Stats->DeviceType[Type]++;
+  Stats->OtherTotal++;
 }
 
 STATIC
@@ -669,7 +678,7 @@ PrintLastEvents (
 
   Position = (Stats->LastWrite + DWC3_PROBE_LAST_EVENTS - 1) %
              DWC3_PROBE_LAST_EVENTS;
-  if ((Stats->Last[Position] & BIT0) != 0) {
+  if ((Stats->Last[Position] & BIT0) == 0) {
     Type = (Stats->Last[Position] >> 6) & 0xF;
     Print (L"SON TIP: ENDPOINT ep=%u %s(%u)\n",
            (Stats->Last[Position] >> 1) & 0x1F,
@@ -976,7 +985,13 @@ B2LDwc3RunEventProbe (
       !Dwc3ProbeWrite32 (DWC3_DEVTEN, DWC3_PROBE_DEVICE_EVENTS) ||
       !Dwc3ProbeWrite32 (
          DWC3_DCTL,
-         Saved.DeviceControl | DWC3_DCTL_RUN_STOP
+         (Saved.DeviceControl & ~DWC3_DCTL_ULSTCHNGREQ_MASK) |
+         DWC3_DCTL_ULSTCHNG_RX_DETECT
+         ) ||
+      !Dwc3ProbeWrite32 (
+         DWC3_DCTL,
+         (Saved.DeviceControl & ~DWC3_DCTL_ULSTCHNGREQ_MASK) |
+         DWC3_DCTL_ULSTCHNG_RX_DETECT | DWC3_DCTL_RUN_STOP
          )) {
     Print (L"R12 internal write allow-list hatasi.\n");
     Status = EFI_ACCESS_DENIED;
@@ -992,8 +1007,15 @@ B2LDwc3RunEventProbe (
     }
   }
 
-  Dctl = Dwc3Read32 (DWC3_DCTL);
+  // The Exynos vendor sequence requests RX_DETECT before both RUN and STOP.
+  // Keep the two MMIO writes separate so the link request reaches the core
+  // before RUN_STOP is cleared.
+  Dctl  = Dwc3Read32 (DWC3_DCTL);
+  Dctl &= ~DWC3_DCTL_ULSTCHNGREQ_MASK;
+  Dctl |= DWC3_DCTL_ULSTCHNG_RX_DETECT;
+  Dwc3ProbeWrite32 (DWC3_DCTL, Dctl);
   Dwc3ProbeWrite32 (DWC3_DCTL, Dctl & ~DWC3_DCTL_RUN_STOP);
+  gBS->Stall (50000);
   for (Millisecond = 0; Millisecond < DWC3_STOP_TIMEOUT_MS; Millisecond++) {
     DrainEventBuffer (BufferAddress, &Stats);
     Dsts = Dwc3Read32 (DWC3_DSTS);
