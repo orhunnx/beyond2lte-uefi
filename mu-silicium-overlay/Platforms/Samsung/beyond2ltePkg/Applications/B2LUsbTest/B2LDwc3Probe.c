@@ -4,7 +4,8 @@
   This is deliberately not a USB gadget implementation.  It establishes the
   physical attach boundary needed before EP0 and bulk transfer work: the stock
   device-tree's UTMI PHY power/isolation and tune sequence, a controller-owned
-  event ring in allocated RAM, and a short DCTL.RUN_STOP interval.  No combo
+  event ring in allocated RAM, an explicit High-Speed device selection and a
+  short DCTL.RUN_STOP interval.  No combo
   PHY, DWC3 role/core-reset, endpoint command or endpoint-enable register is
   written.
 
@@ -102,6 +103,7 @@
 #define DWC3_GEVNTADRHI0             0xC404
 #define DWC3_GEVNTSIZ0               0xC408
 #define DWC3_GEVNTCOUNT0             0xC40C
+#define DWC3_DCFG                    0xC700
 #define DWC3_DCTL                    0xC704
 #define DWC3_DEVTEN                  0xC708
 #define DWC3_DSTS                    0xC70C
@@ -129,6 +131,8 @@
 
 #define DWC3_DCTL_RUN_STOP           BIT31
 #define DWC3_DCTL_CSFTRST            BIT30
+#define DWC3_DCFG_DEVSPD_MASK        7U
+#define DWC3_DCFG_DEVSPD_HS          0U
 #define DWC3_DSTS_COREIDLE           BIT23
 #define DWC3_DSTS_DEVCTRLHLT         BIT22
 #define DWC3_DSTS_RXFIFOEMPTY        BIT17
@@ -164,6 +168,7 @@ typedef struct {
   UINT32  EventAddressHigh;
   UINT32  EventSize;
   UINT32  DeviceEventEnable;
+  UINT32  DeviceConfig;
   UINT32  DeviceControl;
 } B2L_DWC3_PROBE_SAVED;
 
@@ -251,11 +256,12 @@ Dwc3ProbeWrite32 (
     case DWC3_GEVNTSIZ0:
     case DWC3_GEVNTCOUNT0:
     case DWC3_DEVTEN:
+    case DWC3_DCFG:
     case DWC3_DCTL:
       MmioWrite32 (Dwc3Register (Offset), Value);
       return TRUE;
     default:
-      Print (L"R11 IC HATA: izin verilmeyen DWC3 write offset=%x\n", Offset);
+      Print (L"R12 IC HATA: izin verilmeyen DWC3 write offset=%x\n", Offset);
       return FALSE;
   }
 }
@@ -279,7 +285,7 @@ PhyProbeWrite32 (
       MmioWrite32 (PhyRegister (Offset), Value);
       return TRUE;
     default:
-      Print (L"R11 IC HATA: izin verilmeyen PHY write offset=%x\n", Offset);
+      Print (L"R12 IC HATA: izin verilmeyen PHY write offset=%x\n", Offset);
       return FALSE;
   }
 }
@@ -293,7 +299,7 @@ PmuProbeWrite32 (
   )
 {
   if (Offset != B2L_PMU_USB_PHY_CTRL) {
-    Print (L"R11 IC HATA: izin verilmeyen PMU write offset=%x\n", Offset);
+    Print (L"R12 IC HATA: izin verilmeyen PMU write offset=%x\n", Offset);
     return FALSE;
   }
 
@@ -619,7 +625,7 @@ DrainEventBuffer (
 
   if ((EventBytes > DWC3_EVENT_BUFFER_SIZE) ||
       ((EventBytes & (sizeof (UINT32) - 1)) != 0)) {
-    Print (L"R11 EVENT COUNT gecersiz: %08x\n", CountRegister);
+    Print (L"R12 EVENT COUNT gecersiz: %08x\n", CountRegister);
     return CountRegister;
   }
 
@@ -710,6 +716,7 @@ PreflightIsSafe (
 {
   UINT32  AddressWidth;
   UINT32  CoreId;
+  UINT32  Dcfg;
   UINT32  Dctl;
   UINT32  Dsts;
   UINT32  EventCount;
@@ -725,6 +732,7 @@ PreflightIsSafe (
   Gctl           = Dwc3Read32 (DWC3_GCTL);
   Gsts           = Dwc3Read32 (DWC3_GSTS);
   HwParams0      = Dwc3Read32 (DWC3_GHWPARAMS0);
+  Dcfg           = Dwc3Read32 (DWC3_DCFG);
   Dctl           = Dwc3Read32 (DWC3_DCTL);
   Dsts           = Dwc3Read32 (DWC3_DSTS);
   EventCount     = Dwc3Read32 (DWC3_GEVNTCOUNT0);
@@ -735,10 +743,12 @@ PreflightIsSafe (
   PhyVersion     = PhyRead32 (EXYNOS_USBCON_CTRL_VER);
   Usb2PhyCfg     = Dwc3Read32 (DWC3_GUSB2PHYCFG0);
 
-  Print (L"R11 PREFLIGHT ID=%08x GCTL=%08x GSTS=%08x HWP0=%08x AW=%u\n",
+  Print (L"R12 PREFLIGHT ID=%08x GCTL=%08x GSTS=%08x HWP0=%08x AW=%u\n",
          CoreId, Gctl, Gsts, HwParams0, AddressWidth);
-  Print (L"DCTL=%08x DSTS=%08x DEVTEN=%08x DALEPENA=%08x\n",
-         Dctl, Dsts, Dwc3Read32 (DWC3_DEVTEN),
+  Print (L"DCFG=%08x DEVSPD=%u DCTL=%08x DSTS=%08x\n",
+         Dcfg, Dcfg & DWC3_DCFG_DEVSPD_MASK, Dctl, Dsts);
+  Print (L"DEVTEN=%08x DALEPENA=%08x\n",
+         Dwc3Read32 (DWC3_DEVTEN),
          Dwc3Read32 (DWC3_DALEPENA));
   Print (L"EVT=%08x:%08x SIZ=%08x CNT=%08x EP0CMD=%08x EP1CMD=%08x\n",
          Dwc3Read32 (DWC3_GEVNTADRHI0),
@@ -820,11 +830,13 @@ ShowLiveProbe (
   )
 {
   UINT32  Dctl;
+  UINT32  Dcfg;
   UINT32  Dsts;
   UINT32  HsTest;
   UINT32  PmuUsbPhy;
 
   Dctl = Dwc3Read32 (DWC3_DCTL);
+  Dcfg = Dwc3Read32 (DWC3_DCFG);
   Dsts = Dwc3Read32 (DWC3_DSTS);
   HsTest = PhyRead32 (EXYNOS_USBCON_HSP_TEST);
   PmuUsbPhy = PmuRead32 (B2L_PMU_USB_PHY_CTRL);
@@ -833,12 +845,13 @@ ShowLiveProbe (
          B2L_USB_TEST_REVISION);
   Print (L"SANIYE=%u/%u  Q/ESC=guvenli durdur  KABLO PC'YE TAKILI\n",
          Second, DWC3_PROBE_SECONDS);
-  Print (L"YAZMA: stok HS PHY + PMU[72C].0 + event DMA + RUN_STOP.\n");
+  Print (L"YAZMA: stok HS PHY + PMU[72C].0 + DCFG.DEVSPD=HS + event DMA.\n");
   Print (L"DWC3 rol/core-reset/endpoint yazmasi ve combo PHY erisimi YOK.\n\n");
   Print (L"PMU_USBPHY=%08x ON=%u HSP_TEST=%08x SIDDQ=%u\n",
          PmuUsbPhy, (PmuUsbPhy & B2L_PMU_USB_PHY_ENABLE) != 0,
          HsTest, (HsTest & HSP_TEST_SIDDQ) != 0);
-  Print (L"DCTL=%08x RUN=%u DSTS=%08x SOFN=%04x\n",
+  Print (L"DCFG=%08x DEVSPD=%u DCTL=%08x RUN=%u DSTS=%08x SOFN=%04x\n",
+         Dcfg, Dcfg & DWC3_DCFG_DEVSPD_MASK,
          Dctl, (Dctl & DWC3_DCTL_RUN_STOP) != 0, Dsts,
          (Dsts & DWC3_DSTS_SOFFN_MASK) >> 3);
   Print (L"SPD=%s LINK=%s HLT=%u IDLE=%u RXEMPTY=%u\n",
@@ -908,7 +921,7 @@ B2LDwc3RunEventProbe (
                   &BufferAddress
                   );
   if (EFI_ERROR (Status)) {
-    Print (L"R11 event DMA sayfasi ayrilamadi: %r\n", Status);
+    Print (L"R12 event DMA sayfasi ayrilamadi: %r\n", Status);
     return Status;
   }
 
@@ -929,7 +942,7 @@ B2LDwc3RunEventProbe (
            BufferAddress,
            EFI_SIZE_TO_PAGES (DWC3_EVENT_BUFFER_SIZE)
            );
-    Print (L"R11 yazma yapmadan iptal edildi.\n");
+    Print (L"R12 yazma yapmadan iptal edildi.\n");
     return EFI_NOT_READY;
   }
 
@@ -937,17 +950,23 @@ B2LDwc3RunEventProbe (
   Saved.EventAddressHigh = Dwc3Read32 (DWC3_GEVNTADRHI0);
   Saved.EventSize        = Dwc3Read32 (DWC3_GEVNTSIZ0);
   Saved.DeviceEventEnable = Dwc3Read32 (DWC3_DEVTEN);
+  Saved.DeviceConfig      = Dwc3Read32 (DWC3_DCFG);
   Saved.DeviceControl     = Dwc3Read32 (DWC3_DCTL);
   SaveHsPhyState (&PhySaved);
   PhyStateSaved = TRUE;
 
   if (!EnableHsPhy (&PhySaved)) {
-    Print (L"R11 HS PHY enable dogrulamasi basarisiz.\n");
+    Print (L"R12 HS PHY enable dogrulamasi basarisiz.\n");
     Status = EFI_DEVICE_ERROR;
     goto RestoreHaltedController;
   }
 
-  if (!Dwc3ProbeWrite32 (DWC3_GEVNTADRLO0, (UINT32)BufferAddress) ||
+  if (!Dwc3ProbeWrite32 (
+         DWC3_DCFG,
+         (Saved.DeviceConfig & ~DWC3_DCFG_DEVSPD_MASK) |
+         DWC3_DCFG_DEVSPD_HS
+         ) ||
+      !Dwc3ProbeWrite32 (DWC3_GEVNTADRLO0, (UINT32)BufferAddress) ||
       !Dwc3ProbeWrite32 (DWC3_GEVNTADRHI0, (UINT32)(BufferAddress >> 32)) ||
       !Dwc3ProbeWrite32 (
          DWC3_GEVNTSIZ0,
@@ -959,7 +978,7 @@ B2LDwc3RunEventProbe (
          DWC3_DCTL,
          Saved.DeviceControl | DWC3_DCTL_RUN_STOP
          )) {
-    Print (L"R11 internal write allow-list hatasi.\n");
+    Print (L"R12 internal write allow-list hatasi.\n");
     Status = EFI_ACCESS_DENIED;
     goto RestoreHaltedController;
   }
@@ -997,6 +1016,7 @@ RestoreHaltedController:
   Dwc3ProbeWrite32 (DWC3_GEVNTADRHI0, Saved.EventAddressHigh);
   Dwc3ProbeWrite32 (DWC3_GEVNTSIZ0, Saved.EventSize);
   Dwc3ProbeWrite32 (DWC3_DEVTEN, Saved.DeviceEventEnable);
+  Dwc3ProbeWrite32 (DWC3_DCFG, Saved.DeviceConfig);
   Dwc3ProbeWrite32 (DWC3_DCTL, Saved.DeviceControl);
   if (PhyStateSaved) {
     RestoreHsPhy (&PhySaved);
@@ -1010,7 +1030,7 @@ RestoreHaltedController:
          EFI_SIZE_TO_PAGES (DWC3_EVENT_BUFFER_SIZE)
          );
 
-  Print (L"\nR11 PROB BITTI: HLT=%u olay=%u; DMA/PHY/PMU geri alindi.\n",
+  Print (L"\nR12 PROB BITTI: HLT=%u olay=%u; DCFG/DMA/PHY/PMU geri alindi.\n",
          (Dwc3Read32 (DWC3_DSTS) & DWC3_DSTS_DEVCTRLHLT) != 0,
          Stats.Total);
   Print (L"Sonraki adim icin bu ekranin ve canli ekranin fotografini cek.\n");

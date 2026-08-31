@@ -1,6 +1,6 @@
 # B2LUsbTest EFI Shell USB tanısı
 
-`B2LUSB.EFI`, beyond2lte USB yolunun aşamalı EFI tanısıdır. R11, eski pasif
+`B2LUSB.EFI`, beyond2lte USB yolunun aşamalı EFI tanısıdır. R12, eski pasif
 harita sayfalarının ardından tek ekranda iki saniyede bir PMU, DWC3 device/OTG,
 xHCI portları ve doğrulanmış ana DRD PHY kayıtlarını yeniler. Önce PC veri
 kablosu takılıyken, sonra aynı boot içinde kablo çıkarıldıktan sonra bu ekranın
@@ -8,7 +8,7 @@ fotoğrafı alınır. R9 ölçümlerinde yalnız DSTS içindeki serbest akan SOF
 değiştiği için R10 bu alanı delta hesabından çıkarır. Son, ayrı onaylı sayfa
 stok Exynos9820 USB2 PHY açılışını geçici uygular, kontrollü DWC3 event-DMA
 halkası kurar ve `DCTL.RUN_STOP` ile 30 saniyelik fiziksel attach probu yapar.
-R8 MAX77705 yardımcı kaynağı ağaçta korunur fakat R11 uygulamasına bağlanmaz ve
+R8 MAX77705 yardımcı kaynağı ağaçta korunur fakat R12 uygulamasına bağlanmaz ve
 çalıştırılmaz.
 
 Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
@@ -24,8 +24,9 @@ Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
    `PWR/DWC/DEV/OTG/XHC/PHY` değişim bayrakları, DWC3 bağlantı hızı/link state,
    OTG `VBUS/B-session`, xHCI `CCS/PLS/change` ve DRD PHY `0x00..0x3c`.
 9. ayrı onaylı aktif HS attach probu: DT'deki USB2 PHY izolasyon biti, vendor
-   UTMI açılış/tuning sırası, ayrılmış 4 KiB DMA halkası, maskeli event
-   interrupt, device-event sayaçları ve geçici `RUN_STOP`.
+   UTMI açılış/tuning sırası, DWC3 `DCFG.DEVSPD=High-Speed`, ayrılmış 4 KiB DMA
+   halkası, maskeli event interrupt, device-event sayaçları ve geçici
+   `RUN_STOP`.
 
 R1 cihaz testinde `FSYS0A + 0x14` (`0x15862214`) erişimi synchronous external
 abort üretti. R2 bu erişimi ve aynı bilinmeyen duration grubundaki `+0x10`
@@ -112,6 +113,15 @@ R11 de henüz descriptor veya EP0 sunmaz. Başarı ölçütü kablo PC'ye takıl
 başarı değildir. Fiziksel attach kanıtından sonraki aşama EP0 descriptor
 yanıtları, ardından bulk endpoint ve dosya aktarım protokolüdür.
 
+R11 cihaz sonucunda USB2 PHY gerçekten açıldı (`PMU_USBPHY=1`, `SIDDQ=0`) ve
+DWC3 çalıştı, fakat `DCFG=0x00080005` içindeki `DEVSPD=5` denetleyiciyi
+SuperSpeedPlus modunda bıraktı. Yalnız UTMI/HS PHY açıkken link bu nedenle
+`RX_DET` durumunda kaldı; `USB_RESET` ve `CONNECT_DONE` yine sıfırdı. R12,
+halted preflight sonrasında yalnız `DCFG[2:0]` alanını `0` (High-Speed) yapar,
+sonra PHY/event/RUN_STOP sırasını çalıştırır. DCFG'nin diğer bütün bitleri
+korunur ve çıkışta kalıtılmış DCFG değeri birebir geri yüklenir. Endpoint,
+core reset, rol ve combo-PHY yazma sınırları değişmemiştir.
+
 Her sayfa sonraki erişimden **önce** fotoğraflanmalıdır. Bir pencere saat veya
 güç kapalı olduğu için sistemi kilitlerse son görülen sayfa erişim sınırını
 belirler. `Esc` veya `Q` sonraki pencereyi okumadan uygulamadan çıkar.
@@ -130,9 +140,9 @@ yalnız bu dosya AP alanından, **Re-Partition kapalı** olarak flashlanır.
 Uygulama SYSTEM ESP kökünde `B2LUSB.EFI` adıyla bulunur ve `startup.nsh` dosya
 mevcutsa onu Windows'tan önce çalıştırır.
 
-R11 başarı ölçütü canlı aktif ekranda `PMU_USBPHY ... ON=1`, `SIDDQ=0` ile
-`USB_RESET` veya `CONNECT_DONE` sayacının artması ve çıkışta
-`HLT=1 ... DMA/PHY/PMU geri alindi` mesajıdır. Canlı ekran ile sonuç ekranı
+R12 başarı ölçütü canlı aktif ekranda `DEVSPD=0`, `PMU_USBPHY ... ON=1`,
+`SIDDQ=0` ile `USB_RESET` veya `CONNECT_DONE` sayacının artması ve çıkışta
+`HLT=1 ... DCFG/DMA/PHY/PMU geri alindi` mesajıdır. Canlı ekran ile sonuç ekranı
 fotoğraflanır. Sayaçlar yine sıfır kalırsa EP0 eklenmeden önce Type-C/CC veri
 rolü ve gerçek VBUS/attach yoluna dönülür.
 
@@ -161,7 +171,7 @@ Güncel UFX özeti `UfxSynopsys.sys`, `Ufx01000.sys` ve user-mode istekleri içi
 tablosu desktop function-class desteği konusunda daha kısıtlıdır; bu nedenle
 hedef Windows ARM64 imajında bu üç bileşenin gerçekten bulunduğu WSL'de ayrıca
 doğrulanmadan özel function-class sürücüsü yazılmayacaktır. Dosya aktarımı
-hedefi şu sırayla ilerleyecek: R11 fiziksel attach/event kanıtı; Samsung
+hedefi şu sırayla ilerleyecek: R12 fiziksel attach/event kanıtı; Samsung
 PHY/Type-C handoff; ACPI URS + Synopsys UFX controller; in-box GenericUSBFn
 varsa kontrollü user-mode aktarım, yoksa özel function protocolü. Windows
 dokunmatik paketi bu zincirden bağımsız olarak korunur.
