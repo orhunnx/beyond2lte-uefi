@@ -18,7 +18,7 @@ grep -q 'B2LUSB.EFI' "$ROOT/esp/startup-baseline.nsh"
 grep -q 'beyond2lte-usb-diag.tar' "$ROOT/cache_esp.sh"
 grep -q 'DWC3_IP_DWC31[[:space:]]*0x33310000U' "$APP"
 grep -q 'DWC3_VER_NUMBER[[:space:]]*0xC1A0' "$APP"
-grep -q 'B2L_USB_TEST_REVISION[[:space:]]*10' "$PROBE_HEADER"
+grep -q 'B2L_USB_TEST_REVISION[[:space:]]*11' "$PROBE_HEADER"
 grep -q 'B2L_USB_PCS_ABORT_OFFSET_0[[:space:]]*0x0000' "$APP"
 grep -q 'B2L_USB_PCS_ABORT_OFFSET_C[[:space:]]*0x000C' "$APP"
 grep -q 'B2L_USB_PMA_ABORT_OFFSET_0[[:space:]]*0x0000' "$APP"
@@ -47,8 +47,14 @@ grep -q 'FailStoppedWithReservedDma' "$PROBE"
 grep -q 'DWC3_STOP_TIMEOUT_MS[[:space:]]*2000' "$PROBE"
 grep -q 'DWC3_EVENT_BUFFER_SIZE & DWC3_GEVNTSIZ_SIZE_MASK' "$PROBE"
 grep -q 'Saved.DeviceControl | DWC3_DCTL_RUN_STOP' "$PROBE"
+grep -q 'EnableHsPhy' "$PROBE"
+grep -q 'RestoreHsPhy' "$PROBE"
+grep -q 'EXYNOS_USBCON_CTRL_VER_03[[:space:]]*0x00030000U' "$PROBE"
+grep -q 'B2L_PMU_USB_PHY_CTRL[[:space:]]*0x072C' "$PROBE"
+grep -q 'HSP_TUNE_DEVICE_VALUE' "$PROBE"
+grep -q 'FIFO_EVENT' "$PROBE"
 if grep -q 'B2LMax77705.c' "$INF"; then
-  echo 'HATA: R10 USB uygulamasina MAX77705 aktif kodu baglanmis' >&2
+  echo 'HATA: R11 USB uygulamasina MAX77705 aktif kodu baglanmis' >&2
   exit 1
 fi
 grep -q 'bash yap.sh --touch --usb-test --clean' "$ROOT/BUILD.md"
@@ -89,10 +95,10 @@ if rg -n 'MmioWrite|IoWrite|PciWrite|WriteRegister|MmioBitFieldWrite|MmioAnd|Mmi
   exit 1
 fi
 
-# R10 aktif helper'inda tek fiziksel MMIO write noktasi ve dar bir runtime
-# allow-list vardir. PMU/PHY/rol/reset/endpoint registerleri listeye giremez.
-if [ "$(rg -c 'MmioWrite32' "$PROBE")" -ne 1 ]; then
-  echo 'HATA: R10 helper tek allow-list disinda MMIO write iceriyor' >&2
+# R11 aktif helper'inda DWC3, ana HS PHY ve PMU icin ayri dar runtime
+# allow-list'ler vardir. Combo PHY, DWC3 rol/core-reset/endpoint yazilamaz.
+if [ "$(rg -c 'MmioWrite32' "$PROBE")" -ne 3 ]; then
+  echo 'HATA: R11 helper uc allow-list disinda MMIO write iceriyor' >&2
   exit 1
 fi
 for Register in DWC3_GEVNTADRLO0 DWC3_GEVNTADRHI0 DWC3_GEVNTSIZ0 \
@@ -100,12 +106,25 @@ for Register in DWC3_GEVNTADRLO0 DWC3_GEVNTADRHI0 DWC3_GEVNTSIZ0 \
   grep -q "case $Register:" "$PROBE"
 done
 if rg -n 'case DWC3_(GCTL|GSTS|GUSB|OCFG|OCTL|OEVT|OEVTEN|OSTS|DALEPENA|DEP)' "$PROBE"; then
-  echo 'HATA: R10 allow-list PHY/rol/reset/endpoint yazmasina genislemis' >&2
+  echo 'HATA: R11 DWC3 allow-list rol/core-reset/endpoint yazmasina genislemis' >&2
+  exit 1
+fi
+for Register in EXYNOS_USBCON_LINK_CTRL EXYNOS_USBCON_LINK_PORT \
+                EXYNOS_USBCON_CLKRST EXYNOS_USBCON_UTMI \
+                EXYNOS_USBCON_HSP EXYNOS_USBCON_HSP_TUNE \
+                EXYNOS_USBCON_HSP_TEST; do
+  grep -q "case $Register:" "$PROBE"
+done
+grep -q 'if (Offset != B2L_PMU_USB_PHY_CTRL)' "$PROBE"
+if rg -n 'B2L_USB_(PCS|PMA)_BASE|B2L_PMU_USBDP_CTRL' "$PROBE"; then
+  echo 'HATA: R11 aktif helper combo PHY veya USB3 PMU penceresine genislemis' >&2
   exit 1
 fi
 if rg -n 'MmioWrite|IoWrite|PciWrite|MmioBitFieldWrite|MmioAnd|MmioOr' "$PROBE" | \
-   grep -v 'MmioWrite32 (Dwc3Register (Offset), Value);'; then
-  echo 'HATA: R10 helper allow-list disinda yazma iceriyor' >&2
+   grep -v -e 'MmioWrite32 (Dwc3Register (Offset), Value);' \
+           -e 'MmioWrite32 (PhyRegister (Offset), Value);' \
+           -e 'MmioWrite32 ((UINTN)(B2L_PMU_BASE + Offset), Value);'; then
+  echo 'HATA: R11 helper allow-list disinda yazma iceriyor' >&2
   exit 1
 fi
 

@@ -1,10 +1,11 @@
 /** @file
   Staged USB diagnostic for Samsung beyond2lte.
 
-  R10 keeps the R9 passive MMIO diagnostics.  Its monitor refreshes
+  R11 keeps the R10 passive MMIO diagnostics.  Its monitor refreshes
   every two seconds so cable-attached and cable-removed states can be captured
-  in the same boot.  A final, separately confirmed helper owns a reserved event
-  DMA page and briefly sets DCTL.RUN_STOP.  It never writes PMU, PHY, role,
+  in the same boot.  A final, separately confirmed helper temporarily applies
+  the stock Exynos9820 UTMI PHY/PMU sequence, owns a reserved event DMA page and
+  briefly sets DCTL.RUN_STOP.  It never writes the combo PHY, DWC3 role/core
   reset or endpoint registers.  Every new MMIO window is opened only after an
   explicit key press, so a fault can be localized from the last page.
 
@@ -955,13 +956,13 @@ B2LUsbTestEntry (
   ShowUsbAttachMonitor ();
 
   if (!PromptForNextStage (
-         L"R10 AKTIF DWC3 event/soft-connect; veri kablosu PC'ye TAKILI"
+         L"R11 AKTIF HS PHY + DWC3 event; veri kablosu PC'ye TAKILI"
          )) {
     return EFI_SUCCESS;
   }
   ProbeStatus = B2LDwc3RunEventProbe ();
   if (EFI_ERROR (ProbeStatus)) {
-    Print (L"R10 aktif DWC3 probu tamamlanamadi: %r\n", ProbeStatus);
+    Print (L"R11 aktif HS PHY/DWC3 probu tamamlanamadi: %r\n", ProbeStatus);
   }
   return ProbeStatus;
 }

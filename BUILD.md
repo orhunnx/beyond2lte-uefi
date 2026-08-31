@@ -103,14 +103,16 @@ bash cache_esp.sh --win --system --baseline
 ```
 
 `B2LUSB.EFI` SYSTEM ESP'ye konur ve `startup.nsh` tarafından Windows'tan önce
-çalıştırılır. Eski doğrulanmış salt-okuma sayfalarından sonra R10 tek canlı
+çalıştırılır. Eski doğrulanmış salt-okuma sayfalarından sonra R11 tek canlı
 ekranda PMU, DWC3 device/OTG, xHCI portları ve ana DRD PHY değerlerini iki
 saniyede bir yeniler. Önce PC veri kablosu takılıyken ekranın fotoğrafı çekilir;
 sonra kablo çıkarılır, `ORNEK` sayacı ilerleyince ikinci fotoğraf çekilir.
-`Esc` veya `Q` monitörü kapatır. Sonraki ayrı onay R10'un 4 KiB reserved event
-DMA halkasını kurup DWC3 device `RUN_STOP` bitini en çok 30 saniye açtığı aktif
-proba geçer. Bu prob PMU/PHY/rol/reset/endpoint yazmaz; çıkışta DWC3'ü halt edip
-event registerlerini geri yükler. R8 MAX77705 kaynakları korunur ancak
+`Esc` veya `Q` monitörü kapatır. Sonraki ayrı onay R11'in stok DT/vendor sıralı
+HS PHY'yi geçici açtığı, 4 KiB reserved event DMA halkasını kurup DWC3 device
+`RUN_STOP` bitini en çok 30 saniye açtığı aktif proba geçer. Prob yalnız USB2
+PMU izolasyon biti ile ana PHY'nin allow-list kayıtlarını yazar; combo PHY,
+DWC3 rol/core-reset/endpoint yazmaz. Çıkışta DWC3'ü halt edip event, PHY ve PMU
+durumunu geri yükler. R8 MAX77705 kaynakları korunur ancak
 uygulamaya bağlanmadığı için bu turda çalıştırılmaz.
 Platform memory map de değiştiği için `cache_esp.sh`, BOOT ve SYSTEM'i
 `out/beyond2lte-usb-diag.tar` içinde birleştirir. Odin AP alanına yalnız bu tek
@@ -198,8 +200,10 @@ durumunu attach değişiminden ayırır. OTG `VBUS/BSES`, xHCI `CCS/change`, DWC
 device link state ve bilinen DRD PHY kayıtlarından hangisinin kablo çıkarılırken
 değiştiği iki fotoğrafla görülecektir.
 R9'un PC/Mac/kablosuz/şarj adaptörü karşılaştırmasında gerçek attach deltası
-çıkmadı; `DEV=1` yalnız DSTS SOFN sayacıydı. R10 SOFN'yi delta dışına alır ve
-ilk aktif sınır olarak yalnız kontrollü event DMA + `RUN_STOP` probu uygular.
+çıkmadı; `DEV=1` yalnız DSTS SOFN sayacıydı. R10 event DMA + `RUN_STOP` ile
+DWC3'ün çalıştığını kanıtladı ancak yalnız EP0 `FIFO_EVENT` üretti; USB reset
+gelmedi. R11 bu nedenle stok Exynos9820 HS PHY/PMU açılışını aynı korumalı event
+probunun önüne ekler.
 `USB_RESET/CONNECT_DONE` görülmeden descriptor, EP0 veya bulk transfer koduna
 geçilmez.
 Windows kalıcı yolu için ACPI'ye URS üst düğümü ile `_ADR=0` host ve `_ADR=1`

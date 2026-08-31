@@ -570,8 +570,8 @@ if [ "$PART" = system ] && [ -s "$PROJ/esp/B2LTOUCH.EFI" ] && \
 fi
 
 # USB tanisi da iki bolumu birlikte gerektirir: BOOT'taki platform memory map
-# DWC3/PHY ve korunmus R8 HSI2C45 pencerelerini esler; R10 B2LUSB.EFI ise
-# asamali olcum ve korumali event-DMA probunu yapar. Iki dosyanin farkli
+# DWC3/PHY ve korunmus R8 HSI2C45 pencerelerini esler; R11 B2LUSB.EFI ise
+# asamali olcum ve korumali HS-PHY/event-DMA probunu yapar. Iki dosyanin farkli
 # turlardan kalmasini onlemek icin tek Odin AP arsivi uret.
 if [ "$PART" = system ] && [ -s "$PROJ/esp/B2LUSB.EFI" ]; then
   if [ ! -s "$OUT/uefi-boot.tar" ]; then

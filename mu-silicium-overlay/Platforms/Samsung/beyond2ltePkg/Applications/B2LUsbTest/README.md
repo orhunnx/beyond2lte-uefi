@@ -1,14 +1,15 @@
 # B2LUsbTest EFI Shell USB tanısı
 
-`B2LUSB.EFI`, beyond2lte USB yolunun aşamalı EFI tanısıdır. R10, eski pasif
+`B2LUSB.EFI`, beyond2lte USB yolunun aşamalı EFI tanısıdır. R11, eski pasif
 harita sayfalarının ardından tek ekranda iki saniyede bir PMU, DWC3 device/OTG,
 xHCI portları ve doğrulanmış ana DRD PHY kayıtlarını yeniler. Önce PC veri
 kablosu takılıyken, sonra aynı boot içinde kablo çıkarıldıktan sonra bu ekranın
 fotoğrafı alınır. R9 ölçümlerinde yalnız DSTS içindeki serbest akan SOFN sayacı
 değiştiği için R10 bu alanı delta hesabından çıkarır. Son, ayrı onaylı sayfa
-kontrollü bir DWC3 event-DMA halkası kurup `DCTL.RUN_STOP` ile 30 saniyelik
-device soft-connect probu yapar. R8 MAX77705 yardımcı kaynağı ağaçta korunur
-fakat R10 uygulamasına bağlanmaz ve çalıştırılmaz.
+stok Exynos9820 USB2 PHY açılışını geçici uygular, kontrollü DWC3 event-DMA
+halkası kurar ve `DCTL.RUN_STOP` ile 30 saniyelik fiziksel attach probu yapar.
+R8 MAX77705 yardımcı kaynağı ağaçta korunur fakat R11 uygulamasına bağlanmaz ve
+çalıştırılmaz.
 
 Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
 
@@ -22,7 +23,8 @@ Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
 8. tek ekranlı canlı attach monitörü: iki saniyelik örneklerle anlık ve birikmiş
    `PWR/DWC/DEV/OTG/XHC/PHY` değişim bayrakları, DWC3 bağlantı hızı/link state,
    OTG `VBUS/B-session`, xHCI `CCS/PLS/change` ve DRD PHY `0x00..0x3c`.
-9. ayrı onaylı aktif event probu: ayrılmış 4 KiB DMA halkası, maskeli event
+9. ayrı onaylı aktif HS attach probu: DT'deki USB2 PHY izolasyon biti, vendor
+   UTMI açılış/tuning sırası, ayrılmış 4 KiB DMA halkası, maskeli event
    interrupt, device-event sayaçları ve geçici `RUN_STOP`.
 
 R1 cihaz testinde `FSYS0A + 0x14` (`0x15862214`) erişimi synchronous external
@@ -81,10 +83,34 @@ edilir, kalan olaylar tüketilir, registerler geri yüklenir ve sayfa bırakıl�
 İki saniyede halt olmazsa DMA sayfası reserved tutulur ve uygulama Windows'a
 geçişi bilerek engeller; cihaz donanım tuşuyla yeniden başlatılmalıdır.
 
-Bu R10 turu henüz descriptor veya EP0 sunmaz; hedef PC'den `USB_RESET` ve/veya
-`CONNECT_DONE` olayının DWC3 event halkasına ulaştığını kanıtlamaktır. Geçici
-olarak hostta bilinmeyen USB aygıtı görülebilir. Olay kanıtından sonraki aşama
-EP0 descriptor yanıtları, ardından bulk endpoint ve dosya aktarım protokolüdür.
+R10 cihaz sonucunda event DMA ve `RUN_STOP` çalıştı, fakat `USB_RESET` ve
+`CONNECT_DONE` sıfır kaldı. Tekrarlanan `0x00000901`, DWC3 endpoint 0
+`RXTXFIFOEVT` (ekranda `FIFO_EVENT`) olayıdır; fiziksel attach kanıtı değildir.
+Bu sırada PMU USB2 PHY kontrolünün sıfır ve ana PHY'nin izolasyonda olması,
+bir sonraki sınırın endpoint değil Exynos PHY açılışı olduğunu doğruladı.
+
+R11, merged DT ve Samsung Exynos9820 vendor PHY sürücüsünden çıkarılan dar HS
+akışını uygular. Preflight ayrıca ana PHY kimliğini `0x00030000`, PMU USB2 PHY
+bitini kapalı ve DWC3 `GUSB2PHYCFG` soft-reset/suspend bitlerini temiz bekler.
+Yalnız PMU `0x1586072c[0]` ile ana PHY'nin `LINK_CTRL`, `LINK_PORT`, `CLKRST`,
+`UTMI`, `HSP`, `HSP_TUNE` ve `HSP_TEST` kayıtları ayrı runtime allow-list'lerden
+yazılabilir. Combo PCS/PMA, USB3 PMU, DWC3 rol/core-reset ve endpoint kayıtları
+yazılmaz. Cihaz-modu tune değerleri stok DT'nin ilk hücreleridir: `tx_vref=12`,
+`tx_pre_emp=3`, `tx_res=3`, `rx_sqrx=3`, `compdis=7`. Normal çıkışta önce DWC3
+halt edilir, sonra PHY güvenli güç-kapama durumuna alınır, PMU izolasyonu ve
+kalıtılmış tüm ana-PHY değerleri birebir geri yüklenir.
+
+PHY sırası, `Android-Artisan/android_kernel_samsung_exynos9820` deposunun
+`9a0a792d227c8ae6cddac0c9d68a8bb9782c44cb` revizyonundaki
+`phy-exynos-usb3p1.c`, `phy-exynos-usb3p1-reg.h` ve
+`phy-exynos-usbdrd.c` dosyalarıyla sabitlenmiştir. DT `phy_version=0x301`
+olduğu için vendor sürücünün minor-1 reset kolu kullanılır; MMIO `CTRL_VER`
+kaydının bununla karıştırılmaması için preflight değeri ayrı tutulur.
+
+R11 de henüz descriptor veya EP0 sunmaz. Başarı ölçütü kablo PC'ye takılıyken
+`USB_RESET` ve/veya `CONNECT_DONE` sayacının artmasıdır. `FIFO_EVENT` tek başına
+başarı değildir. Fiziksel attach kanıtından sonraki aşama EP0 descriptor
+yanıtları, ardından bulk endpoint ve dosya aktarım protokolüdür.
 
 Her sayfa sonraki erişimden **önce** fotoğraflanmalıdır. Bir pencere saat veya
 güç kapalı olduğu için sistemi kilitlerse son görülen sayfa erişim sınırını
@@ -104,10 +130,11 @@ yalnız bu dosya AP alanından, **Re-Partition kapalı** olarak flashlanır.
 Uygulama SYSTEM ESP kökünde `B2LUSB.EFI` adıyla bulunur ve `startup.nsh` dosya
 mevcutsa onu Windows'tan önce çalıştırır.
 
-R10 başarı ölçütü canlı aktif ekranda `USB_RESET` veya `CONNECT_DONE` sayacının
-artması ve çıkışta `HLT=1 ... DMA ve registerler geri alindi` mesajıdır. Bu iki
-ekran fotoğraflanır. Sayaçlar sıfır kalırsa sonraki tur event/EP0 eklemek değil,
-Exynos USB PHY/role/Type-C yolunu kontrollü olarak başlatmaktır.
+R11 başarı ölçütü canlı aktif ekranda `PMU_USBPHY ... ON=1`, `SIDDQ=0` ile
+`USB_RESET` veya `CONNECT_DONE` sayacının artması ve çıkışta
+`HLT=1 ... DMA/PHY/PMU geri alindi` mesajıdır. Canlı ekran ile sonuç ekranı
+fotoğraflanır. Sayaçlar yine sıfır kalırsa EP0 eklenmeden önce Type-C/CC veri
+rolü ve gerçek VBUS/attach yoluna dönülür.
 
 ## Windows'ta kalıcı dosya aktarımı mimarisi
 
@@ -134,7 +161,7 @@ Güncel UFX özeti `UfxSynopsys.sys`, `Ufx01000.sys` ve user-mode istekleri içi
 tablosu desktop function-class desteği konusunda daha kısıtlıdır; bu nedenle
 hedef Windows ARM64 imajında bu üç bileşenin gerçekten bulunduğu WSL'de ayrıca
 doğrulanmadan özel function-class sürücüsü yazılmayacaktır. Dosya aktarımı
-hedefi şu sırayla ilerleyecek: R10 fiziksel attach/event kanıtı; Samsung
+hedefi şu sırayla ilerleyecek: R11 fiziksel attach/event kanıtı; Samsung
 PHY/Type-C handoff; ACPI URS + Synopsys UFX controller; in-box GenericUSBFn
 varsa kontrollü user-mode aktarım, yoksa özel function protocolü. Windows
 dokunmatik paketi bu zincirden bağımsız olarak korunur.
