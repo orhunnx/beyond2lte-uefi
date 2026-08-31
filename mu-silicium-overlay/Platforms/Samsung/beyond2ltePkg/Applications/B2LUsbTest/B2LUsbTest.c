@@ -1,12 +1,14 @@
 /** @file
   Staged USB diagnostic for Samsung beyond2lte.
 
-  R12 keeps the R10 passive MMIO diagnostics.  Its monitor refreshes
+  R13 adds a CACHE-only USB Mass Storage mode and keeps the R10 passive MMIO
+  diagnostics behind the D menu.  Its monitor refreshes
   every two seconds so cable-attached and cable-removed states can be captured
   in the same boot.  A final, separately confirmed helper temporarily applies
   the stock Exynos9820 UTMI PHY/PMU sequence, owns a reserved event DMA page and
-  briefly sets DCTL.RUN_STOP.  It never writes the combo PHY, DWC3 role/core
-  reset or endpoint registers.  Every new MMIO window is opened only after an
+  briefly sets DCTL.RUN_STOP.  The legacy diagnostic never writes the combo
+  PHY, DWC3 role/core reset or endpoint registers.  Every new MMIO window is
+  opened only after an
   explicit key press, so a fault can be localized from the last page.
 
   Address contract (merged stock beyond2lte DT):
@@ -905,11 +907,35 @@ B2LUsbTestEntry (
   IN EFI_SYSTEM_TABLE *SystemTable
   )
 {
-  BOOLEAN  Dwc3Sane;
-  EFI_STATUS ProbeStatus;
+  BOOLEAN       Dwc3Sane;
+  EFI_INPUT_KEY Key;
+  EFI_STATUS    MenuStatus;
+  EFI_STATUS    ProbeStatus;
 
-  (VOID)ImageHandle;
   (VOID)SystemTable;
+
+  gST->ConOut->ClearScreen (gST->ConOut);
+  Print (L"=== B2L USB R%u ===\n\n", B2L_USB_TEST_REVISION);
+  Print (L"M = CACHE bolumunu Windows'a USB disk olarak sun\n");
+  Print (L"D = eski salt-okuma tani ekranlari\n");
+  Print (L"Q/ESC = cikis\n");
+  for (;;) {
+    MenuStatus = gST->ConIn->ReadKeyStroke (gST->ConIn, &Key);
+    if (EFI_ERROR (MenuStatus)) {
+      gBS->Stall (10000);
+      continue;
+    }
+    if ((Key.UnicodeChar == L'm') || (Key.UnicodeChar == L'M')) {
+      return B2LDwc3RunCacheMassStorage (ImageHandle);
+    }
+    if ((Key.UnicodeChar == L'd') || (Key.UnicodeChar == L'D')) {
+      break;
+    }
+    if ((Key.ScanCode == SCAN_ESC) || (Key.UnicodeChar == L'q') ||
+        (Key.UnicodeChar == L'Q')) {
+      return EFI_ABORTED;
+    }
+  }
 
   ShowPowerDomain ();
   if (!PromptForNextStage (L"PMU USB kontrol registerleri 15860704/1586072C")) {

@@ -22,3 +22,8 @@
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
   UefiLib
+
+[Protocols]
+  gEfiBlockIoProtocolGuid
+  gEfiLoadedImageProtocolGuid
+  gEfiPartitionInfoProtocolGuid

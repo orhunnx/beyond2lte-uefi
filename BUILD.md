@@ -91,7 +91,7 @@ Bu sürücü UEFI `AbsolutePointer` sağlar. `ExitBootServices` sırasında I²C
 susturur; dolayısıyla Windows açıldıktan sonraki dokunmatik için ayrıca bir
 Windows sürücüsü gerekir.
 
-### EFI Shell canlı USB attach tanısı
+### EFI Shell CACHE USB diski ve canlı USB tanısı
 
 USB host veya Windows sürücüsü eklenmeden önce DWC3/xHCI/PHY handoff durumu
 ayrı bir EFI Shell uygulamasıyla ölçülür:
@@ -103,7 +103,11 @@ bash cache_esp.sh --win --system --baseline
 ```
 
 `B2LUSB.EFI` SYSTEM ESP'ye konur ve `startup.nsh` tarafından Windows'tan önce
-çalıştırılır. Eski doğrulanmış salt-okuma sayfalarından sonra R11 tek canlı
+çalıştırılır. R13 açılış menüsünde `M`, 600 MiB FAT32 `CACHE` bölümünü Windows'a
+USB Mass Storage olarak sunar; `W` okuma/yazma ve `R` salt-okuma modudur. Dosya
+aktarımı bitince Windows'ta **Güvenle çıkar** yapılır ve telefon donanım tuşuyla
+yeniden başlatılır; uygulama bilinçli olarak Windows bootuna dönmez. `D` eski
+tanı akışını açar. Eski doğrulanmış salt-okuma sayfalarından sonra R11 tek canlı
 ekranda PMU, DWC3 device/OTG, xHCI portları ve ana DRD PHY değerlerini iki
 saniyede bir yeniler. Önce PC veri kablosu takılıyken ekranın fotoğrafı çekilir;
 sonra kablo çıkarılır, `ORNEK` sayacı ilerleyince ikinci fotoğraf çekilir.

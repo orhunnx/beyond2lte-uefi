@@ -14,4 +14,9 @@ B2LDwc3RunEventProbe (
   VOID
   );
 
+EFI_STATUS
+B2LDwc3RunCacheMassStorage (
+  IN EFI_HANDLE  ImageHandle
+  );
+
 #endif

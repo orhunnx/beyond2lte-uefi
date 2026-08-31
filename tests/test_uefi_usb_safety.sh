@@ -34,6 +34,8 @@ grep -q 'DWC3_OSTS_VBUSVLD' "$APP"
 grep -q 'XHCI_PORTSC_CSC' "$APP"
 grep -q 'B2LDwc3Probe.c' "$INF"
 grep -q 'B2LDwc3RunEventProbe' "$APP"
+grep -q 'B2LDwc3RunCacheMassStorage' "$APP"
+grep -q 'M = CACHE bolumunu Windows' "$APP"
 grep -q 'DWC3_DSTS_SOFFN_MASK' "$APP"
 grep -q 'Previous->Dsts & ~DWC3_DSTS_SOFFN_MASK' "$APP"
 grep -q 'AllocatePages' "$PROBE"
@@ -52,6 +54,24 @@ grep -q 'Dctl & ~DWC3_DCTL_RUN_STOP' "$PROBE"
 grep -q 'Saved.DeviceConfig & ~DWC3_DCFG_DEVSPD_MASK' "$PROBE"
 grep -q 'DWC3_DCFG_DEVSPD_HS[[:space:]]*0U' "$PROBE"
 grep -q 'Dwc3ProbeWrite32 (DWC3_DCFG, Saved.DeviceConfig);' "$PROBE"
+grep -q 'B2L_CACHE_PARTITION_BYTES[[:space:]]*629145600ULL' "$PROBE"
+grep -q 'B2L_CACHE_BLOCK_SIZE[[:space:]]*4096U' "$PROBE"
+grep -q 'B2L_CACHE_LAST_BLOCK[[:space:]]*153599ULL' "$PROBE"
+grep -q 'PartitionInfo->Type != PARTITION_TYPE_GPT' "$PROBE"
+grep -q 'IsCachePartitionName (PartitionInfo->Info.Gpt.PartitionName)' "$PROBE"
+grep -q 'Context->CacheBlockIo->ReadBlocks' "$PROBE"
+grep -q 'Context->CacheBlockIo->WriteBlocks' "$PROBE"
+grep -q 'Context->CacheBlockIo->FlushBlocks' "$PROBE"
+grep -q 'ValidateCacheFat32' "$PROBE"
+grep -q 'CompareMem (&Context->BulkBuffer\[82\], "FAT32   ", 8)' "$PROBE"
+grep -q 'USB_MSC_CBW_SIGNATURE[[:space:]]*0x43425355U' "$PROBE"
+grep -q 'USB_MSC_CSW_SIGNATURE[[:space:]]*0x53425355U' "$PROBE"
+grep -q 'SCSI_READ_10' "$PROBE"
+grep -q 'SCSI_WRITE_10' "$PROBE"
+grep -q 'CacheMassStorageRebootScreen' "$PROBE"
+grep -q 'gEfiBlockIoProtocolGuid' "$INF"
+grep -q 'gEfiLoadedImageProtocolGuid' "$INF"
+grep -q 'gEfiPartitionInfoProtocolGuid' "$INF"
 grep -q 'EnableHsPhy' "$PROBE"
 grep -q 'RestoreHsPhy' "$PROBE"
 grep -q 'EXYNOS_USBCON_CTRL_VER_03[[:space:]]*0x00030000U' "$PROBE"
@@ -100,8 +120,9 @@ if rg -n 'MmioWrite|IoWrite|PciWrite|WriteRegister|MmioBitFieldWrite|MmioAnd|Mmi
   exit 1
 fi
 
-# R12 aktif helper'inda DWC3, ana HS PHY ve PMU icin ayri dar runtime
-# allow-list'ler vardir. Combo PHY, DWC3 rol/core-reset/endpoint yazilamaz.
+# R13 aktif helper'inda DWC3, ana HS PHY ve PMU icin ayri dar runtime
+# allow-list'ler vardir. MSC icin yalniz device endpoint 0..3 acilmistir;
+# combo PHY ile DWC3 rol/core-reset ve endpoint 4+ yazilamaz.
 if [ "$(rg -c 'MmioWrite32' "$PROBE")" -ne 3 ]; then
   echo 'HATA: R12 helper uc allow-list disinda MMIO write iceriyor' >&2
   exit 1
@@ -110,8 +131,18 @@ for Register in DWC3_GEVNTADRLO0 DWC3_GEVNTADRHI0 DWC3_GEVNTSIZ0 \
                 DWC3_GEVNTCOUNT0 DWC3_DEVTEN DWC3_DCFG DWC3_DCTL; do
   grep -q "case $Register:" "$PROBE"
 done
-if rg -n 'case DWC3_(GCTL|GSTS|GUSB|OCFG|OCTL|OEVT|OEVTEN|OSTS|DALEPENA|DEP)' "$PROBE"; then
-  echo 'HATA: R12 DWC3 allow-list rol/core-reset/endpoint yazmasina genislemis' >&2
+if rg -n 'case DWC3_(GCTL|GSTS|GUSB|OCFG|OCTL|OEVT|OEVTEN|OSTS|DGCMD)' "$PROBE"; then
+  echo 'HATA: R13 DWC3 allow-list rol/core-reset yazmasina genislemis' >&2
+  exit 1
+fi
+grep -q 'case DWC3_DALEPENA:' "$PROBE"
+for Endpoint in 0 1 2 3; do
+  for Register in DEPCMDPAR2 DEPCMDPAR1 DEPCMDPAR0 DEPCMD; do
+    grep -q "case DWC3_${Register} (${Endpoint}):" "$PROBE"
+  done
+done
+if rg -n 'DWC3_DEPCMD(PAR[012])? \(([4-9]|1[0-9])\)' "$PROBE"; then
+  echo 'HATA: R13 MSC endpoint allow-list 0..3 disina cikiyor' >&2
   exit 1
 fi
 for Register in EXYNOS_USBCON_LINK_CTRL EXYNOS_USBCON_LINK_PORT \
@@ -130,6 +161,11 @@ if rg -n 'MmioWrite|IoWrite|PciWrite|MmioBitFieldWrite|MmioAnd|MmioOr' "$PROBE" 
            -e 'MmioWrite32 (PhyRegister (Offset), Value);' \
            -e 'MmioWrite32 ((UINTN)(B2L_PMU_BASE + Offset), Value);'; then
   echo 'HATA: R12 helper allow-list disinda yazma iceriyor' >&2
+  exit 1
+fi
+
+if rg -n 'DisconnectController|SimpleFileSystem|WriteDisk|PartitionName[[:space:]]*=' "$PROBE"; then
+  echo 'HATA: CACHE MSC yolu firmware FAT/GPT sahipligini degistiriyor' >&2
   exit 1
 fi
 

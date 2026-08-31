@@ -1,6 +1,9 @@
 # B2LUsbTest EFI Shell USB tanısı
 
-`B2LUSB.EFI`, beyond2lte USB yolunun aşamalı EFI tanısıdır. R12, eski pasif
+`B2LUSB.EFI`, beyond2lte USB yolunun EFI tanısı ve tek bölümlük kurtarma USB
+diskidir. R13 açılış menüsünde `M`, GPT adı `CACHE` olan 600 MiB FAT32 bölümü
+Windows'a USB Mass Storage/Bulk-Only Transport olarak sunar; `D` eski aşamalı
+tanı ekranlarını açar. R12, eski pasif
 harita sayfalarının ardından tek ekranda iki saniyede bir PMU, DWC3 device/OTG,
 xHCI portları ve doğrulanmış ana DRD PHY kayıtlarını yeniler. Önce PC veri
 kablosu takılıyken, sonra aynı boot içinde kablo çıkarıldıktan sonra bu ekranın
@@ -8,7 +11,7 @@ fotoğrafı alınır. R9 ölçümlerinde yalnız DSTS içindeki serbest akan SOF
 değiştiği için R10 bu alanı delta hesabından çıkarır. Son, ayrı onaylı sayfa
 stok Exynos9820 USB2 PHY açılışını geçici uygular, kontrollü DWC3 event-DMA
 halkası kurar ve `DCTL.RUN_STOP` ile 30 saniyelik fiziksel attach probu yapar.
-R8 MAX77705 yardımcı kaynağı ağaçta korunur fakat R12 uygulamasına bağlanmaz ve
+R8 MAX77705 yardımcı kaynağı ağaçta korunur fakat R13 uygulamasına bağlanmaz ve
 çalıştırılmaz.
 
 Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
@@ -122,6 +125,37 @@ sonra PHY/event/RUN_STOP sırasını çalıştırır. DCFG'nin diğer bütün bi
 korunur ve çıkışta kalıtılmış DCFG değeri birebir geri yüklenir. Endpoint,
 core reset, rol ve combo-PHY yazma sınırları değişmemiştir.
 
+R12 cihaz sonucunda Windows fiziksel aygıtı gördü ve “tanınmayan USB aygıtı”
+uyarısı verdi. Ham event halkasındaki tekrarlanan `0x00000101` ve `0x00000201`
+değerleri sırasıyla device `USB_RESET` ve `CONNECT_DONE` olaylarıdır; R12 ekranı
+bit 0 anlamını ters çözdüğü için bunları yanlışlıkla endpoint olayı saymıştı.
+Bu sonuç HS PHY, DWC3 soft-connect ve PC veri yolunun çalıştığını; eksik sınırın
+EP0 descriptor yanıtı olduğunu kanıtlar. R13 olay ayrımını düzeltir ve vendor
+durdurma sırasındaki `DCTL.ULSTCHNGREQ=RX_DETECT` isteğini RUN/STOP öncesinde
+ayrı, maskeli RMW yazılarıyla uygular.
+
+R13 `M` yolu EP0 üzerinde device/configuration/string descriptorlerini, MSC
+class `GET_MAX_LUN`/reset isteklerini ve fiziksel endpoint 2/3 üzerinde Bulk
+OUT/IN sağlar. BOT arkasındaki dar SCSI kümesi Windows'un FAT disk bağlaması
+için inquiry, sense, capacity, mode-sense, read/write(10), verify, synchronize
+cache, prevent/allow ve start/stop komutlarını içerir. Depolama hedefi yalnız
+`EFI_PARTITION_INFO_PROTOCOL` içinde GPT adı `CACHE`, blok boyu 4096, son LBA
+153599 ve toplam boyu 629145600 bayt birlikte doğrulanan BlockIo handle'ıdır;
+GPT/LBA dışı disk erişimi yoktur. `W` okuma/yazma, `R` salt-okuma seçer.
+
+Firmware FAT sürücüsünün eski cache durumunu yeniden kullanmaması için MSC
+oturumu Windows'a dönmez. Windows'ta “Güvenle çıkar” yapıldığında SCSI eject ve
+`FlushBlocks` işlenir; DWC3 endpoint transferleri bitirilip RX_DETECT üzerinden
+halt edilir, DMA/event/PHY/PMU durumu geri alınır ve ekranda donanım tuşlarıyla
+yeniden başlatma istenir. Halt başarısızsa DMA reserved bırakılır ve uygulama
+fail-stop ekranından çıkmaz.
+
+MSC taşıması USB-IF'in Bulk-Only sözleşmesindeki 31 bayt CBW, isteğe bağlı veri
+aşaması ve 13 bayt CSW sırasını uygular:
+[USB Mass Storage Class Bulk-Only Transport 1.0](https://www.usb.org/sites/default/files/usbmassbulk_10.pdf).
+Descriptor sabitleri UEFI'nin USB descriptor düzeniyle uyumludur:
+[EDK II IndustryStandard/Usb.h](https://github.com/tianocore/edk2/blob/master/MdePkg/Include/IndustryStandard/Usb.h).
+
 Her sayfa sonraki erişimden **önce** fotoğraflanmalıdır. Bir pencere saat veya
 güç kapalı olduğu için sistemi kilitlerse son görülen sayfa erişim sınırını
 belirler. `Esc` veya `Q` sonraki pencereyi okumadan uygulamadan çıkar.
@@ -140,11 +174,10 @@ yalnız bu dosya AP alanından, **Re-Partition kapalı** olarak flashlanır.
 Uygulama SYSTEM ESP kökünde `B2LUSB.EFI` adıyla bulunur ve `startup.nsh` dosya
 mevcutsa onu Windows'tan önce çalıştırır.
 
-R12 başarı ölçütü canlı aktif ekranda `DEVSPD=0`, `PMU_USBPHY ... ON=1`,
-`SIDDQ=0` ile `USB_RESET` veya `CONNECT_DONE` sayacının artması ve çıkışta
-`HLT=1 ... DCFG/DMA/PHY/PMU geri alindi` mesajıdır. Canlı ekran ile sonuç ekranı
-fotoğraflanır. Sayaçlar yine sıfır kalırsa EP0 eklenmeden önce Type-C/CC veri
-rolü ve gerçek VBUS/attach yoluna dönülür.
+R13 kullanımında açılış menüsünde `M`, ardından dosya yazılacaksa `W` seçilir.
+Windows diski gördüğünde CACHE FAT32 üzerinde aktarım yapılır; iş bitince önce
+Windows “Güvenle çıkar”, ardından telefonda donanım reboot yapılır. Ekrandaki
+`YAZILAN` sayacı artmadan ve güvenli çıkarma tamamlanmadan kablo çekilmez.
 
 ## Windows'ta kalıcı dosya aktarımı mimarisi
 
