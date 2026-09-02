@@ -55,8 +55,24 @@ paketlenecekse mevcut proje sözleşmesi kullanılır:
 B2L_SKIP_MSVC_BUILD=1 bash tools_b2lusb.sh
 ```
 
-Betik `UrsCx01000.sys`, `USBXHCI.SYS` ve `USBHUB3.SYS` dosyalarının hedef
-WinPE WIM'inde bulunduğunu doğrulamadan paket üretmez.
+Betik `USBXHCI.SYS` ve `USBHUB3.SYS` dosyalarının hedef WinPE WIM'inde
+bulunduğunu doğrulamadan paket üretmez. Çıplak ADK WinPE'de
+`UrsCx01000.sys` yoksa `tools_winpe_urs_runtime.sh` otomatik çağrılır. Bu
+betik Microsoft binary'sini ve `Services\\UrsCx01000` alt ağacını aynı
+build'deki ARM64 Windows `install.wim`/`install.esd` kaynağından alır; servis
+değerlerini tahmin etmez. UUP ISO otomatik bulunamazsa kaynak açıkça verilir:
+
+```bash
+B2L_WINDOWS_ARM64_SOURCE="/mnt/c/.../Windows11_ARM64.iso" \
+  bash tools_b2lusb.sh
+```
+
+Tam eşleşen Windows build'i tercih edilir. WDK ve binary adıyla sürümlenmiş
+`UrsCx 1.0` için aynı Windows ailesindeki daha eski runtime'ın daha yeni WinPE
+üzerinde kullanılması deneysel uyarıyla kabul edilir; daha yeni runtime'ın eski
+WinPE'ye eklenmesi reddedilir. Birden fazla edition içeren imajlarda gerekirse
+`B2L_WINDOWS_ARM64_INDEX=<indeks>` kullanılır. Offline SYSTEM hive aktarımı için
+`libhivex-bin` ve `libwin-hivex-perl` gerekir.
 
 Build tarafında URS SDK başlığı WDK'nın sürümlü alt dizininden
 `Include/<sürüm>/km/urs/1.0/UrsCx.h`, import library ise

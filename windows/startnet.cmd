@@ -61,6 +61,15 @@ if not exist "%B2LUSBDIR%\manifest.txt" (
   echo HATA: B2LUSB manifest yok; yari paket reddedildi.
   exit /b 1
 )
+if not exist "%SystemRoot%\System32\drivers\UrsCx01000.sys" (
+  echo HATA: Microsoft UrsCx01000.sys runtime yok.
+  exit /b 1
+)
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\UrsCx01000" >nul 2>&1
+if errorlevel 1 (
+  echo HATA: Microsoft UrsCx01000 servis kaydi yok.
+  exit /b 1
+)
 echo Paket kimligi:
 type "%B2LUSBDIR%\manifest.txt"
 pnputil /add-driver "%B2LUSBDIR%\b2lusb-host.inf" > "%SystemDrive%\B2LUSB-PNP.TXT" 2>&1

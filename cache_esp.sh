@@ -437,6 +437,7 @@ verify_winpe_b2ltouch_package() {
 # must retain the exact driver build injected into boot.wim.
 verify_winpe_b2lusb_package() {
   local VerifyDir ExpectedSys ManifestSys ExpectedCtl ManifestCtl
+  local UrsDir UrsManifestDir ExpectedUrs ManifestUrs ManifestUrsPackage
 
   if [ ! -s "$PROJ/out/b2lusb/b2lusb.sys" ]; then
     if [ -s "$PROJ/esp/B2LUSB.EFI" ]; then
@@ -483,9 +484,37 @@ verify_winpe_b2lusb_package() {
     return 1
   fi
 
+  UrsDir="$(mktemp -d)" || return 1
+  UrsManifestDir="$(mktemp -d)" || { rm -rf "$UrsDir"; return 1; }
+  if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
+      /Windows/System32/drivers/UrsCx01000.sys \
+      --dest-dir="$UrsDir" --no-acls >/dev/null; then
+    rm -rf "$UrsDir" "$UrsManifestDir"
+    echo "HATA: boot.wim'de Microsoft UrsCx01000.sys yok."
+    echo "Once: B2L_WINDOWS_ARM64_SOURCE=/mnt/c/.../Windows11_ARM64.iso bash tools_winpe_urs_runtime.sh"
+    return 1
+  fi
+  if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
+      /Windows/B2LURS/manifest.txt \
+      --dest-dir="$UrsManifestDir" --no-acls >/dev/null; then
+    rm -rf "$UrsDir" "$UrsManifestDir"
+    echo "HATA: boot.wim'de dogrulanmis B2LURS runtime manifesti yok."
+    return 1
+  fi
+  ExpectedUrs="$(sha256sum "$UrsDir/UrsCx01000.sys" | awk '{print $1}')"
+  ManifestUrs="$(sed -n 's/^B2LURS_SYS_SHA256=//p' "$UrsManifestDir/manifest.txt" | head -n 1)"
+  ManifestUrsPackage="$(sed -n 's/^B2LURS_PACKAGE=//p' "$UrsManifestDir/manifest.txt" | head -n 1)"
+  rm -rf "$UrsDir" "$UrsManifestDir"
+  if [ "$ManifestUrs" != "$ExpectedUrs" ] || \
+     [ "$ManifestUrsPackage" != "microsoft-urscx-winpe-runtime-v1" ]; then
+    echo "HATA: boot.wim Microsoft UrsCx runtime/manifest eslesmesi gecersiz."
+    return 1
+  fi
+
   say "WinPE B2LUSB Windows paketi dogrulandi"
   echo "  SYS SHA256: ${ExpectedSys:0:16}"
   echo "  CTL SHA256: ${ExpectedCtl:0:16}"
+  echo "  URS SHA256: ${ExpectedUrs:0:16}"
 }
 
 if [ "$WINONLY" = 1 ]; then

@@ -269,6 +269,28 @@ doğrulanmadı:
 - WSL -> Windows PowerShell/MSVC/WDK -> katalog/test-imza -> WIM hash geri-okuma
   derleme zinciri.
 
+02 Eylül 2026 WSL çalıştırması ARM64 derleme, link ve imzalama aşamalarını
+geçti; ilk engel çıplak ADK WinPE'nin `UrsCx01000.sys` içermemesiydi. WDK bu
+bileşenin yalnız başlık ve import library'sini sağlar. Paketleme zinciri artık
+eksik Microsoft runtime'ını aynı build'deki ARM64 UUP/Windows ISO
+`install.wim`/`install.esd` kaynağından alır. Kaynak
+`Services\UrsCx01000` ağacı da offline SYSTEM hive'dan birebir aktarılır;
+servis değerleri tahmin edilmez. Binary, registry ve manifest WIM'e yazıldıktan
+sonra geri okunup doğrulanmadan `cache_esp.sh --baseline` kapısı geçmez.
+
+ISO otomatik bulunamazsa WSL turu şu biçimde çalıştırılır:
+
+```bash
+B2L_WINDOWS_ARM64_SOURCE="/mnt/c/.../Windows11_ARM64.iso" \
+  bash yap.sh --touch --usb-test --clean
+```
+
+Tam build eşleşmesi tercih edilir. Eldeki `10.0.26200` UUP kaynağındaki
+sürümlenmiş `UrsCx 1.0`, `10.0.28000` WinPE'ye deneysel uyumluluk olarak kabul
+edilir; daha yeni kernel runtime'ının eski WinPE'ye eklenmesi reddedilir.
+Offline registry aktarımı WSL'de `libhivex-bin` ve `libwin-hivex-perl`
+paketlerini gerektirir.
+
 Bu aşama HID için gereken Windows host yazılım zincirini hazırlar ama fiziksel
 başarı iddiası değildir. SuperSpeed portu combo PHY abort'u nedeniyle sürücüde
 kapalıdır. MAX77705/UcmCx olmadığı için ilk HID testi haricen beslenen USB2 hub

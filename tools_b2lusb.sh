@@ -181,6 +181,7 @@ MANIFEST="$OUT/b2lusb-manifest.txt"
 } > "$MANIFEST"
 
 say "WinPE inbox USB/URS bilesenleri denetleniyor"
+bash "$HERE/tools_winpe_urs_runtime.sh"
 CHECK="$(mktemp -d)"
 for InboxPath in \
   /Windows/System32/drivers/UrsCx01000.sys \
