@@ -437,7 +437,7 @@ verify_winpe_b2ltouch_package() {
 # must retain the exact driver build injected into boot.wim.
 verify_winpe_b2lusb_package() {
   local VerifyDir ExpectedSys ManifestSys ExpectedCtl ManifestCtl
-  local UrsDir UrsManifestDir ExpectedUrs ManifestUrs ManifestUrsPackage
+  local UrsDir UrsManifestDir UrsFile ExpectedUrs ManifestUrs ManifestUrsPackage
 
   if [ ! -s "$PROJ/out/b2lusb/b2lusb.sys" ]; then
     if [ -s "$PROJ/esp/B2LUSB.EFI" ]; then
@@ -501,7 +501,13 @@ verify_winpe_b2lusb_package() {
     echo "HATA: boot.wim'de dogrulanmis B2LURS runtime manifesti yok."
     return 1
   fi
-  ExpectedUrs="$(sha256sum "$UrsDir/UrsCx01000.sys" | awk '{print $1}')"
+  UrsFile="$(find "$UrsDir" -type f -iname 'UrsCx01000.sys' -print -quit)"
+  [ -s "$UrsFile" ] || {
+    rm -rf "$UrsDir" "$UrsManifestDir"
+    echo "HATA: UrsCx01000.sys cikarimi bos."
+    return 1
+  }
+  ExpectedUrs="$(sha256sum "$UrsFile" | awk '{print $1}')"
   ManifestUrs="$(sed -n 's/^B2LURS_SYS_SHA256=//p' "$UrsManifestDir/manifest.txt" | head -n 1)"
   ManifestUrsPackage="$(sed -n 's/^B2LURS_PACKAGE=//p' "$UrsManifestDir/manifest.txt" | head -n 1)"
   rm -rf "$UrsDir" "$UrsManifestDir"

@@ -64,6 +64,11 @@ hive_control_set() {
   printf 'ControlSet%03d\n' "$Current"
 }
 
+find_extracted_file() {
+  local Directory="$1" Name="$2"
+  find "$Directory" -type f -iname "$Name" -print -quit
+}
+
 # A previous successful injection is cheap to validate and avoids unpacking a
 # multi-gigabyte install image on every --usb-test build.
 mkdir -p "$WORK/precheck-driver" "$WORK/precheck-manifest" "$WORK/precheck-hive"
@@ -73,14 +78,24 @@ if wimlib-imagex extract "$TARGET_WIM" 1 /Windows/System32/drivers/UrsCx01000.sy
      --dest-dir="$WORK/precheck-manifest" --no-acls >/dev/null 2>&1 && \
    wimlib-imagex extract "$TARGET_WIM" 1 /Windows/System32/config/SYSTEM \
      --dest-dir="$WORK/precheck-hive" --no-acls >/dev/null 2>&1; then
-  PRECHECK_HASH="$(sha256sum "$WORK/precheck-driver/UrsCx01000.sys" | awk '{print $1}')"
-  MANIFEST_HASH="$(sed -n 's/^B2LURS_SYS_SHA256=//p' "$WORK/precheck-manifest/manifest.txt" | head -n 1)"
-  MANIFEST_PACKAGE="$(sed -n 's/^B2LURS_PACKAGE=//p' "$WORK/precheck-manifest/manifest.txt" | head -n 1)"
-  PRECHECK_CS="$(hive_control_set "$WORK/precheck-hive/SYSTEM" || true)"
-  if [ "$PRECHECK_HASH" = "$MANIFEST_HASH" ] && \
+  PRECHECK_SYS="$(find_extracted_file "$WORK/precheck-driver" UrsCx01000.sys)"
+  PRECHECK_MANIFEST="$(find_extracted_file "$WORK/precheck-manifest" manifest.txt)"
+  PRECHECK_SYSTEM="$(find_extracted_file "$WORK/precheck-hive" SYSTEM)"
+  if [ -s "$PRECHECK_SYS" ] && [ -s "$PRECHECK_MANIFEST" ] && [ -s "$PRECHECK_SYSTEM" ]; then
+    PRECHECK_HASH="$(sha256sum "$PRECHECK_SYS" | awk '{print $1}')"
+    MANIFEST_HASH="$(sed -n 's/^B2LURS_SYS_SHA256=//p' "$PRECHECK_MANIFEST" | head -n 1)"
+    MANIFEST_PACKAGE="$(sed -n 's/^B2LURS_PACKAGE=//p' "$PRECHECK_MANIFEST" | head -n 1)"
+    PRECHECK_CS="$(hive_control_set "$PRECHECK_SYSTEM" || true)"
+  else
+    PRECHECK_HASH=""
+    MANIFEST_HASH=""
+    MANIFEST_PACKAGE=""
+    PRECHECK_CS=""
+  fi
+  if [ -n "$PRECHECK_HASH" ] && [ "$PRECHECK_HASH" = "$MANIFEST_HASH" ] && \
      [ "$MANIFEST_PACKAGE" = "microsoft-urscx-winpe-runtime-v1" ] && \
      [ -n "$PRECHECK_CS" ] && \
-     hivexget "$WORK/precheck-hive/SYSTEM" \
+     hivexget "$PRECHECK_SYSTEM" \
        "$PRECHECK_CS\\Services\\UrsCx01000" ImagePath >/dev/null 2>&1; then
     say "WinPE zaten dogrulanmis Microsoft UrsCx runtime iceriyor"
     echo "  UrsCx01000.sys SHA256: ${PRECHECK_HASH:0:16}"
@@ -184,10 +199,12 @@ wimlib-imagex extract "$TARGET_WIM" 1 \
   --dest-dir="$WORK/target-hive" --no-acls >/dev/null || \
   die "hedef WinPE SYSTEM hive cikarilamadi"
 
-URS_SYS="$WORK/source-driver/UrsCx01000.sys"
-SOURCE_SYSTEM="$WORK/source-hive/SYSTEM"
-TARGET_SYSTEM="$WORK/target-hive/SYSTEM"
+URS_SYS="$(find_extracted_file "$WORK/source-driver" UrsCx01000.sys)"
+SOURCE_SYSTEM="$(find_extracted_file "$WORK/source-hive" SYSTEM)"
+TARGET_SYSTEM="$(find_extracted_file "$WORK/target-hive" SYSTEM)"
 [ -s "$URS_SYS" ] || die "UrsCx01000.sys cikarimi bos"
+[ -s "$SOURCE_SYSTEM" ] || die "kaynak Windows SYSTEM hive cikarimi bos"
+[ -s "$TARGET_SYSTEM" ] || die "hedef WinPE SYSTEM hive cikarimi bos"
 file "$URS_SYS" | grep -Eqi 'aarch64|arm64' || die "kaynak UrsCx01000.sys ARM64 degil"
 
 SOURCE_CS="$(hive_control_set "$SOURCE_SYSTEM" || true)"
@@ -251,14 +268,20 @@ wimlib-imagex extract "$TARGET_WIM" 1 /Windows/System32/config/SYSTEM \
   --dest-dir="$WORK/verify-hive" --no-acls >/dev/null
 wimlib-imagex extract "$TARGET_WIM" 1 /Windows/B2LURS/manifest.txt \
   --dest-dir="$WORK/verify-manifest" --no-acls >/dev/null
+VERIFY_SYS="$(find_extracted_file "$WORK/verify-driver" UrsCx01000.sys)"
+VERIFY_SYSTEM="$(find_extracted_file "$WORK/verify-hive" SYSTEM)"
+VERIFY_MANIFEST="$(find_extracted_file "$WORK/verify-manifest" manifest.txt)"
+[ -s "$VERIFY_SYS" ] || die "UrsCx01000.sys WIM geri-okumasi bos"
+[ -s "$VERIFY_SYSTEM" ] || die "SYSTEM hive WIM geri-okumasi bos"
+[ -s "$VERIFY_MANIFEST" ] || die "B2LURS manifest WIM geri-okumasi bos"
 [ "$(sha256sum "$URS_SYS" | awk '{print $1}')" = \
-  "$(sha256sum "$WORK/verify-driver/UrsCx01000.sys" | awk '{print $1}')" ] || \
+  "$(sha256sum "$VERIFY_SYS" | awk '{print $1}')" ] || \
   die "UrsCx01000.sys WIM geri-okuma hash'i farkli"
 [ "$(sha256sum "$MANIFEST" | awk '{print $1}')" = \
-  "$(sha256sum "$WORK/verify-manifest/manifest.txt" | awk '{print $1}')" ] || \
+  "$(sha256sum "$VERIFY_MANIFEST" | awk '{print $1}')" ] || \
   die "B2LURS manifest WIM geri-okuma hash'i farkli"
 for Value in Type Start ErrorControl ImagePath; do
-  hivexget "$WORK/verify-hive/SYSTEM" "$TARGET_CS\\Services\\UrsCx01000" "$Value" >/dev/null 2>&1 || \
+  hivexget "$VERIFY_SYSTEM" "$TARGET_CS\\Services\\UrsCx01000" "$Value" >/dev/null 2>&1 || \
     die "WIM geri-okumada UrsCx servis degeri yok: $Value"
 done
 
