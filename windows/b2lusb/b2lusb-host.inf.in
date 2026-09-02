@@ -6,8 +6,17 @@ Class=USB
 ClassGuid={36fc9e60-c465-11cf-8056-444553540000}
 Provider=%B2L%
 CatalogFile=b2lusb.cat
-DriverVer=09/03/2026,0.1.0.3
+DriverVer=09/03/2026,0.1.0.4
 PnpLockdown=1
+
+[DestinationDirs]
+B2LUsbMon_CopyFiles=12
+
+[SourceDisksNames]
+1=%B2LUsb.DiskName%,,,
+
+[SourceDisksFiles]
+b2lusbmon.sys=1
 
 [Manufacturer]
 %B2L%=B2L,NTarm64
@@ -18,16 +27,40 @@ PnpLockdown=1
 [B2LUsbHost_Install.NT]
 Include=usbxhci.inf
 Needs=Generic.Install.NT
+CopyFiles=B2LUsbMon_CopyFiles
 FeatureScore=80
+
+[B2LUsbMon_CopyFiles]
+b2lusbmon.sys
 
 [B2LUsbHost_Install.NT.Services]
 Include=usbxhci.inf
 Needs=Generic.Install.NT.Services
+AddService=b2lusbmon,0x00000000,B2LUsbMon_Service
+
+[B2LUsbMon_Service]
+DisplayName=%B2LUsbMon.ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\b2lusbmon.sys
 
 [B2LUsbHost_Install.NT.HW]
 Include=usbxhci.inf
 Needs=Generic.Install.NT.HW
+AddReg=B2LUsbMon_Filter_AddReg
+
+[B2LUsbMon_Filter_AddReg]
+HKR,,LowerFilters,0x00010008,"b2lusbmon"
+
+[B2LUsbHost_Install.NT.Wdf]
+KmdfService=b2lusbmon,B2LUsbMon_Wdf
+
+[B2LUsbMon_Wdf]
+KmdfLibraryVersion=1.15
 
 [Strings]
 B2L="beyond2lte"
 B2LUsb.HostDesc="Beyond2LTE USB xHCI Host Controller"
+B2LUsbMon.ServiceDesc="Beyond2LTE USBXHCI Resource Monitor"
+B2LUsb.DiskName="Beyond2LTE USB driver package"

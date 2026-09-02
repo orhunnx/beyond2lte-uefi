@@ -40,6 +40,11 @@ gMemoryDescriptor[] = {
   // DEGILDIR. Yine de WinPE 2 GiB ile calisabildigi icin, belirsizligin
   // riskini almamak adina UEFI'nin zorunlu parcalari disinda dusuk, ilk ust
   // ve son ust banklar bu turda Reserved tutulur.
+  //
+  // 03 Eylul 2026 USB notu: WinPE bu guard'lar acikken kararlı aciliyor;
+  // USB/xHCI deneyi icin kaldirilmayacaklar.  4 GiB alti DMA olasiligi,
+  // korunan DRAM'i genel RAM'e cevirmeden Windows lower-filter canary ile
+  // ayri olculur.
   {"Lower dynamic guard",0x80000000, 0x07000000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},
   {"Samsung U-H EL2",    0x87000000, 0x00200000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_BACK},
   {"Lower dynamic guard",0x87200000, 0x41E00000, AddMem, MEM_RES, SYS_MEM_CAP, Reserv, WRITE_THROUGH},

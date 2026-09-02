@@ -170,6 +170,9 @@ B2lShowStatus(
     wprintf(L"xECP +10=%08lX +14=%08lX +18=%08lX +1C=%08lX\n",
         Status.XhciExtCap[4], Status.XhciExtCap[5],
         Status.XhciExtCap[6], Status.XhciExtCap[7]);
+    wprintf(L"xECP +20=%08lX +24=%08lX +28=%08lX +2C=%08lX\n",
+        Status.XhciExtCap[8], Status.XhciExtCap[9],
+        Status.XhciExtCap[10], Status.XhciExtCap[11]);
     wprintf(L"PHY link=%08lX clkrst=%08lX utmi=%08lX\n",
         Status.PhyLinkCtrl, Status.PhyClkRst, Status.PhyUtmi);
     wprintf(L"PHY hsp=%08lX tune=%08lX  PMU[1586072C]=%08lX\n",

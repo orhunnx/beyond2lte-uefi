@@ -47,7 +47,7 @@
 #define B2L_XHCI_CAPLENGTH_MAX        0x80U
 #define B2L_XHCI_HCC_XECP_SHIFT       16U
 #define B2L_XHCI_HCC_XECP_MASK        0xFFFFUL
-#define B2L_XHCI_EXT_CAP_DWORDS       8UL
+#define B2L_XHCI_EXT_CAP_DWORDS       12UL
 #define B2L_XHCI_DWORD_BYTES          4UL
 
 #define B2L_PHY_LINK_CTRL              0x04UL
@@ -645,8 +645,9 @@ B2lUsbHardwareGetStatus(
             );
 
         // xECP is a DWORD offset from the xHCI base.  Copy only a bounded
-        // read-only window: enough to see the first two common four-DWORD
-        // Supported Protocol capabilities without following corrupt links.
+        // read-only window: enough to see the legacy-support block plus the
+        // USB2 and USB3 four-DWORD Supported Protocol capabilities without
+        // following corrupt links.
         ExtCapOffset = ((HccParams1 >> B2L_XHCI_HCC_XECP_SHIFT) &
                         B2L_XHCI_HCC_XECP_MASK) * B2L_XHCI_DWORD_BYTES;
         if ((ExtCapOffset != 0) &&

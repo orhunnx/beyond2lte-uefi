@@ -52,9 +52,14 @@ masaüstüne atar ve FV kullanımını raporlar.
 | Yol | İçerik |
 |---|---|
 | `mu-silicium-overlay/` | Mu-Silicium ağacına birebir kopyalanan dosyalar |
-| `beyond2ltePkg/` | Platform kaynağı (overlay ile senkron tutuluyor) |
+| `beyond2ltePkg/` | Eski bağımsız platform anlık görüntüsü; `yap.sh` bunu derlemez |
 | `silicium-acpi-overlay/` | S5E9820 ACPI tabloları (`.dsl`) + derleme script'i |
 | `dtb-analiz/` | Stock firmware'den çıkarılmış decompile edilmiş DTB'ler |
+
+Gerçek platform kaynağı
+`mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/` altındadır. Özellikle
+bellek haritası değişiklikleri kökteki eski `beyond2ltePkg/` kopyasına
+uygulanmamalıdır; `yap.sh` yalnız overlay'i `~/Mu-Silicium` içine taşır.
 
 ## Belgeler
 

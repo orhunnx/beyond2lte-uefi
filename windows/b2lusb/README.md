@@ -12,6 +12,8 @@ Bu dizin Exynos9820 `DWC_usb31` denetleyicisini Windows'un USB Role Switch
   inbox `USBXHCI.SYS` yığınına bağlanır. USB klavye/fare için özel HID sürücüsü
   yazılmaz; başarılı xHCI/root-hub numaralandırmasından sonra Windows'un
   `USBHUB3` ve HID class sürücüleri kullanılır.
+- `b2lusbmon.sys`, yalnız bring-up tanısı için host child altında çalışan,
+  MMIO'ya yazmayan pasif KMDF lower-filter'dır.
 - `b2lusbctl.exe status|host|device|none`, yöneticiye açık bring-up rol
   denetimidir. İstek URS'e bildirilir; eski role ait çocuk yığını kaldırıldıktan
   sonra `EvtUrsSetRole` Exynos PHY ve DWC3 rolünü değiştirir.
@@ -82,11 +84,36 @@ bölümünün köküne kopyalanır. Böylece sonraki turda DMA tablolarının ku
 kurulmadığı, interrupt/MMIO kaynağının child'a ulaşıp ulaşmadığı ve Microsoft
 yığınının döndürdüğü iç hata aynı boot'tan alınabilir.
 
+Dördüncü ölçümde xHCI capability zinciri ve iki port güvenilir biçimde okundu:
+`DBOFF=0x4A0`, `RTSOFF=0x440`, portlar power-on/RxDetect durumundaydı. Buna
+karşılık başarısız başlangıcın son snapshot'ında `CRCR=0`, `DCBAAP=0` ve
+`CONFIG=0` kaldı; USBXHCI'nin kalıcı bir command ring/DCBAA kurulumu
+görülmedi. `pnputil /resources` çıktısında kaynak satırı yoktu, fakat PnP
+başarısız başlangıçtan sonra atamayı serbest bırakabileceği için bu tek başına
+URS resource aktarım hatasını kanıtlamaz.
+
+`0.1.0.4`, `b2lusbmon.sys` adlı pasif KMDF lower-filter'ı host PDO'ya ekler.
+Filtre MMIO'ya dokunmaz ve PnP sonucunu değiştirmez; USBXHCI'ye gerçekten
+ulaşan translated memory/interrupt descriptorlarını ve
+Add/PrepareHardware/D0/Release aşamalarını device registry'sine kaydeder.
+Ek olarak 64 KiB common buffer'ı önce AC64 ile uyumlu 64-bit duplex, sonra
+32-bit duplex profil ile ayrı ayrı dener. İki NTSTATUS ve device-logical
+adresi kaydettikten sonra buffer'ları donanıma hiç vermeden hemen serbest
+bırakır. 32-bit deneme başarılı ve address-high sıfırsa, aktif banka
+guard'larını kaldırmadan 4 GiB altı sınırlı bir DMA penceresi sağlanabildiği
+kanıtlanır; başarısızsa düşük DMA havuzu yönüne geçmeden önce doğrudan kanıt
+elde edilir.
+`startnet.cmd` bunları `B2LUSB-HOST-MONITOR.TXT` üzerinden final ekrana basar.
+Bu sayede USB veya klavye olmadan bir sonraki fotoğrafta `0x10C00000/0x10000`
+MMIO ile GSIV 273'ün child'a ulaşıp ulaşmadığı kesinleşir. Aynı sürüm xECP
+penceresini 12 DWORD'a çıkararak legacy, USB2 ve eksik kalan USB3 Supported
+Protocol bloklarını birlikte gösterir.
+
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
 DEFAULT hive ve WIM geri-okuma doğrulaması `tools_winpe_ui_scale.sh` içindedir.
 Bu betik ayrı `build-b2lusb.ps1` ile Windows MSVC/WDK ARM64 derlemesini yapar,
-SYS/EXE ve iki INF'yi ortak katalogla test-imzalar, `boot.wim`e ekler ve her
+iki SYS/EXE ve iki INF'yi ortak katalogla test-imzalar, `boot.wim`e ekler ve her
 dosyayı hash ile geri okur. `--baseline`, UEFI tanı uygulamalarını SYSTEM
 ESP'den çıkarır fakat WIM içindeki Windows sürücülerini korur.
 
@@ -149,7 +176,8 @@ beslenen bir USB2 hub üzerinden yapılmalıdır. Başarı sırası:
 4. USB klavyenin Windows'ta HID Keyboard olarak görünmesi ve tuş üretmesi.
 
 Otomatik testten sonra CACHE kökünde `B2LUSB-HOST-RESOURCES.TXT`,
-`B2LUSB-ETW.TXT` ve destekleniyorsa `B2LUSB-USBXHCI*.etl` bulunur. ETL,
+`B2LUSB-HOST-MONITOR.TXT`, `B2LUSB-ETW.TXT` ve destekleniyorsa
+`B2LUSB-USBXHCI*.etl` bulunur. ETL,
 Windows Performance Analyzer'da USBXHCI ve UCX olaylarıyla açılabilir.
 USB henüz çalışmadığı sürece bu dosyalar test girdisi sayılmaz: `--usb-test`
 final ekranı otomatik temizleyip kısa host resource ve xHCI status özetini

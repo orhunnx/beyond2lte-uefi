@@ -1479,6 +1479,15 @@ verilir.
 Bu ayrım yapılmadan "2 GiB gerekiyor" demek, FD hatasının etkisini banka
 sınırlamasına yazmak olur.
 
+**03 Eylül 2026 durum denetimi:** Bu ayrım uygulanmamıştır. `yap.sh`, kökteki
+eski `beyond2ltePkg/` anlık görüntüsünü değil
+`mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/` kaynağını derleme
+ağacına kopyalar. Bu gerçek kaynakta alt banka ile iki üst banka guard'ı
+hâlâ aktiftir ve güncel WinPE ancak bu haritayla kararlı açılmaktadır. USB
+bring-up sırasında guard'lar kaldırılmayacak; xHCI'nin düşük adresli DMA
+ihtiyacı, korunan bankaları Windows genel RAM'ine açmadan sınırlı common-buffer
+canary ile ölçülecektir.
+
 ### b2lufs: adaptör başlıyor ama disk numaralandırılmıyor (14 Ağustos 2026)
 
 Bu bölüm, belgenin üstündeki `storufs` + `PCI\CC_010901` anlatısını

@@ -436,7 +436,7 @@ verify_winpe_b2ltouch_package() {
 # Windows ARM64 URS package.  Baseline deliberately omits B2LUSB.EFI, but it
 # must retain the exact driver build injected into boot.wim.
 verify_winpe_b2lusb_package() {
-  local VerifyDir ExpectedSys ManifestSys ExpectedCtl ManifestCtl
+  local VerifyDir ExpectedSys ManifestSys ExpectedMon ManifestMon ExpectedCtl ManifestCtl
   local UrsDir UrsManifestDir UrsFile ExpectedUrs ManifestUrs ManifestUrsPackage
   local ManifestAutoHost AutoHostDir UiManifestDir UiScale UiPackage
 
@@ -450,6 +450,10 @@ verify_winpe_b2lusb_package() {
   fi
   [ -s "$PROJ/out/b2lusb/b2lusbctl.exe" ] || {
     echo "HATA: b2lusb.sys var ama b2lusbctl.exe yok."
+    return 1
+  }
+  [ -s "$PROJ/out/b2lusb/b2lusbmon.sys" ] || {
+    echo "HATA: b2lusb.sys var ama b2lusbmon.sys yok."
     return 1
   }
   [ -s "$PROJ/esp/sources/boot.wim" ] || {
@@ -472,14 +476,20 @@ verify_winpe_b2lusb_package() {
 
   ExpectedSys="$(sha256sum "$PROJ/out/b2lusb/b2lusb.sys" | awk '{print $1}')"
   ManifestSys="$(sed -n 's/^B2LUSB_SYS_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+  ExpectedMon="$(sha256sum "$PROJ/out/b2lusb/b2lusbmon.sys" | awk '{print $1}')"
+  ManifestMon="$(sed -n 's/^B2LUSB_MON_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
   ExpectedCtl="$(sha256sum "$PROJ/out/b2lusb/b2lusbctl.exe" | awk '{print $1}')"
   ManifestCtl="$(sed -n 's/^B2LUSB_CTL_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
   ManifestAutoHost="$(sed -n 's/^B2LUSB_AUTO_HOST=//p' "$VerifyDir/manifest.txt" | head -n 1)"
   rm -rf "$VerifyDir"
-  if [ "$ManifestSys" != "$ExpectedSys" ] || [ "$ManifestCtl" != "$ExpectedCtl" ]; then
+  if [ "$ManifestSys" != "$ExpectedSys" ] || \
+     [ "$ManifestMon" != "$ExpectedMon" ] || \
+     [ "$ManifestCtl" != "$ExpectedCtl" ]; then
     echo "HATA: boot.wim B2LUSB hash'leri yerel ARM64 ciktilarla ayni degil."
     echo "  SYS WIM: ${ManifestSys:-YOK}"
     echo "  SYS OUT: $ExpectedSys"
+    echo "  MON WIM: ${ManifestMon:-YOK}"
+    echo "  MON OUT: $ExpectedMon"
     echo "  CTL WIM: ${ManifestCtl:-YOK}"
     echo "  CTL OUT: $ExpectedCtl"
     echo "Once: B2L_SKIP_MSVC_BUILD=1 bash tools_b2lusb.sh"
@@ -555,6 +565,7 @@ verify_winpe_b2lusb_package() {
 
   say "WinPE B2LUSB Windows paketi dogrulandi"
   echo "  SYS SHA256: ${ExpectedSys:0:16}"
+  echo "  MON SHA256: ${ExpectedMon:0:16}"
   echo "  CTL SHA256: ${ExpectedCtl:0:16}"
   echo "  URS SHA256: ${ExpectedUrs:0:16}"
   echo "  AUTO HOST : $ManifestAutoHost"

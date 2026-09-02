@@ -9,7 +9,7 @@ DEFINE_GUID(
     0x43eb6f1d, 0x81b9, 0x4e9a, 0x93, 0xd4, 0x76, 0xc7, 0xe0, 0x2c, 0x1b, 0xf4
     );
 
-#define B2L_USB_IOCTL_VERSION 3UL
+#define B2L_USB_IOCTL_VERSION 4UL
 
 typedef enum _B2L_USB_ROLE {
     B2lUsbRoleNone = 0,
@@ -65,7 +65,7 @@ typedef struct _B2L_USB_STATUS {
     ULONG XhciPortSc1;
     ULONG XhciPortSc2;
     ULONG XhciExtCapOffset;
-    ULONG XhciExtCap[8];
+    ULONG XhciExtCap[12];
     ULONG PhyLinkCtrl;
     ULONG PhyClkRst;
     ULONG PhyUtmi;

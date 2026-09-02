@@ -61,6 +61,11 @@ if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
     echo === B2LUSB host atanmis kaynaklari ===
     type "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT"
   )
+  if exist "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT" (
+    echo.
+    echo === B2LUSB USBXHCI gercek PnP kaynaklari ===
+    type "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT"
+  )
   echo.
   echo === B2LUSB otomatik HOST son durumu ===
   type "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT"
@@ -142,6 +147,7 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
     call :B2LUsbTraceStop
     pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /resources > "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" 2>&1
+    reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\URS" /s /f B2LMon > "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT" 2>&1
     pnputil /enum-devices /class USB >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /enum-devices /class HIDClass >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     "%B2LUSBDIR%\b2lusbctl.exe" status > "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" 2>&1

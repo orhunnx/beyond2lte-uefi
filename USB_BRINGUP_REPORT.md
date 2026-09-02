@@ -360,6 +360,38 @@ ile register özeti ekranda kalır; bir sonraki iterasyon yalnız bu ekranın
 fotoğrafıyla yapılabilir. Hata veren native OSK otomatik açılmaz ve tanının
 üstünü kapatmaz; touch kurulumu ile `b2lmt.exe` pakette kalır.
 
+Son `0.1.0.3` cihaz fotoğrafı capability tablosunu daha da doğruladı:
+`DBOFF=0x4A0`, `RTSOFF=0x440`, iki `PORTSC=0x2A0` (power-on/RxDetect) ve ilk
+xECP blokları okunuyor. Buna karşılık başarısız başlangıcın son durumunda
+`CRCR=0`, `DCBAAP=0`, `CONFIG=0`; USBXHCI'nin kalıcı DMA ring kurulumu yok.
+`pnputil /resources` raporunda memory/interrupt satırı görünmedi, ancak Code 10
+sonrası PnP kaynakları serbest bırakılmış olabileceğinden bu çıktı URS aktarım
+hatası için kesin kanıt sayılmadı.
+
+`0.1.0.4` bu belirsizliği USB gerektirmeden kaldırmak için host PDO'ya pasif
+`b2lusbmon.sys` KMDF lower-filter ekler. Filtre donanıma yazmaz ve callback'ler
+sonunda başarı döndürür; USBXHCI'ye gelen gerçek raw/translated kaynak
+sayılarını, ilk memory base/length'i, interrupt vector/level/flags değerlerini
+ve Add/PrepareHardware/D0/Release aşamalarını device registry'sinde kalıcı
+tutar. Aynı filtre 64 KiB common buffer'ı önce 64-bit, ardından 32-bit duplex
+profil ile dener; iki NTSTATUS/device-logical adresini kaydeder ve buffer'ları
+donanıma vermeden hemen serbest bırakır. Bu canary, normal BCD'de kapalı olan
+eski `azram/guvenli1g` deneylerinden bağımsız olarak, hâlâ aktif MemoryMap banka
+guard'ları altında 4 GiB altı DMA tahsisinin mümkün olup olmadığını ölçer.
+Guard'lar değiştirilmez. `startnet.cmd` recursive registry özetini final ekrana
+basar ve CACHE'e aktarır. xECP read-only snapshot'ı da 8'den 12 DWORD'a
+genişletildi; sıradaki
+fotoğraf hem `0x10C00000/0x10000` + GSIV 273 teslimini hem USB3 Supported
+Protocol capability'sini gösterecek.
+
+03 Eylül depo denetimi iki platform kopyasının eş olmadığını da ortaya çıkardı:
+kökteki `beyond2ltePkg/` eski ve guardsızdır, fakat `yap.sh` onu kullanmaz.
+Gerçek derleme girdisi `mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/`
+altındadır ve alt/ilk üst/son üst banka guard'ları burada aktiftir. Git
+geçmişinde guard'ların kaldırıldığı bir değişiklik yoktur; `DEVIR.md` içindeki
+kaldırma maddesi uygulanmamış deney planı olarak kalmıştır. WinPE'nin kararlı
+açılışı bu korumaya bağlı olduğundan USB turunda bellek haritası korunur.
+
 Bu aşama HID için gereken Windows host yazılım zincirini hazırlar ama fiziksel
 başarı iddiası değildir. SuperSpeed portu combo PHY abort'u nedeniyle sürücüde
 kapalıdır. MAX77705/UcmCx olmadığı için ilk HID testi haricen beslenen USB2 hub
