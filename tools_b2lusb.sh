@@ -35,8 +35,26 @@ done < <(find "$KITS/Include" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | s
   printf 'Aranan URS basligi : Include/<surum>/km/urs/1.0/UrsCx.h\n' >&2
   printf 'Aranan ARM64 kutuphane: Lib/<surum>/km/arm64/Urscxstub.lib\n' >&2
   printf 'Taranan WDK kok dizini: %s\n' "$KITS" >&2
-  find "$KITS/Include" -mindepth 1 -maxdepth 1 -type d -printf '  Include surumu: %f\n' \
-    2>/dev/null | sort -V >&2 || true
+  while IFS= read -r Candidate; do
+    printf '  Surum %s:\n' "$Candidate" >&2
+    for Required in \
+      "Include/$Candidate/km/ntddk.h" \
+      "Include/$Candidate/km/urs/1.0/UrsCx.h" \
+      "Lib/$Candidate/km/arm64/Urscxstub.lib" \
+      "Lib/$Candidate/km/arm64/libcntpr.lib" \
+      "Lib/$Candidate/km/arm64/ntoskrnl.lib"; do
+      if [ -f "$KITS/$Required" ]; then
+        printf '    VAR: %s\n' "$Required" >&2
+      else
+        printf '    YOK: %s\n' "$Required" >&2
+      fi
+    done
+  done < <(find "$KITS/Include" -mindepth 1 -maxdepth 1 -type d \
+    -name '[0-9]*' -printf '%f\n' 2>/dev/null | sort -V)
+  printf 'Bulunan UrsCx.h konumlari:\n' >&2
+  find "$KITS/Include" -type f -iname 'UrsCx.h' -print 2>/dev/null >&2 || true
+  printf 'Bulunan Urscxstub.lib konumlari:\n' >&2
+  find "$KITS/Lib" -type f -iname 'Urscxstub.lib' -print 2>/dev/null >&2 || true
   die "ARM64 URS kutuphanelerini iceren WDK bulunamadi"
 }
 [ -f "$KITS/Include/wdf/kmdf/1.15/wdf.h" ] || die "KMDF 1.15 basliklari yok"
