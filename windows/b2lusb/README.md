@@ -118,12 +118,19 @@ Buna
 karşılık host child `Code 14 / CM_PROB_NEED_RESTART` durumundaydı;
 `B2LMonAddSeen=1` olmasına rağmen `PrepareHardware=0`, `D0Entry=0` kaldı.
 
-`0.1.0.5` tam sistem rebootu istemeden bu kurulum durumunu temizler. Otomatik
-test önce `NONE` olayıyla mevcut HOST child'ını kaldırır, parent'ın gerçekten
-`current=NONE` olmasını en fazla 10 saniye bekler, sonra yeni HOST child'ı
-oluşturur. Ardından yalnız `URS\BYN0002&HOST` eşleşmesine hedefli
-`pnputil /restart-device` uygular. Restart başarısız olsa bile `/reboot` veya
-`/force` kullanılmaz; tanı ve CACHE aktarımı devam eder.
+`0.1.0.5` cihaz sonucu bu sıranın çalışmadığını gösterdi: `NONE` IOCTL'i
+başarıyla `requested=NONE` yaptı, ancak Code 14 bekleyen mevcut HOST child
+kaldırılamadığı için `current=HOST` kaldı ve hedefli restart satırına
+ulaşılamadı.
+
+`0.1.0.6` otomatik testte mevcut child'ı önce ve yalnız
+`pnputil /restart-device /deviceid "URS\BYN0002&HOST"` ile yeniden başlatır;
+bu turda otomatik `NONE/HOST` rol çevrimi yapılmaz. Komutun gerçek çıktısı
+`B2LUSB-HOST-RESTART.TXT` dosyasına, final ekrana ve CACHE'e yazılır. Restart
+başarısız olsa bile `/reboot` veya `/force` kullanılmaz; ETW, PnP kaynakları,
+filter aşamaları ve parent durumu toplanmaya devam eder. Böylece sonraki
+fotoğraf Code 14'ün temizlenip temizlenmediğini ve `B2LMonPrepareSeen` değerini
+klavye gerektirmeden gösterecektir.
 
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline

@@ -403,11 +403,20 @@ Aynı ölçüm yeni ve daha erken bir sınır gösterdi: host child bu turda
 `Code 14 / CM_PROB_NEED_RESTART` kaldı. Filter'ın `AddSeen=1` ve
 `DmaProbeSeen=1` kayıtlarına karşılık `PrepareSeen=0`, `D0EntrySeen=0` olması,
 binary'nin yüklendiğini fakat filter eklenen mevcut devnode'un StartDevice
-aşamasına geçirilmediğini kanıtlar. `0.1.0.5` otomatik testte önce URS
-`NONE` olayıyla eski HOST child stack'ini kaldırır, rol değişimini 10 saniyelik
-sınırlı yoklamayla doğrular ve ardından HOST child'ını yeniden yaratır. Son
-olarak yalnız `URS\BYN0002&HOST` device ID'sine `pnputil /restart-device`
-uygulanır; tüm sistemi yeniden başlatan `/reboot` seçeneği kullanılmaz.
+aşamasına geçirilmediğini kanıtlar. `0.1.0.5` cihaz testi ayrıca sıralama
+hatasını görünür kıldı: parent `NONE` isteğini başarıyla aldı ve
+`requested=NONE` yazdı, fakat Code 14 durumundaki HOST child kaldırılamadığı
+için 10 saniye sonunda `current=HOST` kaldı. Akış burada çıktığından hedefli
+PnP restart satırına hiç ulaşılmadı.
+
+`0.1.0.6` bu bağımlılığı tersine çevirir. Otomatik test rol olayı göndermeden
+önce zaten var olan `URS\BYN0002&HOST` devnode'una yalnız hedefli
+`pnputil /restart-device /deviceid` uygular. Komutun stdout/stderr ve dönüş
+sonucu ayrı `B2LUSB-HOST-RESTART.TXT` kaydında final ekrana ve CACHE'e taşınır;
+başarısızlık halinde de ETW, kaynak ve filter kayıtları toplanır. `/reboot` ve
+`/force` kullanılmaz. Amaç Code 14'ü temizleyip `PrepareHardware` aşamasının
+ilk kez çalışıp çalışmadığını ölçmektir; bu turda guard veya MMIO yazımı
+değiştirilmez.
 
 Bu aşama HID için gereken Windows host yazılım zincirini hazırlar ama fiziksel
 başarı iddiası değildir. SuperSpeed portu combo PHY abort'u nedeniyle sürücüde

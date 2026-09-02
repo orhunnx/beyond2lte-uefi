@@ -56,6 +56,11 @@ echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
 if exist "%B2LUSBDIR%\b2lusbctl.exe" echo USB rol kontrolu: %B2LUSBDIR%\b2lusbctl.exe status^|host^|device^|none
 if not exist "%B2LUSBDIR%\auto-host.test" call :B2LTouchLaunchKeyboard
 if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
+  if exist "%SystemDrive%\B2LUSB-HOST-RESTART.TXT" (
+    echo.
+    echo === B2LUSB HOST hedefli restart sonucu ===
+    type "%SystemDrive%\B2LUSB-HOST-RESTART.TXT"
+  )
   if exist "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" (
     echo.
     echo === B2LUSB host atanmis kaynaklari ===
@@ -133,42 +138,20 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
   "%B2LUSBDIR%\b2lusbctl.exe" status
   if exist "%B2LUSBDIR%\auto-host.test" (
     echo.
-    echo B2LUSB --usb-test HOST child yeniden olusturma:
-    > "%SystemDrive%\B2LUSB-AUTOHOST.TXT" echo URS HOST child detach/recreate baslatildi.
-    "%B2LUSBDIR%\b2lusbctl.exe" none >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
-    if errorlevel 1 (
-      type "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-      echo HATA: mevcut HOST child detach istegi basarisiz.
-      exit /b 1
-    )
-    call :B2LUsbWaitRole NONE
-    if errorlevel 1 (
-      type "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-      echo HATA: URS NONE rolune gecemedi.
-      exit /b 1
-    )
+    echo B2LUSB --usb-test mevcut HOST child hedefli restart:
+    > "%SystemDrive%\B2LUSB-AUTOHOST.TXT" echo URS HOST child hedefli PnP restart baslatildi.
     call :B2LUsbTraceStart
-    "%B2LUSBDIR%\b2lusbctl.exe" host >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
+    pnputil /restart-device /deviceid "URS\BYN0002&HOST" > "%SystemDrive%\B2LUSB-HOST-RESTART.TXT" 2>&1
     if errorlevel 1 (
-      call :B2LUsbTraceStop
-      type "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-      echo HATA: otomatik HOST gecisi basarisiz.
-      exit /b 1
+      echo HOST_TARGET_RESTART=UYARI >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
+      echo UYARI: HOST child PnP restart tamamlanamadi; tam sistem rebootu istenmedi. >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
+    ) else (
+      echo HOST_TARGET_RESTART=BASARILI >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
     )
-    call :B2LUsbWaitRole HOST
-    if errorlevel 1 (
-      call :B2LUsbTraceStop
-      type "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-      echo HATA: URS HOST rolune gecemedi.
-      exit /b 1
-    )
+    type "%SystemDrive%\B2LUSB-HOST-RESTART.TXT" >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
+    timeout /t 3 /nobreak >nul 2>&1
     pnputil /scan-devices >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     timeout /t 2 /nobreak >nul 2>&1
-    echo URS HOST child hedefli PnP restart: >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-    pnputil /restart-device /deviceid "URS\BYN0002&HOST" >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
-    if errorlevel 1 echo UYARI: HOST child PnP restart tamamlanamadi; tam sistem rebootu istenmedi. >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-    timeout /t 2 /nobreak >nul 2>&1
-    pnputil /scan-devices >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     call :B2LUsbTraceStop
     pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /resources > "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" 2>&1
@@ -184,30 +167,6 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
   )
 )
 exit /b 0
-
-:B2LUsbWaitRole
-rem UrsReportHardwareEvent asenkrondur. Eski child tamamen kalkmadan yeni rol
-rem istenirse iki PnP islemi cakisir; en fazla 10 saniye, 1 saniyelik aralikla
-rem parent durumunu yokla. Parent arayuzu gecici hata verirse de sure dolana
-rem kadar yeniden denenir.
-set "B2LUSBWAITROLE=%~1"
-set "B2LUSBWAITCOUNT=0"
-:B2LUsbWaitRoleLoop
-"%B2LUSBDIR%\b2lusbctl.exe" status > "%SystemDrive%\B2LUSB-ROLE-WAIT.TXT" 2>&1
-findstr /l /c:"current=%B2LUSBWAITROLE%" "%SystemDrive%\B2LUSB-ROLE-WAIT.TXT" >nul 2>&1
-if not errorlevel 1 (
-  echo URS role wait tamamlandi: %B2LUSBWAITROLE% >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-  type "%SystemDrive%\B2LUSB-ROLE-WAIT.TXT" >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-  exit /b 0
-)
-set /a B2LUSBWAITCOUNT=B2LUSBWAITCOUNT+1 >nul
-if %B2LUSBWAITCOUNT% GEQ 10 (
-  echo HATA: URS role wait zaman asimi: %B2LUSBWAITROLE% >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-  type "%SystemDrive%\B2LUSB-ROLE-WAIT.TXT" >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-  exit /b 1
-)
-timeout /t 1 /nobreak >nul 2>&1
-goto :B2LUsbWaitRoleLoop
 
 :B2LUsbTraceStart
 rem USBXHCI Code 10 erken baslatma hatasini klavye olmadan yakala. ETW yoksa
