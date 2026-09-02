@@ -152,8 +152,24 @@ B2lShowStatus(
         Status.Dwc3Gusb2PhyCfg, Status.Dwc3Gusb3PipeCtl);
     wprintf(L"xHCI cap=%08lX hcs1=%08lX hcc1=%08lX\n",
         Status.XhciCapability, Status.XhciHcsParams1, Status.XhciHccParams1);
+    wprintf(L"xHCI hcs2=%08lX hcs3=%08lX hcc2=%08lX\n",
+        Status.XhciHcsParams2, Status.XhciHcsParams3, Status.XhciHccParams2);
+    wprintf(L"xHCI db=%08lX rts=%08lX xecp=%08lX\n",
+        Status.XhciDbOff, Status.XhciRtsOff, Status.XhciExtCapOffset);
     wprintf(L"xHCI cmd=%08lX sts=%08lX page=%08lX\n",
         Status.XhciUsbCmd, Status.XhciUsbSts, Status.XhciPageSize);
+    wprintf(L"xHCI dn=%08lX cfg=%08lX crcr=%08lX%08lX\n",
+        Status.XhciDnCtrl, Status.XhciConfig,
+        Status.XhciCrcrHigh, Status.XhciCrcrLow);
+    wprintf(L"xHCI dcbaap=%08lX%08lX portsc=%08lX/%08lX\n",
+        Status.XhciDcbaapHigh, Status.XhciDcbaapLow,
+        Status.XhciPortSc1, Status.XhciPortSc2);
+    wprintf(L"xECP +00=%08lX +04=%08lX +08=%08lX +0C=%08lX\n",
+        Status.XhciExtCap[0], Status.XhciExtCap[1],
+        Status.XhciExtCap[2], Status.XhciExtCap[3]);
+    wprintf(L"xECP +10=%08lX +14=%08lX +18=%08lX +1C=%08lX\n",
+        Status.XhciExtCap[4], Status.XhciExtCap[5],
+        Status.XhciExtCap[6], Status.XhciExtCap[7]);
     wprintf(L"PHY link=%08lX clkrst=%08lX utmi=%08lX\n",
         Status.PhyLinkCtrl, Status.PhyClkRst, Status.PhyUtmi);
     wprintf(L"PHY hsp=%08lX tune=%08lX  PMU[1586072C]=%08lX\n",

@@ -13,6 +13,7 @@ set "B2LUFSDIR=%SystemRoot%\B2LUFS"
 set "B2LTOUCHDIR=%SystemRoot%\B2LTOUCH"
 set "B2LUSBDIR=%SystemRoot%\B2LUSB"
 set "B2LTOUCHREADY=0"
+set "B2LUSBTRACEACTIVE=0"
 set "B2LCACHEMOUNT=%SystemDrive%\B2LCACHE-MOUNT.TXT"
 set "B2LCACHEVOLREPORT=%SystemDrive%\B2LCACHE-VOL.TXT"
 
@@ -45,6 +46,7 @@ if errorlevel 1 goto :Finish
 echo.
 echo [CACHE yaz/geri-oku]
 call :B2LUfsMountCache
+if not errorlevel 1 call :B2LUsbExportLogs
 
 :Finish
 echo.
@@ -53,6 +55,11 @@ echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
 if exist "%B2LUSBDIR%\b2lusbctl.exe" echo USB rol kontrolu: %B2LUSBDIR%\b2lusbctl.exe status^|host^|device^|none
 call :B2LTouchLaunchKeyboard
 if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
+  if exist "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" (
+    echo.
+    echo === B2LUSB host atanmis kaynaklari ===
+    type "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT"
+  )
   echo.
   echo === B2LUSB otomatik HOST son durumu ===
   type "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT"
@@ -120,15 +127,19 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
   if exist "%B2LUSBDIR%\auto-host.test" (
     echo.
     echo B2LUSB --usb-test otomatik HOST gecisi:
+    call :B2LUsbTraceStart
     "%B2LUSBDIR%\b2lusbctl.exe" host > "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     if errorlevel 1 (
+      call :B2LUsbTraceStop
       type "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
       echo HATA: otomatik HOST gecisi basarisiz.
       exit /b 1
     )
     timeout /t 2 /nobreak >nul 2>&1
     pnputil /scan-devices >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
+    call :B2LUsbTraceStop
     pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
+    pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /resources > "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" 2>&1
     pnputil /enum-devices /class USB >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /enum-devices /class HIDClass >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     "%B2LUSBDIR%\b2lusbctl.exe" status > "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" 2>&1
@@ -138,6 +149,45 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
     echo HOST deneyi:   %B2LUSBDIR%\b2lusbctl.exe host
     echo DEVICE deneyi: %B2LUSBDIR%\b2lusbctl.exe device
   )
+)
+exit /b 0
+
+:B2LUsbTraceStart
+rem USBXHCI Code 10 erken baslatma hatasini klavye olmadan yakala. ETW yoksa
+rem test akisini bozma; kayit CACHE'e :B2LUsbExportLogs ile aktarilir.
+if not exist "%SystemRoot%\System32\logman.exe" (
+  > "%SystemDrive%\B2LUSB-ETW.TXT" echo ETW_LOGMAN=YOK
+  exit /b 0
+)
+logman delete -n B2LUSBTRACE >nul 2>&1
+logman create trace -n B2LUSBTRACE -ow -o "%SystemDrive%\B2LUSB-USBXHCI.etl" -nb 16 64 -bs 64 > "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
+if errorlevel 1 exit /b 0
+logman update trace -n B2LUSBTRACE -p Microsoft-Windows-USB-USBXHCI "(Default,PartialDataBusTrace)" >> "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
+if errorlevel 1 goto :B2LUsbTraceStartFail
+logman update trace -n B2LUSBTRACE -p Microsoft-Windows-USB-UCX "(Default,PartialDataBusTrace)" >> "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
+if errorlevel 1 goto :B2LUsbTraceStartFail
+logman start -n B2LUSBTRACE >> "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
+if errorlevel 1 goto :B2LUsbTraceStartFail
+set "B2LUSBTRACEACTIVE=1"
+exit /b 0
+
+:B2LUsbTraceStartFail
+logman delete -n B2LUSBTRACE >> "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
+exit /b 0
+
+:B2LUsbTraceStop
+if not "%B2LUSBTRACEACTIVE%"=="1" exit /b 0
+logman stop -n B2LUSBTRACE >> "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
+logman delete -n B2LUSBTRACE >> "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
+set "B2LUSBTRACEACTIVE=0"
+exit /b 0
+
+:B2LUsbExportLogs
+rem CACHE etiketi/yazma geri-okumasi basarili olduktan sonra tanilari disari al.
+for %%F in ("%SystemDrive%\B2LUSB-*.TXT" "%SystemDrive%\B2LUSB-*.ETL") do if exist "%%~fF" copy /y "%%~fF" "W:\%%~nxF" >nul 2>&1
+if exist "%SystemRoot%\INF\setupapi.dev.log" (
+  findstr /i /c:"BYN0002" /c:"VEN_BYN&DEV_0002" /c:"USBXHCI" "%SystemRoot%\INF\setupapi.dev.log" > "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" 2>nul
+  if exist "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" copy /y "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" "W:\B2LUSB-SETUPAPI-SLICE.TXT" >nul 2>&1
 )
 exit /b 0
 

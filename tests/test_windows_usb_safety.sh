@@ -16,6 +16,7 @@ printf '%s\n' "$URS_BLOCK" | grep -Fq 'Name (_HID, "BYN0002")'
 printf '%s\n' "$URS_BLOCK" | grep -q 'Name (_ADR, Zero)'
 printf '%s\n' "$URS_BLOCK" | grep -q 'Name (_ADR, One)'
 test "$(printf '%s\n' "$URS_BLOCK" | rg -c '0x00000111')" -eq 2
+test "$(printf '%s\n' "$URS_BLOCK" | rg -c 'Name \(_CCA, Zero\)')" -eq 3
 if printf '%s\n' "$URS_BLOCK" | rg -qi '0x10AE0000|0x10AF0000|0x15860704|Gpio|I2cSerialBus'; then
   echo 'HATA: URS0 ilk asama allow-list disi USB3/Type-C kaynagi iceriyor' >&2
   exit 1
@@ -24,6 +25,8 @@ fi
 grep -Fq 'ACPI\BYN0002' "$PARENT_INF"
 grep -q 'KmdfLibraryVersion=1.15' "$PARENT_INF"
 grep -Fq 'URS\BYN0002&HOST' "$HOST_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.3' "$PARENT_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.3' "$HOST_INF"
 grep -qi 'Include=usbxhci.inf' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT.Services' "$HOST_INF"
@@ -77,8 +80,13 @@ grep -q 'B2lResetDwc3RoleCore' "$WIN/b2lusb_hw.c"
 grep -q 'KeDelayExecutionThread' "$WIN/b2lusb_hw.c"
 test "$(rg -c 'Status = B2lResetDwc3RoleCore' "$WIN/b2lusb_hw.c")" -eq 2
 grep -q 'B2L_USB_STATUS_CORE_RESET' "$WIN/b2lusb_public.h"
+grep -q '#define B2L_USB_IOCTL_VERSION 3UL' "$WIN/b2lusb_public.h"
 grep -q 'XhciUsbCmd' "$WIN/b2lusb_public.h"
+grep -q 'XhciDcbaapLow' "$WIN/b2lusb_public.h"
+grep -q 'XhciExtCap\[8\]' "$WIN/b2lusb_public.h"
 grep -q 'Dwc3Gusb2PhyCfg' "$WIN/b2lusb_public.h"
+grep -q 'B2L_XHCI_EXT_CAP_DWORDS' "$WIN/b2lusb_hw.c"
+grep -q 'ExtCapOffset <= Context->Dwc3Length' "$WIN/b2lusb_hw.c"
 
 grep -Fq 'urs\1.0\UrsCxStub.lib' "$WIN/build-b2lusb.ps1"
 grep -Fq 'km\urs\1.0\UrsCx.h' "$WIN/build-b2lusb.ps1"
@@ -97,6 +105,7 @@ grep -q 'LOG_PIXELS=168' "$ROOT/tools_winpe_ui_scale.sh"
 grep -Fq 'Control Panel\Desktop' "$ROOT/tools_winpe_ui_scale.sh"
 grep -q 'B2L_USB_AUTO_HOST="${B2L_USB_AUTO_HOST:-1}"' "$ROOT/yap.sh"
 grep -q 'B2LUSB_AUTO_HOST=\$AUTO_HOST' "$ROOT/tools_b2lusb.sh"
+grep -q 'B2LUSB_DRIVER_VERSION=0.1.0.3' "$ROOT/tools_b2lusb.sh"
 grep -q 'auto-host.test' "$ROOT/tools_b2lusb.sh"
 grep -q 'B2LUSB-AUTOHOST-STATUS.TXT' "$ROOT/windows/startnet.cmd"
 grep -q 'B2LUI/manifest.txt' "$ROOT/cache_esp.sh"
@@ -132,6 +141,10 @@ test "$(rg -c 'b2lusbctl\.exe" host' "$ROOT/windows/startnet.cmd")" -eq 1
 grep -q 'if exist "%B2LUSBDIR%\\auto-host.test"' "$ROOT/windows/startnet.cmd"
 grep -A5 'if exist "%B2LUSBDIR%\\auto-host.test"' "$ROOT/windows/startnet.cmd" | grep -q 'b2lusbctl.exe" host'
 grep -Fq '/services /stack /drivers /resources' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LUSB-HOST-RESOURCES.TXT' "$ROOT/windows/startnet.cmd"
+grep -Fq 'Microsoft-Windows-USB-USBXHCI' "$ROOT/windows/startnet.cmd"
+grep -Fq 'Microsoft-Windows-USB-UCX' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LUsbExportLogs' "$ROOT/windows/startnet.cmd"
 grep -q 'LogPixels /t REG_DWORD /d 168' "$ROOT/windows/startnet.cmd"
 grep -q 'mode con: cols=64 lines=41' "$ROOT/windows/startnet.cmd"
 

@@ -279,6 +279,10 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             Device (USB0)
             {
                 Name (_ADR, Zero)
+                // USBXHCI is the DMA bus master on the URS-created host PDO.
+                // Repeat the parent's non-coherent attribute explicitly so
+                // ARM64 common-buffer policy cannot depend on inheritance.
+                Name (_CCA, Zero)
                 Name (_CRS, ResourceTemplate ()
                 {
                     // Stock DTB SPI 241 -> GIC GSIV 241 + 32 = 273.
@@ -293,6 +297,7 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             Device (UFN0)
             {
                 Name (_ADR, One)
+                Name (_CCA, Zero)
                 Name (_CRS, ResourceTemplate ()
                 {
                     Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)

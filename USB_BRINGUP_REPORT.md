@@ -334,6 +334,26 @@ host child servis/stack/driver/resource listesini toplar; yeni deneme yine
 `Code 10` verirse core-reset ve interrupt/resource hipotezleri fotoğraftan
 ayrıştırılabilir.
 
+03 Eylül ölçümü bu core resetin gerçekten uygulandığını gösterdi:
+`DWC3_VER_NUMBER=0x3137302A` (DWC_usb31 1.70a), `resets=1`,
+`CAPLENGTH/HCIVERSION=0x01100020`, `HCSPARAMS1=0x02000240`,
+`HCCPARAMS1=0x0228FFED` ve `PAGESIZE=1`. URS parent ve HOST rolü çalışmaya
+devam ederken `USBXHCI` yine `Code 10 / STATUS_DEVICE_POWER_FAILURE` verdi;
+son durumda `USBCMD=0`, `USBSTS.HCHalted=1` kaldı. `PNP0D15` inbox adayı
+custom host INF tarafından outrank edilmiştir; etkin servis yine doğru şekilde
+`USBXHCI`'dır. Dolayısıyla kalan sınır temel xHCI capability görünürlüğünden
+sonraki reset/DMA/resource/interrupt başlatmasıdır.
+
+`0.1.0.3` tanı turunda ARM64 DMA niteliği host ve function ACPI child'larına
+da açık `_CCA=Zero` olarak eklendi; değer parent ile aynıdır ve yalnız URS PDO
+miras belirsizliğini kaldırır. Yeni status HCSPARAMS2/3, HCCPARAMS2,
+DBOFF/RTSOFF, CRCR, DCBAAP, CONFIG, iki PORTSC ve xECP başlangıcından sınırlı
+sekiz DWORD basar. `startnet.cmd` host geçişini USBXHCI+UCX ETW ile sarar,
+host child kaynaklarını ayrı kısa rapora alır ve `logman.exe` mevcutsa ETL ile
+USB loglarını doğrulanmış CACHE köküne kopyalar. Bu tur fiziksel başarı iddiası
+değil; USBXHCI'nin DMA ringlerini programlamadan mı yoksa interrupt aşamasında
+mı döndüğünü tek boot ile ayırmak içindir.
+
 Bu aşama HID için gereken Windows host yazılım zincirini hazırlar ama fiziksel
 başarı iddiası değildir. SuperSpeed portu combo PHY abort'u nedeniyle sürücüde
 kapalıdır. MAX77705/UcmCx olmadığı için ilk HID testi haricen beslenen USB2 hub
@@ -349,6 +369,10 @@ Detaylı test sözleşmesi `windows/b2lusb/README.md` içindedir.
   <https://docs.qualcomm.com/doc/80-88500-4/topic/119_USB_DWC3_driver.html>
 - Microsoft USB dual-role mimarisi:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-dual-role-driver-stack-architecture>
+- Microsoft USBXHCI/UCX ETW yakalama yöntemi:
+  <https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/how-to-capture-a-usb-event-trace>
+- Microsoft ARM/ARM64 ACPI `_CCA` common-buffer davranışı:
+  <https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nc-wdm-pallocate_common_buffer_ex>
 - Microsoft USB function controller/UFX mimarisi:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/developing-windows-drivers-for-usb-function-controllers>
 - USB Mass Storage Bulk-Only Transport 1.0:

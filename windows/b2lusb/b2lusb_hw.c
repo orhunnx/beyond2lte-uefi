@@ -25,13 +25,30 @@
 
 #define B2L_XHCI_CAPLENGTH            0x00UL
 #define B2L_XHCI_HCSPARAMS1           0x04UL
+#define B2L_XHCI_HCSPARAMS2           0x08UL
+#define B2L_XHCI_HCSPARAMS3           0x0CUL
 #define B2L_XHCI_HCCPARAMS1           0x10UL
+#define B2L_XHCI_DBOFF                0x14UL
+#define B2L_XHCI_RTSOFF               0x18UL
+#define B2L_XHCI_HCCPARAMS2           0x1CUL
 #define B2L_XHCI_USBCMD               0x00UL
 #define B2L_XHCI_USBSTS               0x04UL
 #define B2L_XHCI_PAGESIZE             0x08UL
+#define B2L_XHCI_DNCTRL               0x14UL
+#define B2L_XHCI_CRCR_LOW             0x18UL
+#define B2L_XHCI_CRCR_HIGH            0x1CUL
+#define B2L_XHCI_DCBAAP_LOW           0x30UL
+#define B2L_XHCI_DCBAAP_HIGH          0x34UL
+#define B2L_XHCI_CONFIG               0x38UL
+#define B2L_XHCI_PORTSC_BASE          0x400UL
+#define B2L_XHCI_PORTSC_STRIDE        0x10UL
 #define B2L_XHCI_USBSTS_HCH           (1UL << 0)
 #define B2L_XHCI_CAPLENGTH_MIN        0x20U
 #define B2L_XHCI_CAPLENGTH_MAX        0x80U
+#define B2L_XHCI_HCC_XECP_SHIFT       16U
+#define B2L_XHCI_HCC_XECP_MASK        0xFFFFUL
+#define B2L_XHCI_EXT_CAP_DWORDS       8UL
+#define B2L_XHCI_DWORD_BYTES          4UL
 
 #define B2L_PHY_LINK_CTRL              0x04UL
 #define B2L_PHY_LINK_PORT              0x08UL
@@ -502,6 +519,9 @@ B2lUsbHardwareGetStatus(
     B2L_USB_STATUS *Status
     )
 {
+    ULONG ExtCapOffset;
+    ULONG HccParams1;
+    ULONG Index;
     ULONG UsbStatus;
 
     if (!Context->HardwareReady) {
@@ -556,9 +576,30 @@ B2lUsbHardwareGetStatus(
             Context->Dwc3Registers,
             B2L_XHCI_HCSPARAMS1
             );
-        Status->XhciHccParams1 = B2lRead32(
+        Status->XhciHcsParams2 = B2lRead32(
+            Context->Dwc3Registers,
+            B2L_XHCI_HCSPARAMS2
+            );
+        Status->XhciHcsParams3 = B2lRead32(
+            Context->Dwc3Registers,
+            B2L_XHCI_HCSPARAMS3
+            );
+        HccParams1 = B2lRead32(
             Context->Dwc3Registers,
             B2L_XHCI_HCCPARAMS1
+            );
+        Status->XhciHccParams1 = HccParams1;
+        Status->XhciDbOff = B2lRead32(
+            Context->Dwc3Registers,
+            B2L_XHCI_DBOFF
+            );
+        Status->XhciRtsOff = B2lRead32(
+            Context->Dwc3Registers,
+            B2L_XHCI_RTSOFF
+            );
+        Status->XhciHccParams2 = B2lRead32(
+            Context->Dwc3Registers,
+            B2L_XHCI_HCCPARAMS2
             );
         Status->XhciUsbCmd = B2lRead32(
             Context->Dwc3Registers,
@@ -569,6 +610,57 @@ B2lUsbHardwareGetStatus(
             Context->Dwc3Registers,
             (ULONG)CapLength + B2L_XHCI_PAGESIZE
             );
+        Status->XhciDnCtrl = B2lRead32(
+            Context->Dwc3Registers,
+            (ULONG)CapLength + B2L_XHCI_DNCTRL
+            );
+        Status->XhciCrcrLow = B2lRead32(
+            Context->Dwc3Registers,
+            (ULONG)CapLength + B2L_XHCI_CRCR_LOW
+            );
+        Status->XhciCrcrHigh = B2lRead32(
+            Context->Dwc3Registers,
+            (ULONG)CapLength + B2L_XHCI_CRCR_HIGH
+            );
+        Status->XhciDcbaapLow = B2lRead32(
+            Context->Dwc3Registers,
+            (ULONG)CapLength + B2L_XHCI_DCBAAP_LOW
+            );
+        Status->XhciDcbaapHigh = B2lRead32(
+            Context->Dwc3Registers,
+            (ULONG)CapLength + B2L_XHCI_DCBAAP_HIGH
+            );
+        Status->XhciConfig = B2lRead32(
+            Context->Dwc3Registers,
+            (ULONG)CapLength + B2L_XHCI_CONFIG
+            );
+        Status->XhciPortSc1 = B2lRead32(
+            Context->Dwc3Registers,
+            (ULONG)CapLength + B2L_XHCI_PORTSC_BASE
+            );
+        Status->XhciPortSc2 = B2lRead32(
+            Context->Dwc3Registers,
+            (ULONG)CapLength + B2L_XHCI_PORTSC_BASE +
+                B2L_XHCI_PORTSC_STRIDE
+            );
+
+        // xECP is a DWORD offset from the xHCI base.  Copy only a bounded
+        // read-only window: enough to see the first two common four-DWORD
+        // Supported Protocol capabilities without following corrupt links.
+        ExtCapOffset = ((HccParams1 >> B2L_XHCI_HCC_XECP_SHIFT) &
+                        B2L_XHCI_HCC_XECP_MASK) * B2L_XHCI_DWORD_BYTES;
+        if ((ExtCapOffset != 0) &&
+            ((ExtCapOffset & (B2L_XHCI_DWORD_BYTES - 1UL)) == 0) &&
+            (ExtCapOffset <= Context->Dwc3Length -
+                (B2L_XHCI_EXT_CAP_DWORDS * B2L_XHCI_DWORD_BYTES))) {
+            Status->XhciExtCapOffset = ExtCapOffset;
+            for (Index = 0; Index < B2L_XHCI_EXT_CAP_DWORDS; ++Index) {
+                Status->XhciExtCap[Index] = B2lRead32(
+                    Context->Dwc3Registers,
+                    ExtCapOffset + (Index * B2L_XHCI_DWORD_BYTES)
+                    );
+            }
+        }
         if ((UsbStatus & B2L_XHCI_USBSTS_HCH) != 0) {
             Status->Flags |= B2L_USB_STATUS_XHCI_HALTED;
         }

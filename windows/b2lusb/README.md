@@ -64,6 +64,24 @@ GUSB PHY ayarlarını ve xHCI capability/command/status/page-size değerlerini
 gösterir. Otomatik test, host child'ın servis/stack/driver/resource ayrıntısını
 da kaydeder; böylece sonraki hata reset mi interrupt mı ayrıştırılabilir.
 
+Üçüncü cihaz ölçümü core-reset yolunu doğruladı: DWC_usb31 version registeri
+`0x3137302A` (1.70a), `resets=1`, xHCI capability `0x01100020` ve
+`PAGESIZE=1` okundu. Buna rağmen host child yine `Code 10 / 0xC000009E`
+verdi; son snapshot `USBCMD=0`, `USBSTS.HCHalted=1` gösterdi. Bu sonuç rol,
+MMIO erişimi ve temel capability başlığından sonraki USBXHCI başlatmasına
+daralır; tek başına son `USBCMD` değeri controller resetine hiç yazılmadığını
+kanıtlamaz.
+
+`0.1.0.3`, ARM64 DMA politikasını URS parent'tan devralmaya bırakmamak için
+aynı non-coherent `_CCA=Zero` niteliğini host/function ACPI çocuklarında da
+açıkça tekrarlar. Durum çıktısı HCSPARAMS2/3, HCCPARAMS2, DBOFF/RTSOFF,
+CRCR/DCBAAP/CONFIG, iki PORTSC ve xECP'den sınırlı sekiz DWORD okur. Otomatik
+HOST turu ayrıca USBXHCI+UCX ETW kaydı başlatır; `logman.exe` WinPE'de varsa
+ETL, kısa host resource raporu ve USB metin logları doğrulanmış CACHE
+bölümünün köküne kopyalanır. Böylece sonraki turda DMA tablolarının kurulup
+kurulmadığı, interrupt/MMIO kaynağının child'a ulaşıp ulaşmadığı ve Microsoft
+yığınının döndürdüğü iç hata aynı boot'tan alınabilir.
+
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
 DEFAULT hive ve WIM geri-okuma doğrulaması `tools_winpe_ui_scale.sh` içindedir.
@@ -129,6 +147,10 @@ beslenen bir USB2 hub üzerinden yapılmalıdır. Başarı sırası:
 2. `URS\BYN0002&HOST` için `USBXHCI` servisinin başlaması;
 3. root hub ve haricen beslenen hub'ın numaralandırılması;
 4. USB klavyenin Windows'ta HID Keyboard olarak görünmesi ve tuş üretmesi.
+
+Otomatik testten sonra CACHE kökünde `B2LUSB-HOST-RESOURCES.TXT`,
+`B2LUSB-ETW.TXT` ve destekleniyorsa `B2LUSB-USBXHCI*.etl` bulunur. ETL,
+Windows Performance Analyzer'da USBXHCI ve UCX olaylarıyla açılabilir.
 
 Geri dönüş:
 
