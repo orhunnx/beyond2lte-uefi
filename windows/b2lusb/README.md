@@ -60,7 +60,7 @@ WinPE WIM'inde bulunduğunu doğrulamadan paket üretmez.
 
 Build tarafında URS SDK başlığı WDK'nın sürümlü alt dizininden
 `Include/<sürüm>/km/urs/1.0/UrsCx.h`, import library ise
-`Lib/<sürüm>/km/arm64/Urscxstub.lib` olarak alınır. Bunlar Windows kurulum
+`Lib/<sürüm>/km/arm64/urs/1.0/UrsCxStub.lib` olarak alınır. Bunlar Windows kurulum
 ISO'sundan değil, eşleşen SDK/WDK kurulumundan gelir. Farklı bir WDK kökü
 gerekiyorsa `B2L_WDK_ROOT='/mnt/.../Windows Kits/10'` verilebilir.
 
