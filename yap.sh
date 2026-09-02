@@ -360,6 +360,27 @@ if [ -n "$EBS" ]; then
   echo "  Geri almak icin: rm esp/EBSTEST.EFI"
 fi
 
+# --touch, Windows ARM64 VHF paketini de ayni WIM'e offline stage eder.
+# Boylece ACPI\BYN0001 ilk PnP olusumunda b2ltouch + vhf stack'i hazirdir;
+# startnet icinde sonradan INF baglayip Code 14 uretmez.
+WINDOWS_TOUCH_DEFERRED=0
+if [ "$TOUCH" = 1 ]; then
+  if [ "${B2L_SKIP_WINDOWS_TOUCH_BUILD:-0}" = "1" ]; then
+    echo "B2LTOUCH Windows surucusu B2L_SKIP_WINDOWS_TOUCH_BUILD=1 ile atlandi"
+  else
+    [ -x "$PROJ/tools_b2ltouch.sh" ] || {
+      echo "HATA: tools_b2ltouch.sh yok veya calistirilabilir degil"
+      exit 1
+    }
+    if [ "$USB_TEST" = 1 ] && [ "${B2L_SKIP_WINDOWS_USB_BUILD:-0}" != "1" ]; then
+      B2L_DEFER_OFFLINE_STAGE=1 "$PROJ/tools_b2ltouch.sh"
+      WINDOWS_TOUCH_DEFERRED=1
+    else
+      "$PROJ/tools_b2ltouch.sh"
+    fi
+  fi
+fi
+
 #
 # B2LUsbTest.efi - USB bring-up. R11 eski salt-okuma sayfalarini korur; son
 # ayri onayda stok HS PHY + event DMA + DWC3 RUN_STOP probu yapar. FV'ye gomulmez;
@@ -389,7 +410,9 @@ if [ "$USB_TEST" = 1 ]; then
       echo "HATA: tools_b2lusb.sh yok veya calistirilabilir degil"
       exit 1
     }
-    B2L_USB_AUTO_HOST="${B2L_USB_AUTO_HOST:-1}" "$PROJ/tools_b2lusb.sh"
+    B2L_USB_AUTO_HOST="${B2L_USB_AUTO_HOST:-1}" \
+      B2L_STAGE_TOUCH_WITH_USB="$WINDOWS_TOUCH_DEFERRED" \
+      "$PROJ/tools_b2lusb.sh"
   fi
 else
   rm -f "$PROJ/esp/B2LUSB.EFI"

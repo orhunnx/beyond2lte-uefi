@@ -331,6 +331,13 @@ yayınlar ve altı MMIO penceresini yalnız b2lufs'a verir. Böylece inbox
 `startnet.cmd`, paket eklendiyse `pnputil /add-driver ... /install` çağrısını
 otomatik yapar; fotoğrafta hedef PnP durumu `b2lufs.inf` + `Started`dır.
 
+USB ve touch paketlerinin aksine UFS şimdilik offline DriverStore'a
+taşınmaz. Çalışan sıra önce `mountvol /N` ile otomatik harf atamasını kapatır,
+sonra UFS'yi runtime kurar ve yalnız etiketi doğrulanan CACHE bölümünü `W:`
+olarak bağlar. UFS'yi `wpeinit` öncesine almak Android RAW bölümlerinin PnP
+sırasını ve sürücü harfi tüketimini değiştireceğinden ayrı bir kontrollü deney
+olarak ele alınmalıdır.
+
 `tools_b2lufs.sh`, WSL'den Windows WDK'nin ARM64 `storport.lib` ve
 `ntoskrnl.lib` kitaplıklarını kullanır. Kaynaklar WSL clang'iyle değil,
 `build-b2lufs.ps1` üzerinden Visual Studio'nun `vcvarsamd64_arm64.bat` ile

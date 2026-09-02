@@ -189,11 +189,12 @@ fi
 MANIFEST="$OUT/b2lusb-manifest.txt"
 {
   echo "B2LUSB_PACKAGE=exynos9820-kmdf-urs-usb2-host-bringup"
-  echo "B2LUSB_DRIVER_VERSION=0.1.0.6"
+  echo "B2LUSB_DRIVER_VERSION=0.1.0.7"
   echo "B2LUSB_ACPI_ID=ACPI\\BYN0002"
   echo "B2LUSB_HOST_ID=URS\\BYN0002&HOST"
   echo "B2LUSB_SUPERSPEED=DISABLED_UNTIL_COMBO_PMA_SAFE"
   echo "B2LUSB_AUTO_HOST=$AUTO_HOST"
+  echo "B2LUSB_OFFLINE_DRIVERSTORE=1"
   echo "B2LUSB_INF_SHA256=$(sha256sum "$OUT/b2lusb.inf" | awk '{print $1}')"
   echo "B2LUSB_HOST_INF_SHA256=$(sha256sum "$OUT/b2lusb-host.inf" | awk '{print $1}')"
   echo "B2LUSB_SYS_SHA256=$(sha256sum "$OUT/b2lusb.sys" | awk '{print $1}')"
@@ -218,6 +219,28 @@ for InboxPath in \
   [ -n "$(find "$CHECK" -type f -print -quit)" ] || die "WIM cikarimi bos: $InboxPath"
   printf '  var: %s\n' "$InboxPath"
 done
+
+PS_STAGE="$HERE/windows/stage-winpe-driverstore.ps1"
+[ -s "$PS_STAGE" ] || die "Offline DriverStore PowerShell betigi yok: $PS_STAGE"
+case "${B2L_STAGE_TOUCH_WITH_USB:-0}" in
+  0) OFFLINE_PACKAGE="Usb" ;;
+  1) OFFLINE_PACKAGE="UsbTouch" ;;
+  *) die "B2L_STAGE_TOUCH_WITH_USB yalniz 0 veya 1 olabilir" ;;
+esac
+wimlib-imagex update "$WIM" 1 \
+  --command="delete --force /Windows/B2LUSB/offline-driverstore.txt" \
+  >/dev/null 2>&1 || true
+if [ "$OFFLINE_PACKAGE" = "UsbTouch" ]; then
+  wimlib-imagex update "$WIM" 1 \
+    --command="delete --force /Windows/B2LTOUCH/offline-driverstore.txt" \
+    >/dev/null 2>&1 || true
+fi
+say "B2LUSB DriverStore paketi boot.wim'e offline ekleniyor: $OFFLINE_PACKAGE"
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File "$(wslpath -w "$PS_STAGE")" \
+  -ProjectRoot "$(wslpath -w "$HERE")" \
+  -WimPath "$(wslpath -w "$WIM")" \
+  -Package "$OFFLINE_PACKAGE" || die "B2LUSB offline DriverStore servislemesi basarisiz"
 
 say "B2LUSB paketi boot.wim'e ekleniyor"
 for Item in b2lusb.inf b2lusb-host.inf b2lusb.sys b2lusbmon.sys b2lusb.cat b2lusbctl.exe; do
@@ -258,6 +281,11 @@ wimlib-imagex extract "$WIM" 1 /Windows/B2LUSB/manifest.txt \
   --dest-dir="$CHECK" --no-acls >/dev/null
 [ "$(sha256sum "$MANIFEST" | awk '{print $1}')" = \
   "$(sha256sum "$CHECK/manifest.txt" | awk '{print $1}')" ] || die "manifest WIM'de farkli"
+wimlib-imagex extract "$WIM" 1 /Windows/B2LUSB/offline-driverstore.txt \
+  --dest-dir="$CHECK" --no-acls >/dev/null
+tr -d '\r' < "$CHECK/offline-driverstore.txt" | \
+  grep -qx 'B2L_OFFLINE_DRIVERSTORE=1' || \
+  die "B2LUSB offline DriverStore isareti WIM'de gecersiz"
 if [ "$AUTO_HOST" = "1" ]; then
   wimlib-imagex extract "$WIM" 1 /Windows/B2LUSB/auto-host.test \
     --dest-dir="$CHECK" --no-acls >/dev/null

@@ -357,7 +357,8 @@ verify_winpe_b2lufs_package() {
 # Windows touch build exists, require the WIM to contain its exact manifest
 # hash before producing the sparse ESP image.
 verify_winpe_b2ltouch_package() {
-  local VerifyDir ExpectedSys ManifestSys OskDir OskManifestDir ExpectedOsk ManifestOsk
+  local VerifyDir ExpectedSys ManifestSys ManifestOffline
+  local OskDir OskManifestDir ExpectedOsk ManifestOsk ManifestOskPackage
 
   [ -s "$PROJ/out/b2ltouch/b2ltouch.sys" ] || return 0
   [ -s "$PROJ/esp/sources/boot.wim" ] || {
@@ -380,6 +381,20 @@ verify_winpe_b2ltouch_package() {
 
   ExpectedSys="$(sha256sum "$PROJ/out/b2ltouch/b2ltouch.sys" | awk '{print $1}')"
   ManifestSys="$(sed -n 's/^B2LTOUCH_SYS_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+  ManifestOffline="$(sed -n 's/^B2LTOUCH_OFFLINE_DRIVERSTORE=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+  if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
+      /Windows/B2LTOUCH/offline-driverstore.txt --dest-dir="$VerifyDir" --no-acls >/dev/null; then
+    rm -rf "$VerifyDir"
+    echo "HATA: boot.wim'de B2LTOUCH offline DriverStore isareti yok."
+    return 1
+  fi
+  if [ "$ManifestOffline" != "1" ] || \
+     ! tr -d '\r' < "$VerifyDir/offline-driverstore.txt" | \
+       grep -qx 'B2L_OFFLINE_DRIVERSTORE=1'; then
+    rm -rf "$VerifyDir"
+    echo "HATA: B2LTOUCH paketi DriverStore'a offline eklenmemis."
+    return 1
+  fi
   rm -rf "$VerifyDir"
   if [ "$ManifestSys" != "$ExpectedSys" ]; then
     echo "HATA: boot.wim B2LTOUCH SYS hash'i derlenen SYS ile ayni degil."
@@ -438,7 +453,7 @@ verify_winpe_b2ltouch_package() {
 verify_winpe_b2lusb_package() {
   local VerifyDir ExpectedSys ManifestSys ExpectedMon ManifestMon ExpectedCtl ManifestCtl
   local UrsDir UrsManifestDir UrsFile ExpectedUrs ManifestUrs ManifestUrsPackage
-  local ManifestAutoHost AutoHostDir UiManifestDir UiScale UiPackage
+  local ManifestAutoHost ManifestOffline AutoHostDir UiManifestDir UiScale UiPackage
 
   if [ ! -s "$PROJ/out/b2lusb/b2lusb.sys" ]; then
     if [ -s "$PROJ/esp/B2LUSB.EFI" ]; then
@@ -481,6 +496,20 @@ verify_winpe_b2lusb_package() {
   ExpectedCtl="$(sha256sum "$PROJ/out/b2lusb/b2lusbctl.exe" | awk '{print $1}')"
   ManifestCtl="$(sed -n 's/^B2LUSB_CTL_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
   ManifestAutoHost="$(sed -n 's/^B2LUSB_AUTO_HOST=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+  ManifestOffline="$(sed -n 's/^B2LUSB_OFFLINE_DRIVERSTORE=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+  if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
+      /Windows/B2LUSB/offline-driverstore.txt --dest-dir="$VerifyDir" --no-acls >/dev/null; then
+    rm -rf "$VerifyDir"
+    echo "HATA: boot.wim'de B2LUSB offline DriverStore isareti yok."
+    return 1
+  fi
+  if [ "$ManifestOffline" != "1" ] || \
+     ! tr -d '\r' < "$VerifyDir/offline-driverstore.txt" | \
+       grep -qx 'B2L_OFFLINE_DRIVERSTORE=1'; then
+    rm -rf "$VerifyDir"
+    echo "HATA: B2LUSB paketi DriverStore'a offline eklenmemis."
+    return 1
+  fi
   rm -rf "$VerifyDir"
   if [ "$ManifestSys" != "$ExpectedSys" ] || \
      [ "$ManifestMon" != "$ExpectedMon" ] || \

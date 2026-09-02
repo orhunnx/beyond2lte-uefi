@@ -38,17 +38,27 @@ grep -q 'B2lTouchPublishServiceDiagnostic' "$WIN/b2ltouch.c"
 grep -q 'B2LDriverStatus' "$WIN/b2ltouch.c"
 grep -q 'B2LTouchStage' "$ROOT/windows/startnet.cmd"
 grep -q 'VHF_SYS=' "$ROOT/windows/startnet.cmd"
-grep -q 'call :B2LTouchEnsureVhfService' "$ROOT/windows/startnet.cmd"
-grep -Fq 'reg.exe add "%B2LVHFSVC%" /v Type /t REG_DWORD /d 1 /f' "$ROOT/windows/startnet.cmd"
-grep -Fq 'reg.exe add "%B2LVHFSVC%" /v Start /t REG_DWORD /d 3 /f' "$ROOT/windows/startnet.cmd"
-grep -Fq 'reg.exe add "%B2LVHFSVC%" /v ImagePath /t REG_EXPAND_SZ /d "\SystemRoot\System32\drivers\vhf.sys" /f' "$ROOT/windows/startnet.cmd"
+if rg -n 'B2LTouchEnsureVhfService|pnputil /add-driver .*b2ltouch' "$ROOT/windows/startnet.cmd"; then
+  echo 'HATA: touch/VHF paketi calisan WinPE oturumunda kurulmamalidir' >&2
+  exit 1
+fi
+grep -Fq 'B2LTOUCHDIR%\offline-driverstore.txt' "$ROOT/windows/startnet.cmd"
+grep -Fq 'CurrentControlSet\Services\vhf' "$ROOT/windows/startnet.cmd"
 if rg -q 'sc\.exe' "$ROOT/windows/startnet.cmd"; then
   echo "HATA: WinPE imajinda bulunmayan sc.exe kullaniliyor" >&2
   exit 1
 fi
 grep -q 'Services\\b2ltouch" /v B2LTouchStage' "$ROOT/windows/startnet.cmd"
-grep -q 'DriverVer=08/30/2026,0.2.0.0' "$INF"
-grep -q 'B2LTOUCH_DRIVER_VERSION=0.2.0.0' "$ROOT/tools_b2ltouch.sh"
+grep -q 'DriverVer=09/03/2026,0.2.0.1' "$INF"
+grep -q 'B2LTOUCH_DRIVER_VERSION=0.2.0.1' "$ROOT/tools_b2ltouch.sh"
+grep -q 'B2LTOUCH_OFFLINE_DRIVERSTORE=1' "$ROOT/tools_b2ltouch.sh"
+grep -q 'stage-winpe-driverstore.ps1' "$ROOT/tools_b2ltouch.sh"
+grep -q -- '-Package Touch' "$ROOT/tools_b2ltouch.sh"
+grep -q 'tools_b2ltouch.sh' "$ROOT/yap.sh"
+grep -q 'B2L_SKIP_WINDOWS_TOUCH_BUILD' "$ROOT/yap.sh"
+grep -q 'B2L_DEFER_OFFLINE_STAGE=1' "$ROOT/yap.sh"
+grep -q 'B2L_STAGE_TOUCH_WITH_USB="$WINDOWS_TOUCH_DEFERRED"' "$ROOT/yap.sh"
+grep -q 'delete --force /Windows/B2LTOUCH/offline-driverstore.txt' "$ROOT/tools_b2ltouch.sh"
 grep -q 'B2LTOUCH_PACKAGE=sec-ts-kmdf-vhf-ten-contact-live-diag' "$ROOT/tools_b2ltouch.sh"
 grep -q 'B2LTouchLaunchKeyboard' "$ROOT/windows/startnet.cmd"
 grep -q 'TabTip.exe' "$ROOT/windows/startnet.cmd"
@@ -81,6 +91,15 @@ grep -q 'B2LTouchPrepareNativeOsk' "$ROOT/windows/startnet.cmd"
 grep -Fq 'regsvr32.exe" /s "%SystemRoot%\System32\msctf.dll' "$ROOT/windows/startnet.cmd"
 grep -q '529A9E6B-6587-4F23-AB9E-9C7D683E3C50' "$ROOT/windows/startnet.cmd"
 grep -q 'WIMLIB_IMAGEX_IGNORE_CASE=1' "$ROOT/tools_winpe_native_osk.sh"
+grep -q 'B2LTOUCH/offline-driverstore.txt' "$ROOT/cache_esp.sh"
+grep -q 'B2LUSB/offline-driverstore.txt' "$ROOT/cache_esp.sh"
+
+STAGE_PS="$ROOT/windows/stage-winpe-driverstore.ps1"
+grep -q 'Set-B2LVhfOfflineService' "$STAGE_PS"
+grep -q 'Windows\\System32\\drivers\\vhf.sys' "$STAGE_PS"
+grep -q 'ControlSet{0:D3}' "$STAGE_PS"
+grep -q 'Services\\vhf' "$STAGE_PS"
+grep -q 'Virtual HID Framework (VHF) Driver' "$STAGE_PS"
 if grep -q 'wimlib-imagex dir .*System32/osk.exe' "$ROOT/tools_winpe_native_osk.sh"; then
   echo "HATA: wimlib dir dosya-varlik testi olarak kullaniliyor" >&2
   exit 1

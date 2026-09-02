@@ -132,6 +132,20 @@ filter aşamaları ve parent durumu toplanmaya devam eder. Böylece sonraki
 fotoğraf Code 14'ün temizlenip temizlenmediğini ve `B2LMonPrepareSeen` değerini
 klavye gerektirmeden gösterecektir.
 
+Cihazdaki `0.1.0.6` sonucu PnPUtil'in doğru HOST instance'ı için
+`System reboot is needed to complete configuration operations!` döndürdüğünü
+ve Code 14 ile `B2LMonPrepareSeen=0` durumunun sürdüğünü gösterdi. Bu nedenle
+`0.1.0.7` runtime INF kurulumunu kaldırır. `stage-winpe-driverstore.ps1`, WIM'i
+Windows tarafındaki geçici NTFS alanına kopyalar, DISM ile parent ve host
+paketlerini offline DriverStore'a ekler, `oem*.inf` sonuçlarını doğrular ve
+commit başarılıysa WIM'i geri yazar. Gerekli yönetici yetkisi tek UAC istemiyle
+alınır. `startnet.cmd` yalnız tarama, hedefli restart ve tanı toplar; PnP
+stack'i lower filter hazır halde ilk boot sırasında oluşur.
+
+`--touch --usb-test` birlikte kullanılırsa touch/VHF ve USB paketleri tek DISM
+mount/commit işleminde stage edilir. UFS, çalışan CACHE yolu ve `mountvol /N`
+sıralaması korunmak için bu erken-boot değişikliğinin dışındadır.
+
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
 DEFAULT hive ve WIM geri-okuma doğrulaması `tools_winpe_ui_scale.sh` içindedir.

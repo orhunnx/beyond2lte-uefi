@@ -266,15 +266,14 @@ WSL'de Windows WDK/Visual Studio ARM64 araçlarını kullanarak tam sıra:
 
 ```bash
 cd ~/beyond2lte-uefi-8549
-bash yap.sh --touch-test --acpi --clean
-bash tools_b2ltouch.sh
+bash yap.sh --touch --usb-test --clean
 bash cache_esp.sh --win --system --baseline
 tar -tf out/beyond2lte-touch-diag.tar
 ```
 
-Bu dört komut cihazda doğrulanan günlük yoldur. İlk komut BOOT/ACPI ve UEFI
-dokunmatik hazırlığını, ikinci komut Windows ARM64 SYS/CAT/INF ile tanı
-uygulamasını, üçüncü komut SYSTEM imajı ve tek Odin AP arşivini üretir. Son
+İlk komut BOOT/ACPI ile Windows ARM64 USB ve touch paketlerini üretir; iki
+paket boot.wim DriverStore'ına tek DISM mount/commit ve tek UAC istemiyle
+offline eklenir. İkinci komut SYSTEM imajı ve tek Odin AP arşivini üretir. Son
 komut arşivde `boot.img` ile `system.img` bulunduğunu gözle doğrular.
 
 ADK `boot.wim` sıfırdan kurulacaksa günlük sıranın önüne yalnız bir kez şunu

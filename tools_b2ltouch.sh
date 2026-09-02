@@ -142,13 +142,34 @@ rm -f "$PFX"
 MANIFEST="$OUT/b2ltouch-manifest.txt"
 {
   echo "B2LTOUCH_PACKAGE=sec-ts-kmdf-vhf-ten-contact-live-diag"
-  echo "B2LTOUCH_DRIVER_VERSION=0.2.0.0"
+  echo "B2LTOUCH_DRIVER_VERSION=0.2.0.1"
   echo "B2LTOUCH_ACPI_ID=ACPI\\BYN0001"
+  echo "B2LTOUCH_OFFLINE_DRIVERSTORE=1"
   echo "B2LTOUCH_INF_SHA256=$(sha256sum "$OUT/b2ltouch.inf" | awk '{print $1}')"
   echo "B2LTOUCH_SYS_SHA256=$(sha256sum "$OUT/b2ltouch.sys" | awk '{print $1}')"
   echo "B2LTOUCH_CAT_SHA256=$(sha256sum "$OUT/b2ltouch.cat" | awk '{print $1}')"
   echo "B2LTOUCH_MT_SHA256=$(sha256sum "$OUT/b2lmt.exe" | awk '{print $1}')"
 } > "$MANIFEST"
+
+PS_STAGE="$HERE/windows/stage-winpe-driverstore.ps1"
+[ -s "$PS_STAGE" ] || die "Offline DriverStore PowerShell betigi yok: $PS_STAGE"
+wimlib-imagex update "$WIM" 1 \
+  --command="delete --force /Windows/B2LTOUCH/offline-driverstore.txt" \
+  >/dev/null 2>&1 || true
+case "${B2L_DEFER_OFFLINE_STAGE:-0}" in
+  0)
+    say "B2LTOUCH DriverStore ve VHF servisi boot.wim'e offline ekleniyor"
+    powershell.exe -NoProfile -ExecutionPolicy Bypass \
+      -File "$(wslpath -w "$PS_STAGE")" \
+      -ProjectRoot "$(wslpath -w "$HERE")" \
+      -WimPath "$(wslpath -w "$WIM")" \
+      -Package Touch || die "B2LTOUCH offline DriverStore servislemesi basarisiz"
+    ;;
+  1)
+    echo "B2LTOUCH offline stage, birlesik USB+touch DISM turuna ertelendi"
+    ;;
+  *) die "B2L_DEFER_OFFLINE_STAGE yalniz 0 veya 1 olabilir" ;;
+esac
 
 say "B2LTOUCH paketi boot.wim'e ekleniyor"
 for Item in b2ltouch.inf b2ltouch.sys b2ltouch.cat b2lmt.exe; do
@@ -182,6 +203,13 @@ wimlib-imagex extract "$WIM" 1 /Windows/B2LTOUCH/manifest.txt \
   --dest-dir="$CHECK" --no-acls >/dev/null
 [ "$(sha256sum "$MANIFEST" | awk '{print $1}')" = \
   "$(sha256sum "$CHECK/manifest.txt" | awk '{print $1}')" ] || die "manifest WIM'de farkli"
+if [ "${B2L_DEFER_OFFLINE_STAGE:-0}" = "0" ]; then
+  wimlib-imagex extract "$WIM" 1 /Windows/B2LTOUCH/offline-driverstore.txt \
+    --dest-dir="$CHECK" --no-acls >/dev/null
+  tr -d '\r' < "$CHECK/offline-driverstore.txt" | \
+    grep -qx 'B2L_OFFLINE_DRIVERSTORE=1' || \
+    die "B2LTOUCH offline DriverStore isareti WIM'de gecersiz"
+fi
 wimlib-imagex extract "$WIM" 1 /Windows/System32/startnet.cmd \
   --dest-dir="$CHECK" --no-acls >/dev/null
 [ "$(sha256sum "$SNTMP" | awk '{print $1}')" = \

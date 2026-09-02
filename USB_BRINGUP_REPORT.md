@@ -418,6 +418,27 @@ başarısızlık halinde de ETW, kaynak ve filter kayıtları toplanır. `/reboo
 ilk kez çalışıp çalışmadığını ölçmektir; bu turda guard veya MMIO yazımı
 değiştirilmez.
 
+`0.1.0.6` cihaz sonucu hedefli komutun doğru devnode'a ulaştığını, fakat
+PnPUtil'in `System reboot is needed to complete configuration operations!`
+döndürdüğünü gösterdi. Child yine Code 14 kaldı; lower filter kaydında
+`AddSeen=1`, `PrepareSeen=0` ve `D0EntrySeen=0` değişmedi. Böylece runtime
+restart/rol çevrimi ekseni kapandı: çalışan WinPE oturumuna yeni filter
+bağlamak reboot gerektiriyor.
+
+`0.1.0.7`, parent ve host INF'lerini Microsoft DISM ile `boot.wim` içindeki
+DriverStore'a offline ekler. Eski aynı adlı paketler önce offline imajdan
+kaldırılır, yeni `oem*.inf` kayıtları geri okunarak doğrulanır ve yalnız
+başarılı mount/commit sonrasında WSL'deki WIM değiştirilir. `startnet.cmd`
+artık USB INF kurmaz; ilk PnP stack'i filter hazırken oluşur. Aynı altyapı
+touch `0.2.0.1` paketini ve mevcut `vhf.sys` için demand-start servis kaydını
+da offline hazırlar. Standart `--touch --usb-test` turunda ikisi tek DISM/UAC
+işleminde eklenir.
+
+UFS bu değişikliğe bilinçli olarak dahil edilmedi. Mevcut runtime UFS kurulumu
+CACHE yazma/geri-okuma testini başarıyla geçiriyor ve `mountvol /N` sonrasında
+çalışıyor. UFS'yi daha erken PnP'ye taşımak Android RAW bölümlerinin harfleri
+tüketmesine ve çalışan depolama/boot sırasının değişmesine yol açabilir.
+
 Bu aşama HID için gereken Windows host yazılım zincirini hazırlar ama fiziksel
 başarı iddiası değildir. SuperSpeed portu combo PHY abort'u nedeniyle sürücüde
 kapalıdır. MAX77705/UcmCx olmadığı için ilk HID testi haricen beslenen USB2 hub
@@ -439,6 +460,8 @@ Detaylı test sözleşmesi `windows/b2lusb/README.md` içindedir.
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/install/cm-prob-need-restart>
 - Microsoft hedefli `pnputil /restart-device` sözdizimi:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax>
+- Microsoft offline imaja DISM ile sürücü paketi ekleme:
+  <https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/add-and-remove-drivers-to-an-offline-windows-image>
 - Microsoft ARM/ARM64 ACPI `_CCA` common-buffer davranışı:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nc-wdm-pallocate_common_buffer_ex>
 - Microsoft USB function controller/UFX mimarisi:

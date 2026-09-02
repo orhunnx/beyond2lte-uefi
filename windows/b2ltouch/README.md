@@ -92,9 +92,11 @@ B2L_SKIP_MSVC_BUILD=1 bash tools_b2ltouch.sh
 
 ## WinPE'de beklenen sonuç
 
-`startnet.cmd`, `wpeinit` sonrasında WinPE'de dosyası bulunduğu halde eksik olan
-Microsoft `vhf` kernel-service kaydını mevcut `reg.exe` ile oturumluk oluşturur, ardından
-`b2ltouch.inf` paketini kurar ve PnP taraması yapar. Başarılı durumda Device Manager/PnP görünümünde kaynak aygıt
+`tools_b2ltouch.sh`, `b2ltouch.inf` paketini Microsoft DISM ile boot.wim
+DriverStore'ına offline ekler. WinPE'de dosyası bulunan Microsoft `vhf`
+kernel-service kaydı da offline SYSTEM hive içinde hazırlanır. Böylece
+`startnet.cmd` çalışan oturumda INF/filter kurmaz; yalnız PnP taraması ve tanı
+toplar. Başarılı durumda Device Manager/PnP görünümünde kaynak aygıt
 `ACPI\BYN0001`, onun VHF çocuğu ise HID uyumlu dokunmatik ekran olarak görünür.
 Kurulum çıktısı `X:\B2LTOUCH-PNP.TXT` dosyasındadır. Test sonunda WinPE/Windows
 içindeki yerel dokunmatik klavye (`TabTip.exe`), o yoksa yerel ekran klavyesi
@@ -122,6 +124,11 @@ Hedef WinPE build'i `10.0.28000`, eldeki ARM64 Windows/OSK kaynağı
 `10.0.26200` olduğundan aynı-build çalışma zamanı henüz doğrulanmadı. OSK
 başarılı kabul edilmemeli; dokunmatik ve multi-touch başarısı OSK'den
 bağımsızdır. Şimdilik bu eksen ertelenmiştir.
+
+USB ve touch birlikte derlenirken `yap.sh`, touch stage işlemini USB paketine
+erteler; `UsbTouch` modu iki paketi tek DISM mount/commit ve tek Windows UAC
+istemiyle ekler. Touch tek başına derlenirse `tools_b2ltouch.sh` aynı işlemi
+yalnız touch paketi için yapar. UFS erken PnP'ye taşınmamıştır.
 
 Multi-touch tanısı yeniden gerekirse konsoldan `%SystemRoot%\B2LTOUCH\b2lmt.exe`
 çalıştırılır; native OSK'nin üstünü kapatmaması için artık otomatik açılmaz.

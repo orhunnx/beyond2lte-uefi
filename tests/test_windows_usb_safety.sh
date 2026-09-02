@@ -25,8 +25,8 @@ fi
 grep -Fq 'ACPI\BYN0002' "$PARENT_INF"
 grep -q 'KmdfLibraryVersion=1.15' "$PARENT_INF"
 grep -Fq 'URS\BYN0002&HOST' "$HOST_INF"
-grep -q 'DriverVer=09/03/2026,0.1.0.6' "$PARENT_INF"
-grep -q 'DriverVer=09/03/2026,0.1.0.6' "$HOST_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.7' "$PARENT_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.7' "$HOST_INF"
 grep -qi 'Include=usbxhci.inf' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT.Services' "$HOST_INF"
@@ -123,7 +123,12 @@ grep -q 'LOG_PIXELS=168' "$ROOT/tools_winpe_ui_scale.sh"
 grep -Fq 'Control Panel\Desktop' "$ROOT/tools_winpe_ui_scale.sh"
 grep -q 'B2L_USB_AUTO_HOST="${B2L_USB_AUTO_HOST:-1}"' "$ROOT/yap.sh"
 grep -q 'B2LUSB_AUTO_HOST=\$AUTO_HOST' "$ROOT/tools_b2lusb.sh"
-grep -q 'B2LUSB_DRIVER_VERSION=0.1.0.6' "$ROOT/tools_b2lusb.sh"
+grep -q 'B2LUSB_DRIVER_VERSION=0.1.0.7' "$ROOT/tools_b2lusb.sh"
+grep -q 'B2LUSB_OFFLINE_DRIVERSTORE=1' "$ROOT/tools_b2lusb.sh"
+grep -q 'stage-winpe-driverstore.ps1' "$ROOT/tools_b2lusb.sh"
+grep -q 'OFFLINE_PACKAGE="UsbTouch"' "$ROOT/tools_b2lusb.sh"
+grep -Fq -- '-Package "$OFFLINE_PACKAGE"' "$ROOT/tools_b2lusb.sh"
+grep -q 'delete --force /Windows/B2LUSB/offline-driverstore.txt' "$ROOT/tools_b2lusb.sh"
 grep -q 'B2LUSB_MON_SHA256=' "$ROOT/tools_b2lusb.sh"
 grep -q 'b2lusbmon.sys' "$WIN/build-b2lusb.ps1"
 grep -q 'b2lusbmon.sys' "$ROOT/tools_b2lusb.sh"
@@ -158,6 +163,11 @@ grep -q 'UYARI: B2LUSB basarisiz; touch ve UFS tanisi yine de surdurulecek' "$RO
 grep -Fq 'Services\UrsCx01000' "$ROOT/windows/startnet.cmd"
 grep -Fq 'Services\Ucx01000' "$ROOT/windows/startnet.cmd"
 grep -q 'b2lusbctl.exe" status' "$ROOT/windows/startnet.cmd"
+if rg -n 'pnputil /add-driver .*b2lusb' "$ROOT/windows/startnet.cmd"; then
+  echo 'HATA: USB paketi calisan WinPE oturumunda kurulmamali' >&2
+  exit 1
+fi
+grep -Fq 'B2LUSBDIR%\offline-driverstore.txt' "$ROOT/windows/startnet.cmd"
 if rg -n 'b2lusbctl\.exe" (host|none)' "$ROOT/windows/startnet.cmd"; then
   echo 'HATA: otomatik USB testi Code 14 temizlenmeden rol degistirmemeli' >&2
   exit 1
@@ -181,6 +191,20 @@ grep -Fq 'if exist "%B2LUSBDIR%\auto-host.test" cls' "$ROOT/windows/startnet.cmd
 grep -Fq 'if not exist "%B2LUSBDIR%\auto-host.test" call :B2LTouchLaunchKeyboard' "$ROOT/windows/startnet.cmd"
 grep -q 'LogPixels /t REG_DWORD /d 168' "$ROOT/windows/startnet.cmd"
 grep -q 'mode con: cols=64 lines=41' "$ROOT/windows/startnet.cmd"
+
+STAGE_PS="$ROOT/windows/stage-winpe-driverstore.ps1"
+grep -q 'Mount-WindowsImage' "$STAGE_PS"
+grep -q 'Add-WindowsDriver' "$STAGE_PS"
+grep -q 'Dismount-WindowsImage.*-Save' "$STAGE_PS"
+grep -q 'Get-WindowsDriver' "$STAGE_PS"
+grep -q 'Remove-WindowsDriver' "$STAGE_PS"
+grep -q 'B2L_OFFLINE_DRIVERSTORE=1' "$STAGE_PS"
+grep -q 'ValidateSet("Usb", "Touch", "UsbTouch")' "$STAGE_PS"
+grep -q 'Start-Process.*-Verb RunAs' "$STAGE_PS"
+if rg -n 'Package.*Ufs|b2lufs\.inf' "$STAGE_PS"; then
+  echo 'HATA: calisan UFS yolu erken-boot DriverStore deneyine katilmamali' >&2
+  exit 1
+fi
 
 grep -q 'beslenen bir USB2 hub' "$WIN/README.md"
 grep -q 'Function stack' "$WIN/README.md"

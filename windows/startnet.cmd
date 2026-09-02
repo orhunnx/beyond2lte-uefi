@@ -97,6 +97,10 @@ if not exist "%B2LUSBDIR%\manifest.txt" (
   echo HATA: B2LUSB manifest yok; yari paket reddedildi.
   exit /b 1
 )
+if not exist "%B2LUSBDIR%\offline-driverstore.txt" (
+  echo HATA: B2LUSB offline DriverStore isareti yok; runtime INF kurulumu reddedildi.
+  exit /b 1
+)
 if not exist "%SystemRoot%\System32\drivers\UrsCx01000.sys" (
   echo HATA: Microsoft UrsCx01000.sys runtime yok.
   exit /b 1
@@ -117,19 +121,10 @@ if errorlevel 1 (
 )
 echo Paket kimligi:
 type "%B2LUSBDIR%\manifest.txt"
-pnputil /add-driver "%B2LUSBDIR%\b2lusb-host.inf" > "%SystemDrive%\B2LUSB-PNP.TXT" 2>&1
-if errorlevel 1 (
-  type "%SystemDrive%\B2LUSB-PNP.TXT"
-  exit /b 1
-)
-pnputil /add-driver "%B2LUSBDIR%\b2lusb.inf" /install >> "%SystemDrive%\B2LUSB-PNP.TXT" 2>&1
-if errorlevel 1 (
-  type "%SystemDrive%\B2LUSB-PNP.TXT"
-  exit /b 1
-)
+> "%SystemDrive%\B2LUSB-PNP.TXT" echo B2LUSB_OFFLINE_DRIVERSTORE=1
 pnputil /scan-devices >> "%SystemDrive%\B2LUSB-PNP.TXT" 2>&1
 timeout /t 3 /nobreak >nul 2>&1
-echo PnP kurulum sonucu:
+echo Offline PnP baslangic sonucu:
 type "%SystemDrive%\B2LUSB-PNP.TXT"
 pnputil /enum-devices /deviceid "ACPI\BYN0002" 2>nul
 if exist "%B2LUSBDIR%\b2lusbctl.exe" (
@@ -216,18 +211,22 @@ if not exist "%B2LTOUCHDIR%\manifest.txt" (
   echo HATA: B2LTOUCH manifest yok; yari paket reddedildi.
   exit /b 1
 )
+if not exist "%B2LTOUCHDIR%\offline-driverstore.txt" (
+  echo HATA: B2LTOUCH offline DriverStore isareti yok; runtime INF kurulumu reddedildi.
+  exit /b 1
+)
 echo Paket kimligi:
 type "%B2LTOUCHDIR%\manifest.txt"
-call :B2LTouchEnsureVhfService
-if errorlevel 1 exit /b 1
-pnputil /add-driver "%B2LTOUCHDIR%\b2ltouch.inf" /install > "%SystemDrive%\B2LTOUCH-PNP.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\vhf" > "%SystemDrive%\B2LTOUCH-PNP.TXT" 2>&1
 if errorlevel 1 (
+  echo HATA: Microsoft VHF offline servis kaydi yok.
   type "%SystemDrive%\B2LTOUCH-PNP.TXT"
   exit /b 1
 )
+>> "%SystemDrive%\B2LTOUCH-PNP.TXT" echo B2LTOUCH_OFFLINE_DRIVERSTORE=1
 pnputil /scan-devices >> "%SystemDrive%\B2LTOUCH-PNP.TXT" 2>&1
 timeout /t 3 /nobreak >nul 2>&1
-echo PnP kurulum sonucu:
+echo Offline PnP baslangic sonucu:
 type "%SystemDrive%\B2LTOUCH-PNP.TXT"
 pnputil /enum-devices /deviceid "ACPI\BYN0001" 2>nul
 echo.
@@ -318,35 +317,6 @@ reg.exe delete "HKCU\Software\Microsoft\Osk" /f >> "%B2LOSKLOG%" 2>&1
 >> "%B2LOSKLOG%" echo TSF_THREADMGR=HAZIR
 type "%B2LOSKLOG%"
 exit /b 0
-
-:B2LTouchEnsureVhfService
-set "B2LVHFSVC=HKLM\SYSTEM\CurrentControlSet\Services\vhf"
-reg.exe query "%B2LVHFSVC%" >nul 2>&1
-if not errorlevel 1 exit /b 0
-if not exist "%SystemRoot%\System32\drivers\vhf.sys" (
-  echo HATA: Microsoft VHF surucusu yok: %SystemRoot%\System32\drivers\vhf.sys
-  exit /b 1
-)
-echo WinPE VHF dosyasini iceriyor fakat servis kaydi yok; oturumluk kayit olusturuluyor...
-> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" echo VHF servis kaydi reg.exe ile olusturuluyor
-reg.exe add "%B2LVHFSVC%" /v Type /t REG_DWORD /d 1 /f >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
-if errorlevel 1 goto :B2LTouchVhfServiceFail
-reg.exe add "%B2LVHFSVC%" /v Start /t REG_DWORD /d 3 /f >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
-if errorlevel 1 goto :B2LTouchVhfServiceFail
-reg.exe add "%B2LVHFSVC%" /v ErrorControl /t REG_DWORD /d 1 /f >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
-if errorlevel 1 goto :B2LTouchVhfServiceFail
-reg.exe add "%B2LVHFSVC%" /v ImagePath /t REG_EXPAND_SZ /d "\SystemRoot\System32\drivers\vhf.sys" /f >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
-if errorlevel 1 goto :B2LTouchVhfServiceFail
-reg.exe add "%B2LVHFSVC%" /v DisplayName /t REG_SZ /d "Virtual HID Framework (VHF) Driver" /f >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
-if errorlevel 1 goto :B2LTouchVhfServiceFail
-reg.exe query "%B2LVHFSVC%" >> "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT" 2>&1
-if errorlevel 1 goto :B2LTouchVhfServiceFail
-type "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT"
-exit /b 0
-
-:B2LTouchVhfServiceFail
-type "%SystemDrive%\B2LTOUCH-VHF-SERVICE.TXT"
-exit /b 1
 
 :B2LUfsInstall
 if not exist "%B2LUFSDIR%\b2lufs.inf" (
