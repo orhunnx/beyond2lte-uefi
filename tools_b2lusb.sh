@@ -10,6 +10,7 @@ OUT="$HERE/out/b2lusb"
 WIM="$HERE/esp/sources/boot.wim"
 WINROOT="${B2L_WINROOT:-/mnt/c}"
 KITS="${B2L_WDK_ROOT:-$WINROOT/Program Files (x86)/Windows Kits/10}"
+AUTO_HOST="${B2L_USB_AUTO_HOST:-0}"
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die() { printf '\nHATA: %s\n' "$*" >&2; exit 1; }
@@ -19,6 +20,7 @@ for Tool in powershell.exe file osslsigncode openssl wimlib-imagex sha256sum wsl
 done
 [ -s "$WIM" ] || die "boot.wim yok; once tools_winpe_adk.sh calistir"
 [ -d "$KITS/Include" ] || die "WDK Include yok: $KITS/Include"
+case "$AUTO_HOST" in 0|1) ;; *) die "B2L_USB_AUTO_HOST yalniz 0 veya 1 olabilir" ;; esac
 
 WDK_VERSION=""
 while IFS= read -r Candidate; do
@@ -166,6 +168,13 @@ verify_test_signature "b2lusb.sys katalog eslesmesi" /v /pa /c \
 verify_test_signature "b2lusbctl.exe" /v /pa "$(wslpath -w "$OUT/b2lusbctl.exe")"
 rm -f "$PFX"
 
+AUTO_HOST_MARKER="$OUT/auto-host.test"
+if [ "$AUTO_HOST" = "1" ]; then
+  printf 'B2LUSB_AUTO_HOST=ENABLED\n' > "$AUTO_HOST_MARKER"
+else
+  rm -f "$AUTO_HOST_MARKER"
+fi
+
 MANIFEST="$OUT/b2lusb-manifest.txt"
 {
   echo "B2LUSB_PACKAGE=exynos9820-kmdf-urs-usb2-host-bringup"
@@ -173,6 +182,7 @@ MANIFEST="$OUT/b2lusb-manifest.txt"
   echo "B2LUSB_ACPI_ID=ACPI\\BYN0002"
   echo "B2LUSB_HOST_ID=URS\\BYN0002&HOST"
   echo "B2LUSB_SUPERSPEED=DISABLED_UNTIL_COMBO_PMA_SAFE"
+  echo "B2LUSB_AUTO_HOST=$AUTO_HOST"
   echo "B2LUSB_INF_SHA256=$(sha256sum "$OUT/b2lusb.inf" | awk '{print $1}')"
   echo "B2LUSB_HOST_INF_SHA256=$(sha256sum "$OUT/b2lusb-host.inf" | awk '{print $1}')"
   echo "B2LUSB_SYS_SHA256=$(sha256sum "$OUT/b2lusb.sys" | awk '{print $1}')"
@@ -182,6 +192,7 @@ MANIFEST="$OUT/b2lusb-manifest.txt"
 
 say "WinPE inbox USB/URS bilesenleri denetleniyor"
 bash "$HERE/tools_winpe_urs_runtime.sh"
+bash "$HERE/tools_winpe_ui_scale.sh"
 CHECK="$(mktemp -d)"
 for InboxPath in \
   /Windows/System32/drivers/UrsCx01000.sys \
@@ -206,6 +217,12 @@ wimlib-imagex update "$WIM" 1 \
   --command="delete --force /Windows/B2LUSB/manifest.txt" >/dev/null 2>&1 || true
 wimlib-imagex update "$WIM" 1 \
   --command="add '$MANIFEST' /Windows/B2LUSB/manifest.txt" >/dev/null
+wimlib-imagex update "$WIM" 1 \
+  --command="delete --force /Windows/B2LUSB/auto-host.test" >/dev/null 2>&1 || true
+if [ "$AUTO_HOST" = "1" ]; then
+  wimlib-imagex update "$WIM" 1 \
+    --command="add '$AUTO_HOST_MARKER' /Windows/B2LUSB/auto-host.test" >/dev/null
+fi
 
 SNTMP="$OUT/startnet.cmd"
 sed 's/\r$//; s/$/\r/' "$HERE/windows/startnet.cmd" > "$SNTMP"
@@ -228,6 +245,13 @@ wimlib-imagex extract "$WIM" 1 /Windows/B2LUSB/manifest.txt \
   --dest-dir="$CHECK" --no-acls >/dev/null
 [ "$(sha256sum "$MANIFEST" | awk '{print $1}')" = \
   "$(sha256sum "$CHECK/manifest.txt" | awk '{print $1}')" ] || die "manifest WIM'de farkli"
+if [ "$AUTO_HOST" = "1" ]; then
+  wimlib-imagex extract "$WIM" 1 /Windows/B2LUSB/auto-host.test \
+    --dest-dir="$CHECK" --no-acls >/dev/null
+  [ "$(sha256sum "$AUTO_HOST_MARKER" | awk '{print $1}')" = \
+    "$(sha256sum "$CHECK/auto-host.test" | awk '{print $1}')" ] || \
+    die "auto-host.test WIM'de farkli"
+fi
 wimlib-imagex extract "$WIM" 1 /Windows/System32/startnet.cmd \
   --dest-dir="$CHECK" --no-acls >/dev/null
 [ "$(sha256sum "$SNTMP" | awk '{print $1}')" = \

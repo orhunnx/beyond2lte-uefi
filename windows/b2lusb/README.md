@@ -36,6 +36,16 @@ bash cache_esp.sh --win --system --baseline
 `--touch` mevcut dokunmatik profilini korur; hem `--touch` hem de `--usb-test`
 ACPI tablolarını aynı turda yeniden derler. `--usb-test`, UEFI `B2LUSB.EFI`
 çıktısına ek olarak `tools_b2lusb.sh` çağırır.
+Bu açık test seçimi ayrıca WIM'e `auto-host.test` işareti koyar. WinPE,
+`b2lusb.sys` kurulduktan sonra bir klavyeye ihtiyaç duymadan `host` geçişini
+çalıştırır ve sonucu `X:\B2LUSB-AUTOHOST.TXT` dosyasına yazar. Normal doğrudan
+`tools_b2lusb.sh` çağrısı otomatik HOST açmaz; gerektiğinde
+`B2L_USB_AUTO_HOST=1` açıkça verilir. `--usb-test` turunda dahi
+`B2L_USB_AUTO_HOST=0` ile kapatılabilir.
+
+Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
+%175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
+DEFAULT hive ve WIM geri-okuma doğrulaması `tools_winpe_ui_scale.sh` içindedir.
 Bu betik ayrı `build-b2lusb.ps1` ile Windows MSVC/WDK ARM64 derlemesini yapar,
 SYS/EXE ve iki INF'yi ortak katalogla test-imzalar, `boot.wim`e ekler ve her
 dosyayı hash ile geri okur. `--baseline`, UEFI tanı uygulamalarını SYSTEM

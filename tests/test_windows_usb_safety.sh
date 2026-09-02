@@ -77,6 +77,15 @@ grep -q '/MT ' "$WIN/build-b2lusb.ps1"
 grep -q 'build-b2lusb.ps1' "$ROOT/tools_b2lusb.sh"
 grep -q 'UrsCx01000.sys' "$ROOT/tools_b2lusb.sh"
 grep -q 'tools_winpe_urs_runtime.sh' "$ROOT/tools_b2lusb.sh"
+grep -q 'tools_winpe_ui_scale.sh' "$ROOT/tools_b2lusb.sh"
+grep -q 'B2LUI_SCALE_PERCENT=\$SCALE_PERCENT' "$ROOT/tools_winpe_ui_scale.sh"
+grep -q 'LOG_PIXELS=168' "$ROOT/tools_winpe_ui_scale.sh"
+grep -Fq 'Control Panel\Desktop' "$ROOT/tools_winpe_ui_scale.sh"
+grep -q 'B2L_USB_AUTO_HOST="${B2L_USB_AUTO_HOST:-1}"' "$ROOT/yap.sh"
+grep -q 'B2LUSB_AUTO_HOST=\$AUTO_HOST' "$ROOT/tools_b2lusb.sh"
+grep -q 'auto-host.test' "$ROOT/tools_b2lusb.sh"
+grep -q 'B2LUSB-AUTOHOST-STATUS.TXT' "$ROOT/windows/startnet.cmd"
+grep -q 'B2LUI/manifest.txt' "$ROOT/cache_esp.sh"
 grep -q 'microsoft-urscx-winpe-runtime-v1' "$ROOT/tools_winpe_urs_runtime.sh"
 grep -q 'find_extracted_file.*UrsCx01000.sys\|find_extracted_file.*Name' "$ROOT/tools_winpe_urs_runtime.sh"
 grep -q 'SOURCE_BUILD" -gt "$TARGET_BUILD' "$ROOT/tools_winpe_urs_runtime.sh"
@@ -99,10 +108,11 @@ grep -q 'call :B2LUsbInstall' "$ROOT/windows/startnet.cmd"
 grep -A1 'call :B2LUsbInstall' "$ROOT/windows/startnet.cmd" | grep -q 'if errorlevel 1 goto :Finish'
 grep -Fq 'Services\UrsCx01000' "$ROOT/windows/startnet.cmd"
 grep -q 'b2lusbctl.exe" status' "$ROOT/windows/startnet.cmd"
-if grep -q 'b2lusbctl.exe" host' "$ROOT/windows/startnet.cmd"; then
-  echo 'HATA: WinPE startnet acilista otomatik host role geciyor' >&2
-  exit 1
-fi
+test "$(rg -c 'b2lusbctl\.exe" host' "$ROOT/windows/startnet.cmd")" -eq 1
+grep -q 'if exist "%B2LUSBDIR%\\auto-host.test"' "$ROOT/windows/startnet.cmd"
+grep -A5 'if exist "%B2LUSBDIR%\\auto-host.test"' "$ROOT/windows/startnet.cmd" | grep -q 'b2lusbctl.exe" host'
+grep -q 'LogPixels /t REG_DWORD /d 168' "$ROOT/windows/startnet.cmd"
+grep -q 'mode con: cols=64 lines=41' "$ROOT/windows/startnet.cmd"
 
 grep -q 'beslenen bir USB2 hub' "$WIN/README.md"
 grep -q 'Function stack' "$WIN/README.md"

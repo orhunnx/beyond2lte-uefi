@@ -438,6 +438,7 @@ verify_winpe_b2ltouch_package() {
 verify_winpe_b2lusb_package() {
   local VerifyDir ExpectedSys ManifestSys ExpectedCtl ManifestCtl
   local UrsDir UrsManifestDir UrsFile ExpectedUrs ManifestUrs ManifestUrsPackage
+  local ManifestAutoHost AutoHostDir UiManifestDir UiScale UiPackage
 
   if [ ! -s "$PROJ/out/b2lusb/b2lusb.sys" ]; then
     if [ -s "$PROJ/esp/B2LUSB.EFI" ]; then
@@ -473,6 +474,7 @@ verify_winpe_b2lusb_package() {
   ManifestSys="$(sed -n 's/^B2LUSB_SYS_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
   ExpectedCtl="$(sha256sum "$PROJ/out/b2lusb/b2lusbctl.exe" | awk '{print $1}')"
   ManifestCtl="$(sed -n 's/^B2LUSB_CTL_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+  ManifestAutoHost="$(sed -n 's/^B2LUSB_AUTO_HOST=//p' "$VerifyDir/manifest.txt" | head -n 1)"
   rm -rf "$VerifyDir"
   if [ "$ManifestSys" != "$ExpectedSys" ] || [ "$ManifestCtl" != "$ExpectedCtl" ]; then
     echo "HATA: boot.wim B2LUSB hash'leri yerel ARM64 ciktilarla ayni degil."
@@ -483,6 +485,24 @@ verify_winpe_b2lusb_package() {
     echo "Once: B2L_SKIP_MSVC_BUILD=1 bash tools_b2lusb.sh"
     return 1
   fi
+  case "$ManifestAutoHost" in
+    0) ;;
+    1)
+      AutoHostDir="$(mktemp -d)" || return 1
+      if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
+          /Windows/B2LUSB/auto-host.test \
+          --dest-dir="$AutoHostDir" --no-acls >/dev/null; then
+        rm -rf "$AutoHostDir"
+        echo "HATA: --usb-test manifesti otomatik HOST diyor fakat marker WIM'de yok."
+        return 1
+      fi
+      rm -rf "$AutoHostDir"
+      ;;
+    *)
+      echo "HATA: B2LUSB_AUTO_HOST manifest degeri gecersiz: ${ManifestAutoHost:-YOK}"
+      return 1
+      ;;
+  esac
 
   UrsDir="$(mktemp -d)" || return 1
   UrsManifestDir="$(mktemp -d)" || { rm -rf "$UrsDir"; return 1; }
@@ -517,10 +537,28 @@ verify_winpe_b2lusb_package() {
     return 1
   fi
 
+  UiManifestDir="$(mktemp -d)" || return 1
+  if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
+      /Windows/B2LUI/manifest.txt \
+      --dest-dir="$UiManifestDir" --no-acls >/dev/null; then
+    rm -rf "$UiManifestDir"
+    echo "HATA: boot.wim'de B2LUI ekran olcegi manifesti yok."
+    return 1
+  fi
+  UiScale="$(sed -n 's/^B2LUI_SCALE_PERCENT=//p' "$UiManifestDir/manifest.txt" | head -n 1)"
+  UiPackage="$(sed -n 's/^B2LUI_PACKAGE=//p' "$UiManifestDir/manifest.txt" | head -n 1)"
+  rm -rf "$UiManifestDir"
+  if [ "$UiScale" != "175" ] || [ "$UiPackage" != "winpe-display-scale-v1" ]; then
+    echo "HATA: WinPE ekran olcegi %175 olarak dogrulanamadi."
+    return 1
+  fi
+
   say "WinPE B2LUSB Windows paketi dogrulandi"
   echo "  SYS SHA256: ${ExpectedSys:0:16}"
   echo "  CTL SHA256: ${ExpectedCtl:0:16}"
   echo "  URS SHA256: ${ExpectedUrs:0:16}"
+  echo "  AUTO HOST : $ManifestAutoHost"
+  echo "  UI SCALE  : %$UiScale"
 }
 
 if [ "$WINONLY" = 1 ]; then

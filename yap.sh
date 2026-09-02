@@ -389,7 +389,7 @@ if [ "$USB_TEST" = 1 ]; then
       echo "HATA: tools_b2lusb.sh yok veya calistirilabilir degil"
       exit 1
     }
-    "$PROJ/tools_b2lusb.sh"
+    B2L_USB_AUTO_HOST="${B2L_USB_AUTO_HOST:-1}" "$PROJ/tools_b2lusb.sh"
   fi
 else
   rm -f "$PROJ/esp/B2LUSB.EFI"

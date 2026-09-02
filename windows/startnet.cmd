@@ -1,7 +1,12 @@
 @echo off
 setlocal EnableExtensions
 title Beyond2LTE WinPE USB + UFS + Touch
-mode con: cols=112 lines=72 >nul 2>&1
+rem 96 DPI = yuzde 100; 168 DPI = yuzde 175. Offline DEFAULT hive ana ayari yapar;
+rem bu iki deger WinPE SYSTEM kullanicisi ve sonradan acilan araclar icin de
+rem ayni olcegi korur. 112x72'nin 1/1.75'i olan izgara okunabilirligi artirir.
+reg.exe add "HKCU\Control Panel\Desktop" /v Win8DpiScaling /t REG_DWORD /d 1 /f >nul 2>&1
+reg.exe add "HKCU\Control Panel\Desktop" /v LogPixels /t REG_DWORD /d 168 /f >nul 2>&1
+mode con: cols=64 lines=41 >nul 2>&1
 
 rem Klavye/dokunmatik zorunlu degildir; guvenli CACHE yazma testi otomatiktir.
 set "B2LUFSDIR=%SystemRoot%\B2LUFS"
@@ -44,6 +49,15 @@ echo === Test sonu ===
 echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
 if exist "%B2LUSBDIR%\b2lusbctl.exe" echo USB rol kontrolu: %B2LUSBDIR%\b2lusbctl.exe status^|host^|device^|none
 call :B2LTouchLaunchKeyboard
+if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
+  echo.
+  echo === B2LUSB otomatik HOST son durumu ===
+  type "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT"
+) else if exist "%SystemDrive%\B2LUSB-AUTOHOST.TXT" (
+  echo.
+  echo === B2LUSB otomatik HOST hata gunlugu ===
+  type "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
+)
 echo Multi-touch testi gerekirse: %B2LTOUCHDIR%\b2lmt.exe
 cmd.exe /k
 goto :eof
@@ -91,8 +105,27 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
   echo.
   echo B2LUSB ilk durum:
   "%B2LUSBDIR%\b2lusbctl.exe" status
-  echo HOST deneyi:   %B2LUSBDIR%\b2lusbctl.exe host
-  echo DEVICE deneyi: %B2LUSBDIR%\b2lusbctl.exe device
+  if exist "%B2LUSBDIR%\auto-host.test" (
+    echo.
+    echo B2LUSB --usb-test otomatik HOST gecisi:
+    "%B2LUSBDIR%\b2lusbctl.exe" host > "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
+    if errorlevel 1 (
+      type "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
+      echo HATA: otomatik HOST gecisi basarisiz.
+      exit /b 1
+    )
+    timeout /t 2 /nobreak >nul 2>&1
+    pnputil /scan-devices >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
+    pnputil /enum-devices /deviceid "URS\BYN0002&HOST" >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
+    pnputil /enum-devices /class USB >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
+    pnputil /enum-devices /class HIDClass >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
+    "%B2LUSBDIR%\b2lusbctl.exe" status > "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" 2>&1
+    type "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
+    type "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT"
+  ) else (
+    echo HOST deneyi:   %B2LUSBDIR%\b2lusbctl.exe host
+    echo DEVICE deneyi: %B2LUSBDIR%\b2lusbctl.exe device
+  )
 )
 exit /b 0
 

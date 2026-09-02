@@ -291,6 +291,19 @@ edilir; daha yeni kernel runtime'ının eski WinPE'ye eklenmesi reddedilir.
 Offline registry aktarımı WSL'de `libhivex-bin` ve `libwin-hivex-perl`
 paketlerini gerektirir.
 
+Telefonda manuel `b2lusbctl.exe host` yazmak için önce çalışan bir klavye
+gerekmesi nedeniyle `yap.sh --usb-test` artık açık test işareti olarak WIM'e
+`auto-host.test` ekler. `startnet.cmd`, URS parent kurulumu tamamlandıktan sonra
+yalnız bu işaret varsa HOST geçişini otomatik yapar; sonuç ve USB/HID PnP
+dökümü `X:\B2LUSB-AUTOHOST.TXT` içine yazılır. Normal doğrudan paketleme
+varsayılanı manuel kalır. MAX77705 VBUS source henüz uygulanmadığı için ilk
+fiziksel HID deneyi yine haricen beslenen USB2 hub gerektirir.
+
+SM-G975F'nin 1440x3040 ekranı için WinPE kullanıcı ölçeği boot öncesi DEFAULT
+hive'da %175 (`LogPixels=168`, `Win8DpiScaling=1`) yapılır; konsol ızgarası da
+112x72'den 64x41'e indirilir. Runtime ve offline hive değerleri WIM'e yazılıp
+geri okunarak doğrulanır.
+
 Bu aşama HID için gereken Windows host yazılım zincirini hazırlar ama fiziksel
 başarı iddiası değildir. SuperSpeed portu combo PHY abort'u nedeniyle sürücüde
 kapalıdır. MAX77705/UcmCx olmadığı için ilk HID testi haricen beslenen USB2 hub
