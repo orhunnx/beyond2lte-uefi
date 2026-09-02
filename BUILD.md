@@ -103,7 +103,7 @@ bash cache_esp.sh --win --system --baseline
 ```
 
 `B2LUSB.EFI` SYSTEM ESP'ye konur ve `startup.nsh` tarafından Windows'tan önce
-çalıştırılır. R14 açılışta dokunmatik `CACHE USB DISK`, `USB TANILAMA` ve
+çalıştırılır. R15 açılışta dokunmatik `CACHE USB DISK`, `USB TANILAMA` ve
 `WINDOWS'A DEVAM` düğmelerini gösterir. CACHE içinde `SALT-OKUMA` veya ikinci
 bir dokunmatik onay gerektiren `OKUMA / YAZMA` seçilir. Dosya aktarımı bitince
 Windows'ta **Güvenle çıkar** yapılır, telefondaki bitirme düğmesine dokunulur ve
@@ -121,6 +121,12 @@ PMU izolasyon biti ile ana PHY'nin allow-list kayıtlarını yazar; combo PHY,
 DWC3 rol/core-reset/endpoint yazmaz. Çıkışta DWC3'ü halt edip event, PHY ve PMU
 durumunu geri yükler. R8 MAX77705 kaynakları korunur ancak
 uygulamaya bağlanmadığı için bu turda çalıştırılmaz.
+
+R15, GPT adında tam `CACHE` veya `cache` eşleşmesini kabul eder. CACHE USB
+yolu seçildikten sonra bölüm/BlockIo/flush/DMA/FAT32/DWC3 hazırlık hatası
+oluşursa uygulama EFI Shell'e dönmez ve Windows'u başlatmaz; hata ekranında
+donanım yeniden başlatmasına kadar fail-stop kalır. Yalnız kullanıcının açık
+`GERI` seçimi ana dokunmatik menüye döner.
 Platform memory map de değiştiği için `cache_esp.sh`, BOOT ve SYSTEM'i
 `out/beyond2lte-usb-diag.tar` içinde birleştirir. Odin AP alanına yalnız bu tek
 arşiv verilir; Re-Partition kapalı kalır.

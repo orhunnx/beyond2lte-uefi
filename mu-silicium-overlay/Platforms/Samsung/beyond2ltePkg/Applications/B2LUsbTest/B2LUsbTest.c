@@ -1,7 +1,7 @@
 /** @file
   Staged USB diagnostic for Samsung beyond2lte.
 
-  R14 adds a touchscreen UI to the CACHE-only USB Mass Storage mode and keeps
+  R15 adds fail-stop startup handling to the touchscreen CACHE USB mode and keeps
   the R10 passive MMIO diagnostics behind a separate button.  Its monitor refreshes
   every two seconds so cable-attached and cable-removed states can be captured
   in the same boot.  A final, separately confirmed helper temporarily applies
@@ -921,22 +921,32 @@ B2LUsbTestEntry (
   (VOID)SystemTable;
 
   B2LTouchUiInitialize ();
-  MenuStatus = B2LTouchUiChoose (
-                 L"B2L USB KURTARMA",
-                 L"Buyuk bir dugmeye dokun",
-                 MainOptions,
-                 sizeof (MainOptions) / sizeof (MainOptions[0]),
-                 0,
-                 &Selection
-                 );
-  if (EFI_ERROR (MenuStatus)) {
-    return EFI_ABORTED;
-  }
-  if (Selection == 2) {
-    return EFI_SUCCESS;
-  }
-  if (Selection == 0) {
-    return B2LDwc3RunCacheMassStorage (ImageHandle);
+  for (;;) {
+    MenuStatus = B2LTouchUiChoose (
+                   L"B2L USB KURTARMA",
+                   L"Buyuk bir dugmeye dokun",
+                   MainOptions,
+                   sizeof (MainOptions) / sizeof (MainOptions[0]),
+                   0,
+                   &Selection
+                   );
+    if (EFI_ERROR (MenuStatus)) {
+      return EFI_ABORTED;
+    }
+    if (Selection == 2) {
+      return EFI_SUCCESS;
+    }
+    if (Selection == 0) {
+      MenuStatus = B2LDwc3RunCacheMassStorage (ImageHandle);
+      if (MenuStatus == EFI_ABORTED) {
+        continue;
+      }
+      // A CACHE failure must never fall through to Windows.
+      for (;;) {
+        gBS->Stall (100000);
+      }
+    }
+    break;
   }
 
   ShowPowerDomain ();

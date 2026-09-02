@@ -1,8 +1,9 @@
 /** @file
   Guarded Exynos9820 HS PHY, DWC_usb31 event probe and CACHE MSC gadget.
 
-  R14 retains the deliberately narrow R13 USB Mass Storage gadget and adds a
-  touchscreen front end through the existing EFI Absolute Pointer protocol.
+  R15 retains the deliberately narrow R13 USB Mass Storage gadget and R14
+  touchscreen front end.  CACHE startup errors now fail-stop instead of
+  returning to the shell and unintentionally continuing into Windows.
   Storage remains EP0 plus one bulk OUT/IN pair backed only by the exact GPT
   CACHE partition.  No combo PHY, DWC3 role/core-reset or GPT write is
   performed.
@@ -1320,9 +1321,12 @@ IsCachePartitionName (
   IN CONST CHAR16  *Name
   )
 {
-  STATIC CONST CHAR16  CacheName[] = L"CACHE";
-
-  return (CompareMem (Name, CacheName, sizeof (CacheName)) == 0);
+  return (((Name[0] == L'C') || (Name[0] == L'c')) &&
+          ((Name[1] == L'A') || (Name[1] == L'a')) &&
+          ((Name[2] == L'C') || (Name[2] == L'c')) &&
+          ((Name[3] == L'H') || (Name[3] == L'h')) &&
+          ((Name[4] == L'E') || (Name[4] == L'e')) &&
+          (Name[5] == L'\0'));
 }
 
 STATIC
@@ -2764,6 +2768,22 @@ CacheMassStorageFailStopped (
 
 STATIC
 VOID
+CacheMassStorageStartupFailStopped (
+  IN EFI_STATUS  Status
+  )
+{
+  gST->ConOut->ClearScreen (gST->ConOut);
+  Print (L"=== CACHE USB BASLATILAMADI ===\n\n");
+  Print (L"HATA=%r\n", Status);
+  Print (L"Guvenlik icin Windows'a devam EDILMIYOR.\n");
+  Print (L"Telefonu donanim tuslariyla yeniden baslat.\n");
+  for (;;) {
+    gBS->Stall (100000);
+  }
+}
+
+STATIC
+VOID
 CacheMassStorageRebootScreen (
   IN CONST B2L_USB_MSC_CONTEXT  *Context
   )
@@ -2812,12 +2832,12 @@ B2LDwc3RunCacheMassStorage (
 
   Status = FindCachePartition (ImageHandle, &Context);
   if (EFI_ERROR (Status)) {
-    return Status;
+    CacheMassStorageStartupFailStopped (Status);
   }
   if (Context.CacheBlockIo->Media->IoAlign > EFI_PAGE_SIZE) {
     Print (L"RED: CACHE BlockIo IoAlign=%u > DMA page alignment.\n",
            Context.CacheBlockIo->Media->IoAlign);
-    return EFI_UNSUPPORTED;
+    CacheMassStorageStartupFailStopped (EFI_UNSUPPORTED);
   }
   Status = PromptCacheAccessMode (&Context);
   if (EFI_ERROR (Status)) {
@@ -2826,7 +2846,7 @@ B2LDwc3RunCacheMassStorage (
   Status = Context.CacheBlockIo->FlushBlocks (Context.CacheBlockIo);
   if (EFI_ERROR (Status)) {
     Print (L"CACHE baslangic FlushBlocks basarisiz: %r\n", Status);
-    return Status;
+    CacheMassStorageStartupFailStopped (Status);
   }
   Context.FlushSucceeded = TRUE;
 
@@ -2839,7 +2859,7 @@ B2LDwc3RunCacheMassStorage (
                   );
   if (EFI_ERROR (Status)) {
     Print (L"MSC DMA alani ayrilamadi: %r\n", Status);
-    return Status;
+    CacheMassStorageStartupFailStopped (Status);
   }
 
   Context.DmaAddress    = DmaAddress;
@@ -3067,6 +3087,9 @@ FreeDma:
          );
   if (SessionStarted) {
     CacheMassStorageRebootScreen (&Context);
+  }
+  if (EFI_ERROR (Status)) {
+    CacheMassStorageStartupFailStopped (Status);
   }
   return Status;
 }

@@ -1,7 +1,7 @@
 # B2LUsbTest EFI Shell USB tanısı
 
 `B2LUSB.EFI`, beyond2lte USB yolunun EFI tanısı ve tek bölümlük kurtarma USB
-diskidir. R14 açılışta B2LTouchDxe'nin mevcut `EFI_ABSOLUTE_POINTER_PROTOCOL`
+diskidir. R15 açılışta B2LTouchDxe'nin mevcut `EFI_ABSOLUTE_POINTER_PROTOCOL`
 arayüzünü kullanarak büyük dokunmatik düğmeler gösterir. `CACHE USB DISK`, GPT
 adı `CACHE` olan 600 MiB FAT32 bölümü Windows'a USB Mass
 Storage/Bulk-Only Transport olarak sunar; `USB TANILAMA` eski aşamalı tanı
@@ -13,7 +13,7 @@ fotoğrafı alınır. R9 ölçümlerinde yalnız DSTS içindeki serbest akan SOF
 değiştiği için R10 bu alanı delta hesabından çıkarır. Son, ayrı onaylı sayfa
 stok Exynos9820 USB2 PHY açılışını geçici uygular, kontrollü DWC3 event-DMA
 halkası kurar ve `DCTL.RUN_STOP` ile 30 saniyelik fiziksel attach probu yapar.
-R8 MAX77705 yardımcı kaynağı ağaçta korunur fakat R14 uygulamasına bağlanmaz ve
+R8 MAX77705 yardımcı kaynağı ağaçta korunur fakat R15 uygulamasına bağlanmaz ve
 çalıştırılmaz.
 
 Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
@@ -143,7 +143,7 @@ için inquiry, sense, capacity, mode-sense, read/write(10), verify, synchronize
 cache, prevent/allow ve start/stop komutlarını içerir. Depolama hedefi yalnız
 `EFI_PARTITION_INFO_PROTOCOL` içinde GPT adı `CACHE`, blok boyu 4096, son LBA
 153599 ve toplam boyu 629145600 bayt birlikte doğrulanan BlockIo handle'ıdır;
-GPT/LBA dışı disk erişimi yoktur. R14'te erişim modu `SALT-OKUMA` veya
+GPT/LBA dışı disk erişimi yoktur. R15'te erişim modu `SALT-OKUMA` veya
 `OKUMA / YAZMA` dokunmatik düğmesiyle seçilir. Yazma düğmesi ayrı bir ikinci
 onay ekranı açar; ilk dokunuş tek başına yazmayı başlatmaz.
 
@@ -178,7 +178,7 @@ yalnız bu dosya AP alanından, **Re-Partition kapalı** olarak flashlanır.
 Uygulama SYSTEM ESP kökünde `B2LUSB.EFI` adıyla bulunur ve `startup.nsh` dosya
 mevcutsa onu Windows'tan önce çalıştırır.
 
-R14 kullanımında `CACHE USB DISK`, ardından dosya yazılacaksa `OKUMA / YAZMA`
+R15 kullanımında `CACHE USB DISK`, ardından dosya yazılacaksa `OKUMA / YAZMA`
 ve ayrı onay ekranında `YAZMAYI AC` düğmesine dokunulur. Windows diski
 gördüğünde CACHE FAT32 üzerinde aktarım yapılır; iş bitince önce Windows
 “Güvenle çıkar”, ardından ekrandaki `GUVENLE CIKARDIM - USB'YI BITIR`
@@ -186,6 +186,13 @@ düğmesine dokunulur ve telefonda donanım reboot yapılır. Ekrandaki `YAZILAN
 sayacı artmadan ve güvenli çıkarma tamamlanmadan kablo çekilmez. Dokunmatik
 çalışmazsa ses tuşları seçimi değiştirir, kısa POWER onaylar; BIXBY veya uzun
 POWER güvenli geri dönüş/bitirme yoludur.
+
+GPT bölüm adı yalnız tam `CACHE`/`cache` eşleşmesiyle kabul edilir; geometri
+ve FAT32 denetimleri değişmemiştir. CACHE seçildikten sonra bölüm bulma,
+BlockIo hizalama/flush, DMA ayırma, FAT32 doğrulama veya DWC3 preflight
+hatalarından hiçbiri EFI Shell'e dönmez. R15 hata kodunu gösterip sonsuz
+fail-stop durumunda kalır; böylece `startup.nsh` yanlışlıkla Windows'u
+başlatamaz. Yalnız dokunmatik `GERI`/fiziksel geri seçimi ana menüye döner.
 
 ## Windows'ta kalıcı dosya aktarımı mimarisi
 
