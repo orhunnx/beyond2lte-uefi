@@ -23,7 +23,7 @@ done
 WDK_VERSION=""
 while IFS= read -r Candidate; do
   if [ -f "$KITS/Include/$Candidate/km/ntddk.h" ] && \
-     [ -f "$KITS/Include/$Candidate/km/urscx.h" ] && \
+     [ -f "$KITS/Include/$Candidate/km/urs/1.0/UrsCx.h" ] && \
      [ -f "$KITS/Lib/$Candidate/km/arm64/Urscxstub.lib" ] && \
      [ -f "$KITS/Lib/$Candidate/km/arm64/libcntpr.lib" ] && \
      [ -f "$KITS/Lib/$Candidate/km/arm64/ntoskrnl.lib" ]; then
@@ -31,7 +31,14 @@ while IFS= read -r Candidate; do
     break
   fi
 done < <(find "$KITS/Include" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V -r)
-[ -n "$WDK_VERSION" ] || die "ARM64 URS kutuphanelerini iceren WDK bulunamadi"
+[ -n "$WDK_VERSION" ] || {
+  printf 'Aranan URS basligi : Include/<surum>/km/urs/1.0/UrsCx.h\n' >&2
+  printf 'Aranan ARM64 kutuphane: Lib/<surum>/km/arm64/Urscxstub.lib\n' >&2
+  printf 'Taranan WDK kok dizini: %s\n' "$KITS" >&2
+  find "$KITS/Include" -mindepth 1 -maxdepth 1 -type d -printf '  Include surumu: %f\n' \
+    2>/dev/null | sort -V >&2 || true
+  die "ARM64 URS kutuphanelerini iceren WDK bulunamadi"
+}
 [ -f "$KITS/Include/wdf/kmdf/1.15/wdf.h" ] || die "KMDF 1.15 basliklari yok"
 [ -f "$KITS/Lib/wdf/kmdf/arm64/1.15/WdfDriverEntry.lib" ] || die "ARM64 KMDF 1.15 kutuphaneleri yok"
 

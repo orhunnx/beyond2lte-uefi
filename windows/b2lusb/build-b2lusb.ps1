@@ -60,7 +60,7 @@ if ([string]::IsNullOrWhiteSpace($WdkVersion)) {
     $Candidate = Get-ChildItem -LiteralPath $IncludeRoot -Directory |
         Where-Object {
             (Test-Path -LiteralPath (Join-Path $_.FullName 'km\ntddk.h') -PathType Leaf) -and
-            (Test-Path -LiteralPath (Join-Path $_.FullName 'km\urscx.h') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_.FullName 'km\urs\1.0\UrsCx.h') -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $KitsRoot ("Lib\{0}\km\arm64\Urscxstub.lib" -f $_.Name)) -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $KitsRoot ("Lib\{0}\km\arm64\ntoskrnl.lib" -f $_.Name)) -PathType Leaf)
         } |
@@ -68,13 +68,13 @@ if ([string]::IsNullOrWhiteSpace($WdkVersion)) {
         Sort-Object { [Version]$_.Name } -Descending |
         Select-Object -First 1
     if ($null -eq $Candidate) {
-        Fail 'urscx.h ve ARM64 Urscxstub.lib iceren Windows WDK bulunamadi'
+        Fail 'km\urs\1.0\UrsCx.h ve ARM64 Urscxstub.lib iceren Windows WDK bulunamadi'
     }
     $WdkVersion = $Candidate.Name
 }
 
 $WdkInclude = Resolve-Directory (Join-Path $KitsRoot ("Include\{0}" -f $WdkVersion)) 'Secilen WDK Include dizini'
-foreach ($Header in @('km\ntddk.h', 'km\urscx.h', 'um\setupapi.h')) {
+foreach ($Header in @('km\ntddk.h', 'km\urs\1.0\UrsCx.h', 'um\setupapi.h')) {
     if (-not (Test-Path -LiteralPath (Join-Path $WdkInclude $Header) -PathType Leaf)) {
         Fail "$Header yok: $WdkInclude"
     }

@@ -3,7 +3,7 @@
 
 #include <ntddk.h>
 #include <wdf.h>
-#include <urscx.h>
+#include <urs/1.0/UrsCx.h>
 
 #include "b2lusb_public.h"
 

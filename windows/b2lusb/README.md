@@ -58,6 +58,12 @@ B2L_SKIP_MSVC_BUILD=1 bash tools_b2lusb.sh
 Betik `UrsCx01000.sys`, `USBXHCI.SYS` ve `USBHUB3.SYS` dosyalarının hedef
 WinPE WIM'inde bulunduğunu doğrulamadan paket üretmez.
 
+Build tarafında URS SDK başlığı WDK'nın sürümlü alt dizininden
+`Include/<sürüm>/km/urs/1.0/UrsCx.h`, import library ise
+`Lib/<sürüm>/km/arm64/Urscxstub.lib` olarak alınır. Bunlar Windows kurulum
+ISO'sundan değil, eşleşen SDK/WDK kurulumundan gelir. Farklı bir WDK kökü
+gerekiyorsa `B2L_WDK_ROOT='/mnt/.../Windows Kits/10'` verilebilir.
+
 ## İlk cihaz testi
 
 `startnet.cmd` iki INF'yi yükler ve ilk durumu basar. Rol otomatik olarak host
