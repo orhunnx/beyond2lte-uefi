@@ -49,11 +49,12 @@ call :B2LUfsMountCache
 if not errorlevel 1 call :B2LUsbExportLogs
 
 :Finish
+if exist "%B2LUSBDIR%\auto-host.test" cls
 echo.
 echo === Test sonu ===
 echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
 if exist "%B2LUSBDIR%\b2lusbctl.exe" echo USB rol kontrolu: %B2LUSBDIR%\b2lusbctl.exe status^|host^|device^|none
-call :B2LTouchLaunchKeyboard
+if not exist "%B2LUSBDIR%\auto-host.test" call :B2LTouchLaunchKeyboard
 if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
   if exist "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" (
     echo.
@@ -68,6 +69,7 @@ if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
   echo === B2LUSB otomatik HOST hata gunlugu ===
   type "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
 )
+if exist "%B2LUSBDIR%\auto-host.test" echo Native OSK, USB tani ekranini kapatmamasi icin otomatik acilmadi.
 echo Multi-touch testi gerekirse: %B2LTOUCHDIR%\b2lmt.exe
 cmd.exe /k
 goto :eof

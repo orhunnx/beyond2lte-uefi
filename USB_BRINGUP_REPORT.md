@@ -354,6 +354,12 @@ USB loglarını doğrulanmış CACHE köküne kopyalar. Bu tur fiziksel başarı
 değil; USBXHCI'nin DMA ringlerini programlamadan mı yoksa interrupt aşamasında
 mı döndüğünü tek boot ile ayırmak içindir.
 
+USB çalışmadan CACHE içindeki ETL'nin dışarı alınamayacağı test sözleşmesine
+işlendi. `--usb-test` finalinde konsol temizlenir ve ayrı host resource raporu
+ile register özeti ekranda kalır; bir sonraki iterasyon yalnız bu ekranın
+fotoğrafıyla yapılabilir. Hata veren native OSK otomatik açılmaz ve tanının
+üstünü kapatmaz; touch kurulumu ile `b2lmt.exe` pakette kalır.
+
 Bu aşama HID için gereken Windows host yazılım zincirini hazırlar ama fiziksel
 başarı iddiası değildir. SuperSpeed portu combo PHY abort'u nedeniyle sürücüde
 kapalıdır. MAX77705/UcmCx olmadığı için ilk HID testi haricen beslenen USB2 hub

@@ -145,6 +145,8 @@ grep -Fq 'B2LUSB-HOST-RESOURCES.TXT' "$ROOT/windows/startnet.cmd"
 grep -Fq 'Microsoft-Windows-USB-USBXHCI' "$ROOT/windows/startnet.cmd"
 grep -Fq 'Microsoft-Windows-USB-UCX' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LUsbExportLogs' "$ROOT/windows/startnet.cmd"
+grep -Fq 'if exist "%B2LUSBDIR%\auto-host.test" cls' "$ROOT/windows/startnet.cmd"
+grep -Fq 'if not exist "%B2LUSBDIR%\auto-host.test" call :B2LTouchLaunchKeyboard' "$ROOT/windows/startnet.cmd"
 grep -q 'LogPixels /t REG_DWORD /d 168' "$ROOT/windows/startnet.cmd"
 grep -q 'mode con: cols=64 lines=41' "$ROOT/windows/startnet.cmd"
 

@@ -151,6 +151,11 @@ beslenen bir USB2 hub üzerinden yapılmalıdır. Başarı sırası:
 Otomatik testten sonra CACHE kökünde `B2LUSB-HOST-RESOURCES.TXT`,
 `B2LUSB-ETW.TXT` ve destekleniyorsa `B2LUSB-USBXHCI*.etl` bulunur. ETL,
 Windows Performance Analyzer'da USBXHCI ve UCX olaylarıyla açılabilir.
+USB henüz çalışmadığı sürece bu dosyalar test girdisi sayılmaz: `--usb-test`
+final ekranı otomatik temizleyip kısa host resource ve xHCI status özetini
+ekranda bırakır; sonraki karar için bu ekranın fotoğrafı yeterlidir. Başarısız
+native OSK penceresinin özeti kapatmaması için OSK bu test profilinde otomatik
+başlatılmaz. Touch sürücüsü ve `b2lmt.exe` yine kurulur.
 
 Geri dönüş:
 
