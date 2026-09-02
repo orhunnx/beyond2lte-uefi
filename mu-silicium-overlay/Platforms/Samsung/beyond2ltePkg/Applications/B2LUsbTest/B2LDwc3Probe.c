@@ -1,9 +1,11 @@
 /** @file
   Guarded Exynos9820 HS PHY, DWC_usb31 event probe and CACHE MSC gadget.
 
-  R15 retains the deliberately narrow R13 USB Mass Storage gadget and R14
-  touchscreen front end.  CACHE startup errors now fail-stop instead of
-  returning to the shell and unintentionally continuing into Windows.
+  R16 retains the deliberately narrow R13 USB Mass Storage gadget and R14
+  touchscreen front end.  CACHE startup errors fail-stop instead of returning
+  to the shell and unintentionally continuing into Windows.  HS PHY startup
+  now polls PMU/SIDDQ readback and retries the vendor POR sequence so a slow
+  isolation transition cannot reject an otherwise usable link.
   Storage remains EP0 plus one bulk OUT/IN pair backed only by the exact GPT
   CACHE partition.  No combo PHY, DWC3 role/core-reset or GPT write is
   performed.
@@ -97,6 +99,11 @@
                                       (0x3U << 18) | (0x3U << 8) | 0x7U)
 
 #define HSP_TEST_SIDDQ               BIT24
+
+#define B2L_HS_PHY_ENABLE_ATTEMPTS   3U
+#define B2L_HS_PHY_PMU_SETTLE_US     1000U
+#define B2L_HS_PHY_VERIFY_POLLS      20U
+#define B2L_HS_PHY_VERIFY_POLL_US    100U
 
 #define DWC3_GCTL                    0xC110
 #define DWC3_GSTS                    0xC118
@@ -388,6 +395,10 @@ typedef struct {
   UINT64                 BytesWritten;
 } B2L_USB_MSC_CONTEXT;
 
+STATIC BOOLEAN  mHsPhyFailureValid;
+STATIC UINT32   mHsPhyFailurePmuUsbPhy;
+STATIC UINT32   mHsPhyFailureHsTest;
+
 STATIC
 UINTN
 Dwc3Register (
@@ -536,18 +547,38 @@ SaveHsPhyState (
 
 STATIC
 BOOLEAN
-EnableHsPhy (
-  IN CONST B2L_HS_PHY_SAVED  *Saved
+EnableHsPhyAttempt (
+  IN  CONST B2L_HS_PHY_SAVED  *Saved,
+  OUT UINT32                  *LastPmuUsbPhy,
+  OUT UINT32                  *LastHsTest
   )
 {
+  UINTN   Poll;
   UINT32  Value;
 
+  *LastPmuUsbPhy = PmuRead32 (B2L_PMU_USB_PHY_CTRL);
+  *LastHsTest    = MAX_UINT32;
   if (!PmuProbeWrite32 (
          B2L_PMU_USB_PHY_CTRL,
          Saved->PmuUsbPhy | B2L_PMU_USB_PHY_ENABLE
          )) {
     return FALSE;
   }
+
+  // Linux powers the PHY on through the PMU before entering the vendor init
+  // callback.  UEFI performs both steps synchronously, so explicitly wait for
+  // the isolation bit to latch before touching the PHY register window.
+  for (Poll = 0; Poll < B2L_HS_PHY_VERIFY_POLLS; Poll++) {
+    *LastPmuUsbPhy = PmuRead32 (B2L_PMU_USB_PHY_CTRL);
+    if ((*LastPmuUsbPhy & B2L_PMU_USB_PHY_ENABLE) != 0) {
+      break;
+    }
+    gBS->Stall (B2L_HS_PHY_VERIFY_POLL_US);
+  }
+  if ((*LastPmuUsbPhy & B2L_PMU_USB_PHY_ENABLE) == 0) {
+    return FALSE;
+  }
+  gBS->Stall (B2L_HS_PHY_PMU_SETTLE_US);
 
   Value  = PhyRead32 (EXYNOS_USBCON_LINK_CTRL);
   Value |= LINKCTRL_QACT_DISABLE_MASK;
@@ -630,9 +661,75 @@ EnableHsPhy (
     return FALSE;
   }
 
-  return ((PmuRead32 (B2L_PMU_USB_PHY_CTRL) &
-           B2L_PMU_USB_PHY_ENABLE) != 0) &&
-         ((PhyRead32 (EXYNOS_USBCON_HSP_TEST) & HSP_TEST_SIDDQ) == 0);
+  // Do not fail on the first read after POR release.  The Samsung sequence
+  // guarantees the PHY clock after 75 us, but the PMU and SIDDQ readbacks can
+  // settle later when firmware has just used another FSYS0 client.
+  for (Poll = 0; Poll < B2L_HS_PHY_VERIFY_POLLS; Poll++) {
+    *LastPmuUsbPhy = PmuRead32 (B2L_PMU_USB_PHY_CTRL);
+    *LastHsTest    = PhyRead32 (EXYNOS_USBCON_HSP_TEST);
+    if (((*LastPmuUsbPhy & B2L_PMU_USB_PHY_ENABLE) != 0) &&
+        ((*LastHsTest & HSP_TEST_SIDDQ) == 0)) {
+      return TRUE;
+    }
+    gBS->Stall (B2L_HS_PHY_VERIFY_POLL_US);
+  }
+  return FALSE;
+}
+
+STATIC
+VOID
+PrepareHsPhyRetry (
+  VOID
+  )
+{
+  UINT32  Value;
+
+  // Keep the still-halted DWC3 isolated from a half-started PHY while the
+  // next attempt replays the complete vendor POR sequence.
+  Value = PhyRead32 (EXYNOS_USBCON_CLKRST) |
+          CLKRST_PHY20_SW_RST | CLKRST_PHY20_RST_SEL |
+          CLKRST_PHY30_SW_RST | CLKRST_PHY30_RST_SEL;
+  PhyProbeWrite32 (EXYNOS_USBCON_CLKRST, Value);
+  Value = PhyRead32 (EXYNOS_USBCON_UTMI) |
+          UTMI_FORCE_SUSPEND | UTMI_FORCE_SLEEP;
+  PhyProbeWrite32 (EXYNOS_USBCON_UTMI, Value);
+  Value = PhyRead32 (EXYNOS_USBCON_HSP_TEST) | HSP_TEST_SIDDQ;
+  PhyProbeWrite32 (EXYNOS_USBCON_HSP_TEST, Value);
+  gBS->Stall (B2L_HS_PHY_PMU_SETTLE_US);
+}
+
+STATIC
+BOOLEAN
+EnableHsPhy (
+  IN  CONST B2L_HS_PHY_SAVED  *Saved,
+  OUT UINT32                  *LastPmuUsbPhy,
+  OUT UINT32                  *LastHsTest
+  )
+{
+  UINTN  Attempt;
+
+  mHsPhyFailureValid = FALSE;
+  for (Attempt = 1; Attempt <= B2L_HS_PHY_ENABLE_ATTEMPTS; Attempt++) {
+    if (EnableHsPhyAttempt (Saved, LastPmuUsbPhy, LastHsTest)) {
+      return TRUE;
+    }
+    Print (L"R16 HS PHY deneme %u/%u: PMU=%08x ON=%u HSP_TEST=%08x SIDDQ=%u\n",
+           Attempt, B2L_HS_PHY_ENABLE_ATTEMPTS, *LastPmuUsbPhy,
+           (*LastPmuUsbPhy & B2L_PMU_USB_PHY_ENABLE) != 0,
+           *LastHsTest,
+           (*LastHsTest != MAX_UINT32) &&
+           ((*LastHsTest & HSP_TEST_SIDDQ) != 0));
+    if ((Attempt < B2L_HS_PHY_ENABLE_ATTEMPTS) &&
+        ((*LastPmuUsbPhy & B2L_PMU_USB_PHY_ENABLE) != 0)) {
+      PrepareHsPhyRetry ();
+    } else {
+      gBS->Stall (B2L_HS_PHY_PMU_SETTLE_US);
+    }
+  }
+  mHsPhyFailurePmuUsbPhy = *LastPmuUsbPhy;
+  mHsPhyFailureHsTest    = *LastHsTest;
+  mHsPhyFailureValid     = TRUE;
+  return FALSE;
 }
 
 STATIC
@@ -1120,10 +1217,13 @@ B2LDwc3RunEventProbe (
   UINT32               CountRegister;
   UINT32               Dctl;
   UINT32               Dsts;
+  UINT32               HsTest;
+  UINT32               PmuUsbPhy;
   UINTN                Millisecond;
   UINTN                Second;
   BOOLEAN              PhyStateSaved;
 
+  mHsPhyFailureValid = FALSE;
   // Keep the DMA target below 4 GiB even though this core reports AWIDTH=64.
   // That avoids depending on an undocumented Exynos interconnect high-address
   // path during the first active probe.
@@ -1143,6 +1243,8 @@ B2LDwc3RunEventProbe (
   ZeroMem (&Stats, sizeof (Stats));
   ZeroMem (&PhySaved, sizeof (PhySaved));
   PhyStateSaved = FALSE;
+  HsTest         = MAX_UINT32;
+  PmuUsbPhy      = 0;
   WriteBackInvalidateDataCacheRange (
     (VOID *)(UINTN)BufferAddress,
     DWC3_EVENT_BUFFER_SIZE
@@ -1169,7 +1271,7 @@ B2LDwc3RunEventProbe (
   SaveHsPhyState (&PhySaved);
   PhyStateSaved = TRUE;
 
-  if (!EnableHsPhy (&PhySaved)) {
+  if (!EnableHsPhy (&PhySaved, &PmuUsbPhy, &HsTest)) {
     Print (L"R12 HS PHY enable dogrulamasi basarisiz.\n");
     Status = EFI_DEVICE_ERROR;
     goto RestoreHaltedController;
@@ -2775,6 +2877,17 @@ CacheMassStorageStartupFailStopped (
   gST->ConOut->ClearScreen (gST->ConOut);
   Print (L"=== CACHE USB BASLATILAMADI ===\n\n");
   Print (L"HATA=%r\n", Status);
+  if (mHsPhyFailureValid) {
+    Print (L"ASAMA=HS PHY  DENEME=%u\n", B2L_HS_PHY_ENABLE_ATTEMPTS);
+    Print (L"PMU=%08x  ON=%u\n", mHsPhyFailurePmuUsbPhy,
+           (mHsPhyFailurePmuUsbPhy & B2L_PMU_USB_PHY_ENABLE) != 0);
+    if (mHsPhyFailureHsTest == MAX_UINT32) {
+      Print (L"HSP_TEST=OKUNAMADI (PMU acilmadi)\n");
+    } else {
+      Print (L"HSP_TEST=%08x  SIDDQ=%u\n", mHsPhyFailureHsTest,
+             (mHsPhyFailureHsTest & HSP_TEST_SIDDQ) != 0);
+    }
+  }
   Print (L"Guvenlik icin Windows'a devam EDILMIYOR.\n");
   Print (L"Telefonu donanim tuslariyla yeniden baslat.\n");
   for (;;) {
@@ -2817,18 +2930,23 @@ B2LDwc3RunCacheMassStorage (
   UINT32                Dctl;
   UINT32                Dsts;
   UINT32                Event;
+  UINT32                HsTest;
+  UINT32                PmuUsbPhy;
   UINTN                 Endpoint;
   UINTN                 Millisecond;
   BOOLEAN               ControllerRunning;
   BOOLEAN               PhyStateSaved;
   BOOLEAN               SessionStarted;
 
+  mHsPhyFailureValid = FALSE;
   ZeroMem (&Context, sizeof (Context));
   ZeroMem (&Saved, sizeof (Saved));
   ZeroMem (&PhySaved, sizeof (PhySaved));
   ControllerRunning = FALSE;
   PhyStateSaved      = FALSE;
   SessionStarted     = FALSE;
+  HsTest             = MAX_UINT32;
+  PmuUsbPhy          = 0;
 
   Status = FindCachePartition (ImageHandle, &Context);
   if (EFI_ERROR (Status)) {
@@ -2904,8 +3022,9 @@ B2LDwc3RunCacheMassStorage (
   SaveHsPhyState (&PhySaved);
   PhyStateSaved = TRUE;
 
-  if (!EnableHsPhy (&PhySaved)) {
-    Print (L"R13 CACHE MSC HS PHY enable dogrulamasi basarisiz.\n");
+  if (!EnableHsPhy (&PhySaved, &PmuUsbPhy, &HsTest)) {
+    Print (L"R16 CACHE MSC HS PHY acilamadi: PMU=%08x HSP_TEST=%08x\n",
+           PmuUsbPhy, HsTest);
     Status = EFI_DEVICE_ERROR;
     goto RestoreHaltedController;
   }

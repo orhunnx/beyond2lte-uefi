@@ -1,7 +1,7 @@
 /** @file
   Staged USB diagnostic for Samsung beyond2lte.
 
-  R15 adds fail-stop startup handling to the touchscreen CACHE USB mode and keeps
+  R16 hardens HS PHY startup for the touchscreen CACHE USB mode and keeps
   the R10 passive MMIO diagnostics behind a separate button.  Its monitor refreshes
   every two seconds so cable-attached and cable-removed states can be captured
   in the same boot.  A final, separately confirmed helper temporarily applies
