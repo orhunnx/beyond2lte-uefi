@@ -103,11 +103,14 @@ bash cache_esp.sh --win --system --baseline
 ```
 
 `B2LUSB.EFI` SYSTEM ESP'ye konur ve `startup.nsh` tarafından Windows'tan önce
-çalıştırılır. R13 açılış menüsünde `M`, 600 MiB FAT32 `CACHE` bölümünü Windows'a
-USB Mass Storage olarak sunar; `W` okuma/yazma ve `R` salt-okuma modudur. Dosya
-aktarımı bitince Windows'ta **Güvenle çıkar** yapılır ve telefon donanım tuşuyla
-yeniden başlatılır; uygulama bilinçli olarak Windows bootuna dönmez. `D` eski
-tanı akışını açar. Eski doğrulanmış salt-okuma sayfalarından sonra R11 tek canlı
+çalıştırılır. R14 açılışta dokunmatik `CACHE USB DISK`, `USB TANILAMA` ve
+`WINDOWS'A DEVAM` düğmelerini gösterir. CACHE içinde `SALT-OKUMA` veya ikinci
+bir dokunmatik onay gerektiren `OKUMA / YAZMA` seçilir. Dosya aktarımı bitince
+Windows'ta **Güvenle çıkar** yapılır, telefondaki bitirme düğmesine dokunulur ve
+telefon donanım tuşuyla yeniden başlatılır; uygulama bilinçli olarak Windows
+bootuna dönmez. Dokunmatik arızasında ses tuşları seçim, kısa POWER onay,
+BIXBY/uzun POWER geri işlevindedir. `USB TANILAMA` eski tanı akışını açar. Eski
+doğrulanmış salt-okuma sayfalarından sonra R11 tek canlı
 ekranda PMU, DWC3 device/OTG, xHCI portları ve ana DRD PHY değerlerini iki
 saniyede bir yeniler. Önce PC veri kablosu takılıyken ekranın fotoğrafı çekilir;
 sonra kablo çıkarılır, `ORNEK` sayacı ilerleyince ikinci fotoğraf çekilir.

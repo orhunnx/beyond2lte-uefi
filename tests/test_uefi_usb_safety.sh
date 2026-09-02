@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LUsbTest.c"
 PROBE="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LDwc3Probe.c"
 PROBE_HEADER="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LDwc3Probe.h"
+TOUCH_UI="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LTouchUi.c"
+KEYPAD="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Library/KeypadDeviceLib/KeypadDeviceLib.c"
 MAX="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LMax77705.c"
 INF="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/B2LUsbTest.inf"
 DSC="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/beyond2lte.dsc"
@@ -18,7 +20,7 @@ grep -q 'B2LUSB.EFI' "$ROOT/esp/startup-baseline.nsh"
 grep -q 'beyond2lte-usb-diag.tar' "$ROOT/cache_esp.sh"
 grep -q 'DWC3_IP_DWC31[[:space:]]*0x33310000U' "$APP"
 grep -q 'DWC3_VER_NUMBER[[:space:]]*0xC1A0' "$APP"
-grep -q 'B2L_USB_TEST_REVISION[[:space:]]*13' "$PROBE_HEADER"
+grep -q 'B2L_USB_TEST_REVISION[[:space:]]*14' "$PROBE_HEADER"
 grep -q 'B2L_USB_PCS_ABORT_OFFSET_0[[:space:]]*0x0000' "$APP"
 grep -q 'B2L_USB_PCS_ABORT_OFFSET_C[[:space:]]*0x000C' "$APP"
 grep -q 'B2L_USB_PMA_ABORT_OFFSET_0[[:space:]]*0x0000' "$APP"
@@ -35,7 +37,25 @@ grep -q 'XHCI_PORTSC_CSC' "$APP"
 grep -q 'B2LDwc3Probe.c' "$INF"
 grep -q 'B2LDwc3RunEventProbe' "$APP"
 grep -q 'B2LDwc3RunCacheMassStorage' "$APP"
-grep -q 'M = CACHE bolumunu Windows' "$APP"
+grep -q 'B2LTouchUiChoose' "$APP"
+grep -q 'CACHE USB DISK' "$APP"
+grep -q 'WINDOWS.A DEVAM' "$APP"
+grep -q 'B2LTouchUi.c' "$INF"
+grep -q 'gEfiAbsolutePointerProtocolGuid' "$INF"
+grep -q 'gEfiGraphicsOutputProtocolGuid' "$INF"
+grep -q 'EFI_ABSP_TouchActive' "$TOUCH_UI"
+grep -q 'Pressed != MAX_UINTN.*Hit == Pressed' "$TOUCH_UI"
+grep -q 'B2LTouchUiDrawStopButton' "$PROBE"
+grep -q 'GUVENLE CIKARDIM - USB.YI BITIR' "$PROBE"
+grep -q 'YAZMA MODU ONAYI' "$PROBE"
+grep -q 'KeyContextVolumeUp.EfiKeyContext.KeyData.Key.ScanCode = SCAN_UP' "$KEYPAD"
+grep -q 'KeyContextVolumeDown.EfiKeyContext.KeyData.Key.ScanCode = SCAN_DOWN' "$KEYPAD"
+grep -q 'KeyContextPower.EfiKeyContext.KeyData.Key.UnicodeChar = CHAR_CARRIAGE_RETURN' "$KEYPAD"
+grep -q 'KeyContextSpecial.EfiKeyContext.KeyData.Key.ScanCode = SCAN_ESC' "$KEYPAD"
+if rg -n 'Mmio|Io(Read|Write)|B2LHsI2c|Pmic|SetLdo|SetBuck' "$TOUCH_UI"; then
+  echo 'HATA: dokunmatik UI protokol disindan donanima erisiyor' >&2
+  exit 1
+fi
 grep -q 'DWC3_DSTS_SOFFN_MASK' "$APP"
 grep -q 'Previous->Dsts & ~DWC3_DSTS_SOFFN_MASK' "$APP"
 grep -q 'AllocatePages' "$PROBE"
@@ -120,11 +140,11 @@ if rg -n 'MmioWrite|IoWrite|PciWrite|WriteRegister|MmioBitFieldWrite|MmioAnd|Mmi
   exit 1
 fi
 
-# R13 aktif helper'inda DWC3, ana HS PHY ve PMU icin ayri dar runtime
+# R14 aktif helper'inda DWC3, ana HS PHY ve PMU icin ayri dar runtime
 # allow-list'ler vardir. MSC icin yalniz device endpoint 0..3 acilmistir;
 # combo PHY ile DWC3 rol/core-reset ve endpoint 4+ yazilamaz.
 if [ "$(rg -c 'MmioWrite32' "$PROBE")" -ne 3 ]; then
-  echo 'HATA: R12 helper uc allow-list disinda MMIO write iceriyor' >&2
+  echo 'HATA: R14 helper uc allow-list disinda MMIO write iceriyor' >&2
   exit 1
 fi
 for Register in DWC3_GEVNTADRLO0 DWC3_GEVNTADRHI0 DWC3_GEVNTSIZ0 \
@@ -132,7 +152,7 @@ for Register in DWC3_GEVNTADRLO0 DWC3_GEVNTADRHI0 DWC3_GEVNTSIZ0 \
   grep -q "case $Register:" "$PROBE"
 done
 if rg -n 'case DWC3_(GCTL|GSTS|GUSB|OCFG|OCTL|OEVT|OEVTEN|OSTS|DGCMD)' "$PROBE"; then
-  echo 'HATA: R13 DWC3 allow-list rol/core-reset yazmasina genislemis' >&2
+  echo 'HATA: R14 DWC3 allow-list rol/core-reset yazmasina genislemis' >&2
   exit 1
 fi
 grep -q 'case DWC3_DALEPENA:' "$PROBE"
@@ -142,7 +162,7 @@ for Endpoint in 0 1 2 3; do
   done
 done
 if rg -n 'DWC3_DEPCMD(PAR[012])? \(([4-9]|1[0-9])\)' "$PROBE"; then
-  echo 'HATA: R13 MSC endpoint allow-list 0..3 disina cikiyor' >&2
+  echo 'HATA: R14 MSC endpoint allow-list 0..3 disina cikiyor' >&2
   exit 1
 fi
 for Register in EXYNOS_USBCON_LINK_CTRL EXYNOS_USBCON_LINK_PORT \
@@ -153,14 +173,14 @@ for Register in EXYNOS_USBCON_LINK_CTRL EXYNOS_USBCON_LINK_PORT \
 done
 grep -q 'if (Offset != B2L_PMU_USB_PHY_CTRL)' "$PROBE"
 if rg -n 'B2L_USB_(PCS|PMA)_BASE|B2L_PMU_USBDP_CTRL' "$PROBE"; then
-  echo 'HATA: R12 aktif helper combo PHY veya USB3 PMU penceresine genislemis' >&2
+  echo 'HATA: R14 aktif helper combo PHY veya USB3 PMU penceresine genislemis' >&2
   exit 1
 fi
 if rg -n 'MmioWrite|IoWrite|PciWrite|MmioBitFieldWrite|MmioAnd|MmioOr' "$PROBE" | \
    grep -v -e 'MmioWrite32 (Dwc3Register (Offset), Value);' \
            -e 'MmioWrite32 (PhyRegister (Offset), Value);' \
            -e 'MmioWrite32 ((UINTN)(B2L_PMU_BASE + Offset), Value);'; then
-  echo 'HATA: R12 helper allow-list disinda yazma iceriyor' >&2
+  echo 'HATA: R14 helper allow-list disinda yazma iceriyor' >&2
   exit 1
 fi
 

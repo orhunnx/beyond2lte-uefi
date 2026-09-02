@@ -9,6 +9,8 @@
 [Sources]
   B2LDwc3Probe.c
   B2LDwc3Probe.h
+  B2LTouchUi.c
+  B2LTouchUi.h
   B2LUsbTest.c
 
 [Packages]
@@ -24,6 +26,8 @@
   UefiLib
 
 [Protocols]
+  gEfiAbsolutePointerProtocolGuid
   gEfiBlockIoProtocolGuid
+  gEfiGraphicsOutputProtocolGuid
   gEfiLoadedImageProtocolGuid
   gEfiPartitionInfoProtocolGuid

@@ -1,8 +1,8 @@
 /** @file
   Staged USB diagnostic for Samsung beyond2lte.
 
-  R13 adds a CACHE-only USB Mass Storage mode and keeps the R10 passive MMIO
-  diagnostics behind the D menu.  Its monitor refreshes
+  R14 adds a touchscreen UI to the CACHE-only USB Mass Storage mode and keeps
+  the R10 passive MMIO diagnostics behind a separate button.  Its monitor refreshes
   every two seconds so cable-attached and cable-removed states can be captured
   in the same boot.  A final, separately confirmed helper temporarily applies
   the stock Exynos9820 UTMI PHY/PMU sequence, owns a reserved event DMA page and
@@ -30,6 +30,7 @@
 #include <Protocol/SimpleTextIn.h>
 
 #include "B2LDwc3Probe.h"
+#include "B2LTouchUi.h"
 
 #define B2L_DWC3_BASE               0x10C00000ULL
 #define B2L_USB_PHY_BASE            0x10B00000ULL
@@ -908,33 +909,34 @@ B2LUsbTestEntry (
   )
 {
   BOOLEAN       Dwc3Sane;
-  EFI_INPUT_KEY Key;
   EFI_STATUS    MenuStatus;
   EFI_STATUS    ProbeStatus;
+  UINTN         Selection;
+  STATIC CONST B2L_TOUCH_UI_OPTION  MainOptions[] = {
+    { L"CACHE USB DISK", L"Windows ile dosya aktarimi", FALSE },
+    { L"USB TANILAMA", L"Eski salt-okuma tani ekranlari", FALSE },
+    { L"WINDOWS'A DEVAM", L"USB aracindan cik", FALSE }
+  };
 
   (VOID)SystemTable;
 
-  gST->ConOut->ClearScreen (gST->ConOut);
-  Print (L"=== B2L USB R%u ===\n\n", B2L_USB_TEST_REVISION);
-  Print (L"M = CACHE bolumunu Windows'a USB disk olarak sun\n");
-  Print (L"D = eski salt-okuma tani ekranlari\n");
-  Print (L"Q/ESC = cikis\n");
-  for (;;) {
-    MenuStatus = gST->ConIn->ReadKeyStroke (gST->ConIn, &Key);
-    if (EFI_ERROR (MenuStatus)) {
-      gBS->Stall (10000);
-      continue;
-    }
-    if ((Key.UnicodeChar == L'm') || (Key.UnicodeChar == L'M')) {
-      return B2LDwc3RunCacheMassStorage (ImageHandle);
-    }
-    if ((Key.UnicodeChar == L'd') || (Key.UnicodeChar == L'D')) {
-      break;
-    }
-    if ((Key.ScanCode == SCAN_ESC) || (Key.UnicodeChar == L'q') ||
-        (Key.UnicodeChar == L'Q')) {
-      return EFI_ABORTED;
-    }
+  B2LTouchUiInitialize ();
+  MenuStatus = B2LTouchUiChoose (
+                 L"B2L USB KURTARMA",
+                 L"Buyuk bir dugmeye dokun",
+                 MainOptions,
+                 sizeof (MainOptions) / sizeof (MainOptions[0]),
+                 0,
+                 &Selection
+                 );
+  if (EFI_ERROR (MenuStatus)) {
+    return EFI_ABORTED;
+  }
+  if (Selection == 2) {
+    return EFI_SUCCESS;
+  }
+  if (Selection == 0) {
+    return B2LDwc3RunCacheMassStorage (ImageHandle);
   }
 
   ShowPowerDomain ();

@@ -1,10 +1,10 @@
 /** @file
   Guarded Exynos9820 HS PHY, DWC_usb31 event probe and CACHE MSC gadget.
 
-  R13 retains the proven attach probe and adds a deliberately narrow USB Mass
-  Storage gadget: EP0 plus one bulk OUT/IN pair, backed only by the exact GPT
-  CACHE partition.  The stock device-tree's UTMI PHY power/isolation and tune
-  sequence is retained.  No combo PHY, DWC3 role/core-reset or GPT write is
+  R14 retains the deliberately narrow R13 USB Mass Storage gadget and adds a
+  touchscreen front end through the existing EFI Absolute Pointer protocol.
+  Storage remains EP0 plus one bulk OUT/IN pair backed only by the exact GPT
+  CACHE partition.  No combo PHY, DWC3 role/core-reset or GPT write is
   performed.
 
   The probe refuses to write unless the core is a halted DWC_usb31 in device
@@ -30,6 +30,7 @@
 #include <Protocol/SimpleTextIn.h>
 
 #include "B2LDwc3Probe.h"
+#include "B2LTouchUi.h"
 
 #define B2L_DWC3_BASE                0x10C00000ULL
 #define B2L_USB_PHY_BASE             0x10B00000ULL
@@ -1429,41 +1430,54 @@ PromptCacheAccessMode (
   IN OUT B2L_USB_MSC_CONTEXT  *Context
   )
 {
-  EFI_INPUT_KEY  Key;
-  EFI_STATUS     Status;
-
-  gST->ConOut->ClearScreen (gST->ConOut);
-  Print (L"=== B2L CACHE USB DISK R%u ===\n\n", B2L_USB_TEST_REVISION);
-  Print (L"GPT hedefi : CACHE\n");
-  Print (L"Boyut      : 600 MiB (153600 x 4096)\n");
-  Print (L"Windows'ta : surucusuz USB Mass Storage / FAT32\n\n");
-  Print (L"Bu ekran Windows'a devam ETMEZ. Is bitince Windows'ta Guvenle Cikar,\n");
-  Print (L"sonra telefonda donanim tuslariyla yeniden baslat.\n\n");
-  Print (L"W = OKUMA/YAZMA  R = salt-okuma  Q/ESC = iptal\n");
+  EFI_STATUS  Status;
+  UINTN       Selection;
+  STATIC CONST B2L_TOUCH_UI_OPTION  AccessOptions[] = {
+    { L"SALT-OKUMA", L"CACHE degismez", FALSE },
+    { L"OKUMA / YAZMA", L"Dosya aktarimi - dikkat", TRUE },
+    { L"GERI", L"USB disk modunu iptal et", FALSE }
+  };
+  STATIC CONST B2L_TOUCH_UI_OPTION  ConfirmOptions[] = {
+    { L"YAZMAYI AC", L"CACHE uzerinde degisiklik yapilabilir", TRUE },
+    { L"GERI DON", L"Salt-okuma secimine don", FALSE }
+  };
 
   for (;;) {
-    Status = gST->ConIn->ReadKeyStroke (gST->ConIn, &Key);
-    if (EFI_ERROR (Status)) {
-      gBS->Stall (10000);
-      continue;
-    }
-
-    if ((Key.ScanCode == SCAN_ESC) || (Key.UnicodeChar == L'q') ||
-        (Key.UnicodeChar == L'Q')) {
+    Status = B2LTouchUiChoose (
+               L"CACHE USB DISK",
+               L"600 MiB FAT32 - erisim modunu sec",
+               AccessOptions,
+               sizeof (AccessOptions) / sizeof (AccessOptions[0]),
+               0,
+               &Selection
+               );
+    if (EFI_ERROR (Status) || (Selection == 2)) {
       return EFI_ABORTED;
     }
-    if ((Key.UnicodeChar == L'r') || (Key.UnicodeChar == L'R')) {
+    if (Selection == 0) {
       Context->ReadOnly = TRUE;
       return EFI_SUCCESS;
     }
-    if ((Key.UnicodeChar == L'w') || (Key.UnicodeChar == L'W')) {
-      if (Context->CacheBlockIo->Media->ReadOnly) {
-        Print (L"Firmware BlockIo bu bolumu salt-okuma bildirdi. R kullan.\n");
-        continue;
-      }
-      Context->ReadOnly = FALSE;
-      return EFI_SUCCESS;
+    if (Context->CacheBlockIo->Media->ReadOnly) {
+      gST->ConOut->ClearScreen (gST->ConOut);
+      Print (L"Firmware BlockIo CACHE'i salt-okuma bildirdi.\n");
+      Print (L"Yazma modu acilamadi; secim ekrani geri geliyor.\n");
+      gBS->Stall (2000000);
+      continue;
     }
+    Status = B2LTouchUiChoose (
+               L"YAZMA MODU ONAYI",
+               L"Yanlis kablo cekimi FAT32 verisini bozabilir",
+               ConfirmOptions,
+               sizeof (ConfirmOptions) / sizeof (ConfirmOptions[0]),
+               1,
+               &Selection
+               );
+    if (EFI_ERROR (Status) || (Selection != 0)) {
+      continue;
+    }
+    Context->ReadOnly = FALSE;
+    return EFI_SUCCESS;
   }
 }
 
@@ -1651,6 +1665,9 @@ PollQuitKey (
   EFI_INPUT_KEY  Key;
   EFI_STATUS     Status;
 
+  if (B2LTouchUiPollStopButton ()) {
+    return TRUE;
+  }
   Status = gST->ConIn->ReadKeyStroke (gST->ConIn, &Key);
   return !EFI_ERROR (Status) &&
          ((Key.ScanCode == SCAN_ESC) || (Key.UnicodeChar == L'q') ||
@@ -2702,7 +2719,7 @@ ShowMassStorageStatus (
 {
   gST->ConOut->ClearScreen (gST->ConOut);
   Print (L"=== B2L CACHE USB DISK R%u ===\n", B2L_USB_TEST_REVISION);
-  Print (L"MOD=%s  USB=%s  RESET=%u CONNECT=%u  Q/ESC=bitir\n",
+  Print (L"MOD=%s  USB=%s  RESET=%u CONNECT=%u\n",
          Context->ReadOnly ? L"SALT-OKUMA" : L"OKUMA/YAZMA",
          Context->Configured ? L"WINDOWS BAGLI" : L"ENUM BEKLENIYOR",
          Context->ResetCount, Context->ConnectDoneCount);
@@ -2717,6 +2734,8 @@ ShowMassStorageStatus (
   }
   Print (L"\nWindows'ta disk gorununce dosya aktar. Bitince once Guvenle Cikar.\n");
   Print (L"Bu uygulama Windows'a geri donmez; sonunda donanim reboot gerekir.\n");
+  Print (L"BIXBY/POWER uzun: acil bitir.\n");
+  B2LTouchUiDrawStopButton (L"GUVENLE CIKARDIM - USB'YI BITIR");
 }
 
 STATIC

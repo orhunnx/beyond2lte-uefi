@@ -1,9 +1,11 @@
 # B2LUsbTest EFI Shell USB tanısı
 
 `B2LUSB.EFI`, beyond2lte USB yolunun EFI tanısı ve tek bölümlük kurtarma USB
-diskidir. R13 açılış menüsünde `M`, GPT adı `CACHE` olan 600 MiB FAT32 bölümü
-Windows'a USB Mass Storage/Bulk-Only Transport olarak sunar; `D` eski aşamalı
-tanı ekranlarını açar. R12, eski pasif
+diskidir. R14 açılışta B2LTouchDxe'nin mevcut `EFI_ABSOLUTE_POINTER_PROTOCOL`
+arayüzünü kullanarak büyük dokunmatik düğmeler gösterir. `CACHE USB DISK`, GPT
+adı `CACHE` olan 600 MiB FAT32 bölümü Windows'a USB Mass
+Storage/Bulk-Only Transport olarak sunar; `USB TANILAMA` eski aşamalı tanı
+ekranlarını açar. R12, eski pasif
 harita sayfalarının ardından tek ekranda iki saniyede bir PMU, DWC3 device/OTG,
 xHCI portları ve doğrulanmış ana DRD PHY kayıtlarını yeniler. Önce PC veri
 kablosu takılıyken, sonra aynı boot içinde kablo çıkarıldıktan sonra bu ekranın
@@ -11,7 +13,7 @@ fotoğrafı alınır. R9 ölçümlerinde yalnız DSTS içindeki serbest akan SOF
 değiştiği için R10 bu alanı delta hesabından çıkarır. Son, ayrı onaylı sayfa
 stok Exynos9820 USB2 PHY açılışını geçici uygular, kontrollü DWC3 event-DMA
 halkası kurar ve `DCTL.RUN_STOP` ile 30 saniyelik fiziksel attach probu yapar.
-R8 MAX77705 yardımcı kaynağı ağaçta korunur fakat R13 uygulamasına bağlanmaz ve
+R8 MAX77705 yardımcı kaynağı ağaçta korunur fakat R14 uygulamasına bağlanmaz ve
 çalıştırılmaz.
 
 Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
@@ -134,14 +136,16 @@ EP0 descriptor yanıtı olduğunu kanıtlar. R13 olay ayrımını düzeltir ve v
 durdurma sırasındaki `DCTL.ULSTCHNGREQ=RX_DETECT` isteğini RUN/STOP öncesinde
 ayrı, maskeli RMW yazılarıyla uygular.
 
-R13 `M` yolu EP0 üzerinde device/configuration/string descriptorlerini, MSC
+R13'ten korunan CACHE yolu EP0 üzerinde device/configuration/string descriptorlerini, MSC
 class `GET_MAX_LUN`/reset isteklerini ve fiziksel endpoint 2/3 üzerinde Bulk
 OUT/IN sağlar. BOT arkasındaki dar SCSI kümesi Windows'un FAT disk bağlaması
 için inquiry, sense, capacity, mode-sense, read/write(10), verify, synchronize
 cache, prevent/allow ve start/stop komutlarını içerir. Depolama hedefi yalnız
 `EFI_PARTITION_INFO_PROTOCOL` içinde GPT adı `CACHE`, blok boyu 4096, son LBA
 153599 ve toplam boyu 629145600 bayt birlikte doğrulanan BlockIo handle'ıdır;
-GPT/LBA dışı disk erişimi yoktur. `W` okuma/yazma, `R` salt-okuma seçer.
+GPT/LBA dışı disk erişimi yoktur. R14'te erişim modu `SALT-OKUMA` veya
+`OKUMA / YAZMA` dokunmatik düğmesiyle seçilir. Yazma düğmesi ayrı bir ikinci
+onay ekranı açar; ilk dokunuş tek başına yazmayı başlatmaz.
 
 Firmware FAT sürücüsünün eski cache durumunu yeniden kullanmaması için MSC
 oturumu Windows'a dönmez. Windows'ta “Güvenle çıkar” yapıldığında SCSI eject ve
@@ -174,10 +178,14 @@ yalnız bu dosya AP alanından, **Re-Partition kapalı** olarak flashlanır.
 Uygulama SYSTEM ESP kökünde `B2LUSB.EFI` adıyla bulunur ve `startup.nsh` dosya
 mevcutsa onu Windows'tan önce çalıştırır.
 
-R13 kullanımında açılış menüsünde `M`, ardından dosya yazılacaksa `W` seçilir.
-Windows diski gördüğünde CACHE FAT32 üzerinde aktarım yapılır; iş bitince önce
-Windows “Güvenle çıkar”, ardından telefonda donanım reboot yapılır. Ekrandaki
-`YAZILAN` sayacı artmadan ve güvenli çıkarma tamamlanmadan kablo çekilmez.
+R14 kullanımında `CACHE USB DISK`, ardından dosya yazılacaksa `OKUMA / YAZMA`
+ve ayrı onay ekranında `YAZMAYI AC` düğmesine dokunulur. Windows diski
+gördüğünde CACHE FAT32 üzerinde aktarım yapılır; iş bitince önce Windows
+“Güvenle çıkar”, ardından ekrandaki `GUVENLE CIKARDIM - USB'YI BITIR`
+düğmesine dokunulur ve telefonda donanım reboot yapılır. Ekrandaki `YAZILAN`
+sayacı artmadan ve güvenli çıkarma tamamlanmadan kablo çekilmez. Dokunmatik
+çalışmazsa ses tuşları seçimi değiştirir, kısa POWER onaylar; BIXBY veya uzun
+POWER güvenli geri dönüş/bitirme yoludur.
 
 ## Windows'ta kalıcı dosya aktarımı mimarisi
 
