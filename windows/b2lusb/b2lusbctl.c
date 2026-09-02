@@ -13,6 +13,7 @@ B2lOpenController(VOID)
     SP_DEVICE_INTERFACE_DATA InterfaceData;
     PSP_DEVICE_INTERFACE_DETAIL_DATA_W Detail;
     DWORD Required;
+    DWORD Error;
     HANDLE Handle;
 
     DeviceInfo = SetupDiGetClassDevsW(
@@ -33,7 +34,9 @@ B2lOpenController(VOID)
             &GUID_DEVINTERFACE_B2L_USB,
             0,
             &InterfaceData)) {
+        Error = GetLastError();
         SetupDiDestroyDeviceInfoList(DeviceInfo);
+        SetLastError(Error);
         return INVALID_HANDLE_VALUE;
     }
 
@@ -70,8 +73,10 @@ B2lOpenController(VOID)
             Required,
             NULL,
             NULL)) {
+        Error = GetLastError();
         HeapFree(GetProcessHeap(), 0, Detail);
         SetupDiDestroyDeviceInfoList(DeviceInfo);
+        SetLastError(Error);
         return INVALID_HANDLE_VALUE;
     }
 
@@ -84,8 +89,10 @@ B2lOpenController(VOID)
         FILE_ATTRIBUTE_NORMAL,
         NULL
         );
+    Error = GetLastError();
     HeapFree(GetProcessHeap(), 0, Detail);
     SetupDiDestroyDeviceInfoList(DeviceInfo);
+    SetLastError(Error);
     return Handle;
 }
 

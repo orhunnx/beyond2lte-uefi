@@ -24,7 +24,10 @@ echo PnP baslatiliyor...
 echo.
 echo [B2LUSB kurulumu]
 call :B2LUsbInstall
-if errorlevel 1 goto :Finish
+if errorlevel 1 (
+  set "B2LUSBFAILED=1"
+  echo UYARI: B2LUSB basarisiz; touch ve UFS tanisi yine de surdurulecek.
+)
 
 echo.
 echo [B2LTOUCH kurulumu]
