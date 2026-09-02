@@ -50,6 +50,20 @@ atanmadan önce URS FDO için ad özelliğinin ayarlanmamasıydı. Sürücü art
 çağrısını SDDL atamasından önce yapar. Ayrıca USB kurulumu/otomatik HOST
 başarısız olsa bile `startnet.cmd` touch ve UFS kurulumlarına devam eder.
 
+İkinci cihaz ölçümünde parent `Started` oldu, URS rol callback'i
+`requested=HOST current=HOST last_ntstatus=0` sonucunu verdi ve host child
+oluştu. Ancak `USBXHCI` child `Code 10`, problem status `0xC000009E`
+(`STATUS_DEVICE_POWER_FAILURE`) ile durdu; xHCI `USBSTS.HCHalted` set kaldı.
+Bu, rol isteğinden sonraki DWC_usb31-to-USBXHCI handoff aşamasını işaret eder.
+Sürücü artık PHY açıldıktan ve eski controller halt edildikten sonra
+`GCTL.CORESOFTRESET` bitini 100 ms tutarak DWC_usb31 internal clocklarını
+senkronize eder, biti temizler ve ancak ardından `PRTCAP` rolünü yazar.
+Bu süre DWC_usb31 rol değişimi için upstream DWC3 akışındaki muhafazakâr
+bekleme ile aynıdır. Durum çıktısı ayrıca core reset sayısını, DWC3 version/
+GUSB PHY ayarlarını ve xHCI capability/command/status/page-size değerlerini
+gösterir. Otomatik test, host child'ın servis/stack/driver/resource ayrıntısını
+da kaydeder; böylece sonraki hata reset mi interrupt mı ayrıştırılabilir.
+
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
 DEFAULT hive ve WIM geri-okuma doğrulaması `tools_winpe_ui_scale.sh` içindedir.
@@ -72,7 +86,7 @@ paketlenecekse mevcut proje sözleşmesi kullanılır:
 B2L_SKIP_MSVC_BUILD=1 bash tools_b2lusb.sh
 ```
 
-Betik `USBXHCI.SYS` ve `USBHUB3.SYS` dosyalarının hedef WinPE WIM'inde
+Betik `Ucx01000.sys`, `USBXHCI.SYS` ve `USBHUB3.SYS` dosyalarının hedef WinPE WIM'inde
 bulunduğunu doğrulamadan paket üretmez. Çıplak ADK WinPE'de
 `UrsCx01000.sys` yoksa `tools_winpe_urs_runtime.sh` otomatik çağrılır. Bu
 betik Microsoft binary'sini ve `Services\\UrsCx01000` alt ağacını aynı
@@ -111,7 +125,7 @@ pnputil /enum-devices /deviceid "URS\BYN0002&HOST"
 İlk host testi, MAX77705 henüz VBUS source/CC state yönetmediği için haricen
 beslenen bir USB2 hub üzerinden yapılmalıdır. Başarı sırası:
 
-1. `current=HOST`, `GCTL.PRTCAP=HOST`, `GSTS.CURMOD=HOST`;
+1. `current=HOST`, `GCTL.PRTCAP=HOST`, `GSTS.CURMOD=HOST` ve `resets>=1`;
 2. `URS\BYN0002&HOST` için `USBXHCI` servisinin başlaması;
 3. root hub ve haricen beslenen hub'ın numaralandırılması;
 4. USB klavyenin Windows'ta HID Keyboard olarak görünmesi ve tuş üretmesi.

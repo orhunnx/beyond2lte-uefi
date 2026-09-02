@@ -314,6 +314,26 @@ arayüz hatası artık yanıltıcı `Win32=0` göstermez. USB hatasının ana ak
 `:Finish` etiketine atıp touch kurulumunu engellemesi de kaldırıldı; touch ve
 UFS tanıları USB sonucundan bağımsız ilerler.
 
+Sonraki cihaz ölçümünde bu düzeltme doğrulandı: `ACPI\BYN0002` parent
+`Started`, interface erişilebilir ve URS rol sonucu
+`requested=HOST current=HOST last_ntstatus=0` oldu. Host child
+`URS\VEN_BYN&DEV_0002&HOST` oluşturuldu fakat Microsoft `USBXHCI` yığını
+`Code 10 / CM_PROB_FAILED_START`, problem status `0xC000009E`
+(`STATUS_DEVICE_POWER_FAILURE`) verdi. Son snapshot'ta `USBSTS=1`, yani xHCI
+halted kaldı. Bu yeni sınır rol isteğinin değil DWC_usb31 core/xHCI handoff'un
+başarısız olduğunu gösterir.
+
+DWC_usb31 rol değiştirme akışına eksik core-clock senkronizasyonu eklendi:
+eski controller halt edildikten ve USB2 PHY açıldıktan sonra
+`GCTL.CORESOFTRESET` 100 ms tutulur, readback ile doğrulanıp temizlenir ve
+`PRTCAP` ancak bundan sonra HOST/DEVICE yapılır. Süre upstream DWC3'ün eski
+DWC_usb31 rol değiştirme yoluyla eşleşir. Yeni `0.1.0.2` tanısı core reset
+sayısını, DWC3 version/GUSB2/GUSB3 registerlerini, xHCI capability, HCSPARAMS1,
+HCCPARAMS1, USBCMD, USBSTS ve PAGESIZE değerlerini basar. `startnet.cmd` ayrıca
+host child servis/stack/driver/resource listesini toplar; yeni deneme yine
+`Code 10` verirse core-reset ve interrupt/resource hipotezleri fotoğraftan
+ayrıştırılabilir.
+
 Bu aşama HID için gereken Windows host yazılım zincirini hazırlar ama fiziksel
 başarı iddiası değildir. SuperSpeed portu combo PHY abort'u nedeniyle sürücüde
 kapalıdır. MAX77705/UcmCx olmadığı için ilk HID testi haricen beslenen USB2 hub

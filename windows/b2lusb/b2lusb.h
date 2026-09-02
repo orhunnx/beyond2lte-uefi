@@ -22,6 +22,7 @@ typedef struct _B2L_USB_CONTEXT {
     PULONG PmuUsbPhy;
     ULONG Dwc3Length;
     ULONG PhyLength;
+    ULONG CoreResetCount;
     BOOLEAN HardwareReady;
     B2L_USB_ROLE RequestedRole;
     B2L_USB_ROLE CurrentRole;

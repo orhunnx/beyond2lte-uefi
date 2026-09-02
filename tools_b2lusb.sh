@@ -178,7 +178,7 @@ fi
 MANIFEST="$OUT/b2lusb-manifest.txt"
 {
   echo "B2LUSB_PACKAGE=exynos9820-kmdf-urs-usb2-host-bringup"
-  echo "B2LUSB_DRIVER_VERSION=0.1.0.1"
+  echo "B2LUSB_DRIVER_VERSION=0.1.0.2"
   echo "B2LUSB_ACPI_ID=ACPI\\BYN0002"
   echo "B2LUSB_HOST_ID=URS\\BYN0002&HOST"
   echo "B2LUSB_SUPERSPEED=DISABLED_UNTIL_COMBO_PMA_SAFE"
@@ -196,6 +196,7 @@ bash "$HERE/tools_winpe_ui_scale.sh"
 CHECK="$(mktemp -d)"
 for InboxPath in \
   /Windows/System32/drivers/UrsCx01000.sys \
+  /Windows/System32/drivers/Ucx01000.sys \
   /Windows/System32/drivers/USBXHCI.SYS \
   /Windows/System32/drivers/USBHUB3.SYS; do
   rm -rf "$CHECK"/*

@@ -3,6 +3,9 @@
 #define B2L_DWC3_GCTL                 0xC110UL
 #define B2L_DWC3_GSTS                 0xC118UL
 #define B2L_DWC3_GSNPSID              0xC120UL
+#define B2L_DWC3_VER_NUMBER           0xC1A0UL
+#define B2L_DWC3_GUSB2PHYCFG0         0xC200UL
+#define B2L_DWC3_GUSB3PIPECTL0        0xC2C0UL
 #define B2L_DWC3_DCTL                 0xC704UL
 #define B2L_DWC3_DSTS                 0xC70CUL
 
@@ -10,6 +13,7 @@
 #define B2L_DWC3_ID_USB3              0x55330000UL
 #define B2L_DWC3_ID_USB31             0x33310000UL
 #define B2L_DWC3_ID_USB32             0x33320000UL
+#define B2L_DWC3_GCTL_CORESOFTRESET   (1UL << 11)
 #define B2L_DWC3_GCTL_PRTCAP_MASK     (3UL << 12)
 #define B2L_DWC3_GCTL_PRTCAP_HOST     (1UL << 12)
 #define B2L_DWC3_GCTL_PRTCAP_DEVICE   (2UL << 12)
@@ -19,7 +23,12 @@
 #define B2L_DWC3_DCTL_RUN_STOP        (1UL << 31)
 #define B2L_DWC3_DSTS_DEVCTRLHLT      (1UL << 22)
 
+#define B2L_XHCI_CAPLENGTH            0x00UL
+#define B2L_XHCI_HCSPARAMS1           0x04UL
+#define B2L_XHCI_HCCPARAMS1           0x10UL
+#define B2L_XHCI_USBCMD               0x00UL
 #define B2L_XHCI_USBSTS               0x04UL
+#define B2L_XHCI_PAGESIZE             0x08UL
 #define B2L_XHCI_USBSTS_HCH           (1UL << 0)
 #define B2L_XHCI_CAPLENGTH_MIN        0x20U
 #define B2L_XHCI_CAPLENGTH_MAX        0x80U
@@ -80,6 +89,7 @@
 
 #define B2L_ROLE_WAIT_ITERATIONS       2000UL
 #define B2L_ROLE_WAIT_US               10UL
+#define B2L_DWC3_ROLE_RESET_MS          100UL
 
 static ULONG
 B2lRead32(
@@ -130,6 +140,46 @@ B2lWaitDwc3Mode(
     }
 
     return STATUS_IO_TIMEOUT;
+}
+
+static NTSTATUS
+B2lResetDwc3RoleCore(
+    PB2L_USB_CONTEXT Context
+    )
+{
+    LARGE_INTEGER Delay;
+    ULONG Gctl;
+
+    // DWC_usb31 needs its internal clocks synchronized when changing roles.
+    // Keep the core in reset for the conservative interval used by the
+    // upstream DWC3 role-switch path, then hand a quiescent core to USBXHCI.
+    Gctl = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL);
+    B2lWrite32(
+        Context->Dwc3Registers,
+        B2L_DWC3_GCTL,
+        Gctl | B2L_DWC3_GCTL_CORESOFTRESET
+        );
+    if ((B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL) &
+         B2L_DWC3_GCTL_CORESOFTRESET) == 0) {
+        return STATUS_DEVICE_HARDWARE_ERROR;
+    }
+
+    Delay.QuadPart = -((LONGLONG)B2L_DWC3_ROLE_RESET_MS * 10LL * 1000LL);
+    (VOID)KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+
+    Gctl = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL);
+    B2lWrite32(
+        Context->Dwc3Registers,
+        B2L_DWC3_GCTL,
+        Gctl & ~B2L_DWC3_GCTL_CORESOFTRESET
+        );
+    if ((B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL) &
+         B2L_DWC3_GCTL_CORESOFTRESET) != 0) {
+        return STATUS_IO_TIMEOUT;
+    }
+
+    ++Context->CoreResetCount;
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS
@@ -405,6 +455,11 @@ B2lUsbHardwareSetRole(
         }
 
         B2lUsb2PhyEnable(Context, Role);
+        Status = B2lResetDwc3RoleCore(Context);
+        if (!NT_SUCCESS(Status)) {
+            B2lUsb2PhyDisable(Context);
+            return Status;
+        }
         Gctl = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL);
         Gctl &= ~B2L_DWC3_GCTL_PRTCAP_MASK;
         Gctl |= B2L_DWC3_GCTL_PRTCAP_HOST;
@@ -426,6 +481,11 @@ B2lUsbHardwareSetRole(
         }
 
         B2lUsb2PhyEnable(Context, Role);
+        Status = B2lResetDwc3RoleCore(Context);
+        if (!NT_SUCCESS(Status)) {
+            B2lUsb2PhyDisable(Context);
+            return Status;
+        }
         Gctl = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL);
         Gctl &= ~B2L_DWC3_GCTL_PRTCAP_MASK;
         Gctl |= B2L_DWC3_GCTL_PRTCAP_DEVICE;
@@ -451,11 +511,27 @@ B2lUsbHardwareGetStatus(
     Status->Flags |= B2L_USB_STATUS_HARDWARE_READY |
                      B2L_USB_STATUS_USB2_ONLY |
                      B2L_USB_STATUS_MANUAL_URS;
+    Status->CoreResetCount = Context->CoreResetCount;
+    if (Context->CoreResetCount != 0) {
+        Status->Flags |= B2L_USB_STATUS_CORE_RESET;
+    }
     Status->GsnpsId = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GSNPSID);
+    Status->Dwc3VerNumber = B2lRead32(
+        Context->Dwc3Registers,
+        B2L_DWC3_VER_NUMBER
+        );
     Status->Gctl = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL);
     Status->Gsts = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GSTS);
     Status->Dctl = B2lRead32(Context->Dwc3Registers, B2L_DWC3_DCTL);
     Status->Dsts = B2lRead32(Context->Dwc3Registers, B2L_DWC3_DSTS);
+    Status->Dwc3Gusb2PhyCfg = B2lRead32(
+        Context->Dwc3Registers,
+        B2L_DWC3_GUSB2PHYCFG0
+        );
+    Status->Dwc3Gusb3PipeCtl = B2lRead32(
+        Context->Dwc3Registers,
+        B2L_DWC3_GUSB3PIPECTL0
+        );
     Status->PhyLinkCtrl = B2lRead32(Context->PhyRegisters, B2L_PHY_LINK_CTRL);
     Status->PhyClkRst = B2lRead32(Context->PhyRegisters, B2L_PHY_CLKRST);
     Status->PhyUtmi = B2lRead32(Context->PhyRegisters, B2L_PHY_UTMI);
@@ -467,7 +543,32 @@ B2lUsbHardwareGetStatus(
 
     UsbStatus = 0;
     if (NT_SUCCESS(B2lReadXhciUsbStatus(Context, &UsbStatus))) {
+        UCHAR CapLength;
+
+        CapLength = READ_REGISTER_UCHAR(
+            (volatile UCHAR *)Context->Dwc3Registers
+            );
+        Status->XhciCapability = B2lRead32(
+            Context->Dwc3Registers,
+            B2L_XHCI_CAPLENGTH
+            );
+        Status->XhciHcsParams1 = B2lRead32(
+            Context->Dwc3Registers,
+            B2L_XHCI_HCSPARAMS1
+            );
+        Status->XhciHccParams1 = B2lRead32(
+            Context->Dwc3Registers,
+            B2L_XHCI_HCCPARAMS1
+            );
+        Status->XhciUsbCmd = B2lRead32(
+            Context->Dwc3Registers,
+            (ULONG)CapLength + B2L_XHCI_USBCMD
+            );
         Status->XhciUsbSts = UsbStatus;
+        Status->XhciPageSize = B2lRead32(
+            Context->Dwc3Registers,
+            (ULONG)CapLength + B2L_XHCI_PAGESIZE
+            );
         if ((UsbStatus & B2L_XHCI_USBSTS_HCH) != 0) {
             Status->Flags |= B2L_USB_STATUS_XHCI_HALTED;
         }

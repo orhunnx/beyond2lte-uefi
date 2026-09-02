@@ -82,9 +82,18 @@ if not exist "%SystemRoot%\System32\drivers\UrsCx01000.sys" (
   echo HATA: Microsoft UrsCx01000.sys runtime yok.
   exit /b 1
 )
+if not exist "%SystemRoot%\System32\drivers\Ucx01000.sys" (
+  echo HATA: Microsoft Ucx01000.sys xHCI class extension yok.
+  exit /b 1
+)
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\UrsCx01000" >nul 2>&1
 if errorlevel 1 (
   echo HATA: Microsoft UrsCx01000 servis kaydi yok.
+  exit /b 1
+)
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\Ucx01000" >nul 2>&1
+if errorlevel 1 (
+  echo HATA: Microsoft Ucx01000 servis kaydi yok.
   exit /b 1
 )
 echo Paket kimligi:
@@ -119,7 +128,7 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
     )
     timeout /t 2 /nobreak >nul 2>&1
     pnputil /scan-devices >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
-    pnputil /enum-devices /deviceid "URS\BYN0002&HOST" >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
+    pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /enum-devices /class USB >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /enum-devices /class HIDClass >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     "%B2LUSBDIR%\b2lusbctl.exe" status > "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" 2>&1

@@ -9,7 +9,7 @@ DEFINE_GUID(
     0x43eb6f1d, 0x81b9, 0x4e9a, 0x93, 0xd4, 0x76, 0xc7, 0xe0, 0x2c, 0x1b, 0xf4
     );
 
-#define B2L_USB_IOCTL_VERSION 1UL
+#define B2L_USB_IOCTL_VERSION 2UL
 
 typedef enum _B2L_USB_ROLE {
     B2lUsbRoleNone = 0,
@@ -21,6 +21,7 @@ typedef enum _B2L_USB_ROLE {
 #define B2L_USB_STATUS_USB2_ONLY      0x00000002UL
 #define B2L_USB_STATUS_MANUAL_URS     0x00000004UL
 #define B2L_USB_STATUS_XHCI_HALTED    0x00000008UL
+#define B2L_USB_STATUS_CORE_RESET     0x00000010UL
 
 typedef struct _B2L_USB_SET_ROLE_INPUT {
     ULONG Version;
@@ -35,12 +36,21 @@ typedef struct _B2L_USB_STATUS {
     B2L_USB_ROLE CurrentRole;
     LONG LastRoleStatus;
     ULONG Flags;
+    ULONG CoreResetCount;
     ULONG GsnpsId;
+    ULONG Dwc3VerNumber;
     ULONG Gctl;
     ULONG Gsts;
     ULONG Dctl;
     ULONG Dsts;
+    ULONG Dwc3Gusb2PhyCfg;
+    ULONG Dwc3Gusb3PipeCtl;
+    ULONG XhciCapability;
+    ULONG XhciHcsParams1;
+    ULONG XhciHccParams1;
+    ULONG XhciUsbCmd;
     ULONG XhciUsbSts;
+    ULONG XhciPageSize;
     ULONG PhyLinkCtrl;
     ULONG PhyClkRst;
     ULONG PhyUtmi;

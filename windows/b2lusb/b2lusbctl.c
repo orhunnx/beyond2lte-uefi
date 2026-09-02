@@ -144,10 +144,18 @@ B2lShowStatus(
         B2lRoleName(Status.CurrentRole),
         (ULONG)Status.LastRoleStatus,
         Status.Flags);
-    wprintf(L"DWC3 id=%08lX gctl=%08lX gsts=%08lX dctl=%08lX dsts=%08lX\n",
-        Status.GsnpsId, Status.Gctl, Status.Gsts, Status.Dctl, Status.Dsts);
-    wprintf(L"xHCI usbsts=%08lX  PHY link=%08lX clkrst=%08lX utmi=%08lX\n",
-        Status.XhciUsbSts, Status.PhyLinkCtrl, Status.PhyClkRst, Status.PhyUtmi);
+    wprintf(L"DWC3 id=%08lX ver=%08lX resets=%lu\n",
+        Status.GsnpsId, Status.Dwc3VerNumber, Status.CoreResetCount);
+    wprintf(L"DWC3 gctl=%08lX gsts=%08lX dctl=%08lX dsts=%08lX\n",
+        Status.Gctl, Status.Gsts, Status.Dctl, Status.Dsts);
+    wprintf(L"DWC3 gusb2=%08lX gusb3=%08lX\n",
+        Status.Dwc3Gusb2PhyCfg, Status.Dwc3Gusb3PipeCtl);
+    wprintf(L"xHCI cap=%08lX hcs1=%08lX hcc1=%08lX\n",
+        Status.XhciCapability, Status.XhciHcsParams1, Status.XhciHccParams1);
+    wprintf(L"xHCI cmd=%08lX sts=%08lX page=%08lX\n",
+        Status.XhciUsbCmd, Status.XhciUsbSts, Status.XhciPageSize);
+    wprintf(L"PHY link=%08lX clkrst=%08lX utmi=%08lX\n",
+        Status.PhyLinkCtrl, Status.PhyClkRst, Status.PhyUtmi);
     wprintf(L"PHY hsp=%08lX tune=%08lX  PMU[1586072C]=%08lX\n",
         Status.PhyHsp, Status.PhyHspTune, Status.PmuUsbPhy);
     return 0;

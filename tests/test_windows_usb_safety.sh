@@ -71,6 +71,14 @@ grep -q 'B2L_HSP_TUNE_TXPREEMPA(3)' "$WIN/b2lusb_hw.c"
 grep -q 'B2L_HSP_TUNE_COMPDIS(7)' "$WIN/b2lusb_hw.c"
 grep -q 'B2lRequireXhciHalted' "$WIN/b2lusb_hw.c"
 grep -q 'B2lStopDeviceController' "$WIN/b2lusb_hw.c"
+grep -q '#define B2L_DWC3_GCTL_CORESOFTRESET' "$WIN/b2lusb_hw.c"
+grep -q '#define B2L_DWC3_ROLE_RESET_MS          100UL' "$WIN/b2lusb_hw.c"
+grep -q 'B2lResetDwc3RoleCore' "$WIN/b2lusb_hw.c"
+grep -q 'KeDelayExecutionThread' "$WIN/b2lusb_hw.c"
+test "$(rg -c 'Status = B2lResetDwc3RoleCore' "$WIN/b2lusb_hw.c")" -eq 2
+grep -q 'B2L_USB_STATUS_CORE_RESET' "$WIN/b2lusb_public.h"
+grep -q 'XhciUsbCmd' "$WIN/b2lusb_public.h"
+grep -q 'Dwc3Gusb2PhyCfg' "$WIN/b2lusb_public.h"
 
 grep -Fq 'urs\1.0\UrsCxStub.lib' "$WIN/build-b2lusb.ps1"
 grep -Fq 'km\urs\1.0\UrsCx.h' "$WIN/build-b2lusb.ps1"
@@ -81,6 +89,7 @@ grep -q '/machine:arm64' "$WIN/build-b2lusb.ps1"
 grep -q '/MT ' "$WIN/build-b2lusb.ps1"
 grep -q 'build-b2lusb.ps1' "$ROOT/tools_b2lusb.sh"
 grep -q 'UrsCx01000.sys' "$ROOT/tools_b2lusb.sh"
+grep -q 'Ucx01000.sys' "$ROOT/tools_b2lusb.sh"
 grep -q 'tools_winpe_urs_runtime.sh' "$ROOT/tools_b2lusb.sh"
 grep -q 'tools_winpe_ui_scale.sh' "$ROOT/tools_b2lusb.sh"
 grep -q 'B2LUI_SCALE_PERCENT=\$SCALE_PERCENT' "$ROOT/tools_winpe_ui_scale.sh"
@@ -117,10 +126,12 @@ if grep -A4 'call :B2LUsbInstall' "$ROOT/windows/startnet.cmd" | grep -q 'goto :
 fi
 grep -q 'UYARI: B2LUSB basarisiz; touch ve UFS tanisi yine de surdurulecek' "$ROOT/windows/startnet.cmd"
 grep -Fq 'Services\UrsCx01000' "$ROOT/windows/startnet.cmd"
+grep -Fq 'Services\Ucx01000' "$ROOT/windows/startnet.cmd"
 grep -q 'b2lusbctl.exe" status' "$ROOT/windows/startnet.cmd"
 test "$(rg -c 'b2lusbctl\.exe" host' "$ROOT/windows/startnet.cmd")" -eq 1
 grep -q 'if exist "%B2LUSBDIR%\\auto-host.test"' "$ROOT/windows/startnet.cmd"
 grep -A5 'if exist "%B2LUSBDIR%\\auto-host.test"' "$ROOT/windows/startnet.cmd" | grep -q 'b2lusbctl.exe" host'
+grep -Fq '/services /stack /drivers /resources' "$ROOT/windows/startnet.cmd"
 grep -q 'LogPixels /t REG_DWORD /d 168' "$ROOT/windows/startnet.cmd"
 grep -q 'mode con: cols=64 lines=41' "$ROOT/windows/startnet.cmd"
 
