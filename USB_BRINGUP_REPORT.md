@@ -392,6 +392,23 @@ geçmişinde guard'ların kaldırıldığı bir değişiklik yoktur; `DEVIR.md` 
 kaldırma maddesi uygulanmamış deney planı olarak kalmıştır. WinPE'nin kararlı
 açılışı bu korumaya bağlı olduğundan USB turunda bellek haritası korunur.
 
+`0.1.0.4` cihaz ölçümü guard/DMA ayrımını sonuçlandırdı. KMDF canary'nin
+64-bit enabler ve buffer çağrıları başarı döndürdü; device-logical adres
+`0x00000009_7FE9F000` oldu. Ayrı 32-bit profil de başarıyla
+`0x00000000_CFEFF000` adresini aldı. Dolayısıyla guard'lar açıkken 4 GiB altı
+64 KiB common buffer sağlanabiliyor; banka guard'ları mevcut USBXHCI başlatma
+hatasının doğrudan nedeni değildir ve kaldırılmayacaktır.
+
+Aynı ölçüm yeni ve daha erken bir sınır gösterdi: host child bu turda
+`Code 14 / CM_PROB_NEED_RESTART` kaldı. Filter'ın `AddSeen=1` ve
+`DmaProbeSeen=1` kayıtlarına karşılık `PrepareSeen=0`, `D0EntrySeen=0` olması,
+binary'nin yüklendiğini fakat filter eklenen mevcut devnode'un StartDevice
+aşamasına geçirilmediğini kanıtlar. `0.1.0.5` otomatik testte önce URS
+`NONE` olayıyla eski HOST child stack'ini kaldırır, rol değişimini 10 saniyelik
+sınırlı yoklamayla doğrular ve ardından HOST child'ını yeniden yaratır. Son
+olarak yalnız `URS\BYN0002&HOST` device ID'sine `pnputil /restart-device`
+uygulanır; tüm sistemi yeniden başlatan `/reboot` seçeneği kullanılmaz.
+
 Bu aşama HID için gereken Windows host yazılım zincirini hazırlar ama fiziksel
 başarı iddiası değildir. SuperSpeed portu combo PHY abort'u nedeniyle sürücüde
 kapalıdır. MAX77705/UcmCx olmadığı için ilk HID testi haricen beslenen USB2 hub
@@ -409,6 +426,10 @@ Detaylı test sözleşmesi `windows/b2lusb/README.md` içindedir.
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-dual-role-driver-stack-architecture>
 - Microsoft USBXHCI/UCX ETW yakalama yöntemi:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/how-to-capture-a-usb-event-trace>
+- Microsoft `Code 14 / CM_PROB_NEED_RESTART` açıklaması:
+  <https://learn.microsoft.com/en-us/windows-hardware/drivers/install/cm-prob-need-restart>
+- Microsoft hedefli `pnputil /restart-device` sözdizimi:
+  <https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax>
 - Microsoft ARM/ARM64 ACPI `_CCA` common-buffer davranışı:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nc-wdm-pallocate_common_buffer_ex>
 - Microsoft USB function controller/UFX mimarisi:

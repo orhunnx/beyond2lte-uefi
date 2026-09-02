@@ -25,8 +25,8 @@ fi
 grep -Fq 'ACPI\BYN0002' "$PARENT_INF"
 grep -q 'KmdfLibraryVersion=1.15' "$PARENT_INF"
 grep -Fq 'URS\BYN0002&HOST' "$HOST_INF"
-grep -q 'DriverVer=09/03/2026,0.1.0.4' "$PARENT_INF"
-grep -q 'DriverVer=09/03/2026,0.1.0.4' "$HOST_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.5' "$PARENT_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.5' "$HOST_INF"
 grep -qi 'Include=usbxhci.inf' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT.Services' "$HOST_INF"
@@ -123,7 +123,7 @@ grep -q 'LOG_PIXELS=168' "$ROOT/tools_winpe_ui_scale.sh"
 grep -Fq 'Control Panel\Desktop' "$ROOT/tools_winpe_ui_scale.sh"
 grep -q 'B2L_USB_AUTO_HOST="${B2L_USB_AUTO_HOST:-1}"' "$ROOT/yap.sh"
 grep -q 'B2LUSB_AUTO_HOST=\$AUTO_HOST' "$ROOT/tools_b2lusb.sh"
-grep -q 'B2LUSB_DRIVER_VERSION=0.1.0.4' "$ROOT/tools_b2lusb.sh"
+grep -q 'B2LUSB_DRIVER_VERSION=0.1.0.5' "$ROOT/tools_b2lusb.sh"
 grep -q 'B2LUSB_MON_SHA256=' "$ROOT/tools_b2lusb.sh"
 grep -q 'b2lusbmon.sys' "$WIN/build-b2lusb.ps1"
 grep -q 'b2lusbmon.sys' "$ROOT/tools_b2lusb.sh"
@@ -159,8 +159,17 @@ grep -Fq 'Services\UrsCx01000' "$ROOT/windows/startnet.cmd"
 grep -Fq 'Services\Ucx01000' "$ROOT/windows/startnet.cmd"
 grep -q 'b2lusbctl.exe" status' "$ROOT/windows/startnet.cmd"
 test "$(rg -c 'b2lusbctl\.exe" host' "$ROOT/windows/startnet.cmd")" -eq 1
+test "$(rg -c 'b2lusbctl\.exe" none' "$ROOT/windows/startnet.cmd")" -eq 1
 grep -q 'if exist "%B2LUSBDIR%\\auto-host.test"' "$ROOT/windows/startnet.cmd"
-grep -A5 'if exist "%B2LUSBDIR%\\auto-host.test"' "$ROOT/windows/startnet.cmd" | grep -q 'b2lusbctl.exe" host'
+grep -A35 'if exist "%B2LUSBDIR%\\auto-host.test"' "$ROOT/windows/startnet.cmd" | grep -q 'b2lusbctl.exe" host'
+grep -Fq 'call :B2LUsbWaitRole NONE' "$ROOT/windows/startnet.cmd"
+grep -Fq 'call :B2LUsbWaitRole HOST' "$ROOT/windows/startnet.cmd"
+grep -Fq 'if %B2LUSBWAITCOUNT% GEQ 10' "$ROOT/windows/startnet.cmd"
+grep -Fq 'pnputil /restart-device /deviceid "URS\BYN0002&HOST"' "$ROOT/windows/startnet.cmd"
+if rg -n 'restart-device.*(/reboot|/force)' "$ROOT/windows/startnet.cmd"; then
+  echo 'HATA: USB child restart tam sistem rebootu veya force istememeli' >&2
+  exit 1
+fi
 grep -Fq '/services /stack /drivers /resources' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LUSB-HOST-RESOURCES.TXT' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LUSB-HOST-MONITOR.TXT' "$ROOT/windows/startnet.cmd"

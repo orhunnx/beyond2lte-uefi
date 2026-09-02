@@ -109,6 +109,22 @@ MMIO ile GSIV 273'ün child'a ulaşıp ulaşmadığı kesinleşir. Aynı sürüm
 penceresini 12 DWORD'a çıkararak legacy, USB2 ve eksik kalan USB3 Supported
 Protocol bloklarını birlikte gösterir.
 
+`0.1.0.4` cihaz ölçümünde iki common-buffer denemesi de başarılı oldu.
+64-bit device-logical adres `0x00000009_7FE9F000`, 32-bit adres ise
+`0x00000000_CFEFF000` olarak döndü; ikisinde de enabler/buffer NTSTATUS
+başarıydı. Böylece aktif MemoryMap guard'larının DMA tahsisini engellediği
+veya 4 GiB altında kullanılabilir DMA havuzu bulunmadığı hipotezleri kapandı.
+Buna
+karşılık host child `Code 14 / CM_PROB_NEED_RESTART` durumundaydı;
+`B2LMonAddSeen=1` olmasına rağmen `PrepareHardware=0`, `D0Entry=0` kaldı.
+
+`0.1.0.5` tam sistem rebootu istemeden bu kurulum durumunu temizler. Otomatik
+test önce `NONE` olayıyla mevcut HOST child'ını kaldırır, parent'ın gerçekten
+`current=NONE` olmasını en fazla 10 saniye bekler, sonra yeni HOST child'ı
+oluşturur. Ardından yalnız `URS\BYN0002&HOST` eşleşmesine hedefli
+`pnputil /restart-device` uygular. Restart başarısız olsa bile `/reboot` veya
+`/force` kullanılmaz; tanı ve CACHE aktarımı devam eder.
+
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
 DEFAULT hive ve WIM geri-okuma doğrulaması `tools_winpe_ui_scale.sh` içindedir.
