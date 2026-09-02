@@ -73,7 +73,8 @@ done
 if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
 
 #
-# --baseline: Windows'un kendisi disinda B2L tani kodu calistirmayan ESP.
+# --baseline: B2L UEFI tani kodu calistirmayan Windows ESP. Imzali Windows
+# surucu paketleri boot.wim icinde kalir ve startnet.cmd tarafindan kurulur.
 #
 # Bu mod B2LGOSTR.EFI ve EBSTEST.EFI'yi imaja ALMAZ, normal startup.nsh
 # yerine yalnizca bootmgfw.efi'yi bulan kucuk baslangic betigini koyar.
@@ -109,7 +110,7 @@ if [ "$BOSALT" = 1 ] && [ "$BIGPART" = 1 ]; then
 fi
 if [ "$WINONLY" = 1 ]; then say "MOD: Windows"; else say "MOD: Linux"; fi
 if [ "$BASELINE" = 1 ]; then
-  say "MOD: Windows temiz taban (B2L tani yok)"
+  say "MOD: Windows temiz taban (B2L UEFI tani yok; Windows suruculeri etkin)"
 fi
 if [ "$PSCI_HVC" = 1 ]; then
   [ -s "$PROJ/esp/B2LGOSTR.EFI" ] || {
@@ -358,14 +359,7 @@ verify_winpe_b2lufs_package() {
 verify_winpe_b2ltouch_package() {
   local VerifyDir ExpectedSys ManifestSys OskDir OskManifestDir ExpectedOsk ManifestOsk
 
-  if [ ! -s "$PROJ/out/b2ltouch/b2ltouch.sys" ]; then
-    if [ -s "$PROJ/esp/B2LUSB.EFI" ]; then
-      echo "HATA: USB tani paketi Windows dokunmatigi korumali; b2ltouch.sys yok."
-      echo "Once WSL'de: bash tools_b2ltouch.sh"
-      return 1
-    fi
-    return 0
-  fi
+  [ -s "$PROJ/out/b2ltouch/b2ltouch.sys" ] || return 0
   [ -s "$PROJ/esp/sources/boot.wim" ] || {
     echo "HATA: B2LTOUCH SYS var ama boot.wim yok. Once tools_b2ltouch.sh calistir."
     return 1
@@ -438,9 +432,66 @@ verify_winpe_b2ltouch_package() {
   fi
 }
 
+# A --usb-test build now produces both the staged UEFI diagnostic and the
+# Windows ARM64 URS package.  Baseline deliberately omits B2LUSB.EFI, but it
+# must retain the exact driver build injected into boot.wim.
+verify_winpe_b2lusb_package() {
+  local VerifyDir ExpectedSys ManifestSys ExpectedCtl ManifestCtl
+
+  if [ ! -s "$PROJ/out/b2lusb/b2lusb.sys" ]; then
+    if [ -s "$PROJ/esp/B2LUSB.EFI" ]; then
+      echo "HATA: --usb-test turu var ama Windows B2LUSB paketi yok."
+      echo "Once WSL'de: bash tools_b2lusb.sh"
+      return 1
+    fi
+    return 0
+  fi
+  [ -s "$PROJ/out/b2lusb/b2lusbctl.exe" ] || {
+    echo "HATA: b2lusb.sys var ama b2lusbctl.exe yok."
+    return 1
+  }
+  [ -s "$PROJ/esp/sources/boot.wim" ] || {
+    echo "HATA: B2LUSB ciktilari var ama boot.wim yok. Once tools_b2lusb.sh calistir."
+    return 1
+  }
+  command -v wimlib-imagex >/dev/null || {
+    echo "HATA: B2LUSB WIM kapisi icin wimlib-imagex gerekli."
+    return 1
+  }
+
+  VerifyDir="$(mktemp -d)" || return 1
+  if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
+      /Windows/B2LUSB/manifest.txt --dest-dir="$VerifyDir" --no-acls >/dev/null; then
+    rm -rf "$VerifyDir"
+    echo "HATA: boot.wim'de B2LUSB manifest yok; eski WIM reddedildi."
+    echo "Once: B2L_SKIP_MSVC_BUILD=1 bash tools_b2lusb.sh"
+    return 1
+  fi
+
+  ExpectedSys="$(sha256sum "$PROJ/out/b2lusb/b2lusb.sys" | awk '{print $1}')"
+  ManifestSys="$(sed -n 's/^B2LUSB_SYS_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+  ExpectedCtl="$(sha256sum "$PROJ/out/b2lusb/b2lusbctl.exe" | awk '{print $1}')"
+  ManifestCtl="$(sed -n 's/^B2LUSB_CTL_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+  rm -rf "$VerifyDir"
+  if [ "$ManifestSys" != "$ExpectedSys" ] || [ "$ManifestCtl" != "$ExpectedCtl" ]; then
+    echo "HATA: boot.wim B2LUSB hash'leri yerel ARM64 ciktilarla ayni degil."
+    echo "  SYS WIM: ${ManifestSys:-YOK}"
+    echo "  SYS OUT: $ExpectedSys"
+    echo "  CTL WIM: ${ManifestCtl:-YOK}"
+    echo "  CTL OUT: $ExpectedCtl"
+    echo "Once: B2L_SKIP_MSVC_BUILD=1 bash tools_b2lusb.sh"
+    return 1
+  fi
+
+  say "WinPE B2LUSB Windows paketi dogrulandi"
+  echo "  SYS SHA256: ${ExpectedSys:0:16}"
+  echo "  CTL SHA256: ${ExpectedCtl:0:16}"
+}
+
 if [ "$WINONLY" = 1 ]; then
   verify_winpe_b2lufs_package
   verify_winpe_b2ltouch_package
+  verify_winpe_b2lusb_package
 fi
 
 IMG="$OUT/$PART.img"
@@ -483,7 +534,7 @@ if command -v mcopy >/dev/null; then
     [ -e "$f" ] || continue
     if [ "$BASELINE" = 1 ]; then
       case "$b" in
-        B2LGOSTR.EFI|EBSTEST.EFI)
+        B2LGOSTR.EFI|B2LUSB.EFI|B2LTOUCH.EFI|EBSTEST.EFI)
           echo "  - $b (atlandi: temiz taban)"
           continue
           ;;
@@ -556,7 +607,7 @@ fi
 # ikisini tek Odin AP arsivinde birlestir. Boylece ayni turun iki ayri tar ile
 # karistirilma riski kalmaz. Yalnizca daha once uretilen kendi BOOT arsimizi
 # acar; cihazda veya baska bolumlerde herhangi bir islem yapmaz.
-if [ "$PART" = system ] && [ -s "$PROJ/esp/B2LTOUCH.EFI" ] && \
+if [ "$BASELINE" = 0 ] && [ "$PART" = system ] && [ -s "$PROJ/esp/B2LTOUCH.EFI" ] && \
    [ -s "$OUT/uefi-boot.tar" ]; then
   if tar -tf "$OUT/uefi-boot.tar" | grep -qx 'boot.img'; then
     tar -xf "$OUT/uefi-boot.tar" -C "$WORK" boot.img
@@ -573,7 +624,7 @@ fi
 # DWC3/PHY ve korunmus R8 HSI2C45 pencerelerini esler; R11 B2LUSB.EFI ise
 # asamali olcum ve korumali HS-PHY/event-DMA probunu yapar. Iki dosyanin farkli
 # turlardan kalmasini onlemek icin tek Odin AP arsivi uret.
-if [ "$PART" = system ] && [ -s "$PROJ/esp/B2LUSB.EFI" ]; then
+if [ "$BASELINE" = 0 ] && [ "$PART" = system ] && [ -s "$PROJ/esp/B2LUSB.EFI" ]; then
   if [ ! -s "$OUT/uefi-boot.tar" ]; then
     echo "HATA: B2LUSB.EFI var ama out/uefi-boot.tar yok; once yap.sh --usb-test calistir."
     rm -rf "$WORK"

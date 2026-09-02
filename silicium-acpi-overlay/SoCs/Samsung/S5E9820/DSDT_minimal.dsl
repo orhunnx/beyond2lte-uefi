@@ -251,6 +251,58 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             })
         }
 
+        // Exynos9820 DWC_usb31 dual-role controller.  BYN0002 is owned by
+        // b2lusb.sys, a KMDF URS client.  The parent keeps the Exynos PHY and
+        // PMU resources while URS passes the DWC3 window to exactly one child
+        // stack at a time.  SuperSpeed PCS/PMA windows are intentionally not
+        // exposed until accesses to 0x10AE0000/0x10AF0000 stop aborting.
+        Device (URS0)
+        {
+            Name (_HID, "BYN0002")
+            Name (_UID, Zero)
+            Name (_CCA, Zero)
+
+            Method (_STA, 0, NotSerialized)
+            {
+                Return (0x0F)
+            }
+
+            Name (_CRS, ResourceTemplate ()
+            {
+                Memory32Fixed (ReadWrite, 0x10C00000, 0x00010000)
+                Memory32Fixed (ReadWrite, 0x10B00000, 0x00000200)
+                Memory32Fixed (ReadWrite, 0x1586072C, 0x00000004)
+            })
+
+            // URS assigns URS\BYN0002&HOST to this child.  USBXHCI owns the
+            // controller interrupt only while the host role is active.
+            Device (USB0)
+            {
+                Name (_ADR, Zero)
+                Name (_CRS, ResourceTemplate ()
+                {
+                    // Stock DTB SPI 241 -> GIC GSIV 241 + 32 = 273.
+                    Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+                    {
+                        0x00000111
+                    }
+                })
+            }
+
+            // Reserved for UfxSynopsys/KDNET-EEM device-role bring-up.
+            Device (UFN0)
+            {
+                Name (_ADR, One)
+                Name (_CRS, ResourceTemplate ()
+                {
+                    Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+                    {
+                        0x00000111
+                    }
+                })
+            }
+        }
+
         // Device (UFS0)
         // {
         // //

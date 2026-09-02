@@ -6,7 +6,7 @@ WIN="$ROOT/windows/b2ltouch"
 DSDT="$ROOT/silicium-acpi-overlay/SoCs/Samsung/S5E9820/DSDT_minimal.dsl"
 INF="$WIN/b2ltouch.inf.in"
 
-TSP_BLOCK="$(sed -n '/Device (TSP0)/,/^[[:space:]]*\/\/ Device (UFS0)/p' "$DSDT")"
+TSP_BLOCK="$(sed -n '/Device (TSP0)/,/^[[:space:]]*\/\/ Exynos9820 DWC_usb31/p' "$DSDT")"
 test "$(printf '%s\n' "$TSP_BLOCK" | rg -c 'Memory32Fixed')" -eq 2
 printf '%s\n' "$TSP_BLOCK" | grep -q '0x104B0000, 0x00001000'
 printf '%s\n' "$TSP_BLOCK" | grep -q '0x10421000, 0x00001000'

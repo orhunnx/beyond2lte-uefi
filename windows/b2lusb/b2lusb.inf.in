@@ -1,0 +1,54 @@
+; Beyond2LTE Exynos9820 DWC3 dual-role controller (ARM64 only).
+; b2lusb.sys is the URS client; the role children use Microsoft inbox stacks.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=USB
+ClassGuid={36fc9e60-c465-11cf-8056-444553540000}
+Provider=%B2L%
+CatalogFile=b2lusb.cat
+DriverVer=09/02/2026,0.1.0.0
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir=12
+
+[SourceDisksNames]
+1=%B2LUsb.DiskName%,,,
+
+[SourceDisksFiles]
+b2lusb.sys=1
+
+[Manufacturer]
+%B2L%=B2L,NTarm64
+
+[B2L.NTarm64]
+%B2LUsb.DeviceDesc%=B2LUsb_Install,ACPI\BYN0002
+
+[B2LUsb_Install.NT]
+CopyFiles=B2LUsb_CopyFiles
+
+[B2LUsb_CopyFiles]
+b2lusb.sys
+
+[B2LUsb_Install.NT.Services]
+AddService=b2lusb,0x00000002,B2LUsb_Service
+
+[B2LUsb_Service]
+DisplayName=%B2LUsb.ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\b2lusb.sys
+
+[B2LUsb_Install.NT.Wdf]
+KmdfService=b2lusb,B2LUsb_Wdf
+
+[B2LUsb_Wdf]
+KmdfLibraryVersion=1.15
+
+[Strings]
+B2L="beyond2lte"
+B2LUsb.DeviceDesc="Beyond2LTE Exynos9820 USB Dual-Role Controller"
+B2LUsb.ServiceDesc="Beyond2LTE USB Role Switch Driver"
+B2LUsb.DiskName="Beyond2LTE USB driver package"

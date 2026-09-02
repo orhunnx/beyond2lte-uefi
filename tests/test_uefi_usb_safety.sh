@@ -117,7 +117,12 @@ fi
 grep -q 'bash yap.sh --touch --usb-test --clean' "$ROOT/BUILD.md"
 grep -q 'bash yap.sh --touch --usb-test --clean' \
   "$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Applications/B2LUsbTest/README.md"
-grep -q 'USB tani paketi Windows dokunmatigi korumali; b2ltouch.sys yok' "$ROOT/cache_esp.sh"
+if grep -q 'USB tani paketi Windows dokunmatigi korumali; b2ltouch.sys yok' "$ROOT/cache_esp.sh"; then
+  echo 'HATA: USB Windows paketi dokunmatik surucusune bagimli kalmis' >&2
+  exit 1
+fi
+grep -q 'verify_winpe_b2lusb_package' "$ROOT/cache_esp.sh"
+grep -q 'B2LGOSTR.EFI|B2LUSB.EFI|B2LTOUCH.EFI|EBSTEST.EFI' "$ROOT/cache_esp.sh"
 
 for Address in 10C00000 10B00000 10AE0000 10AF0000 15860000 15862200; do
   grep -q "$Address" "$APP"

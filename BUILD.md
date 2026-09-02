@@ -98,12 +98,22 @@ ayrı bir EFI Shell uygulamasıyla ölçülür:
 
 ```bash
 bash yap.sh --touch --usb-test --clean
-bash tools_b2ltouch.sh
 bash cache_esp.sh --win --system --baseline
 ```
 
+`--usb-test`, kendi başına da ACPI tablolarını yeniden derler. Aynı turda
+`B2LUSB.EFI` tanısını üretir ve `tools_b2lusb.sh` ile Windows ARM64 URS
+sürücüsünü, Microsoft USBXHCI host-child INF'ini ve `b2lusbctl.exe` aracını
+derleyip WinPE'ye yerleştirir. Bu Windows derlemesi WSL içinden
+`powershell.exe` üzerinden Windows MSVC/WDK ARM64 araçlarıyla yapılır; macOS
+desteklenen bir build ortamı değildir. Yalnız önceden üretilmiş ARM64
+çıktıları tekrar enjekte edilecekse `B2L_SKIP_MSVC_BUILD=1 bash
+tools_b2lusb.sh` kullanılabilir.
+
 `B2LUSB.EFI` SYSTEM ESP'ye konur ve `startup.nsh` tarafından Windows'tan önce
-çalıştırılır. R15 açılışta dokunmatik `CACHE USB DISK`, `USB TANILAMA` ve
+çalıştırılır. Baseline paketlemede tanı EFI'si bilerek dışarıda bırakılır;
+Windows sürücü paketi WIM içinde kalır. R15 açılışta dokunmatik
+`CACHE USB DISK`, `USB TANILAMA` ve
 `WINDOWS'A DEVAM` düğmelerini gösterir. CACHE içinde `SALT-OKUMA` veya ikinci
 bir dokunmatik onay gerektiren `OKUMA / YAZMA` seçilir. Dosya aktarımı bitince
 Windows'ta **Güvenle çıkar** yapılır, telefondaki bitirme düğmesine dokunulur ve
@@ -131,12 +141,11 @@ Platform memory map de değiştiği için `cache_esp.sh`, BOOT ve SYSTEM'i
 `out/beyond2lte-usb-diag.tar` içinde birleştirir. Odin AP alanına yalnız bu tek
 arşiv verilir; Re-Partition kapalı kalır.
 
-Bu üç komut WSL'de çalıştırılır. Birinci komuttaki `--touch`, BOOT içinde
-B2LTouchDxe, HSI2C hazırlığı ve TSP0 ACPI tanımını korurken `--usb-test` ayrı
-salt-okuma uygulamasını ekler. İkinci komut ARM64 `b2ltouch.sys` paketini
-WinPE'ye yeniden yerleştirir. USB tanı dosyası varken `cache_esp.sh`, yerel
-`b2ltouch.sys` yoksa veya WIM manifestindeki SYS özeti onunla aynı değilse
-flash arşivi üretmez.
+Bu iki komut WSL'de çalıştırılır. İlk komuttaki `--touch`, BOOT içinde
+B2LTouchDxe, HSI2C hazırlığı ve TSP0 ACPI tanımını korurken `--usb-test` USB
+tanısını ve Windows `b2lusb` paketini ekler. USB paketinin Windows touch
+sürücüsüne build veya paketleme bağımlılığı yoktur. `b2ltouch.sys` ayrıca
+yenilenecekse bağımsız olarak `bash tools_b2ltouch.sh` çalıştırılabilir.
 
 Sayfalar sırasıyla FSYS0A'nın doğrulanmış `CONFIG/STATUS/OPTION` alanlarını,
 PMU USB kontrollerini, DWC3+xHCI, device/OTG rolü, USB DRD PHY, combo PCS/PMA

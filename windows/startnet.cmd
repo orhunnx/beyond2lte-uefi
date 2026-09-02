@@ -1,11 +1,12 @@
 @echo off
 setlocal EnableExtensions
-title Beyond2LTE WinPE UFS + Touch
+title Beyond2LTE WinPE USB + UFS + Touch
 mode con: cols=112 lines=72 >nul 2>&1
 
 rem Klavye/dokunmatik zorunlu degildir; guvenli CACHE yazma testi otomatiktir.
 set "B2LUFSDIR=%SystemRoot%\B2LUFS"
 set "B2LTOUCHDIR=%SystemRoot%\B2LTOUCH"
+set "B2LUSBDIR=%SystemRoot%\B2LUSB"
 set "B2LTOUCHREADY=0"
 set "B2LCACHEMOUNT=%SystemDrive%\B2LCACHE-MOUNT.TXT"
 set "B2LCACHEVOLREPORT=%SystemDrive%\B2LCACHE-VOL.TXT"
@@ -14,6 +15,11 @@ echo.
 echo === Beyond2LTE WinPE UFS ===
 echo PnP baslatiliyor...
 %SystemRoot%\System32\wpeinit.exe
+
+echo.
+echo [B2LUSB kurulumu]
+call :B2LUsbInstall
+if errorlevel 1 goto :Finish
 
 echo.
 echo [B2LTOUCH kurulumu]
@@ -36,10 +42,50 @@ call :B2LUfsMountCache
 echo.
 echo === Test sonu ===
 echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
+if exist "%B2LUSBDIR%\b2lusbctl.exe" echo USB rol kontrolu: %B2LUSBDIR%\b2lusbctl.exe status^|host^|device^|none
 call :B2LTouchLaunchKeyboard
 echo Multi-touch testi gerekirse: %B2LTOUCHDIR%\b2lmt.exe
 cmd.exe /k
 goto :eof
+
+:B2LUsbInstall
+if not exist "%B2LUSBDIR%\b2lusb.inf" (
+  echo B2LUSB Windows paketi bu WIM'de yok; atlandi.
+  exit /b 0
+)
+if not exist "%B2LUSBDIR%\b2lusb-host.inf" (
+  echo HATA: B2LUSB host INF yok; yari paket reddedildi.
+  exit /b 1
+)
+if not exist "%B2LUSBDIR%\manifest.txt" (
+  echo HATA: B2LUSB manifest yok; yari paket reddedildi.
+  exit /b 1
+)
+echo Paket kimligi:
+type "%B2LUSBDIR%\manifest.txt"
+pnputil /add-driver "%B2LUSBDIR%\b2lusb-host.inf" > "%SystemDrive%\B2LUSB-PNP.TXT" 2>&1
+if errorlevel 1 (
+  type "%SystemDrive%\B2LUSB-PNP.TXT"
+  exit /b 1
+)
+pnputil /add-driver "%B2LUSBDIR%\b2lusb.inf" /install >> "%SystemDrive%\B2LUSB-PNP.TXT" 2>&1
+if errorlevel 1 (
+  type "%SystemDrive%\B2LUSB-PNP.TXT"
+  exit /b 1
+)
+pnputil /scan-devices >> "%SystemDrive%\B2LUSB-PNP.TXT" 2>&1
+timeout /t 3 /nobreak >nul 2>&1
+echo PnP kurulum sonucu:
+type "%SystemDrive%\B2LUSB-PNP.TXT"
+pnputil /enum-devices /deviceid "ACPI\BYN0002" 2>nul
+if exist "%B2LUSBDIR%\b2lusbctl.exe" (
+  echo.
+  echo B2LUSB ilk durum:
+  "%B2LUSBDIR%\b2lusbctl.exe" status
+  echo HOST deneyi:   %B2LUSBDIR%\b2lusbctl.exe host
+  echo DEVICE deneyi: %B2LUSBDIR%\b2lusbctl.exe device
+)
+exit /b 0
 
 :B2LTouchInstall
 if not exist "%B2LTOUCHDIR%\b2ltouch.inf" (

@@ -244,12 +244,36 @@ Windows'ta yapılır:
 
 ```bash
 bash yap.sh --touch --usb-test --clean
-bash tools_b2ltouch.sh
 bash cache_esp.sh --win --system --baseline
 ```
 
+`--usb-test` artık aynı turda `tools_b2lusb.sh` üzerinden Windows ARM64
+KMDF/URS paketini de derleyip `boot.wim`e enjekte eder. Yalnız Windows paketini
+yenilemek için `bash tools_b2lusb.sh` kullanılabilir. `--baseline`, UEFI
+`B2LUSB.EFI` tanısını ESP'ye koymaz; WIM içindeki imzalı Windows paketini ve
+`startnet.cmd` kurulumunu korur.
+
 Üretilen USB tanı paketi `out/beyond2lte-usb-diag.tar` dosyasıdır. Odin'de AP
 alanından ve **Re-Partition kapalı** olarak kullanılır.
+
+## Windows ARM64 sürücü durumu (02 Eylül 2026)
+
+İlk host bring-up katmanı kaynak ağacına eklendi; henüz cihaz üzerinde
+doğrulanmadı:
+
+- `ACPI\BYN0002` URS parent, `_ADR=0` host ve `_ADR=1` function çocukları;
+- DWC3, ana DRD PHY ve USB2 PMU bitini kesin fiziksel adres/boyut allow-list'i
+  ile eşleyen `b2lusb.sys`;
+- `URS\BYN0002&HOST` kimliğini inbox `USBXHCI` kurulumuna bağlayan INF;
+- `status|host|device|none` komutlu ARM64 `b2lusbctl.exe`;
+- WSL -> Windows PowerShell/MSVC/WDK -> katalog/test-imza -> WIM hash geri-okuma
+  derleme zinciri.
+
+Bu aşama HID için gereken Windows host yazılım zincirini hazırlar ama fiziksel
+başarı iddiası değildir. SuperSpeed portu combo PHY abort'u nedeniyle sürücüde
+kapalıdır. MAX77705/UcmCx olmadığı için ilk HID testi haricen beslenen USB2 hub
+ile yapılmalıdır. Function child, UFX ve KDNET DBG2 henüz bağlanmamıştır.
+Detaylı test sözleşmesi `windows/b2lusb/README.md` içindedir.
 
 ## Kaynaklar
 

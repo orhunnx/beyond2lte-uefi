@@ -175,9 +175,13 @@ Derleme ve paketleme:
 
 ```bash
 bash yap.sh --touch --usb-test --clean
-bash tools_b2ltouch.sh
 bash cache_esp.sh --win --system --baseline
 ```
+
+`--usb-test`, Windows ARM64 `b2lusb` URS paketini de derleyip WIM'e ekler.
+`--baseline` UEFI `B2LUSB.EFI` uygulamasını çalıştırmaz; WIM içindeki Windows
+sürücü paketini korur. Yalnız UEFI tanısı için
+`B2L_SKIP_WINDOWS_USB_BUILD=1` kullanılabilir.
 
 R3'te BOOT sayfa tablosu ile SYSTEM ESP'deki uygulama birlikte değişir.
 Paketleyici ikisini `out/beyond2lte-usb-diag.tar` içinde birleştirir. Odin'de
@@ -208,9 +212,11 @@ tek bir özel sürücüden ibaret değildir. ACPI'de URS üst aygıtı; `_ADR=0`
 ve `_ADR=1` function çocukları gerekir. Synopsys denetleyiciler için in-box
 `UrsSynopsys.inf`, function controller tarafı için `UfxSynopsys.inf` Include/
 Needs yoluyla eşlenebilir. Type-C CC/PD attach ve data-role bilgisi ise donanımı
-okuyan ayrı UCM/UcmCx connector client tarafından URS'e bildirilir. Mevcut
-`DSDT_minimal.dsl` ve Windows sürücü paketinde bu URS/UFX/UCM düğüm ve
-sürücüleri henüz yoktur.
+okuyan ayrı UCM/UcmCx connector client tarafından URS'e bildirilir.
+`DSDT_minimal.dsl` artık `ACPI\BYN0002` URS parent ile `_ADR=0/1` çocuklarını,
+Windows paketi de özel Exynos USB2 PHY/rol client'ı ve inbox-xHCI host INF'ini
+içerir. Bu yalnız ilk USB2 host bring-up katmanıdır: UFX function eşlemesi,
+MAX77705/UcmCx connector client ve SuperSpeed combo PHY desteği henüz yoktur.
 
 Kaynaklar:
 
