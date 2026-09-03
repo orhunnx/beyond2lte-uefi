@@ -14,6 +14,11 @@ printf '%s\n' "$USB_BLOCK" | grep -q '0x10B00000, 0x00000200'
 printf '%s\n' "$USB_BLOCK" | grep -q '0x1586072C, 0x00000004'
 printf '%s\n' "$USB_BLOCK" | grep -Fq 'Name (_HID, "BYN0002")'
 printf '%s\n' "$USB_BLOCK" | grep -Fq 'Name (_HID, "BYN0003")'
+test "$(printf '%s\n' "$USB_BLOCK" | rg -c 'Name \(_CID, "PNP0D15"\)')" -eq 1
+if printf '%s\n' "$USB_BLOCK" | grep -Fq 'Name (_ADR, Zero)'; then
+  echo 'HATA: statik ACPI xHCI host eski URS child _ADR alanini tasimamali' >&2
+  exit 1
+fi
 if printf '%s\n' "$USB_BLOCK" | rg -n 'Device \(URS0\)|Name \(_HID, "URS'; then
   echo 'HATA: statik HOST ACPI yolu sentetik URS aygiti tasimamali' >&2
   exit 1

@@ -523,6 +523,9 @@ başlatılır; DWC3 `0x10C00000/0x10000`, SPI 241 (Windows GSIV 273) ve ana PHY
 `ACPI\BYN0002` PHY/PMU ve HOST handoff'unu tamamlar, gerçek `ACPI\BYN0003`
 çocuğu DWC3+IRQ kaynaklarıyla doğrudan inbox USBXHCI'ye bağlanır. Önceki
 sentetik URS child ve farklı-build UrsCx runtime bağımlılığı kaldırılmıştır.
+Vendor `_HID` yanında debug capability bulunmayan standart SoC xHCI için
+`_CID="PNP0D15"` yayınlanır; eski URS host child'dan kalan `_ADR=0` kaldırılır,
+çünkü adres sıfır USBXHCI'nin oluşturacağı root hub'a aittir.
 PMU/SIDDQ readback doğrulaması bounded poll ile yapılır. MAX77705 yazmaları
 depodaki güvenli salt-okuma sınırı nedeniyle eklenmemiştir; VBUS için ilk test
 hala haricen beslenen USB2 hub ile yapılmalıdır. Offline DriverStore ile ilk

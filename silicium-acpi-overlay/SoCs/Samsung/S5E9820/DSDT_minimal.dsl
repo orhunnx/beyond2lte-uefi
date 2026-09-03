@@ -279,8 +279,11 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             Device (USB0)
             {
                 Name (_HID, "BYN0003")
+                // Windows SoC ACPI contract: standard xHCI without a DBG2
+                // debug capability.  The vendor HID keeps the package-specific
+                // INF preferred; this CID provides the inbox fallback identity.
+                Name (_CID, "PNP0D15")
                 Name (_UID, Zero)
-                Name (_ADR, Zero)
                 Name (_CCA, Zero)
 
                 Method (_STA, 0, NotSerialized)

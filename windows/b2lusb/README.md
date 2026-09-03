@@ -14,6 +14,10 @@ Windows'un inbox xHCI yığınına bağlayan güvenli bring-up paketidir.
   inbox `USBXHCI.SYS` yığınına bağlanır. USB klavye/fare için özel HID sürücüsü
   yazılmaz; başarılı xHCI/root-hub numaralandırmasından sonra Windows'un
   `USBHUB3` ve HID class sürücüleri kullanılır.
+- Host child vendor `_HID="BYN0003"` yanında debug capability bulunmadığını
+  belirten standart `_CID="PNP0D15"` kimliğini yayınlar. Önceki URS host-child
+  düzeninden kalan `_ADR=0` statik host üzerinde kullanılmaz; adres sıfır,
+  USBXHCI'nin numaralandıracağı root hub'a aittir.
 - `b2lusbmon.sys`, yalnız bring-up tanısı için host child altında çalışan,
   MMIO'ya yazmayan pasif KMDF upper-filter'dır.
 - `b2lusbctl.exe status|observe|host`, durum/gözlem ve idempotent HOST yeniden
@@ -220,7 +224,9 @@ readback'leri bounded poll ile doğrulanmadan çocuk stack'e hazır durum
 bildirilmez. Offline DriverStore ilk boot stack'ini kurduğu için otomatik test
 child'ı yeniden başlatmaz. Hedef WIM'de `HIDUSB`, `MOUHID` ve `MOUCLASS`
 bileşenleri yoksa paketleme durur; cihazda USB/HID/Mouse yığınları ayrı
-raporlanır. Bu paket sabit USB2 HOST'tur; function-role ve SuperSpeed yoktur.
+raporlanır. ACPI child ayrıca Windows'un debug özelliği olmayan standart SoC
+xHCI kimliği `PNP0D15` ile uyumludur. Bu paket sabit USB2 HOST'tur;
+function-role ve SuperSpeed yoktur.
 
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
