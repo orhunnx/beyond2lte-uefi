@@ -306,6 +306,17 @@ reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgD
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgDetails1 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgDetails2 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxOtgEnabled >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxAutoVbusDisabled >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxOpcodeResponse >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cClockControl >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cIntStatus >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cErrorStatus >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cTransferStatus >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cFifoStatus >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cTimingFs1 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cTimingFs2 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cTimingFs3 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cRetryCount >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 exit /b 0
 
 :B2LUsbCollectInputState

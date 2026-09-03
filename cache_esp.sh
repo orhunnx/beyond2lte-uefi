@@ -180,6 +180,34 @@ fi
 # BPB'den okuyor, bolum tablosundan degil - sorun cikmiyor. Sparse imaj
 # oldugu icin aktarilan veri yine kucuk.
 #
+compact_winpe_wim() {
+  local WIM BEFORE AFTER SAVED
+
+  [ "$BIGPART" = 1 ] && [ "$WINONLY" = 1 ] && [ "$BOSALT" = 0 ] || return 0
+  WIM="$PROJ/esp/sources/boot.wim"
+  [ -s "$WIM" ] || {
+    echo "HATA: SYSTEM imaj boyutu hesaplanmadan once boot.wim bulunamadi: $WIM"
+    exit 1
+  }
+  command -v wimlib-imagex >/dev/null 2>&1 || {
+    echo "HATA: boot.wim deliklerini temizlemek icin wimlib-imagex gerekli."
+    exit 1
+  }
+
+  BEFORE=$(stat -c%s "$WIM")
+  say "boot.wim yeniden paketleniyor (birikmis WIM delikleri temizleniyor)"
+  wimlib-imagex optimize "$WIM"
+  wimlib-imagex verify "$WIM"
+  AFTER=$(stat -c%s "$WIM")
+  SAVED=$(( BEFORE > AFTER ? BEFORE - AFTER : 0 ))
+  printf '  boot.wim: %s -> %s MiB; geri kazanilan: %s MiB\n' \
+    "$(( (BEFORE + 1048575) / 1048576 ))" \
+    "$(( (AFTER + 1048575) / 1048576 ))" \
+    "$(( SAVED / 1048576 ))"
+}
+
+compact_winpe_wim
+
 if [ "$BIGPART" = 1 ]; then
   PART="system"
   #

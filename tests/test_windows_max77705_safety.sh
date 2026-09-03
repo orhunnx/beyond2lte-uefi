@@ -70,12 +70,21 @@ fi
 grep -q 'Context->ChargerIntMaskBaseline' "$MAIN"
 grep -q 'Context->ChargerModeBaseline' "$MAIN"
 
-# All MAX77705 register writes go through masked read/modify/write + readback.
-test "$(rg -c 'B2lMaxWriteByte\(' "$MAIN")" -eq 2
+# Mutable charger registers go through masked read/modify/write + readback.
+# The only direct USBC write is Samsung's bounded factory opcode transport.
 grep -q 'Wanted = (UCHAR)((Current &' "$MAIN"
 grep -Fq '((*ReadBack) & Mask) == (Wanted & Mask)' "$MAIN"
-if rg -ni 'firmware.*(write|update|flash)|opcode|SW_RESET|USBC_RESET' "$MAIN" "$HDR"; then
-  echo 'HATA: ilk MAX77705 Windows turu firmware/reset politikasina genislemis' >&2
+grep -q 'MAX77705_OPCODE_FACTORY_TEST     0x54U' "$MAIN"
+grep -q 'MAX77705_FACTORY_AUTO_VBUS_OFF   0x00U' "$MAIN"
+grep -q 'MAX77705_USBC_OPCODE_WRITE 0x21U' "$MAIN"
+grep -q 'MAX77705_USBC_OPCODE_END   0x41U' "$MAIN"
+grep -q 'MAX77705_USBC_OPCODE_READ  0x51U' "$MAIN"
+grep -q 'MAX77705_USBC_INT_APCMDRES' "$MAIN"
+grep -q 'Response\[0\] != MAX77705_OPCODE_FACTORY_TEST' "$MAIN"
+grep -q 'Context->AutoVbusDisabled = TRUE' "$MAIN"
+grep -q 'B2L_MAX_STAGE_AUTO_VBUS' "$MAIN"
+if rg -ni 'firmware.*(write|update|flash)|SW_RESET|USBC_RESET' "$MAIN" "$HDR"; then
+  echo 'HATA: MAX77705 Windows yolu firmware/reset politikasina genislemis' >&2
   exit 1
 fi
 
@@ -84,6 +93,16 @@ fi
 grep -q 'B2L_HSI2C_TIMEOUT_US    100000UL' "$HW"
 grep -q 'HSI2C_FUNC_MODE_I2C     (1UL << 0)' "$HW"
 grep -Fq 'HSI2C_FUNC_MODE_I2C | HSI2C_MASTER' "$HW"
+grep -q 'B2L_HSI2C_RETRIES       3UL' "$HW"
+grep -q 'HSI2C_INT_TRANS_ABORT' "$HW"
+grep -q 'HSI2C_INT_NO_DEV_ACK' "$HW"
+grep -q 'HSI2C_INT_NO_DEVICE' "$HW"
+grep -q 'HSI2C_INT_TIMEOUT' "$HW"
+grep -q 'B2lMaxWaitBusIdle' "$HW"
+grep -q 'Timing.TimingFs1 = B2lMaxReadRegister' "$HW"
+grep -q 'B2lMaxWriteRegister(Context, HSI2C_TIMING_FS1, Timing.TimingFs1)' "$HW"
+test "$(grep -n 'HSI2C_TX_DATA, Buffer\[Index++\]' "$HW" | head -n1 | cut -d: -f1)" \
+  -lt "$(grep -n 'HSI2C_AUTO_CONF, ~0UL, HSI2C_MASTER_RUN' "$HW" | head -n1 | cut -d: -f1)"
 grep -q 'WdfWaitLockAcquire(Context->BusLock' "$MAIN"
 grep -q 'B2lMaxTransferMessage' "$HW"
 grep -q 'FALSE,' "$HW"
@@ -131,5 +150,10 @@ grep -q 'b2lmax77705.inf' "$ROOT/tools_b2lusb.sh"
 grep -q 'b2lmax77705.inf' "$ROOT/windows/stage-winpe-driverstore.ps1"
 grep -Fq 'B2LUSB-MAX77705.TXT' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LMaxChgDetails2' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxAutoVbusDisabled' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxOpcodeResponse' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxHsI2cErrorStatus' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxHsI2cTransferStatus' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxHsI2cRetryCount' "$ROOT/windows/startnet.cmd"
 
 echo 'Windows MAX77705 safety checks: PASS'

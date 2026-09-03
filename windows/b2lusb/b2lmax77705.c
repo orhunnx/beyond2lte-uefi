@@ -9,6 +9,17 @@
 #define MAX77705_USBC_FW_MINOR     0x09U
 #define MAX77705_USBC_CC_STATUS0   0x0AU
 #define MAX77705_USBC_CC_STATUS1   0x0BU
+#define MAX77705_USBC_UIC_INT      0x02U
+#define MAX77705_USBC_OPCODE_WRITE 0x21U
+#define MAX77705_USBC_OPCODE_END   0x41U
+#define MAX77705_USBC_OPCODE_READ  0x51U
+
+#define MAX77705_USBC_INT_APCMDRES       (1U << 7)
+#define MAX77705_OPCODE_FACTORY_TEST     0x54U
+#define MAX77705_FACTORY_AUTO_VBUS_OFF   0x00U
+#define MAX77705_OPCODE_RESPONSE_LENGTH  2UL
+#define MAX77705_OPCODE_POLL_COUNT       300UL
+#define MAX77705_OPCODE_POLL_US          10000UL
 
 #define MAX77705_CHG_INT_MASK      0xB1U
 #define MAX77705_CHG_INT_OK        0xB2U
@@ -54,7 +65,13 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxUsbcFwMinor", L"B2LMaxCcStatus0", L"B2LMaxCcStatus1",
         L"B2LMaxBcStatus", L"B2LMaxChgMask", L"B2LMaxChgMode",
         L"B2LMaxChgIntOk", L"B2LMaxChgDetails0", L"B2LMaxChgDetails1",
-        L"B2LMaxChgDetails2", L"B2LMaxOtgEnabled"
+        L"B2LMaxChgDetails2", L"B2LMaxOtgEnabled",
+        L"B2LMaxAutoVbusDisabled", L"B2LMaxOpcodeResponse",
+        L"B2LMaxHsI2cClockControl", L"B2LMaxHsI2cIntStatus",
+        L"B2LMaxHsI2cErrorStatus", L"B2LMaxHsI2cTransferStatus",
+        L"B2LMaxHsI2cFifoStatus", L"B2LMaxHsI2cTimingFs1",
+        L"B2LMaxHsI2cTimingFs2", L"B2LMaxHsI2cTimingFs3",
+        L"B2LMaxHsI2cRetryCount"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -82,6 +99,17 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[14] = Context->ChargerDetails[1];
     Values[15] = Context->ChargerDetails[2];
     Values[16] = Context->OtgEnabled ? 1UL : 0UL;
+    Values[17] = Context->AutoVbusDisabled ? 1UL : 0UL;
+    Values[18] = Context->OpcodeResponse;
+    Values[19] = Context->HsI2cClockControl;
+    Values[20] = Context->HsI2cIntStatus;
+    Values[21] = Context->HsI2cErrorStatus;
+    Values[22] = Context->HsI2cTransferStatus;
+    Values[23] = Context->HsI2cFifoStatus;
+    Values[24] = Context->HsI2cTimingFs[0];
+    Values[25] = Context->HsI2cTimingFs[1];
+    Values[26] = Context->HsI2cTimingFs[2];
+    Values[27] = Context->HsI2cRetryCount;
 
     RtlInitUnicodeString(&ServicePath, ServicePathBuffer);
     InitializeObjectAttributes(
@@ -147,6 +175,134 @@ B2lMaxWriteByte(
         NULL,
         0UL
         );
+}
+
+static NTSTATUS
+B2lMaxWriteBlock(
+    PB2L_MAX_CONTEXT Context,
+    UCHAR SlaveAddress,
+    UCHAR Register,
+    const UCHAR *Values,
+    ULONG ValueCount
+    )
+{
+    UCHAR Buffer[1UL + MAX77705_OPCODE_RESPONSE_LENGTH];
+
+    if ((Values == NULL) || (ValueCount == 0UL) ||
+        (ValueCount > MAX77705_OPCODE_RESPONSE_LENGTH)) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    Buffer[0] = Register;
+    RtlCopyMemory(&Buffer[1], Values, ValueCount);
+    return B2lMaxHsI2cWriteRead(
+        Context,
+        SlaveAddress,
+        Buffer,
+        ValueCount + 1UL,
+        NULL,
+        0UL
+        );
+}
+
+static NTSTATUS
+B2lMaxReadBlock(
+    PB2L_MAX_CONTEXT Context,
+    UCHAR SlaveAddress,
+    UCHAR Register,
+    UCHAR *Values,
+    ULONG ValueCount
+    )
+{
+    if ((Values == NULL) || (ValueCount == 0UL)) {
+        return STATUS_INVALID_PARAMETER;
+    }
+    return B2lMaxHsI2cWriteRead(
+        Context,
+        SlaveAddress,
+        &Register,
+        1UL,
+        Values,
+        ValueCount
+        );
+}
+
+static NTSTATUS
+B2lMaxDisableAutoVbus(PB2L_MAX_CONTEXT Context)
+{
+    UCHAR Command[2];
+    UCHAR InterruptStatus = 0U;
+    UCHAR Response[MAX77705_OPCODE_RESPONSE_LENGTH];
+    ULONG Poll;
+    NTSTATUS Status;
+
+    Context->AutoVbusDisabled = FALSE;
+    Context->OpcodeResponse = 0xFFU;
+
+    // REG_UIC_INT is read-to-clear.  Drain any stale APCmdRes before sending
+    // the exact Samsung FACTORY_TEST(auto-vbus-off) opcode.
+    Status = B2lMaxReadByte(
+        Context,
+        B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_UIC_INT,
+        &InterruptStatus
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+
+    Command[0] = MAX77705_OPCODE_FACTORY_TEST;
+    Command[1] = MAX77705_FACTORY_AUTO_VBUS_OFF;
+    Status = B2lMaxWriteBlock(
+        Context,
+        B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_OPCODE_WRITE,
+        Command,
+        RTL_NUMBER_OF(Command)
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Status = B2lMaxWriteByte(
+        Context,
+        B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_OPCODE_END,
+        0x00U
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+
+    for (Poll = 0UL; Poll < MAX77705_OPCODE_POLL_COUNT; ++Poll) {
+        Status = B2lMaxReadByte(
+            Context,
+            B2L_MAX_USBC_ADDRESS,
+            MAX77705_USBC_UIC_INT,
+            &InterruptStatus
+            );
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+        if ((InterruptStatus & MAX77705_USBC_INT_APCMDRES) != 0U) {
+            Status = B2lMaxReadBlock(
+                Context,
+                B2L_MAX_USBC_ADDRESS,
+                MAX77705_USBC_OPCODE_READ,
+                Response,
+                RTL_NUMBER_OF(Response)
+                );
+            if (!NT_SUCCESS(Status)) {
+                return Status;
+            }
+            Context->OpcodeResponse = Response[1];
+            if (Response[0] != MAX77705_OPCODE_FACTORY_TEST) {
+                return STATUS_DEVICE_PROTOCOL_ERROR;
+            }
+            Context->AutoVbusDisabled = TRUE;
+            return STATUS_SUCCESS;
+        }
+        B2lMaxDelayMicroseconds(MAX77705_OPCODE_POLL_US);
+    }
+    return STATUS_IO_TIMEOUT;
 }
 
 static NTSTATUS
@@ -578,6 +734,14 @@ B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
         }
     }
 
+    if (!Context->AutoVbusDisabled) {
+        Status = B2lMaxDisableAutoVbus(Context);
+        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_AUTO_VBUS, Status);
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+    }
+
     Status = B2lMaxEvaluateConnection(Context);
     B2lMaxPublishDiagnostic(
         Context,
@@ -602,6 +766,7 @@ B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)
     Context->HsI2cLength = 0UL;
     Context->UsiLength = 0UL;
     Context->HardwareReady = FALSE;
+    Context->AutoVbusDisabled = FALSE;
 }
 
 NTSTATUS
@@ -775,6 +940,7 @@ B2lMaxEvtReleaseHardware(
     B2lMaxUnmapResources(Context);
     Context->IdentityReady = FALSE;
     Context->BaselineValid = FALSE;
+    Context->AutoVbusDisabled = FALSE;
     WdfWaitLockRelease(Context->BusLock);
     return STATUS_SUCCESS;
 }
@@ -813,6 +979,7 @@ B2lMaxEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
     }
     Context->IdentityReady = FALSE;
     Context->BaselineValid = FALSE;
+    Context->AutoVbusDisabled = FALSE;
     WdfWaitLockRelease(Context->BusLock);
     return STATUS_SUCCESS;
 }

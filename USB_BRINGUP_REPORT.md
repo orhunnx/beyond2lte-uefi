@@ -558,6 +558,30 @@ kapalıdır. MAX77705/UcmCx olmadığı için ilk HID testi haricen beslenen USB
 ile yapılmalıdır. Function child, UFX ve KDNET DBG2 henüz bağlanmamıştır.
 Detaylı test sözleşmesi `windows/b2lusb/README.md` içindedir.
 
+`0.1.0.14`–`0.1.0.16` turlarında `ACPI\BYN0004` ile HSI2C45/USI kaynakları
+Windows'a ayrıldı ve MAX77705 KMDF policy sürücüsü eklendi. Son cihaz
+ölçümünde BYN0002, BYN0003 ve BYN0004 `Started`; USBXHCI `RUN=1`, `HCH=0`
+durumundaydı. Bununla birlikte portlar `PORTSC=0x2A0` (`PP=1`, `PLS=RxDetect`,
+`CCS=0`) kaldı. `0.1.0.15` tanısı MAX kimlik aşamasının
+`STATUS_IO_TIMEOUT` ile kesildiğini gösterdi. Dolayısıyla kalan sınır xHCI
+Code 10 değil, HSI2C üzerinden CC/charger policy'sinin tamamlanmamasıydı.
+
+`0.1.0.17`, stok Samsung kaynaklarındaki iki eksik parçayı tamamlar. Exynos
+HSI2C reseti HS/FS/SLA timing değerlerini saklayıp geri yükler, bus-idle ve
+tam interrupt hata kümesini kontrol eder, üç kez 100 us arayla yeniden dener.
+MAX77705 kimliği doğrulanınca Samsung'un başlangıç dizisindeki
+`OPCODE_SAMSUNG_FACTORY_TEST=0x54`, veri `0x00` ile gönderilir; APCmdRes ve
+0x51 response opcode doğrulanarak firmware auto-VBUS kapatılır. Ardından
+CC_STATUS0 `SOURCE` olduğunda mevcut Samsung charger mode/mask geçişi VBUS'u
+açar; detach veya SINK geçişi aynı baseline'a geri döner. Windows sürücüsü
+firmware flash, tam PD/UcmCx, orientation mux veya şarj politikası sahipliği
+almaz.
+
+Ayrıca WinPE sürücü enjeksiyonlarının WIM içinde bıraktığı delikler SYSTEM
+imajının her buildde büyümesine neden oluyordu. `cache_esp.sh`, FAT boyutunu
+hesaplamadan önce standalone `boot.wim` üzerinde `wimlib-imagex optimize` ve
+`verify` çalıştırır; böylece yalnız canlı WIM akışları yeni imaja taşınır.
+
 ## Kaynaklar
 
 - Samsung Exynos9820 vendor PHY referansı, sabitlenen revizyon:
@@ -583,6 +607,8 @@ Detaylı test sözleşmesi `windows/b2lusb/README.md` içindedir.
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax>
 - Microsoft offline imaja DISM ile sürücü paketi ekleme:
   <https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/add-and-remove-drivers-to-an-offline-windows-image>
+- wimlib standalone WIM yeniden paketleme/boşluk temizleme:
+  <https://wimlib.net/man1/wimoptimize.html>
 - Microsoft ARM/ARM64 ACPI `_CCA` common-buffer davranışı:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nc-wdm-pallocate_common_buffer_ex>
 - Microsoft USB function controller/UFX mimarisi:

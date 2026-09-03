@@ -198,7 +198,7 @@ fi
 MANIFEST="$OUT/b2lusb-manifest.txt"
 {
   echo "B2LUSB_PACKAGE=exynos9820-kmdf-static-usb2-host-bringup"
-  echo "B2LUSB_DRIVER_VERSION=0.1.0.16"
+  echo "B2LUSB_DRIVER_VERSION=0.1.0.17"
   echo "B2LUSB_ACPI_ID=ACPI\\BYN0002"
   echo "B2LUSB_HOST_ID=ACPI\\BYN0003"
   echo "B2LUSB_MAX77705_ID=ACPI\\BYN0004"

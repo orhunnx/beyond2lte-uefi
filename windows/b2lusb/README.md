@@ -296,10 +296,30 @@ Bus veya kimlik okuması yine geçici olarak başarısız olursa ACPI parent D0
 başlangıcı düşürülmez: pasif timer bus/kimlik/CC/OTG zincirini yeniden dener ve
 `_DEP` altındaki USB host'un başlamasını engellemez. İlk doğrudan konektör
 testi, MAX77705'in bildirdiği CC durumu ve charger OTG readback'iyle birlikte
-yapılır. Başarı sırası:
+yapılır.
+
+`0.1.0.17`, stok Exynos HSI2C sürücüsündeki kurtarma sınırını Windows'a
+taşır: software reset çevresinde firmware'in programladığı bütün HS/FS/SLA
+timing değerleri korunur, bus-idle beklenir, transfer-done yanında
+abort/no-ack/no-device/timeout durumları ayrıştırılır ve 100 us aralıklı üç
+tam işlem denemesi yapılır. Küçük yazmalar `MASTER_RUN` öncesinde TX FIFO'ya
+yüklenir. Kimlik doğrulandıktan sonra Samsung USBC sürücüsünün başlangıçta
+yaptığı `SAMSUNG_FACTORY_TEST(0x54, 0x00)` komutu 0x21/0x41 opcode
+penceresinden gönderilir; APCmdRes beklenip 0x51 cevabı doğrulandıktan sonra
+CC=SOURCE için charger OTG geçişi uygulanır. Firmware güncelleme, PD policy,
+VCONN ve mux sahipliği bu sabit HOST sürücüsüne alınmaz.
+
+`cache_esp.sh --win --system`, sürücü ekleme/çıkarma turlarının standalone
+`boot.wim` içinde bıraktığı kullanılmayan akışları `wimlib-imagex optimize`
+ile temizler ve `verify` sonrasında gerçek boyuta göre SYSTEM imajını hesaplar.
+Bu işlem her turda görülen kümülatif imaj büyümesini engeller; WIM içeriğini
+ve sıkıştırma türünü değiştirmez.
+
+Başarı sırası:
 
 1. `current=HOST`, `GCTL.PRTCAP=HOST`, `GSTS.CURMOD=HOST` ve `resets>=1`;
-2. `ACPI\BYN0004` için `B2LMaxCcStatus0 & 7 = 2`,
+2. `ACPI\BYN0004` için `B2LMaxAutoVbusDisabled=1`,
+   `B2LMaxCcStatus0 & 7 = 2`,
    `B2LMaxOtgEnabled=1` ve charger mode `A/E/F`;
 3. `ACPI\BYN0003` için `USBXHCI` servisinin başlaması;
 4. root hub ve USB mouse alıcısının numaralandırılması;
