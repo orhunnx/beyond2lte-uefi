@@ -516,6 +516,17 @@ CACHE yazma/geri-okuma testini başarıyla geçiriyor ve `mountvol /N` sonrasın
 çalışıyor. UFS'yi daha erken PnP'ye taşımak Android RAW bölümlerinin harfleri
 tüketmesine ve çalışan depolama/boot sırasının değişmesine yol açabilir.
 
+`0.1.0.12` sonraki flaş için mimariyi sabit USB2 HOST'a çevirir. Depodaki stok
+Android DTB'lerinde `exynos-usbdrd-phy` platformu, `dwc3` ve `xhci`'den önce
+başlatılır; DWC3 `0x10C00000/0x10000`, SPI 241 (Windows GSIV 273) ve ana PHY
+`0x10B00000` olarak tarif edilir. Windows ACPI düzeni artık aynı sırayı izler:
+`ACPI\BYN0002` PHY/PMU ve HOST handoff'unu tamamlar, gerçek `ACPI\BYN0003`
+çocuğu DWC3+IRQ kaynaklarıyla doğrudan inbox USBXHCI'ye bağlanır. Önceki
+sentetik URS child ve farklı-build UrsCx runtime bağımlılığı kaldırılmıştır.
+PMU/SIDDQ readback doğrulaması bounded poll ile yapılır. MAX77705 yazmaları
+depodaki güvenli salt-okuma sınırı nedeniyle eklenmemiştir; VBUS için ilk test
+hala haricen beslenen USB2 hub ile yapılmalıdır.
+
 Bu aşama HID için gereken Windows host yazılım zincirini hazırlar ama fiziksel
 başarı iddiası değildir. SuperSpeed portu combo PHY abort'u nedeniyle sürücüde
 kapalıdır. MAX77705/UcmCx olmadığı için ilk HID testi haricen beslenen USB2 hub

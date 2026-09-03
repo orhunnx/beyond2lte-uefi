@@ -1,7 +1,7 @@
 #include <ntddk.h>
 #include <wdf.h>
 
-// Passive upper filter for the URS host child.  It never touches controller
+// Passive upper filter for the static ACPI host child.  It never touches controller
 // registers, changes resource lists or fails PnP; it only persists the resource
 // requirements, assigned resources and PnP stages that actually reached the
 // USBXHCI stack.  This remains useful after a failed start, when pnputil may no

@@ -1,22 +1,23 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
-Bu dizin Exynos9820 `DWC_usb31` denetleyicisini Windows'un USB Role Switch
-(URS) ve inbox xHCI yığınına bağlayan ilk güvenli bring-up paketidir.
+Bu dizin Exynos9820 `DWC_usb31` denetleyicisini sabit USB2 HOST olarak
+Windows'un inbox xHCI yığınına bağlayan güvenli bring-up paketidir.
 
 ## Bu sürümün kesin kapsamı
 
-- `b2lusb.sys`, `ACPI\BYN0002` üzerinde KMDF 1.15 URS client'tır.
-- ACPI üst aygıtı DWC3 (`0x10C00000`), ana DRD PHY (`0x10B00000`) ve yalnız
-  USB2 PHY izolasyon biti (`0x1586072C`) kaynaklarını bildirir.
-- URS host çocuğu `URS\BYN0002&HOST`, `b2lusb-host.inf` aracılığıyla Microsoft
+- `b2lusb.sys`, `ACPI\BYN0002` üzerinde KMDF 1.15 platform sürücüsüdür; PHY'yi
+  açar ve DWC3'ü HOST moduna getirir.
+- ACPI üst aygıtı ana DRD PHY (`0x10B00000`) ile USB2 PHY izolasyon bitini
+  (`0x1586072C`) taşır. Ayrı `ACPI\BYN0003` çocuk aygıtı DWC3
+  (`0x10C00000`) ve GSIV 273 kaynaklarının tek PnP sahibidir.
+- `ACPI\BYN0003`, `b2lusb-host.inf` aracılığıyla Microsoft
   inbox `USBXHCI.SYS` yığınına bağlanır. USB klavye/fare için özel HID sürücüsü
   yazılmaz; başarılı xHCI/root-hub numaralandırmasından sonra Windows'un
   `USBHUB3` ve HID class sürücüleri kullanılır.
 - `b2lusbmon.sys`, yalnız bring-up tanısı için host child altında çalışan,
   MMIO'ya yazmayan pasif KMDF upper-filter'dır.
-- `b2lusbctl.exe status|observe|host|device|none`, yöneticiye açık bring-up rol
-  denetimidir. İstek URS'e bildirilir; eski role ait çocuk yığını kaldırıldıktan
-  sonra `EvtUrsSetRole` Exynos PHY ve DWC3 rolünü değiştirir.
+- `b2lusbctl.exe status|observe|host`, durum/gözlem ve idempotent HOST yeniden
+  hazırlama aracıdır. Bu sürümde DEVICE/NONE rol değişimi bilerek kapalıdır.
 - Samsung vendor USB2 PHY sırası ve device/host tune sütunları uygulanır.
   Kaynak revizyonu:
   `Android-Artisan/android_kernel_samsung_exynos9820@9a0a792d227c8ae6cddac0c9d68a8bb9782c44cb`.
@@ -38,10 +39,12 @@ bash cache_esp.sh --win --system --baseline
 `--touch` mevcut dokunmatik profilini korur; hem `--touch` hem de `--usb-test`
 ACPI tablolarını aynı turda yeniden derler. `--usb-test`, UEFI `B2LUSB.EFI`
 çıktısına ek olarak `tools_b2lusb.sh` çağırır.
-Bu açık test seçimi ayrıca WIM'e `auto-host.test` işareti koyar. WinPE,
-`b2lusb.sys` kurulduktan sonra bir klavyeye ihtiyaç duymadan `host` geçişini
-çalıştırır ve sonucu `X:\B2LUSB-AUTOHOST.TXT` dosyasına yazar. Normal doğrudan
-`tools_b2lusb.sh` çağrısı otomatik HOST açmaz; gerektiğinde
+Bu açık test seçimi ayrıca WIM'e `auto-host.test` işareti koyar. HOST hazırlığı
+parent `PrepareHardware` içinde, ACPI child başlatılmadan önce otomatik yapılır;
+işaret rol değiştirmez. WinPE işaretli turda xHCI gözlemini kurar, gerçek
+`ACPI\BYN0003` child'ını hedefli yeniden başlatır ve sonucu
+`X:\B2LUSB-AUTOHOST.TXT` dosyasına yazar. Normal doğrudan `tools_b2lusb.sh`
+çağrısı bu otomatik tanı/restart turunu açmaz; gerektiğinde
 `B2L_USB_AUTO_HOST=1` açıkça verilir. `--usb-test` turunda dahi
 `B2L_USB_AUTO_HOST=0` ile kapatılabilir.
 
@@ -207,6 +210,14 @@ kapalı kalır ve combo-PHY, PMA, guard ya da memory-map alanlarına dokunulmaz.
 translated listelerin ilk MMIO base/length ile IRQ level/vector/affinity/flags
 alanları da salt-okuma biçiminde `B2LMonAssigned*` değerlerine kaydedilir.
 
+`0.1.0.12`, `0.1.0.11` cihaz kanıtındaki son sınırı kaldırır: URS tarafından
+üretilen sentetik HOST PDO ve hedef WinPE'den farklı build'e ait UrsCx runtime
+artık kullanılmaz. Stok Android DT/initcall sırası gibi platform/PHY hazırlığı
+önce `ACPI\BYN0002` üzerinde tamamlanır; ardından gerçek `ACPI\BYN0003` çocuk
+DWC3 MMIO+GSIV 273 ile doğrudan inbox USBXHCI'ye bağlanır. PHY PMU ve SIDDQ
+readback'leri bounded poll ile doğrulanmadan çocuk stack'e hazır durum
+bildirilmez. Bu paket sabit USB2 HOST'tur; function-role ve SuperSpeed yoktur.
+
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
 DEFAULT hive ve WIM geri-okuma doğrulaması `tools_winpe_ui_scale.sh` içindedir.
@@ -229,30 +240,10 @@ paketlenecekse mevcut proje sözleşmesi kullanılır:
 B2L_SKIP_MSVC_BUILD=1 bash tools_b2lusb.sh
 ```
 
-Betik `Ucx01000.sys`, `USBXHCI.SYS` ve `USBHUB3.SYS` dosyalarının hedef WinPE WIM'inde
-bulunduğunu doğrulamadan paket üretmez. Çıplak ADK WinPE'de
-`UrsCx01000.sys` yoksa `tools_winpe_urs_runtime.sh` otomatik çağrılır. Bu
-betik Microsoft binary'sini ve `Services\\UrsCx01000` alt ağacını aynı
-build'deki ARM64 Windows `install.wim`/`install.esd` kaynağından alır; servis
-değerlerini tahmin etmez. UUP ISO otomatik bulunamazsa kaynak açıkça verilir:
-
-```bash
-B2L_WINDOWS_ARM64_SOURCE="/mnt/c/.../Windows11_ARM64.iso" \
-  bash tools_b2lusb.sh
-```
-
-Tam eşleşen Windows build'i tercih edilir. WDK ve binary adıyla sürümlenmiş
-`UrsCx 1.0` için aynı Windows ailesindeki daha eski runtime'ın daha yeni WinPE
-üzerinde kullanılması deneysel uyarıyla kabul edilir; daha yeni runtime'ın eski
-WinPE'ye eklenmesi reddedilir. Birden fazla edition içeren imajlarda gerekirse
-`B2L_WINDOWS_ARM64_INDEX=<indeks>` kullanılır. Offline SYSTEM hive aktarımı için
-`libhivex-bin` ve `libwin-hivex-perl` gerekir.
-
-Build tarafında URS SDK başlığı WDK'nın sürümlü alt dizininden
-`Include/<sürüm>/km/urs/1.0/UrsCx.h`, import library ise
-`Lib/<sürüm>/km/arm64/urs/1.0/UrsCxStub.lib` olarak alınır. Bunlar Windows kurulum
-ISO'sundan değil, eşleşen SDK/WDK kurulumundan gelir. Farklı bir WDK kökü
-gerekiyorsa `B2L_WDK_ROOT='/mnt/.../Windows Kits/10'` verilebilir.
+Betik `Ucx01000.sys`, `USBXHCI.SYS` ve `USBHUB3.SYS` dosyalarının hedef WinPE
+WIM'inde bulunduğunu doğrulamadan paket üretmez. UrsCx binary/header/import-lib
+ve harici Windows runtime kaynağı gerekmez. Farklı bir WDK kökü gerekiyorsa
+`B2L_WDK_ROOT='/mnt/.../Windows Kits/10'` verilebilir.
 
 ## İlk cihaz testi
 
@@ -263,14 +254,14 @@ ilk durumu basar. Manuel bring-up oturumunda rol ve gözlem açıkça seçilebil
 X:\Windows\B2LUSB\b2lusbctl.exe status
 X:\Windows\B2LUSB\b2lusbctl.exe observe
 X:\Windows\B2LUSB\b2lusbctl.exe host
-pnputil /enum-devices /deviceid "URS\BYN0002&HOST"
+pnputil /enum-devices /deviceid "ACPI\BYN0003"
 ```
 
 İlk host testi, MAX77705 henüz VBUS source/CC state yönetmediği için haricen
 beslenen bir USB2 hub üzerinden yapılmalıdır. Başarı sırası:
 
 1. `current=HOST`, `GCTL.PRTCAP=HOST`, `GSTS.CURMOD=HOST` ve `resets>=1`;
-2. `URS\BYN0002&HOST` için `USBXHCI` servisinin başlaması;
+2. `ACPI\BYN0003` için `USBXHCI` servisinin başlaması;
 3. root hub ve haricen beslenen hub'ın numaralandırılması;
 4. USB klavyenin Windows'ta HID Keyboard olarak görünmesi ve tuş üretmesi.
 
@@ -284,14 +275,9 @@ ekranda bırakır; sonraki karar için bu ekranın fotoğrafı yeterlidir. Başa
 native OSK penceresinin özeti kapatmaması için OSK bu test profilinde otomatik
 başlatılmaz. Touch sürücüsü ve `b2lmt.exe` yine kurulur.
 
-Geri dönüş:
-
-```text
-X:\Windows\B2LUSB\b2lusbctl.exe none
-```
-
-Sürücü çalışan bir device controller'ı durduramazsa veya çalışan xHCI yığını
-halt olmadan rol değiştirmeye kalkarsa geçişi `STATUS_DEVICE_BUSY` ile reddeder.
+Bu paket sabit HOST profilidir. `b2lusbctl` DEVICE/NONE rol isteğini kabul
+etmez; güç kapanışı ve yeniden açılışı yalnız PnP/power callback'leri üzerinden
+parent-child sırasıyla yapılır.
 
 ## Henüz tamamlanmayan kapılar
 
@@ -299,12 +285,13 @@ halt olmadan rol değiştirmeye kalkarsa geçişi `STATUS_DEVICE_BUSY` ile redde
    salt-okuma preflight, PLL/CDR lock ve ancak sonra ACPI kaynak genişletmesi.
 2. **Gerçek Type-C rolü:** HSI2C45 ve MAX77705 için KMDF/UcmCx connector
    client; CC orientation, data mux, VBUS/VCONN ve PD state machine. Mevcut
-   `IdGround/IdFloat` yolu yalnız bring-up override'ıdır.
-3. **Function stack:** `URS\BYN0002&FUNCTION` için hedef WIM'deki
-   `UfxSynopsys.inf` bölümünün doğrulanması ve function policy.
+   paket sabit HOST'tur ve bu donanıma yazmaz.
+3. **Function stack:** Sabit HOST ACPI düzeninden ayrı bir gelecek profilde
+   hedef WIM'deki `UfxSynopsys.inf` bölümünün ve function policy'nin
+   doğrulanması.
 4. **KDNET-EEM-USB:** USB3 device yolu kararlı olduktan sonra `DBG2` içinde
    Network debug port type `0x8003`, subtype/vendor `0x5143`, DWC3 tabanı ve
-   `\_SB.URS0` namespace yolu; ardından hedefte `kdnet.exe` ile destek ve
+   uygun gelecek function namespace yolu; ardından hedefte `kdnet.exe` ile destek ve
    transport doğrulaması. Bu tablo, çalışmayan bir debug portu Windows'a
    ilan etmemek için henüz eklenmemiştir.
 

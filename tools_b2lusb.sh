@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build, test-sign and inject the ARM64 Exynos9820 KMDF/URS USB package.
+# Build, test-sign and inject the ARM64 Exynos9820 KMDF static-host USB package.
 # Run from WSL with Windows WDK, Visual Studio ARM64 tools and boot.wim.
 
 set -euo pipefail
@@ -25,8 +25,6 @@ case "$AUTO_HOST" in 0|1) ;; *) die "B2L_USB_AUTO_HOST yalniz 0 veya 1 olabilir"
 WDK_VERSION=""
 while IFS= read -r Candidate; do
   if [ -f "$KITS/Include/$Candidate/km/ntddk.h" ] && \
-     [ -f "$KITS/Include/$Candidate/km/urs/1.0/UrsCx.h" ] && \
-     [ -f "$KITS/Lib/$Candidate/km/arm64/urs/1.0/UrsCxStub.lib" ] && \
      [ -f "$KITS/Lib/$Candidate/km/arm64/libcntpr.lib" ] && \
      [ -f "$KITS/Lib/$Candidate/km/arm64/ntoskrnl.lib" ]; then
     WDK_VERSION="$Candidate"
@@ -34,15 +32,12 @@ while IFS= read -r Candidate; do
   fi
 done < <(find "$KITS/Include" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V -r)
 [ -n "$WDK_VERSION" ] || {
-  printf 'Aranan URS basligi : Include/<surum>/km/urs/1.0/UrsCx.h\n' >&2
-  printf 'Aranan ARM64 kutuphane: Lib/<surum>/km/arm64/urs/1.0/UrsCxStub.lib\n' >&2
+  printf 'Aranan ARM64 WDK: ntddk.h, libcntpr.lib ve ntoskrnl.lib\n' >&2
   printf 'Taranan WDK kok dizini: %s\n' "$KITS" >&2
   while IFS= read -r Candidate; do
     printf '  Surum %s:\n' "$Candidate" >&2
     for Required in \
       "Include/$Candidate/km/ntddk.h" \
-      "Include/$Candidate/km/urs/1.0/UrsCx.h" \
-      "Lib/$Candidate/km/arm64/urs/1.0/UrsCxStub.lib" \
       "Lib/$Candidate/km/arm64/libcntpr.lib" \
       "Lib/$Candidate/km/arm64/ntoskrnl.lib"; do
       if [ -f "$KITS/$Required" ]; then
@@ -53,11 +48,7 @@ done < <(find "$KITS/Include" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | s
     done
   done < <(find "$KITS/Include" -mindepth 1 -maxdepth 1 -type d \
     -name '[0-9]*' -printf '%f\n' 2>/dev/null | sort -V)
-  printf 'Bulunan UrsCx.h konumlari:\n' >&2
-  find "$KITS/Include" -type f -iname 'UrsCx.h' -print 2>/dev/null >&2 || true
-  printf 'Bulunan UrsCxStub.lib konumlari:\n' >&2
-  find "$KITS/Lib" -type f -iname 'UrsCxStub.lib' -print 2>/dev/null >&2 || true
-  die "ARM64 URS kutuphanelerini iceren WDK bulunamadi"
+  die "ARM64 kernel kutuphanelerini iceren WDK bulunamadi"
 }
 [ -f "$KITS/Include/wdf/kmdf/1.15/wdf.h" ] || die "KMDF 1.15 basliklari yok"
 [ -f "$KITS/Lib/wdf/kmdf/arm64/1.15/WdfDriverEntry.lib" ] || die "ARM64 KMDF 1.15 kutuphaneleri yok"
@@ -98,7 +89,7 @@ if [ "${B2L_SKIP_MSVC_BUILD:-0}" = "1" ]; then
   fi
   say "Var olan B2LUSB ARM64 ciktilari kullaniliyor"
 else
-  say "B2LUSB derleniyor (Windows MSVC ARM64 + KMDF/URS)"
+  say "B2LUSB derleniyor (Windows MSVC ARM64 + KMDF static HOST)"
   powershell.exe -NoProfile -ExecutionPolicy Bypass \
     -File "$(wslpath -w "$PS_BUILD")" \
     -ProjectRoot "$(wslpath -w "$HERE")" \
@@ -122,7 +113,7 @@ fi
 
 say "B2LUSB SYS/EXE ve ortak PnP katalogu test imzasiyla hazirlaniyor"
 osslsigncode sign -certs "$CERT" -key "$KEY" \
-  -n "beyond2lte Exynos USB role switch" -h sha256 \
+  -n "beyond2lte Exynos USB host platform" -h sha256 \
   -in "$OUT/b2lusb.sys" -out "$OUT/b2lusb-signed.sys" >/dev/null
 mv -f "$OUT/b2lusb-signed.sys" "$OUT/b2lusb.sys"
 osslsigncode sign -certs "$CERT" -key "$KEY" \
@@ -130,7 +121,7 @@ osslsigncode sign -certs "$CERT" -key "$KEY" \
   -in "$OUT/b2lusbmon.sys" -out "$OUT/b2lusbmon-signed.sys" >/dev/null
 mv -f "$OUT/b2lusbmon-signed.sys" "$OUT/b2lusbmon.sys"
 osslsigncode sign -certs "$CERT" -key "$KEY" \
-  -n "beyond2lte USB role control" -h sha256 \
+  -n "beyond2lte USB host control" -h sha256 \
   -in "$OUT/b2lusbctl.exe" -out "$OUT/b2lusbctl-signed.exe" >/dev/null
 mv -f "$OUT/b2lusbctl-signed.exe" "$OUT/b2lusbctl.exe"
 cp "$SRC/b2lusb.inf.in" "$OUT/b2lusb.inf"
@@ -146,7 +137,7 @@ cleanup() {
   [ -z "$CHECK" ] || rm -rf "$CHECK"
 }
 trap cleanup EXIT
-PFX_PASS="b2lusb-urs"
+PFX_PASS="b2lusb-host"
 openssl pkcs12 -export -out "$PFX" -inkey "$KEY" -in "$CERT" \
   -passout "pass:$PFX_PASS" >/dev/null 2>&1
 "$SIGNTOOL" sign /v /fd sha256 /f "$(wslpath -w "$PFX")" \
@@ -188,10 +179,10 @@ fi
 
 MANIFEST="$OUT/b2lusb-manifest.txt"
 {
-  echo "B2LUSB_PACKAGE=exynos9820-kmdf-urs-usb2-host-bringup"
-  echo "B2LUSB_DRIVER_VERSION=0.1.0.11"
+  echo "B2LUSB_PACKAGE=exynos9820-kmdf-static-usb2-host-bringup"
+  echo "B2LUSB_DRIVER_VERSION=0.1.0.12"
   echo "B2LUSB_ACPI_ID=ACPI\\BYN0002"
-  echo "B2LUSB_HOST_ID=URS\\BYN0002&HOST"
+  echo "B2LUSB_HOST_ID=ACPI\\BYN0003"
   echo "B2LUSB_SUPERSPEED=DISABLED_UNTIL_COMBO_PMA_SAFE"
   echo "B2LUSB_AUTO_HOST=$AUTO_HOST"
   echo "B2LUSB_OFFLINE_DRIVERSTORE=1"
@@ -203,12 +194,10 @@ MANIFEST="$OUT/b2lusb-manifest.txt"
   echo "B2LUSB_CTL_SHA256=$(sha256sum "$OUT/b2lusbctl.exe" | awk '{print $1}')"
 } > "$MANIFEST"
 
-say "WinPE inbox USB/URS bilesenleri denetleniyor"
-bash "$HERE/tools_winpe_urs_runtime.sh"
+say "WinPE inbox USB host bilesenleri denetleniyor"
 bash "$HERE/tools_winpe_ui_scale.sh"
 CHECK="$(mktemp -d)"
 for InboxPath in \
-  /Windows/System32/drivers/UrsCx01000.sys \
   /Windows/System32/drivers/Ucx01000.sys \
   /Windows/System32/drivers/USBXHCI.SYS \
   /Windows/System32/drivers/USBHUB3.SYS; do

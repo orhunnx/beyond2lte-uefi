@@ -3,7 +3,6 @@
 
 #include <ntddk.h>
 #include <wdf.h>
-#include <urs/1.0/UrsCx.h>
 
 #include "b2lusb_public.h"
 
@@ -52,10 +51,9 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(B2L_USB_CONTEXT, B2lUsbGetContext)
 
 DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD B2lUsbEvtDeviceAdd;
-EVT_URS_DEVICE_FILTER_RESOURCE_REQUIREMENTS B2lUsbEvtFilterResources;
-EVT_URS_SET_ROLE B2lUsbEvtSetRole;
 EVT_WDF_DEVICE_PREPARE_HARDWARE B2lUsbEvtPrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE B2lUsbEvtReleaseHardware;
+EVT_WDF_DEVICE_D0_ENTRY B2lUsbEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT B2lUsbEvtD0Exit;
 EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL B2lUsbEvtIoDeviceControl;
 EVT_WDF_TIMER B2lUsbEvtXhciObserveTimer;

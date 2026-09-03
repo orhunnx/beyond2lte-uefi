@@ -1,4 +1,4 @@
-; Bind the URS host child to the Microsoft inbox xHCI stack.
+; Bind the static ACPI host child to the Microsoft inbox xHCI stack.
 
 [Version]
 Signature="$WINDOWS NT$"
@@ -6,7 +6,7 @@ Class=USB
 ClassGuid={36fc9e60-c465-11cf-8056-444553540000}
 Provider=%B2L%
 CatalogFile=b2lusb.cat
-DriverVer=09/03/2026,0.1.0.11
+DriverVer=09/03/2026,0.1.0.12
 PnpLockdown=1
 
 [DestinationDirs]
@@ -22,7 +22,7 @@ b2lusbmon.sys=1
 %B2L%=B2L,NTarm64
 
 [B2L.NTarm64]
-%B2LUsb.HostDesc%=B2LUsbHost_Install,URS\BYN0002&HOST
+%B2LUsb.HostDesc%=B2LUsbHost_Install,ACPI\BYN0003
 
 [B2LUsbHost_Install.NT]
 Include=usbxhci.inf

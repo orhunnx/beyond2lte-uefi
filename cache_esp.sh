@@ -448,11 +448,10 @@ verify_winpe_b2ltouch_package() {
 }
 
 # A --usb-test build now produces both the staged UEFI diagnostic and the
-# Windows ARM64 URS package.  Baseline deliberately omits B2LUSB.EFI, but it
+# Windows ARM64 static-host package.  Baseline deliberately omits B2LUSB.EFI, but it
 # must retain the exact driver build injected into boot.wim.
 verify_winpe_b2lusb_package() {
   local VerifyDir ExpectedSys ManifestSys ExpectedMon ManifestMon ExpectedCtl ManifestCtl
-  local UrsDir UrsManifestDir UrsFile ExpectedUrs ManifestUrs ManifestUrsPackage
   local ManifestAutoHost ManifestOffline AutoHostDir UiManifestDir UiScale UiPackage
 
   if [ ! -s "$PROJ/out/b2lusb/b2lusb.sys" ]; then
@@ -543,39 +542,6 @@ verify_winpe_b2lusb_package() {
       ;;
   esac
 
-  UrsDir="$(mktemp -d)" || return 1
-  UrsManifestDir="$(mktemp -d)" || { rm -rf "$UrsDir"; return 1; }
-  if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
-      /Windows/System32/drivers/UrsCx01000.sys \
-      --dest-dir="$UrsDir" --no-acls >/dev/null; then
-    rm -rf "$UrsDir" "$UrsManifestDir"
-    echo "HATA: boot.wim'de Microsoft UrsCx01000.sys yok."
-    echo "Once: B2L_WINDOWS_ARM64_SOURCE=/mnt/c/.../Windows11_ARM64.iso bash tools_winpe_urs_runtime.sh"
-    return 1
-  fi
-  if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
-      /Windows/B2LURS/manifest.txt \
-      --dest-dir="$UrsManifestDir" --no-acls >/dev/null; then
-    rm -rf "$UrsDir" "$UrsManifestDir"
-    echo "HATA: boot.wim'de dogrulanmis B2LURS runtime manifesti yok."
-    return 1
-  fi
-  UrsFile="$(find "$UrsDir" -type f -iname 'UrsCx01000.sys' -print -quit)"
-  [ -s "$UrsFile" ] || {
-    rm -rf "$UrsDir" "$UrsManifestDir"
-    echo "HATA: UrsCx01000.sys cikarimi bos."
-    return 1
-  }
-  ExpectedUrs="$(sha256sum "$UrsFile" | awk '{print $1}')"
-  ManifestUrs="$(sed -n 's/^B2LURS_SYS_SHA256=//p' "$UrsManifestDir/manifest.txt" | head -n 1)"
-  ManifestUrsPackage="$(sed -n 's/^B2LURS_PACKAGE=//p' "$UrsManifestDir/manifest.txt" | head -n 1)"
-  rm -rf "$UrsDir" "$UrsManifestDir"
-  if [ "$ManifestUrs" != "$ExpectedUrs" ] || \
-     [ "$ManifestUrsPackage" != "microsoft-urscx-winpe-runtime-v1" ]; then
-    echo "HATA: boot.wim Microsoft UrsCx runtime/manifest eslesmesi gecersiz."
-    return 1
-  fi
-
   UiManifestDir="$(mktemp -d)" || return 1
   if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
       /Windows/B2LUI/manifest.txt \
@@ -596,7 +562,6 @@ verify_winpe_b2lusb_package() {
   echo "  SYS SHA256: ${ExpectedSys:0:16}"
   echo "  MON SHA256: ${ExpectedMon:0:16}"
   echo "  CTL SHA256: ${ExpectedCtl:0:16}"
-  echo "  URS SHA256: ${ExpectedUrs:0:16}"
   echo "  AUTO HOST : $ManifestAutoHost"
   echo "  UI SCALE  : %$UiScale"
 }

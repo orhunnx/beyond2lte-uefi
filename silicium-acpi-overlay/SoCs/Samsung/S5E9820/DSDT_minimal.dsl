@@ -251,12 +251,12 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
             })
         }
 
-        // Exynos9820 DWC_usb31 dual-role controller.  BYN0002 is owned by
-        // b2lusb.sys, a KMDF URS client.  The parent keeps the Exynos PHY and
-        // PMU resources while URS passes the DWC3 window to exactly one child
-        // stack at a time.  SuperSpeed PCS/PMA windows are intentionally not
-        // exposed until accesses to 0x10AE0000/0x10AF0000 stop aborting.
-        Device (URS0)
+        // Exynos9820 DWC_usb31 USB2 host bring-up.  BYN0002 prepares the
+        // Exynos PHY/core before ACPI starts BYN0003 directly on USBXHCI.
+        // Keeping the real host PDO under ACPI avoids a synthetic role-child
+        // runtime in this WinPE build.  SuperSpeed PCS/PMA
+        // windows remain hidden until 0x10AE0000/0x10AF0000 are safe.
+        Device (USBP)
         {
             Name (_HID, "BYN0002")
             Name (_UID, Zero)
@@ -269,37 +269,29 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000005)
 
             Name (_CRS, ResourceTemplate ()
             {
-                Memory32Fixed (ReadWrite, 0x10C00000, 0x00010000)
                 Memory32Fixed (ReadWrite, 0x10B00000, 0x00000200)
                 Memory32Fixed (ReadWrite, 0x1586072C, 0x00000004)
             })
 
-            // URS assigns URS\BYN0002&HOST to this child.  USBXHCI owns the
-            // controller interrupt only while the host role is active.
+            // USBXHCI exclusively owns the DWC3 window and interrupt.  The
+            // parent maps that verified window only for the ordered HOST
+            // handoff before this child is allowed to start.
             Device (USB0)
             {
+                Name (_HID, "BYN0003")
+                Name (_UID, Zero)
                 Name (_ADR, Zero)
-                // USBXHCI is the DMA bus master on the URS-created host PDO.
-                // Repeat the parent's non-coherent attribute explicitly so
-                // ARM64 common-buffer policy cannot depend on inheritance.
                 Name (_CCA, Zero)
-                Name (_CRS, ResourceTemplate ()
-                {
-                    // Stock DTB SPI 241 -> GIC GSIV 241 + 32 = 273.
-                    Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
-                    {
-                        0x00000111
-                    }
-                })
-            }
 
-            // Reserved for UfxSynopsys/KDNET-EEM device-role bring-up.
-            Device (UFN0)
-            {
-                Name (_ADR, One)
-                Name (_CCA, Zero)
+                Method (_STA, 0, NotSerialized)
+                {
+                    Return (0x0F)
+                }
+
                 Name (_CRS, ResourceTemplate ()
                 {
+                    Memory32Fixed (ReadWrite, 0x10C00000, 0x00010000)
+                    // Stock DTB SPI 241 -> GIC GSIV 241 + 32 = 273.
                     Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
                     {
                         0x00000111

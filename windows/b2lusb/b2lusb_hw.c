@@ -16,7 +16,6 @@
 #define B2L_DWC3_GCTL_CORESOFTRESET   (1UL << 11)
 #define B2L_DWC3_GCTL_PRTCAP_MASK     (3UL << 12)
 #define B2L_DWC3_GCTL_PRTCAP_HOST     (1UL << 12)
-#define B2L_DWC3_GCTL_PRTCAP_DEVICE   (2UL << 12)
 #define B2L_DWC3_GSTS_CURMOD_MASK     3UL
 #define B2L_DWC3_GSTS_CURMOD_DEVICE   0UL
 #define B2L_DWC3_GSTS_CURMOD_HOST     1UL
@@ -113,6 +112,9 @@
 #define B2L_ROLE_WAIT_ITERATIONS       2000UL
 #define B2L_ROLE_WAIT_US               10UL
 #define B2L_DWC3_ROLE_RESET_MS          100UL
+#define B2L_PHY_VERIFY_POLLS             20UL
+#define B2L_PHY_VERIFY_POLL_US          100UL
+#define B2L_PHY_PMU_SETTLE_US          1000UL
 
 static ULONG
 B2lRead32(
@@ -412,16 +414,32 @@ B2lRequireXhciHalted(
 }
 
 static VOID
+B2lUsb2PhyDisable(
+    PB2L_USB_CONTEXT Context
+    );
+
+static NTSTATUS
 B2lUsb2PhyEnable(
-    PB2L_USB_CONTEXT Context,
-    B2L_USB_ROLE Role
+    PB2L_USB_CONTEXT Context
     )
 {
+    ULONG Poll;
     ULONG Value;
 
     // DT pmu_mask=0 means bit 0.  Setting it removes USB2 PHY isolation.
     Value = READ_REGISTER_ULONG((volatile ULONG *)Context->PmuUsbPhy);
     WRITE_REGISTER_ULONG((volatile ULONG *)Context->PmuUsbPhy, Value | 1UL);
+    for (Poll = 0; Poll < B2L_PHY_VERIFY_POLLS; ++Poll) {
+        Value = READ_REGISTER_ULONG((volatile ULONG *)Context->PmuUsbPhy);
+        if ((Value & 1UL) != 0) {
+            break;
+        }
+        KeStallExecutionProcessor(B2L_PHY_VERIFY_POLL_US);
+    }
+    if ((Value & 1UL) == 0) {
+        return STATUS_DEVICE_POWER_FAILURE;
+    }
+    KeStallExecutionProcessor(B2L_PHY_PMU_SETTLE_US);
 
     // Samsung exynos_cal_usbphy_q_ch(..., 1).
     Value = B2lRead32(Context->PhyRegisters, B2L_PHY_LINK_CTRL);
@@ -470,7 +488,7 @@ B2lUsb2PhyEnable(
     Value |= B2L_HSP_VBUSVLDEXTSEL | B2L_HSP_VBUSVLDEXT;
     B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP, Value);
 
-    // Tune values are the device/host columns from beyond2lte.dts.
+    // Host tune values are the verified host column from beyond2lte.dts.
     Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSP_TUNE);
     Value &= ~(B2L_HSP_TUNE_TXVREF_MASK |
                B2L_HSP_TUNE_TXRES_MASK |
@@ -478,9 +496,9 @@ B2lUsb2PhyEnable(
                B2L_HSP_TUNE_SQRX_MASK |
                B2L_HSP_TUNE_COMPDIS_MASK);
     Value |= B2L_HSP_TUNE_TXVREF(12) |
-             B2L_HSP_TUNE_TXRES((Role == B2lUsbRoleHost) ? 1 : 3) |
+             B2L_HSP_TUNE_TXRES(1) |
              B2L_HSP_TUNE_TXPREEMPA(3) |
-             B2L_HSP_TUNE_SQRX((Role == B2lUsbRoleHost) ? 5 : 3) |
+             B2L_HSP_TUNE_SQRX(5) |
              B2L_HSP_TUNE_COMPDIS(7);
     B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP_TUNE, Value);
 
@@ -510,16 +528,28 @@ B2lUsb2PhyEnable(
     Value &= ~B2L_LINK_PORT_U2_DISABLE;
     B2lWrite32(Context->PhyRegisters, B2L_PHY_LINK_PORT, Value);
 
-    if (Role == B2lUsbRoleHost) {
-        Value = B2lRead32(Context->PhyRegisters, B2L_PHY_UTMI);
-        Value |= B2L_UTMI_DP_PULLDOWN | B2L_UTMI_DM_PULLDOWN;
-        Value &= ~(B2L_UTMI_FORCE_BVALID | B2L_UTMI_FORCE_VBUSVALID);
-        B2lWrite32(Context->PhyRegisters, B2L_PHY_UTMI, Value);
+    Value = B2lRead32(Context->PhyRegisters, B2L_PHY_UTMI);
+    Value |= B2L_UTMI_DP_PULLDOWN | B2L_UTMI_DM_PULLDOWN;
+    Value &= ~(B2L_UTMI_FORCE_BVALID | B2L_UTMI_FORCE_VBUSVALID);
+    B2lWrite32(Context->PhyRegisters, B2L_PHY_UTMI, Value);
 
-        Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSP);
-        Value &= ~(B2L_HSP_VBUSVLDEXTSEL | B2L_HSP_VBUSVLDEXT);
-        B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP, Value);
+    Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSP);
+    Value &= ~(B2L_HSP_VBUSVLDEXTSEL | B2L_HSP_VBUSVLDEXT);
+    B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP, Value);
+
+    // Mirror the bounded readback gate used by the verified UEFI bring-up.
+    // Do not hand a half-powered PHY to USBXHCI after the POR sequence.
+    for (Poll = 0; Poll < B2L_PHY_VERIFY_POLLS; ++Poll) {
+        Value = READ_REGISTER_ULONG((volatile ULONG *)Context->PmuUsbPhy);
+        if (((Value & 1UL) != 0) &&
+            ((B2lRead32(Context->PhyRegisters, B2L_PHY_HSP_TEST) &
+              B2L_HSP_TEST_SIDDQ) == 0)) {
+            return STATUS_SUCCESS;
+        }
+        KeStallExecutionProcessor(B2L_PHY_VERIFY_POLL_US);
     }
+    B2lUsb2PhyDisable(Context);
+    return STATUS_DEVICE_POWER_FAILURE;
 }
 
 static VOID
@@ -615,7 +645,10 @@ B2lUsbHardwareSetRole(
             }
         }
 
-        B2lUsb2PhyEnable(Context, Role);
+        Status = B2lUsb2PhyEnable(Context);
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
         Status = B2lResetDwc3RoleCore(Context);
         if (!NT_SUCCESS(Status)) {
             B2lUsb2PhyDisable(Context);
@@ -625,36 +658,14 @@ B2lUsbHardwareSetRole(
         Gctl &= ~B2L_DWC3_GCTL_PRTCAP_MASK;
         Gctl |= B2L_DWC3_GCTL_PRTCAP_HOST;
         B2lWrite32(Context->Dwc3Registers, B2L_DWC3_GCTL, Gctl);
-        return B2lWaitDwc3Mode(Context, B2L_DWC3_GSTS_CURMOD_HOST);
-    }
-
-    if (Role == B2lUsbRoleDevice) {
-        if (CurrentMode == B2L_DWC3_GSTS_CURMOD_HOST) {
-            Status = B2lRequireXhciHalted(Context);
-            if (!NT_SUCCESS(Status)) {
-                return Status;
-            }
-        } else {
-            Status = B2lStopDeviceController(Context);
-            if (!NT_SUCCESS(Status)) {
-                return Status;
-            }
-        }
-
-        B2lUsb2PhyEnable(Context, Role);
-        Status = B2lResetDwc3RoleCore(Context);
+        Status = B2lWaitDwc3Mode(Context, B2L_DWC3_GSTS_CURMOD_HOST);
         if (!NT_SUCCESS(Status)) {
             B2lUsb2PhyDisable(Context);
-            return Status;
         }
-        Gctl = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL);
-        Gctl &= ~B2L_DWC3_GCTL_PRTCAP_MASK;
-        Gctl |= B2L_DWC3_GCTL_PRTCAP_DEVICE;
-        B2lWrite32(Context->Dwc3Registers, B2L_DWC3_GCTL, Gctl);
-        return B2lWaitDwc3Mode(Context, B2L_DWC3_GSTS_CURMOD_DEVICE);
+        return Status;
     }
 
-    return STATUS_INVALID_PARAMETER;
+    return STATUS_NOT_SUPPORTED;
 }
 
 VOID
@@ -674,7 +685,7 @@ B2lUsbHardwareGetStatus(
 
     Status->Flags |= B2L_USB_STATUS_HARDWARE_READY |
                      B2L_USB_STATUS_USB2_ONLY |
-                     B2L_USB_STATUS_MANUAL_URS;
+                     B2L_USB_STATUS_STATIC_HOST;
     Status->CoreResetCount = Context->CoreResetCount;
     if (Context->CoreResetCount != 0) {
         Status->Flags |= B2L_USB_STATUS_CORE_RESET;

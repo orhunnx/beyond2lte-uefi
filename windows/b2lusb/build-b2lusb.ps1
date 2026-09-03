@@ -1,6 +1,6 @@
 <#
  .SYNOPSIS
-   Builds the Beyond2LTE KMDF/URS USB driver and control tool for ARM64.
+   Builds the Beyond2LTE KMDF static-host USB driver and control tool for ARM64.
 
  .DESCRIPTION
    Run from WSL through powershell.exe.  Sources are staged in a native
@@ -60,21 +60,19 @@ if ([string]::IsNullOrWhiteSpace($WdkVersion)) {
     $Candidate = Get-ChildItem -LiteralPath $IncludeRoot -Directory |
         Where-Object {
             (Test-Path -LiteralPath (Join-Path $_.FullName 'km\ntddk.h') -PathType Leaf) -and
-            (Test-Path -LiteralPath (Join-Path $_.FullName 'km\urs\1.0\UrsCx.h') -PathType Leaf) -and
-            (Test-Path -LiteralPath (Join-Path $KitsRoot ("Lib\{0}\km\arm64\urs\1.0\UrsCxStub.lib" -f $_.Name)) -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $KitsRoot ("Lib\{0}\km\arm64\ntoskrnl.lib" -f $_.Name)) -PathType Leaf)
         } |
         Where-Object { $_.Name -match '^\d+(\.\d+){1,3}$' } |
         Sort-Object { [Version]$_.Name } -Descending |
         Select-Object -First 1
     if ($null -eq $Candidate) {
-        Fail 'km\urs\1.0\UrsCx.h ve ARM64 urs\1.0\UrsCxStub.lib iceren Windows WDK bulunamadi'
+        Fail 'ARM64 kernel kutuphanelerini iceren Windows WDK bulunamadi'
     }
     $WdkVersion = $Candidate.Name
 }
 
 $WdkInclude = Resolve-Directory (Join-Path $KitsRoot ("Include\{0}" -f $WdkVersion)) 'Secilen WDK Include dizini'
-foreach ($Header in @('km\ntddk.h', 'km\urs\1.0\UrsCx.h', 'um\setupapi.h')) {
+foreach ($Header in @('km\ntddk.h', 'um\setupapi.h')) {
     if (-not (Test-Path -LiteralPath (Join-Path $WdkInclude $Header) -PathType Leaf)) {
         Fail "$Header yok: $WdkInclude"
     }
@@ -84,10 +82,6 @@ foreach ($Library in @('ntoskrnl.lib', 'hal.lib', 'libcntpr.lib', 'BufferOverflo
     if (-not (Test-Path -LiteralPath (Join-Path $WdkLib $Library) -PathType Leaf)) {
         Fail "$Library yok: $WdkLib"
     }
-}
-$UrsLib = Resolve-Directory (Join-Path $WdkLib 'urs\1.0') 'WDK ARM64 URS kutuphane dizini'
-if (-not (Test-Path -LiteralPath (Join-Path $UrsLib 'UrsCxStub.lib') -PathType Leaf)) {
-    Fail "UrsCxStub.lib yok: $UrsLib"
 }
 $WdkUserLib = Resolve-Directory (Join-Path $KitsRoot ("Lib\{0}\um\arm64" -f $WdkVersion)) 'SDK ARM64 kullanici kutuphane dizini'
 foreach ($Library in @('kernel32.lib', 'setupapi.lib')) {
@@ -153,7 +147,7 @@ try {
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $Flags /Fo`"b2lusb_hw.obj`" `"b2lusb_hw.c`"",
         'if errorlevel 1 exit /b 1',
-        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$UrsLib`" /libpath:`"$KmdfLib`" /out:`"b2lusb.sys`" `"b2lusb.obj`" `"b2lusb_hw.obj`" WdfDriverEntry.lib WdfLdr.lib UrsCxStub.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
+        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lusb.sys`" `"b2lusb.obj`" `"b2lusb_hw.obj`" WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $Flags /Fo`"b2lusbmon.obj`" `"b2lusbmon.c`"",
         'if errorlevel 1 exit /b 1',
@@ -166,7 +160,7 @@ try {
     [IO.File]::WriteAllText($BuildCmd, (($Lines -join "`r`n") + "`r`n"), [Text.Encoding]::ASCII)
 
     Write-Host ''
-    Write-Host '==> B2LUSB derleniyor (Windows MSVC ARM64 + KMDF 1.15 + URS)' -ForegroundColor Cyan
+    Write-Host '==> B2LUSB derleniyor (Windows MSVC ARM64 + KMDF 1.15 static HOST)' -ForegroundColor Cyan
     Write-Host "  WDK    : $WdkVersion"
     Write-Host "  vcvars : $($Vcvars.FullName)"
     Push-Location -LiteralPath $StageRoot

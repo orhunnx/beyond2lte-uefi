@@ -53,7 +53,7 @@ if exist "%B2LUSBDIR%\auto-host.test" cls
 echo.
 echo === Test sonu ===
 echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
-if exist "%B2LUSBDIR%\b2lusbctl.exe" echo USB rol kontrolu: %B2LUSBDIR%\b2lusbctl.exe status^|host^|device^|none
+if exist "%B2LUSBDIR%\b2lusbctl.exe" echo USB host kontrolu: %B2LUSBDIR%\b2lusbctl.exe status^|observe^|host
 if not exist "%B2LUSBDIR%\auto-host.test" call :B2LTouchLaunchKeyboard
 if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
   if exist "%SystemDrive%\B2LUSB-HOST-RESTART.TXT" (
@@ -111,17 +111,16 @@ if not exist "%B2LUSBDIR%\offline-driverstore.txt" (
   echo HATA: B2LUSB offline DriverStore isareti yok; runtime INF kurulumu reddedildi.
   exit /b 1
 )
-if not exist "%SystemRoot%\System32\drivers\UrsCx01000.sys" (
-  echo HATA: Microsoft UrsCx01000.sys runtime yok.
-  exit /b 1
-)
 if not exist "%SystemRoot%\System32\drivers\Ucx01000.sys" (
   echo HATA: Microsoft Ucx01000.sys xHCI class extension yok.
   exit /b 1
 )
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\UrsCx01000" >nul 2>&1
-if errorlevel 1 (
-  echo HATA: Microsoft UrsCx01000 servis kaydi yok.
+if not exist "%SystemRoot%\System32\drivers\USBXHCI.SYS" (
+  echo HATA: Microsoft USBXHCI.SYS yok.
+  exit /b 1
+)
+if not exist "%SystemRoot%\System32\drivers\USBHUB3.SYS" (
+  echo HATA: Microsoft USBHUB3.SYS yok.
   exit /b 1
 )
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\Ucx01000" >nul 2>&1
@@ -137,17 +136,18 @@ timeout /t 3 /nobreak >nul 2>&1
 echo Offline PnP baslangic sonucu:
 type "%SystemDrive%\B2LUSB-PNP.TXT"
 pnputil /enum-devices /deviceid "ACPI\BYN0002" 2>nul
+pnputil /enum-devices /deviceid "ACPI\BYN0003" /services /stack /drivers /resources 2>nul
 if exist "%B2LUSBDIR%\b2lusbctl.exe" (
   echo.
   echo B2LUSB ilk durum:
   "%B2LUSBDIR%\b2lusbctl.exe" status
   if exist "%B2LUSBDIR%\auto-host.test" (
     echo.
-    echo B2LUSB --usb-test mevcut HOST child hedefli restart:
-    > "%SystemDrive%\B2LUSB-AUTOHOST.TXT" echo URS HOST child hedefli PnP restart baslatildi.
+    echo B2LUSB --usb-test statik ACPI HOST hedefli restart:
+    > "%SystemDrive%\B2LUSB-AUTOHOST.TXT" echo ACPI HOST child hedefli PnP restart baslatildi.
     call :B2LUsbTraceStart
     "%B2LUSBDIR%\b2lusbctl.exe" observe >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
-    pnputil /restart-device /deviceid "URS\BYN0002&HOST" > "%SystemDrive%\B2LUSB-HOST-RESTART.TXT" 2>&1
+    pnputil /restart-device /deviceid "ACPI\BYN0003" > "%SystemDrive%\B2LUSB-HOST-RESTART.TXT" 2>&1
     if errorlevel 1 (
       echo HOST_TARGET_RESTART=UYARI >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
       echo UYARI: HOST child PnP restart tamamlanamadi; tam sistem rebootu istenmedi. >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
@@ -159,9 +159,9 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
     pnputil /scan-devices >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     timeout /t 2 /nobreak >nul 2>&1
     call :B2LUsbTraceStop
-    pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
-    pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /resources > "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" 2>&1
-    reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\URS" /s /f B2LMon > "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT" 2>&1
+    pnputil /enum-devices /deviceid "ACPI\BYN0003" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
+    pnputil /enum-devices /deviceid "ACPI\BYN0003" /resources > "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" 2>&1
+    reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI" /s /f B2LMon > "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT" 2>&1
     call :B2LUsbCollectSetupApiSummary
     pnputil /enum-devices /class USB >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /enum-devices /class HIDClass >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
@@ -169,8 +169,7 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
     type "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
     type "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT"
   ) else (
-    echo HOST deneyi:   %B2LUSBDIR%\b2lusbctl.exe host
-    echo DEVICE deneyi: %B2LUSBDIR%\b2lusbctl.exe device
+    echo HOST yeniden hazirlama: %B2LUSBDIR%\b2lusbctl.exe host
   )
 )
 exit /b 0
@@ -219,7 +218,7 @@ exit /b 0
 rem USB aygit kimligiyle birlikte SetupAPI'nin Code 10/problem-status satirlarini
 rem ekrana sigacak tek dosyada tut. Kaynak log salt okunur; hata yoksa bos kalir.
 if not exist "%SystemRoot%\INF\setupapi.dev.log" exit /b 0
-findstr /i /c:"BYN0002" /c:"VEN_BYN&DEV_0002" /c:"USBXHCI" /c:"Device not started" /c:"CM_PROB_FAILED_START" /c:"0xC000009E" "%SystemRoot%\INF\setupapi.dev.log" > "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" 2>nul
+findstr /i /c:"BYN0002" /c:"BYN0003" /c:"USBXHCI" /c:"Device not started" /c:"CM_PROB_FAILED_START" /c:"0xC000009E" "%SystemRoot%\INF\setupapi.dev.log" > "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" 2>nul
 exit /b 0
 
 :B2LTouchInstall

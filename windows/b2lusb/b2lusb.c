@@ -1,26 +1,6 @@
 #include <initguid.h>
 #include "b2lusb.h"
 
-static BOOLEAN
-B2lUsbRequirementIsDwc3(
-    const IO_RESOURCE_DESCRIPTOR *Descriptor
-    )
-{
-    ULONGLONG Minimum;
-    ULONGLONG Maximum;
-
-    if (Descriptor->Type != CmResourceTypeMemory) {
-        return FALSE;
-    }
-
-    Minimum = (ULONGLONG)Descriptor->u.Memory.MinimumAddress.QuadPart;
-    Maximum = (ULONGLONG)Descriptor->u.Memory.MaximumAddress.QuadPart;
-    return (Minimum == B2L_DWC3_PHYSICAL_BASE) &&
-           ((Maximum == B2L_DWC3_PHYSICAL_BASE) ||
-            (Maximum == (B2L_DWC3_PHYSICAL_BASE + B2L_DWC3_LENGTH - 1ULL))) &&
-           (Descriptor->u.Memory.Length == B2L_DWC3_LENGTH);
-}
-
 static NTSTATUS
 B2lUsbMapResource(
     PB2L_USB_CONTEXT Context,
@@ -36,17 +16,7 @@ B2lUsbMapResource(
 
     Start = (ULONGLONG)Resource->u.Memory.Start.QuadPart;
     Mapping = NULL;
-    if ((Start == B2L_DWC3_PHYSICAL_BASE) &&
-        (Resource->u.Memory.Length == B2L_DWC3_LENGTH) &&
-        (Context->Dwc3Registers == NULL)) {
-        Mapping = (PUCHAR)MmMapIoSpaceEx(
-            Resource->u.Memory.Start,
-            Resource->u.Memory.Length,
-            PAGE_READWRITE | PAGE_NOCACHE
-            );
-        Context->Dwc3Registers = Mapping;
-        Context->Dwc3Length = Resource->u.Memory.Length;
-    } else if ((Start == B2L_USBPHY_PHYSICAL_BASE) &&
+    if ((Start == B2L_USBPHY_PHYSICAL_BASE) &&
                (Resource->u.Memory.Length == B2L_USBPHY_LENGTH) &&
                (Context->PhyRegisters == NULL)) {
         Mapping = (PUCHAR)MmMapIoSpaceEx(
@@ -70,6 +40,33 @@ B2lUsbMapResource(
     }
 
     return (Mapping != NULL) ? STATUS_SUCCESS : STATUS_INSUFFICIENT_RESOURCES;
+}
+
+static NTSTATUS
+B2lUsbMapSharedDwc3(
+    PB2L_USB_CONTEXT Context
+    )
+{
+    PHYSICAL_ADDRESS Address;
+
+    if (Context->Dwc3Registers != NULL) {
+        return STATUS_SUCCESS;
+    }
+
+    // The ACPI host child exclusively owns this range for PnP arbitration.
+    // Its parent maps the same verified DWC3 page only to complete the SoC
+    // PHY/core HOST handoff before Windows starts that child.
+    Address.QuadPart = B2L_DWC3_PHYSICAL_BASE;
+    Context->Dwc3Registers = (PUCHAR)MmMapIoSpaceEx(
+        Address,
+        B2L_DWC3_LENGTH,
+        PAGE_READWRITE | PAGE_NOCACHE
+        );
+    if (Context->Dwc3Registers == NULL) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+    Context->Dwc3Length = B2L_DWC3_LENGTH;
+    return STATUS_SUCCESS;
 }
 
 static VOID
@@ -127,19 +124,13 @@ B2lUsbEvtDeviceAdd(
     PB2L_USB_CONTEXT Context;
     WDFWAITLOCK Lock;
     WDFSPINLOCK SpinLock;
-    URS_CONFIG UrsConfig;
     UNICODE_STRING Sddl;
     NTSTATUS Status;
 
     UNREFERENCED_PARAMETER(Driver);
 
-    Status = UrsDeviceInitInitialize(DeviceInit);
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-
-    // WdfDeviceInitAssignSDDLString rejects an unnamed device.  Keep the URS
-    // FDO out of the legacy named-device namespace while still giving WDF an
+    // WdfDeviceInitAssignSDDLString rejects an unnamed device.  Keep the
+    // platform FDO out of the legacy named-device namespace while giving WDF
     // object name to which the LocalSystem/Administrators ACL can be applied.
     WdfDeviceInitSetCharacteristics(
         DeviceInit,
@@ -150,6 +141,7 @@ B2lUsbEvtDeviceAdd(
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&PowerCallbacks);
     PowerCallbacks.EvtDevicePrepareHardware = B2lUsbEvtPrepareHardware;
     PowerCallbacks.EvtDeviceReleaseHardware = B2lUsbEvtReleaseHardware;
+    PowerCallbacks.EvtDeviceD0Entry = B2lUsbEvtD0Entry;
     PowerCallbacks.EvtDeviceD0Exit = B2lUsbEvtD0Exit;
     WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &PowerCallbacks);
 
@@ -232,71 +224,7 @@ B2lUsbEvtDeviceAdd(
         return Status;
     }
 
-    URS_CONFIG_INIT(
-        &UrsConfig,
-        UrsHostInterfaceTypeXhci,
-        B2lUsbEvtFilterResources
-        );
-    UrsConfig.EvtUrsSetRole = B2lUsbEvtSetRole;
-    return UrsDeviceInitialize(Device, &UrsConfig);
-}
-
-NTSTATUS
-B2lUsbEvtFilterResources(
-    WDFDEVICE Device,
-    WDFIORESREQLIST IoResourceRequirementsList,
-    URSIORESLIST HostRoleResources,
-    URSIORESLIST FunctionRoleResources
-    )
-{
-    WDFIORESLIST ResourceList;
-    PIO_RESOURCE_DESCRIPTOR Descriptor;
-    ULONG Count;
-    ULONG Index;
-    BOOLEAN Found;
-    NTSTATUS Status;
-
-    UNREFERENCED_PARAMETER(Device);
-
-    if (WdfIoResourceRequirementsListGetCount(IoResourceRequirementsList) != 1) {
-        return STATUS_DEVICE_CONFIGURATION_ERROR;
-    }
-
-    ResourceList = WdfIoResourceRequirementsListGetIoResList(
-        IoResourceRequirementsList,
-        0
-        );
-    Count = WdfIoResourceListGetCount(ResourceList);
-    Found = FALSE;
-    for (Index = 0; Index < Count; ++Index) {
-        Descriptor = WdfIoResourceListGetDescriptor(ResourceList, Index);
-        if ((Descriptor == NULL) || !B2lUsbRequirementIsDwc3(Descriptor)) {
-            continue;
-        }
-        if (Found) {
-            return STATUS_DEVICE_CONFIGURATION_ERROR;
-        }
-
-        // The URS parent also keeps this range because EvtUrsSetRole owns
-        // GCTL.  Urscx serializes it with the active host/function child.
-        Status = UrsIoResourceListAppendDescriptor(
-            HostRoleResources,
-            Descriptor
-            );
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-        Status = UrsIoResourceListAppendDescriptor(
-            FunctionRoleResources,
-            Descriptor
-            );
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-        Found = TRUE;
-    }
-
-    return Found ? STATUS_SUCCESS : STATUS_DEVICE_CONFIGURATION_ERROR;
+    return STATUS_SUCCESS;
 }
 
 NTSTATUS
@@ -316,6 +244,11 @@ B2lUsbEvtPrepareHardware(
     UNREFERENCED_PARAMETER(ResourcesRaw);
 
     Context = B2lUsbGetContext(Device);
+    Status = B2lUsbMapSharedDwc3(Context);
+    if (!NT_SUCCESS(Status)) {
+        goto Failure;
+    }
+
     Count = WdfCmResourceListGetCount(ResourcesTranslated);
     MemoryCount = 0;
     for (Index = 0; Index < Count; ++Index) {
@@ -336,7 +269,7 @@ B2lUsbEvtPrepareHardware(
         }
     }
 
-    if ((MemoryCount != 3) ||
+    if ((MemoryCount != 2) ||
         (Context->Dwc3Registers == NULL) ||
         (Context->PhyRegisters == NULL) ||
         (Context->PmuUsbPhy == NULL)) {
@@ -349,12 +282,14 @@ B2lUsbEvtPrepareHardware(
         goto Failure;
     }
 
+    Context->RequestedRole = B2lUsbRoleHost;
+    Status = B2lUsbHardwareSetRole(Context, B2lUsbRoleHost);
+    Context->LastRoleStatus = Status;
+    if (!NT_SUCCESS(Status)) {
+        goto Failure;
+    }
     Context->HardwareReady = TRUE;
-    Context->LastRoleStatus = STATUS_SUCCESS;
-
-    // Bring-up override only.  A production Type-C path replaces this with
-    // UcmCx/MAX77705 events and sets hardware-event support to FALSE here.
-    UrsSetHardwareEventSupport(Device, TRUE);
+    Context->CurrentRole = B2lUsbRoleHost;
     return STATUS_SUCCESS;
 
 Failure:
@@ -461,6 +396,31 @@ B2lUsbArmXhciObserver(
 }
 
 NTSTATUS
+B2lUsbEvtD0Entry(
+    WDFDEVICE Device,
+    WDF_POWER_DEVICE_STATE PreviousState
+    )
+{
+    PB2L_USB_CONTEXT Context;
+    NTSTATUS Status;
+
+    UNREFERENCED_PARAMETER(PreviousState);
+
+    Context = B2lUsbGetContext(Device);
+    WdfWaitLockAcquire(Context->RoleLock, NULL);
+    Context->RequestedRole = B2lUsbRoleHost;
+    Status = Context->HardwareReady ?
+        B2lUsbHardwareSetRole(Context, B2lUsbRoleHost) :
+        STATUS_DEVICE_NOT_READY;
+    Context->LastRoleStatus = Status;
+    if (NT_SUCCESS(Status)) {
+        Context->CurrentRole = B2lUsbRoleHost;
+    }
+    WdfWaitLockRelease(Context->RoleLock);
+    return Status;
+}
+
+NTSTATUS
 B2lUsbEvtD0Exit(
     WDFDEVICE Device,
     WDF_POWER_DEVICE_STATE TargetState
@@ -483,38 +443,6 @@ B2lUsbEvtD0Exit(
     return Status;
 }
 
-NTSTATUS
-B2lUsbEvtSetRole(
-    WDFDEVICE Device,
-    URS_ROLE Role
-    )
-{
-    PB2L_USB_CONTEXT Context;
-    B2L_USB_ROLE HardwareRole;
-    NTSTATUS Status;
-
-    Context = B2lUsbGetContext(Device);
-    if (Role == UrsRoleHost) {
-        HardwareRole = B2lUsbRoleHost;
-    } else if (Role == UrsRoleFunction) {
-        HardwareRole = B2lUsbRoleDevice;
-    } else if (Role == UrsRoleNone) {
-        HardwareRole = B2lUsbRoleNone;
-    } else {
-        return STATUS_INVALID_PARAMETER;
-    }
-
-    WdfWaitLockAcquire(Context->RoleLock, NULL);
-    Status = Context->HardwareReady ?
-        B2lUsbHardwareSetRole(Context, HardwareRole) : STATUS_DEVICE_NOT_READY;
-    Context->LastRoleStatus = Status;
-    if (NT_SUCCESS(Status)) {
-        Context->CurrentRole = HardwareRole;
-    }
-    WdfWaitLockRelease(Context->RoleLock);
-    return Status;
-}
-
 VOID
 B2lUsbEvtIoDeviceControl(
     WDFQUEUE Queue,
@@ -528,7 +456,6 @@ B2lUsbEvtIoDeviceControl(
     PB2L_USB_CONTEXT Context;
     B2L_USB_SET_ROLE_INPUT *Input;
     B2L_USB_STATUS *Output;
-    URS_HARDWARE_EVENT Event;
     size_t Length;
     NTSTATUS Status;
 
@@ -590,25 +517,19 @@ B2lUsbEvtIoDeviceControl(
         return;
     }
 
-    if (Input->Role == B2lUsbRoleHost) {
-        Event = UrsHardwareEventIdGround;
-    } else if (Input->Role == B2lUsbRoleDevice) {
-        Event = UrsHardwareEventIdFloat;
-    } else {
-        Event = UrsHardwareEventDetach;
-    }
-
     WdfWaitLockAcquire(Context->RoleLock, NULL);
-    Status = Context->HardwareReady ? STATUS_SUCCESS : STATUS_DEVICE_NOT_READY;
-    if (NT_SUCCESS(Status)) {
-        Context->RequestedRole = Input->Role;
+    if (Input->Role != B2lUsbRoleHost) {
+        Status = STATUS_NOT_SUPPORTED;
+    } else if (!Context->HardwareReady) {
+        Status = STATUS_DEVICE_NOT_READY;
+    } else {
+        Context->RequestedRole = B2lUsbRoleHost;
+        Status = B2lUsbHardwareSetRole(Context, B2lUsbRoleHost);
+        Context->LastRoleStatus = Status;
+        if (NT_SUCCESS(Status)) {
+            Context->CurrentRole = B2lUsbRoleHost;
+        }
     }
     WdfWaitLockRelease(Context->RoleLock);
-
-    if (NT_SUCCESS(Status)) {
-        // The event is asynchronous: URS first removes the old child stack,
-        // then invokes B2lUsbEvtSetRole and creates the new role child.
-        UrsReportHardwareEvent(Device, Event);
-    }
     WdfRequestComplete(Request, Status);
 }

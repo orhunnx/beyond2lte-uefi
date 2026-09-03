@@ -11,7 +11,7 @@
 #   yap.sh --acpi          ACPI tablolarini derle + etkinlestir
 #   yap.sh --touch         deneysel UEFI dokunmatik + zorunlu ACPI yenileme
 #   yap.sh --touch-test    kareli UEFI dokunmatik testi + Windows'a devam
-#   yap.sh --usb-test      USB tanisi + Windows ARM64 URS paketi + zorunlu ACPI
+#   yap.sh --usb-test      USB tanisi + Windows ARM64 statik HOST paketi + zorunlu ACPI
 #   yap.sh --psci-hvc      deneysel: Windows PSCI'sini EL2 HVC koprusune yonlendir
 #   (Odin .tar ve .img her zaman uretilir)
 #   yap.sh --clean         temiz derleme (-c)
@@ -399,7 +399,7 @@ if [ "$USB_TEST" = 1 ]; then
   cp -f "$USB_APP" "$PROJ/esp/B2LUSB.EFI"
   echo "B2LUsbTest hazir: esp/B2LUSB.EFI"
 
-  # Ayni --usb-test turu Windows ARM64 URS paketini de boot.wim'e koyar.
+  # Ayni --usb-test turu Windows ARM64 statik HOST paketini de boot.wim'e koyar.
   # Boylece sonraki --baseline ESP, UEFI tani uygulamasini atlayip tam olarak
   # bu turda derlenen Windows surucusunu tasir. Yalniz UEFI tanisi gereken
   # gelistirici turlari bu adimi acik bir ortam degiskeniyle atlayabilir.

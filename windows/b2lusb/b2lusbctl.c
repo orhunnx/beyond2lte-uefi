@@ -215,10 +215,8 @@ wmain(
     if ((ArgumentCount != 2) ||
         ((_wcsicmp(Arguments[1], L"status") != 0) &&
          (_wcsicmp(Arguments[1], L"host") != 0) &&
-         (_wcsicmp(Arguments[1], L"device") != 0) &&
-         (_wcsicmp(Arguments[1], L"none") != 0) &&
          (_wcsicmp(Arguments[1], L"observe") != 0))) {
-        fwprintf(stderr, L"Kullanim: b2lusbctl.exe status|observe|host|device|none\n");
+        fwprintf(stderr, L"Kullanim: b2lusbctl.exe status|observe|host\n");
         return 2;
     }
 
@@ -255,12 +253,7 @@ wmain(
         return 0;
     }
 
-    Role = B2lUsbRoleNone;
-    if (_wcsicmp(Arguments[1], L"host") == 0) {
-        Role = B2lUsbRoleHost;
-    } else if (_wcsicmp(Arguments[1], L"device") == 0) {
-        Role = B2lUsbRoleDevice;
-    }
+    Role = B2lUsbRoleHost;
 
     ZeroMemory(&Input, sizeof(Input));
     Input.Version = B2L_USB_IOCTL_VERSION;
@@ -281,8 +274,7 @@ wmain(
         return 1;
     }
 
-    wprintf(L"URS istegi gonderildi: %ls\n", B2lRoleName(Role));
-    Sleep(750);
+    wprintf(L"Statik HOST durumu dogrulandi.\n");
     Result = B2lShowStatus(Handle);
     CloseHandle(Handle);
     return Result;
