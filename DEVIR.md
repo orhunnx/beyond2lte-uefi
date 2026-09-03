@@ -193,10 +193,21 @@ tablosunda bir debug aygıtı olarak bildirmesini ister. ARM'de BCD
 `busparams`, PCI BDF değil, bu tablodaki debug-device dizinidir.
 ([KDNET-EEM gereksinimleri](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/setting-up-kernel-mode-debugging-over-usb-eem-arm-kdnet), [DBG2 biçimi](https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/acpi-debug-port-table))
 
-Bu cihaz için donanım önkoşulu **olumlu ama yeterli değildir**: stok DTB'de
+Bu cihaz için donanım adayı **olumlu ama henüz yeterli değildir**: stok DTB'de
 `synopsys,dwc3`, `dr_mode = "otg"`, `0x10C00000/0x10000` denetleyici alanı,
 USB2/USB3 PHY bağları ve etkin Exynos USBDRD PHY bulunur. Dolayısıyla EEM,
 "imkânsız xHCI DbC" değil, araştırmaya değer bir sonraki nesil debug kanalıdır.
+
+Burada kimlik seçimi kritik bir güvenlik sınırıdır. Microsoft'un ARM örneğindeki
+`kd_8003_5143.dll` ve `DBG2` subtype `0x5143`, genel Synopsys DWC3 sürücüsü
+değildir; `0x5143` Qualcomm'un PCI vendor kimliğidir ve bu inbox modül Qualcomm
+USB denetleyicilerini destekler. Exynos/Samsung DWC3 için `0x5143` yayınlamak,
+Windows'a yanlış donanım sözleşmesi vermek olur. PCI olmayan bir DBG2 aygıtının
+taşıyıcı adı `kd_<PortType>_<PortSubtype>.dll` biçimindedir. Mevcut taşıyıcı
+Exynos'u gerçekten desteklemiyorsa Samsung/Exynos'a ait, Microsoft ile ayrılmış
+bir subtype ve buna karşılık gelen özel KDNET extensibility modülü gerekir.
+Modülün tek açık export'u `KdInitializeLibrary` olmalı, hiç import'u olmamalı ve
+kesmeler kapalıyken kilitsiz/tek iş parçacıklı çalışmalıdır.
 
 Bugün kullanılamaz; etkin ACPI yalnız temel tabloları/UFS0'ı bildirir, `DBG2`
 tablosu ve DWC3 aygıt-modu düğümü yoktur; WinPE PnP raporu da USB aygıtı
@@ -205,15 +216,19 @@ yazılması gerekir; giriş aygıtı/uzak kanal yokken bunun BCD'ye çevrimdış
 yerleştirilmesi ayrıca tasarlanmalıdır. Bu nedenle UFS Code 10 turuna
 karıştırılmayacak.
 
-EEM için güvenli, ayrı get-up sırası şudur:
+EEM için güvenli, ayrı bring-up sırası şudur:
 
 1. Stok Linux'tan DWC3/PHY saat-reset/Type-C device-role sırasını çıkar;
    UFS MMIO veya mevcut ACPI tanımlarını değiştirme.
-2. DSDT'de yalnız DWC3 aygıtı ve kesin kaynaklarını tanımla; Windows'un
-   desteklediği aygıt-modu kimliği olmadan yükleme yapma.
+2. Hedef WIM'de `UfxSynopsys.sys`, `Ufx01000.sys` ve `GenericUSBFn.sys`
+   bulunduğunu doğrula ve desteklenen aygıt-modu kimliği olmadan yükleme yapma.
 3. `DBG2` tablosını RSDT/XSDT'ye ekle ve ilk EEM girişinin dizinini sabitle.
+   Bu madde yalnız aşağıdaki controller/transport doğrulamasından sonra
+   uygulanır; mevcut buildde `DBG2` eklenmez.
 4. WinPE'de `kdnet.exe` ile desteklenen USB controller/busparams çıktısını
-   doğrula; ancak bundan sonra test BCD'sine KDNET anahtarını yaz.
+   doğrula. Inbox taşıyıcı Exynos'u tanımıyorsa Microsoft ile ayrılmış doğru
+   subtype ve özel KDNET modülü tamamlanmadan ilerleme; `0x5143` kullanma.
+   Ancak bundan sonra test BCD'sine KDNET anahtarını yaz.
 
 Bu dört koşulun herhangi biri yoksa host bilgisayara standart USB-C kablosu
 takmak bir kernel debug bağlantısı oluşturmaz.

@@ -800,6 +800,32 @@ MAX77705 identity/status alanlarının sıfır/başarısız olması, MAX77705 ko
 zincirinin doğrulanmadığını gösterir. xHCI port power biti tek başına Type-C
 konektörde charger boost/VBUS üretildiğini kanıtlamaz.
 
+### 13.1 Commit `1bc5fae` öncesi son flaşın kesin hata sınırı
+
+Kullanıcının 4 Eylül 2026'da ilettiği son fotoğraflar, `0.1.0.21` ve commit
+`1bc5fae` **öncesindeki** imaja aittir; yeni sürüm sonucu olarak
+yorumlanmamalıdır. Bu eski imajda aynı boot içindeki göstergeler şunlardır:
+
+- `ACPI\\BYN0003` ve USBXHCI başlamış, `USBCMD.RUN=1` ve `HCHalted=0`;
+- iki xHCI portu da `PORTSC=0x2A0`: `PP=1`, `PLS=RxDetect`, `CCS=0`,
+  `PED=0` ve attach transition yok;
+- HSI2C `CTL=0x9`; yani Samsung'un yazdığı yalnız `MASTER=0x8` değerine ek
+  olarak eski sürümün yanlış bit 0'ı açık;
+- `TRANS_STATUS=0x000A0006`: `MASTER_BUSY` set ve düşük master state `0x6`,
+  Samsung Exynos7 tanımındaki `HSI2C_MASTER_ST_ADDR1`;
+- `B2LMaxHsI2cFailurePhase=0x10` (`BUS_IDLE`),
+  `B2LMaxHsI2cAttemptedAddress=0` ve retry sayısı 2;
+- PMIC/USBC/charger kimlikleri ve policy sonuçları sıfır; opcode, MUIC ve
+  charger yazma aşamalarına hiç ulaşılmamış.
+
+Bu kombinasyon MAX77705'in bir opcode'u reddettiğini göstermez. Sürücü henüz
+ilk 0x66 transferini başlatmadan, önceki transferden kalan `ADDR1 + BUSY`
+durumunun boşalmasını beklerken kesilmiştir. `1bc5fae`, reset/recovery sonundaki
+`CTL=0x9` yazımını Samsung `exynos5_i2c_init()` ile aynı `CTL=0x8` değerine
+indirerek tam bu eski durumu hedefler. Düzeltmenin başarılı sayılması için yeni
+flaşta önce `CTL=0x8`, ardından `AttemptedAddress=0x66` ve geçerli PMIC kimlik
+readback'i görülmelidir; eski fotoğraflar bunun kanıtı değildir.
+
 ## 14. Başarı ölçütü: adım adım doğrulama
 
 Bir sonraki tek build/flash turunda aşağıdaki zincir aynı boot içinde

@@ -597,6 +597,14 @@ kaldırılır. Samsung `phy_conn()` yolunun DWC3 core'dan önce açtığı S2MPS
 LDO10/11/12 de UEFI regulator protokolüyle açık devredilir ve 1 ms settle
 uygulanır. Voltaj, MAX77705 firmware'i veya başka PMIC politikası değiştirilmez.
 
+4 Eylül 2026'da alınan son flaş fotoğrafları bu committen öncedir. Eski
+görüntüde `CTL=0x9`, `TRANS_STATUS=0x000A0006`, failure phase `BUS_IDLE=0x10`
+ve attempted address `0` birlikte görülür. `0x000A0006`, `MASTER_BUSY` ile
+Samsung'un `ADDR1` master state'ini aynı anda gösterir; dolayısıyla sürücü
+0x66 PMIC adresine ilk mesajı bile başlatamamış, MAX77705 opcode/charger
+akışına ulaşmamıştır. Bu kayıt `0.1.0.21` sonucu değildir; yeni sürümde başarı
+kapısı `CTL=0x8`, attempted address `0x66` ve geçerli PMIC identity readback'idir.
+
 Tekrar flash sayısını azaltmak için `linux_test/usb-diagnostic.sh` eklendi.
 Araç stok/vendor Linux'ta alıcı çıkarılmış ve takılmış iki durumu aynı bootta,
 MAX77705/I2C/MMIO yazması yapmadan karşılaştırır. HSI2C45, USB PHY/PMU,

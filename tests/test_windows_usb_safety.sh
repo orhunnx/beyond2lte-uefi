@@ -335,6 +335,14 @@ fi
 grep -q 'B2LMaxCcStatus0' "$WIN/README.md"
 grep -q 'Function stack' "$WIN/README.md"
 grep -q 'KDNET-EEM-USB' "$WIN/README.md"
-grep -q 'henüz eklenmemiştir' "$WIN/README.md"
+grep -q 'ilan edilmeyecektir' "$WIN/README.md"
+grep -q '0x5143.*Qualcomm' "$WIN/README.md"
+
+# 0x5143 is Qualcomm's vendor/subtype identity. Never advertise it from the
+# Samsung/Exynos ACPI tables just to make the Qualcomm inbox KDNET module load.
+if rg -n -i '0x5143|5143' "$ROOT/silicium-acpi-overlay"; then
+  echo 'HATA: Qualcomm KDNET subtype 0x5143 Exynos ACPI kaynaginda kullanilamaz' >&2
+  exit 1
+fi
 
 echo 'Windows USB safety checks: PASS'

@@ -410,10 +410,13 @@ parent-child sırasıyla yapılır.
    hedef WIM'deki `UfxSynopsys.inf` bölümünün ve function policy'nin
    doğrulanması.
 4. **KDNET-EEM-USB:** USB3 device yolu kararlı olduktan sonra `DBG2` içinde
-   Network debug port type `0x8003`, subtype/vendor `0x5143`, DWC3 tabanı ve
-   uygun gelecek function namespace yolu; ardından hedefte `kdnet.exe` ile destek ve
-   transport doğrulaması. Bu tablo, çalışmayan bir debug portu Windows'a
-   ilan etmemek için henüz eklenmemiştir.
+   Network debug port type `0x8003`, DWC3 tabanı ve uygun gelecek function
+   namespace yolu; ardından hedefte `kdnet.exe` ile destek ve transport
+   doğrulaması. Microsoft örneğindeki subtype `0x5143` Qualcomm vendor
+   kimliğidir ve Exynos için kullanılamaz. Inbox taşıyıcı Samsung DWC3'ü
+   tanımıyorsa Microsoft ile ayrılmış bir Samsung/Exynos subtype ve importsuz
+   özel `kd_<PortType>_<PortSubtype>.dll` gerekir. Bu tablo, çalışan dual-role
+   controller ve doğru taşıyıcı kanıtlanmadan Windows'a ilan edilmeyecektir.
 
 Microsoft mimari referansları:
 
