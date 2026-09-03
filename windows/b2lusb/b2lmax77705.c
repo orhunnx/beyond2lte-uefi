@@ -551,6 +551,7 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)
 static VOID
 B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)
 {
+    Context->PollingEnabled = FALSE;
     if (Context->HsI2cRegisters != NULL) {
         MmUnmapIoSpace(Context->HsI2cRegisters, Context->HsI2cLength);
         Context->HsI2cRegisters = NULL;
@@ -617,11 +618,10 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
         return Status;
     }
 
-    WDF_TIMER_CONFIG_INIT_PERIODIC(
-        &TimerConfig,
-        B2lMaxEvtPollTimer,
-        B2L_MAX_POLL_MS
-        );
+    // Passive-level KMDF timers must be one-shot (Period == 0).  The timer
+    // callback rearms itself after each serialized MAX77705 status sample.
+    WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lMaxEvtPollTimer);
+    TimerConfig.AutomaticSerialization = FALSE;
     WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
     Attributes.ParentObject = Device;
     Attributes.ExecutionLevel = WdfExecutionLevelPassive;
@@ -724,6 +724,9 @@ B2lMaxEvtReleaseHardware(
     PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
 
     UNREFERENCED_PARAMETER(ResourcesTranslated);
+    WdfWaitLockAcquire(Context->BusLock, NULL);
+    Context->PollingEnabled = FALSE;
+    WdfWaitLockRelease(Context->BusLock);
     (VOID)WdfTimerStop(Context->PollTimer, TRUE);
     WdfWaitLockAcquire(Context->BusLock, NULL);
     if (Context->HardwareReady) {
@@ -754,8 +757,12 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     if (NT_SUCCESS(Status)) {
         Status = B2lMaxEvaluateConnection(Context);
         if (NT_SUCCESS(Status)) {
+            Context->PollingEnabled = TRUE;
             B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_READY, Status);
         }
+    }
+    if (!NT_SUCCESS(Status)) {
+        Context->PollingEnabled = FALSE;
     }
     WdfWaitLockRelease(Context->BusLock);
     if (!NT_SUCCESS(Status)) {
@@ -774,6 +781,9 @@ B2lMaxEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
     PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
 
     UNREFERENCED_PARAMETER(TargetState);
+    WdfWaitLockAcquire(Context->BusLock, NULL);
+    Context->PollingEnabled = FALSE;
+    WdfWaitLockRelease(Context->BusLock);
     (VOID)WdfTimerStop(Context->PollTimer, TRUE);
     WdfWaitLockAcquire(Context->BusLock, NULL);
     if (Context->HardwareReady) {
@@ -794,7 +804,8 @@ B2lMaxEvtPollTimer(WDFTIMER Timer)
     NTSTATUS Status;
 
     WdfWaitLockAcquire(Context->BusLock, NULL);
-    if (!Context->HardwareReady || !Context->IdentityReady) {
+    if (!Context->PollingEnabled || !Context->HardwareReady ||
+        !Context->IdentityReady) {
         WdfWaitLockRelease(Context->BusLock);
         return;
     }
@@ -804,6 +815,13 @@ B2lMaxEvtPollTimer(WDFTIMER Timer)
     if (!NT_SUCCESS(Status) || (PreviousCc != Context->CcStatus0) ||
         (PreviousOtg != Context->OtgEnabled)) {
         B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_CC, Status);
+    }
+    if (Context->PollingEnabled && Context->HardwareReady &&
+        Context->IdentityReady) {
+        (VOID)WdfTimerStart(
+            Timer,
+            WDF_REL_TIMEOUT_IN_MS(B2L_MAX_POLL_MS)
+            );
     }
     WdfWaitLockRelease(Context->BusLock);
 }

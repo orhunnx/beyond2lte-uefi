@@ -36,6 +36,7 @@ typedef struct _B2L_MAX_CONTEXT {
     ULONG UsiLength;
     BOOLEAN HardwareReady;
     BOOLEAN IdentityReady;
+    BOOLEAN PollingEnabled;
     BOOLEAN OtgEnabled;
     BOOLEAN BaselineValid;
     UCHAR PmicId;

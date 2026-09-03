@@ -87,7 +87,15 @@ grep -q 'B2lMaxTransferMessage' "$HW"
 grep -q 'FALSE,' "$HW"
 grep -q '(BOOLEAN)(ReadLength == 0UL)' "$HW"
 grep -q 'B2L_MAX_POLL_MS              200UL' "$HDR"
-grep -q 'WDF_TIMER_CONFIG_INIT_PERIODIC' "$MAIN"
+grep -q 'WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lMaxEvtPollTimer)' "$MAIN"
+if grep -q 'WDF_TIMER_CONFIG_INIT_PERIODIC' "$MAIN"; then
+  echo 'HATA: pasif MAX77705 timer periyodik WDF timer olarak olusturulamaz' >&2
+  exit 1
+fi
+grep -q 'TimerConfig.AutomaticSerialization = FALSE' "$MAIN"
+grep -q 'Context->PollingEnabled = TRUE' "$MAIN"
+grep -q 'Context->PollingEnabled = FALSE' "$MAIN"
+test "$(rg -c 'WdfTimerStart\(' "$MAIN")" -eq 2
 
 # UEFI only prepares/probes the exact stock bus; Windows remains policy owner.
 grep -q '\[45\] = {' "$HSI2C"

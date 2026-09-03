@@ -287,8 +287,11 @@ X:\Windows\B2LUSB\b2lusbctl.exe host
 pnputil /enum-devices /deviceid "ACPI\BYN0003"
 ```
 
-`0.1.0.14` ile ilk doğrudan konektör testi, MAX77705'in bildirdiği CC durumu
-ve charger OTG readback'iyle birlikte yapılır. Başarı sırası:
+`0.1.0.15`, pasif KMDF zamanlayıcısını tek atımlı çalıştırıp her örnekten
+sonra yeniden kurar. Böylece `EvtDeviceAdd` sırasında görülen
+`CM_PROB_FAILED_ADD / STATUS_NOT_SUPPORTED` kaldırılır. İlk doğrudan konektör
+testi, MAX77705'in bildirdiği CC durumu ve charger OTG readback'iyle birlikte
+yapılır. Başarı sırası:
 
 1. `current=HOST`, `GCTL.PRTCAP=HOST`, `GSTS.CURMOD=HOST` ve `resets>=1`;
 2. `ACPI\BYN0004` için `B2LMaxCcStatus0 & 7 = 2`,
