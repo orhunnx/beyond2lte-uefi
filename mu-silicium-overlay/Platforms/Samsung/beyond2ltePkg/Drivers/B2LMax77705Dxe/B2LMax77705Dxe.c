@@ -49,8 +49,9 @@ B2LMax77705Entry (
   UINT8                UsbcMinor;
   UINT8                ChargerMode;
 
-  UNREFERENCED_PARAMETER (ImageHandle);
-  UNREFERENCED_PARAMETER (SystemTable);
+  // Use the native EDK2 unused-parameter convention.
+  (VOID)ImageHandle;
+  (VOID)SystemTable;
 
   Status = gBS->LocateProtocol (
                   &gEfiHsI2cProtocolGuid,

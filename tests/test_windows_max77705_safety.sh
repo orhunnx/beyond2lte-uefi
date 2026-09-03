@@ -100,6 +100,12 @@ grep -qx '  # INF beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf' "$DXE
 grep -q 'MODULE_TYPE                    = DXE_DRIVER' "$DXE_INF"
 grep -q '^  SiliciumPkg/SiliciumPkg.dec$' "$DXE_INF"
 grep -q '^  MemoryAllocationHelperLib$' "$DXE_INF"
+grep -q '^  (VOID)ImageHandle;$' "$DXE"
+grep -q '^  (VOID)SystemTable;$' "$DXE"
+if rg -n 'UNREFERENCED_PARAMETER|PAGED_CODE|NT_ASSERT|__pragma|__declspec' "$DXE"; then
+  echo 'HATA: UEFI MAX77705 DXE kaynaginda Windows-only C makrosu bulundu' >&2
+  exit 1
+fi
 if rg -n 'HsI2c->Write|CHG_INT_MASK|CC_STATUS0' "$DXE"; then
   echo 'HATA: UEFI hazirlik surucusu MAX77705 politikasina yazmamalı' >&2
   exit 1
