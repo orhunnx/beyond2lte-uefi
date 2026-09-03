@@ -71,6 +71,16 @@ if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
     echo === B2LUSB USBXHCI gercek PnP kaynaklari ===
     type "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT"
   )
+  if exist "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" (
+    echo.
+    echo === B2LUSB SetupAPI Code 10 ozeti ===
+    type "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT"
+  )
+  if exist "%SystemDrive%\B2LUSB-ETW-SUMMARY.TXT" (
+    echo.
+    echo === B2LUSB USBXHCI ETW hata ozeti ===
+    type "%SystemDrive%\B2LUSB-ETW-SUMMARY.TXT"
+  )
   echo.
   echo === B2LUSB otomatik HOST son durumu ===
   type "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT"
@@ -152,6 +162,7 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
     pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /resources > "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" 2>&1
     reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\URS" /s /f B2LMon > "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT" 2>&1
+    call :B2LUsbCollectSetupApiSummary
     pnputil /enum-devices /class USB >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /enum-devices /class HIDClass >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     "%B2LUSBDIR%\b2lusbctl.exe" status > "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" 2>&1
@@ -190,17 +201,25 @@ exit /b 0
 :B2LUsbTraceStop
 if not "%B2LUSBTRACEACTIVE%"=="1" exit /b 0
 logman stop -n B2LUSBTRACE >> "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
+if exist "%SystemRoot%\System32\tracerpt.exe" if exist "%SystemDrive%\B2LUSB-USBXHCI.etl" (
+  tracerpt "%SystemDrive%\B2LUSB-USBXHCI.etl" -o "%SystemDrive%\B2LUSB-USBXHCI.csv" -of CSV -y >> "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
+  if exist "%SystemDrive%\B2LUSB-USBXHCI.csv" findstr /i /c:"error" /c:"fail" /c:"status" /c:"0xC000009E" "%SystemDrive%\B2LUSB-USBXHCI.csv" > "%SystemDrive%\B2LUSB-ETW-SUMMARY.TXT" 2>nul
+)
 logman delete -n B2LUSBTRACE >> "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
 set "B2LUSBTRACEACTIVE=0"
 exit /b 0
 
 :B2LUsbExportLogs
 rem CACHE etiketi/yazma geri-okumasi basarili olduktan sonra tanilari disari al.
+call :B2LUsbCollectSetupApiSummary
 for %%F in ("%SystemDrive%\B2LUSB-*.TXT" "%SystemDrive%\B2LUSB-*.ETL") do if exist "%%~fF" copy /y "%%~fF" "W:\%%~nxF" >nul 2>&1
-if exist "%SystemRoot%\INF\setupapi.dev.log" (
-  findstr /i /c:"BYN0002" /c:"VEN_BYN&DEV_0002" /c:"USBXHCI" "%SystemRoot%\INF\setupapi.dev.log" > "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" 2>nul
-  if exist "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" copy /y "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" "W:\B2LUSB-SETUPAPI-SLICE.TXT" >nul 2>&1
-)
+exit /b 0
+
+:B2LUsbCollectSetupApiSummary
+rem USB aygit kimligiyle birlikte SetupAPI'nin Code 10/problem-status satirlarini
+rem ekrana sigacak tek dosyada tut. Kaynak log salt okunur; hata yoksa bos kalir.
+if not exist "%SystemRoot%\INF\setupapi.dev.log" exit /b 0
+findstr /i /c:"BYN0002" /c:"VEN_BYN&DEV_0002" /c:"USBXHCI" /c:"Device not started" /c:"CM_PROB_FAILED_START" /c:"0xC000009E" "%SystemRoot%\INF\setupapi.dev.log" > "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" 2>nul
 exit /b 0
 
 :B2LTouchInstall

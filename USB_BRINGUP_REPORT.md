@@ -473,6 +473,26 @@ silmez veya güncellemez; MMIO ve MemoryMap guard'larına dokunmaz. Sonraki ciha
 aktarımını, ikisi de varsa inbox USBXHCI'nin daha sonraki erken kontrolünü hedef
 gösterecektir.
 
+Aynı `0.1.0.9` test görüntüsü artık `setupapi.dev.log` içinden yalnız BYN0002,
+HOST child, USBXHCI ve `CM_PROB_FAILED_START / 0xC000009E` ile ilişkili satırları
+final konsola taşır. Bu özet kaynak logu değiştirmez ve CACHE dışa aktarımına
+bağlı değildir; USB hâlâ çalışmıyorken Code 10'un SetupAPI bağlamı fotoğrafla
+alınabilir.
+
+`0.1.0.9` cihaz ölçümünde requirements aşağı geçişinde DWC3 MMIO descriptorı
+tam aralıkla (`0x10C00000-0x10C0FFFF`, length `0x10000`) görüldü. Yukarı
+dönüşte descriptor sayısı iki, atanmış raw ve translated kaynak sayıları da
+iki oldu. Böylece URS host child kaynak aktarımı ve safe-memory guard hipotezi
+kapandı; USBXHCI hâlâ MMIO'yu programlamadan Code 10 döndürüyor.
+
+`0.1.0.10`, aynı pasif gözlemciyi USBXHCI'nin upper-filter'ı yapar ve yalnız
+`IRP_MN_START_DEVICE` için preprocess/completion gözlemi ekler. Completion
+rutininde IRP status'u değiştirilmez; sonuç pasif bir work item üzerinden
+registry'ye yazılır. SetupAPI Code 10 özeti final ekrana alınır, `tracerpt.exe`
+varsa mevcut USBXHCI/UCX ETL de hata/status satırlarına indirgenir. Bu tur
+USBXHCI'nin START_DEVICE'ı hiç dispatch etmemesi ile alt stack'ten belirli bir
+NTSTATUS dönmesi arasındaki son ayrımı yapacaktır.
+
 UFS bu değişikliğe bilinçli olarak dahil edilmedi. Mevcut runtime UFS kurulumu
 CACHE yazma/geri-okuma testini başarıyla geçiriyor ve `mountvol /N` sonrasında
 çalışıyor. UFS'yi daha erken PnP'ye taşımak Android RAW bölümlerinin harfleri
@@ -501,6 +521,8 @@ Detaylı test sözleşmesi `windows/b2lusb/README.md` içindedir.
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/wdf/introduction-to-hardware-resources>
 - Microsoft KMDF FDO resource callback sözleşmesi:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdffdo/ns-wdffdo-_wdf_fdo_event_callbacks>
+- Microsoft KMDF WDM IRP preprocess/completion sözleşmesi:
+  <https://learn.microsoft.com/en-us/windows-hardware/drivers/wdf/preprocessing-and-postprocessing-irps>
 - Microsoft `Code 14 / CM_PROB_NEED_RESTART` açıklaması:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/install/cm-prob-need-restart>
 - Microsoft hedefli `pnputil /restart-device` sözdizimi:

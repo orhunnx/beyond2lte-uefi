@@ -13,7 +13,7 @@ Bu dizin Exynos9820 `DWC_usb31` denetleyicisini Windows'un USB Role Switch
   yazılmaz; başarılı xHCI/root-hub numaralandırmasından sonra Windows'un
   `USBHUB3` ve HID class sürücüleri kullanılır.
 - `b2lusbmon.sys`, yalnız bring-up tanısı için host child altında çalışan,
-  MMIO'ya yazmayan pasif KMDF lower-filter'dır.
+  MMIO'ya yazmayan pasif KMDF upper-filter'dır.
 - `b2lusbctl.exe status|observe|host|device|none`, yöneticiye açık bring-up rol
   denetimidir. İstek URS'e bildirilir; eski role ait çocuk yığını kaldırıldıktan
   sonra `EvtUrsSetRole` Exynos PHY ve DWC3 rolünü değiştirir.
@@ -176,6 +176,21 @@ ulaşmadığını gösterir. Böylece DWC3 `0x10C00000/0x10000` ile GSIV 273 chi
 gereksinimlerinde yoksa URS aktarımı; ikisi de mevcutsa USBXHCI'nin sonraki
 erken başlatma sözleşmesi araştırılacaktır. Bu sürüm de MMIO, PHY, PMU,
 resource listeleri ve MemoryMap guard'ları üzerinde hiçbir değişiklik yapmaz.
+
+`0.1.0.9` cihaz ölçümünde requirements aşağı geçişinde tek descriptor olarak
+DWC3 MMIO (`0x10C00000-0x10C0FFFF`, length `0x10000`) görüldü; yukarı dönüşte
+descriptor sayısı ikiye, atanmış raw/translated kaynak sayısı da ikiye çıktı.
+Dolayısıyla URS host child'a MMIO ve ACPI child kaynağını teslim ediyor;
+safe-memory guard veya eksik PnP kaynağı Code 10 nedeni değil.
+
+`0.1.0.10`, kanıtlanan kaynak gözlemcisini USBXHCI'nin üstüne taşır. Filtre
+yalnız `IRP_MN_START_DEVICE` için WDM preprocess/completion kaydı tutar;
+IRP status'unu değiştirmez, geciktirmez veya tamamlamaz. `B2LMonStartIrpSeen`,
+`B2LMonStartCompletionSeen` ve `B2LMonStartCompletionStatus`, USBXHCI'nin
+START_DEVICE isteğini aşağı stack'e iletip hangi NTSTATUS ile döndürdüğünü
+gösterecektir. `startnet.cmd` ayrıca SetupAPI Code 10 satırlarını final ekrana
+çıkarır ve `tracerpt.exe` varsa USBXHCI/UCX ETL içindeki hata/status satırlarını
+metin özetine dönüştürür.
 
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline

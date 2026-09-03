@@ -1,7 +1,7 @@
 #include <ntddk.h>
 #include <wdf.h>
 
-// Passive lower filter for the URS host child.  It never touches controller
+// Passive upper filter for the URS host child.  It never touches controller
 // registers, changes resource lists or fails PnP; it only persists the resource
 // requirements, assigned resources and PnP stages that actually reached the
 // USBXHCI stack.  This remains useful after a failed start, when pnputil may no
@@ -18,6 +18,18 @@ EVT_WDF_DEVICE_PREPARE_HARDWARE B2lUsbMonEvtPrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE B2lUsbMonEvtReleaseHardware;
 EVT_WDF_DEVICE_D0_ENTRY B2lUsbMonEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT B2lUsbMonEvtD0Exit;
+EVT_WDFDEVICE_WDM_IRP_PREPROCESS B2lUsbMonEvtWdmPreprocessPnp;
+EVT_WDF_WORKITEM B2lUsbMonEvtStartTraceWorkItem;
+IO_COMPLETION_ROUTINE B2lUsbMonStartCompletion;
+
+typedef struct _B2L_USB_MON_CONTEXT {
+    WDFWORKITEM StartTraceWorkItem;
+    volatile LONG StartIrpSeen;
+    volatile LONG StartCompletionSeen;
+    volatile LONG StartCompletionStatus;
+} B2L_USB_MON_CONTEXT, *PB2L_USB_MON_CONTEXT;
+
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(B2L_USB_MON_CONTEXT, B2lUsbMonGetContext)
 
 static
 VOID
@@ -125,7 +137,92 @@ B2lUsbMonResetRequirementTrace(
     B2lUsbMonWriteUlong(Key, L"B2LMonReqAddDescriptorCount", 0UL);
     B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawCount", 0UL);
     B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonStartIrpSeen", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonStartCompletionSeen", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonStartCompletionStatus", 0UL);
     WdfRegistryClose(Key);
+}
+
+VOID
+B2lUsbMonEvtStartTraceWorkItem(
+    WDFWORKITEM WorkItem
+    )
+{
+    PB2L_USB_MON_CONTEXT Context;
+    WDFDEVICE Device;
+    WDFKEY Key;
+
+    Device = (WDFDEVICE)WdfWorkItemGetParentObject(WorkItem);
+    Context = B2lUsbMonGetContext(Device);
+    if (!NT_SUCCESS(B2lUsbMonOpenDeviceKey(Device, &Key))) {
+        return;
+    }
+
+    B2lUsbMonWriteUlong(
+        Key,
+        L"B2LMonStartIrpSeen",
+        (ULONG)InterlockedCompareExchange(&Context->StartIrpSeen, 0, 0)
+        );
+    B2lUsbMonWriteUlong(
+        Key,
+        L"B2LMonStartCompletionSeen",
+        (ULONG)InterlockedCompareExchange(&Context->StartCompletionSeen, 0, 0)
+        );
+    B2lUsbMonWriteUlong(
+        Key,
+        L"B2LMonStartCompletionStatus",
+        (ULONG)InterlockedCompareExchange(&Context->StartCompletionStatus, 0, 0)
+        );
+    WdfRegistryClose(Key);
+}
+
+NTSTATUS
+B2lUsbMonStartCompletion(
+    PDEVICE_OBJECT DeviceObject,
+    PIRP Irp,
+    PVOID CompletionContext
+    )
+{
+    PB2L_USB_MON_CONTEXT Context;
+    WDFDEVICE Device;
+
+    UNREFERENCED_PARAMETER(DeviceObject);
+
+    Device = (WDFDEVICE)CompletionContext;
+    Context = B2lUsbMonGetContext(Device);
+    InterlockedExchange(&Context->StartCompletionStatus, Irp->IoStatus.Status);
+    InterlockedExchange(&Context->StartCompletionSeen, 1);
+    WdfWorkItemEnqueue(Context->StartTraceWorkItem);
+    if (Irp->PendingReturned) {
+        IoMarkIrpPending(Irp);
+    }
+    return STATUS_CONTINUE_COMPLETION;
+}
+
+NTSTATUS
+B2lUsbMonEvtWdmPreprocessPnp(
+    WDFDEVICE Device,
+    PIRP Irp
+    )
+{
+    PB2L_USB_MON_CONTEXT Context;
+
+    Context = B2lUsbMonGetContext(Device);
+    InterlockedExchange(&Context->StartIrpSeen, 1);
+    WdfWorkItemEnqueue(Context->StartTraceWorkItem);
+
+    // The extra stack location supplied by KMDF lets the upper filter observe
+    // the final status without changing it or delaying START_DEVICE.
+    IoCopyCurrentIrpStackLocationToNext(Irp);
+    IoSetCompletionRoutine(
+        Irp,
+        B2lUsbMonStartCompletion,
+        Device,
+        TRUE,
+        TRUE,
+        TRUE
+        );
+    return WdfDeviceWdmDispatchPreprocessedIrp(Device, Irp);
 }
 
 static
@@ -385,9 +482,13 @@ B2lUsbMonEvtDeviceAdd(
     PWDFDEVICE_INIT DeviceInit
     )
 {
+    WDF_OBJECT_ATTRIBUTES Attributes;
     WDF_FDO_EVENT_CALLBACKS FdoCallbacks;
     WDF_PNPPOWER_EVENT_CALLBACKS PnpCallbacks;
+    WDF_WORKITEM_CONFIG WorkItemConfig;
+    PB2L_USB_MON_CONTEXT Context;
     WDFDEVICE Device;
+    UCHAR MinorFunctions[] = { IRP_MN_START_DEVICE };
     NTSTATUS Status;
 
     UNREFERENCED_PARAMETER(Driver);
@@ -409,10 +510,44 @@ B2lUsbMonEvtDeviceAdd(
     PnpCallbacks.EvtDeviceD0Exit = B2lUsbMonEvtD0Exit;
     WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &PnpCallbacks);
 
+    Status = WdfDeviceInitAssignWdmIrpPreprocessCallback(
+        DeviceInit,
+        B2lUsbMonEvtWdmPreprocessPnp,
+        IRP_MJ_PNP,
+        MinorFunctions,
+        ARRAYSIZE(MinorFunctions)
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+
+    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(
+        &Attributes,
+        B2L_USB_MON_CONTEXT
+        );
     Status = WdfDeviceCreate(
         &DeviceInit,
-        WDF_NO_OBJECT_ATTRIBUTES,
+        &Attributes,
         &Device
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+
+    Context = B2lUsbMonGetContext(Device);
+    Context->StartIrpSeen = 0;
+    Context->StartCompletionSeen = 0;
+    Context->StartCompletionStatus = STATUS_PENDING;
+    WDF_WORKITEM_CONFIG_INIT(
+        &WorkItemConfig,
+        B2lUsbMonEvtStartTraceWorkItem
+        );
+    WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
+    Attributes.ParentObject = Device;
+    Status = WdfWorkItemCreate(
+        &WorkItemConfig,
+        &Attributes,
+        &Context->StartTraceWorkItem
         );
     if (!NT_SUCCESS(Status)) {
         return Status;
