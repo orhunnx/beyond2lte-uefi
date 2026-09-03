@@ -339,6 +339,10 @@ reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUsbc
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcControlConfigured >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcControlResponse >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxOtgHardwareActive >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicPathRequested >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicControl1 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicPathVerified >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicUsbPath >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 exit /b 0
 
 :B2LUsbCollectInputState

@@ -26,8 +26,10 @@
 #define B2L_MAX_STAGE_USBC_MASKS     0x44UL
 #define B2L_MAX_STAGE_AUTO_VBUS      0x48UL
 #define B2L_MAX_STAGE_CC_CONTROL     0x4CUL
+#define B2L_MAX_STAGE_MUIC_USB       0x4EUL
 #define B2L_MAX_STAGE_OTG_ON         0x50UL
 #define B2L_MAX_STAGE_OTG_OFF        0x60UL
+#define B2L_MAX_STAGE_MUIC_OPEN      0x64UL
 #define B2L_MAX_STAGE_CC             0x68UL
 #define B2L_MAX_STAGE_READY          0x70UL
 
@@ -54,6 +56,7 @@ typedef struct _B2L_MAX_CONTEXT {
     BOOLEAN AutoIbusConfigured;
     BOOLEAN UsbcMasksConfigured;
     BOOLEAN CcControlConfigured;
+    BOOLEAN MuicPathVerified;
     BOOLEAN BaselineValid;
     UCHAR PmicId;
     UCHAR PmicRev;
@@ -79,6 +82,8 @@ typedef struct _B2L_MAX_CONTEXT {
     UCHAR PdInterruptMask;
     UCHAR VdmInterruptMask;
     UCHAR CcControlResponse;
+    UCHAR MuicPathRequested;
+    UCHAR MuicControl1;
     ULONG HsI2cControl;
     ULONG HsI2cClockControl;
     ULONG HsI2cIntStatus;

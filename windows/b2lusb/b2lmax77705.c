@@ -25,6 +25,10 @@
 #define MAX77705_OPCODE_FW_AUTOIBUS      0x57U
 #define MAX77705_AUTOIBUS_AT_OFF         0x01U
 #define MAX77705_OPCODE_CCCTRL1_WRITE    0x0CU
+#define MAX77705_OPCODE_CONTROL1_READ    0x05U
+#define MAX77705_OPCODE_CONTROL1_WRITE   0x06U
+#define MAX77705_MUIC_COM_USB_AP         0x09U
+#define MAX77705_MUIC_COM_OPEN           0x3FU
 #define MAX77705_CCCTRL1_SOURCE_SINK     (1U << 4)
 #define MAX77705_CCCTRL1_SINK_SOURCE     (1U << 3)
 #define MAX77705_CCCTRL1_DEBUG_ENABLE    (1U << 2)
@@ -106,7 +110,9 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxPdInterrupt", L"B2LMaxVdmInterrupt",
         L"B2LMaxPdInterruptMask", L"B2LMaxVdmInterruptMask",
         L"B2LMaxUsbcMasksConfigured", L"B2LMaxCcControlConfigured",
-        L"B2LMaxCcControlResponse", L"B2LMaxOtgHardwareActive"
+        L"B2LMaxCcControlResponse", L"B2LMaxOtgHardwareActive",
+        L"B2LMaxMuicPathRequested", L"B2LMaxMuicControl1",
+        L"B2LMaxMuicPathVerified", L"B2LMaxMuicUsbPath"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -167,6 +173,12 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[47] = Context->CcControlConfigured ? 1UL : 0UL;
     Values[48] = Context->CcControlResponse;
     Values[49] = Context->OtgHardwareActive ? 1UL : 0UL;
+    Values[50] = Context->MuicPathRequested;
+    Values[51] = Context->MuicControl1;
+    Values[52] = Context->MuicPathVerified ? 1UL : 0UL;
+    Values[53] = (Context->MuicPathVerified &&
+                  (Context->MuicControl1 == MAX77705_MUIC_COM_USB_AP)) ?
+        1UL : 0UL;
 
     RtlInitUnicodeString(&ServicePath, ServicePathBuffer);
     InitializeObjectAttributes(
@@ -284,10 +296,11 @@ B2lMaxReadBlock(
 }
 
 static NTSTATUS
-B2lMaxSendOpcode(
+B2lMaxExchangeOpcode(
     PB2L_MAX_CONTEXT Context,
     UCHAR Opcode,
-    UCHAR Data,
+    const UCHAR *WriteData,
+    ULONG WriteDataLength,
     ULONG ResponseDataLength,
     UCHAR *ResponseData
     )
@@ -299,7 +312,9 @@ B2lMaxSendOpcode(
     ULONG Poll;
     NTSTATUS Status;
 
-    if (ResponseDataLength > 1UL) {
+    if ((WriteDataLength > 1UL) || (ResponseDataLength > 1UL) ||
+        ((WriteDataLength != 0UL) && (WriteData == NULL)) ||
+        ((ResponseDataLength != 0UL) && (ResponseData == NULL))) {
         return STATUS_INVALID_PARAMETER;
     }
     ResponseLength = 1UL + ResponseDataLength;
@@ -318,13 +333,15 @@ B2lMaxSendOpcode(
     }
 
     Command[0] = Opcode;
-    Command[1] = Data;
+    if (WriteDataLength != 0UL) {
+        Command[1] = *WriteData;
+    }
     Status = B2lMaxWriteBlock(
         Context,
         B2L_MAX_USBC_ADDRESS,
         MAX77705_USBC_OPCODE_WRITE,
         Command,
-        RTL_NUMBER_OF(Command)
+        1UL + WriteDataLength
         );
     if (!NT_SUCCESS(Status)) {
         return Status;
@@ -363,7 +380,7 @@ B2lMaxSendOpcode(
             if (Response[0] != Opcode) {
                 return STATUS_DEVICE_PROTOCOL_ERROR;
             }
-            if ((ResponseData != NULL) && (ResponseDataLength != 0UL)) {
+            if (ResponseDataLength != 0UL) {
                 *ResponseData = Response[1];
             }
             return STATUS_SUCCESS;
@@ -371,6 +388,66 @@ B2lMaxSendOpcode(
         B2lMaxDelayMicroseconds(MAX77705_OPCODE_POLL_US);
     }
     return STATUS_IO_TIMEOUT;
+}
+
+static NTSTATUS
+B2lMaxSendOpcode(
+    PB2L_MAX_CONTEXT Context,
+    UCHAR Opcode,
+    UCHAR Data,
+    ULONG ResponseDataLength,
+    UCHAR *ResponseData
+    )
+{
+    return B2lMaxExchangeOpcode(
+        Context,
+        Opcode,
+        &Data,
+        1UL,
+        ResponseDataLength,
+        ResponseData
+        );
+}
+
+static NTSTATUS
+B2lMaxSetMuicPath(PB2L_MAX_CONTEXT Context, UCHAR Path)
+{
+    NTSTATUS Status;
+
+    Context->MuicPathRequested = Path;
+    Context->MuicPathVerified = FALSE;
+
+    // Samsung max77705_switch_path() sends CONTROL1_WRITE with one payload
+    // byte.  COM_USB (0x09) connects both D+ and D- to the AP USB PHY;
+    // COM_OPEN (0x3f) disconnects both lines.  Read CONTROL1 back so a
+    // successful mailbox exchange cannot be mistaken for a switched path.
+    Status = B2lMaxExchangeOpcode(
+        Context,
+        MAX77705_OPCODE_CONTROL1_WRITE,
+        &Path,
+        1UL,
+        0UL,
+        NULL
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Status = B2lMaxExchangeOpcode(
+        Context,
+        MAX77705_OPCODE_CONTROL1_READ,
+        NULL,
+        0UL,
+        1UL,
+        &Context->MuicControl1
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    if (Context->MuicControl1 != Path) {
+        return STATUS_DEVICE_DATA_ERROR;
+    }
+    Context->MuicPathVerified = TRUE;
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS
@@ -1003,10 +1080,25 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)
 
     Status = B2lMaxReadStatus(Context);
     if (!NT_SUCCESS(Status)) {
+        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_CC, Status);
         return Status;
     }
     CcState = (UCHAR)(Context->CcStatus0 & B2L_MAX_CC_STATUS_MASK);
     if (CcState == B2L_MAX_CC_SOURCE) {
+        // Samsung's OTG/RpRd attach path routes D+/D- to the AP with
+        // CONTROL1_WRITE(COM_USB) before the USB host path is useful.  VBUS
+        // remains gated until CONTROL1_READ proves that physical route.
+        if (!Context->MuicPathVerified ||
+            (Context->MuicControl1 != MAX77705_MUIC_COM_USB_AP)) {
+            Status = B2lMaxSetMuicPath(
+                Context,
+                MAX77705_MUIC_COM_USB_AP
+                );
+            B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_MUIC_USB, Status);
+            if (!NT_SUCCESS(Status)) {
+                return Status;
+            }
+        }
         if (!Context->OtgEnabled) {
             Status = B2lMaxEnableOtg(Context);
             B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_OTG_ON, Status);
@@ -1021,7 +1113,20 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)
         (Context->OtgEnabled || Context->OtgHardwareActive)) {
         Status = B2lMaxDisableOtg(Context);
         B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_OTG_OFF, Status);
-        return Status;
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+    }
+    // Mirror Samsung detach/logical-detach: remove VBUS first, then isolate
+    // D+/D-.  Also establish a verified OPEN baseline on the first no-cable
+    // sample so boot-firmware switch state is never assumed.
+    if (!Context->MuicPathVerified ||
+        (Context->MuicControl1 != MAX77705_MUIC_COM_OPEN)) {
+        Status = B2lMaxSetMuicPath(Context, MAX77705_MUIC_COM_OPEN);
+        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_MUIC_OPEN, Status);
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
     }
     return STATUS_SUCCESS;
 }
@@ -1100,11 +1205,9 @@ B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
     }
 
     Status = B2lMaxEvaluateConnection(Context);
-    B2lMaxPublishDiagnostic(
-        Context,
-        NT_SUCCESS(Status) ? B2L_MAX_STAGE_READY : B2L_MAX_STAGE_CC,
-        Status
-        );
+    if (NT_SUCCESS(Status)) {
+        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_READY, Status);
+    }
     return Status;
 }
 
@@ -1129,6 +1232,9 @@ B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)
     Context->AutoIbusConfigured = FALSE;
     Context->UsbcMasksConfigured = FALSE;
     Context->CcControlConfigured = FALSE;
+    Context->MuicPathVerified = FALSE;
+    Context->MuicPathRequested = 0xFFU;
+    Context->MuicControl1 = 0xFFU;
 }
 
 NTSTATUS
@@ -1179,6 +1285,8 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Context->OpcodeResponse = 0xFFU;
     Context->AutoIbusMode = 0xFFU;
     Context->CcControlResponse = 0xFFU;
+    Context->MuicPathRequested = 0xFFU;
+    Context->MuicControl1 = 0xFFU;
 
     WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
     Attributes.ParentObject = Device;
@@ -1300,6 +1408,9 @@ B2lMaxEvtReleaseHardware(
     WdfWaitLockAcquire(Context->BusLock, NULL);
     if (Context->HardwareReady) {
         (VOID)B2lMaxDisableOtg(Context);
+        if (Context->IdentityReady) {
+            (VOID)B2lMaxSetMuicPath(Context, MAX77705_MUIC_COM_OPEN);
+        }
         B2lMaxHsI2cQuiesce(Context);
     }
     B2lMaxUnmapResources(Context);
@@ -1311,6 +1422,9 @@ B2lMaxEvtReleaseHardware(
     Context->AutoIbusConfigured = FALSE;
     Context->UsbcMasksConfigured = FALSE;
     Context->CcControlConfigured = FALSE;
+    Context->MuicPathVerified = FALSE;
+    Context->MuicPathRequested = 0xFFU;
+    Context->MuicControl1 = 0xFFU;
     WdfWaitLockRelease(Context->BusLock);
     return STATUS_SUCCESS;
 }
@@ -1345,6 +1459,9 @@ B2lMaxEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
     WdfWaitLockAcquire(Context->BusLock, NULL);
     if (Context->HardwareReady) {
         (VOID)B2lMaxDisableOtg(Context);
+        if (Context->IdentityReady) {
+            (VOID)B2lMaxSetMuicPath(Context, MAX77705_MUIC_COM_OPEN);
+        }
         B2lMaxHsI2cQuiesce(Context);
     }
     Context->IdentityReady = FALSE;
@@ -1355,6 +1472,9 @@ B2lMaxEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
     Context->AutoIbusConfigured = FALSE;
     Context->UsbcMasksConfigured = FALSE;
     Context->CcControlConfigured = FALSE;
+    Context->MuicPathVerified = FALSE;
+    Context->MuicPathRequested = 0xFFU;
+    Context->MuicControl1 = 0xFFU;
     WdfWaitLockRelease(Context->BusLock);
     return STATUS_SUCCESS;
 }

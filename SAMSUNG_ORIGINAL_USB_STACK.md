@@ -40,6 +40,7 @@ USB-C konektörü
   |
   +-- USB2 D+/D- veri hattı
         |
+        +-- MAX77705 MUIC CONTROL1 analog anahtarı
         +-- Exynos USB2 PHY                    (0x10B00000)
         +-- Synopsys DWC_usb31 DRD/xHCI        (0x10C00000)
         +-- Linux xHCI HCD
@@ -360,6 +361,48 @@ FW_MINOR ve CC_STATUS0 alanlarını okuyup şu verileri çözer:
 Fare alıcısı senaryosunda MUIC'in asıl önemi OTG/USB aksesuar durumunu
 doğrulaması ve yanlış/tehlikeli VBUS koşullarını ayırmasıdır.
 
+### 7.3 MUIC D+/D- anahtarının AP USB yoluna alınması
+
+MAX77705 yalnız CC ve VBUS denetleyicisi değildir; USB2 D+ ve D- hatlarının
+hangi iç yola bağlandığını seçen bir analog MUIC anahtarını da içerir. Bu
+adım atlanırsa Exynos USB2 PHY ve xHCI çalışıyor, port power biti açık ve VBUS
+mevcut olsa bile alıcının pull-up'ı xHCI'ye ulaşmayabilir. Tipik dış belirti
+`PORTSC.CCS=0`, `PED=0`, `PLS=RxDetect` ve sıfır port transition'dır.
+
+Samsung kaynak zinciri şöyledir:
+
+1. `include/linux/muic/max77705-muic.h` CONTROL1 bitlerini
+   `NoBCComp[7] / RCPS[6] / D+[5:3] / D-[2:0]` olarak tanımlar.
+2. AP USB seçimi her iki anahtar alanına `001` yazar:
+   `COM_USB = (1 << 3) | 1 = 0x09`.
+3. Açık/izole yol her iki alana `111` yazar:
+   `COM_OPEN = (7 << 3) | 7 = 0x3f`.
+4. `max77705_switch_path()` bu byte'ı `COMMAND_CONTROL1_WRITE = 0x06`
+   opcode'u ile MAX77705 firmware'ine gönderir.
+5. `max77705_muic_handle_attach()` OTG attach için doğrudan
+   `com_to_usb_ap()` çağırır. Aynı yol CCIC manager'da RpRd/OTG attach
+   olayında `muic_manager_switch_path(..., MUIC_PATH_USB_AP)` üzerinden
+   yeniden uygulanır; yinelenen OTG olayı özellikle yok sayılmaz.
+6. USB/CDP/JIG-USB sınıfları da AP veya seçili USB yoluna geçirilir.
+7. Fiziksel ya da mantıksal detach sırasında ilgili USB yolu
+   `com_to_open()` ile izole edilir.
+
+Bu anahtar charger `CNFG_00` OTG bitinden ve DWC3 `GCTL.PRTCAP` rolünden ayrı
+bir donanım katmanıdır. Sabit host için doğru birlikte-sıra:
+
+```text
+CC=SOURCE
+  -> MUIC CONTROL1_WRITE(COM_USB=0x09)
+  -> CONTROL1_READ readback=0x09
+  -> charger OTG/VBUS ON
+  -> DWC3/xHCI HOST
+```
+
+Ayrılmada güvenli sıra ters işlevlidir: önce charger OTG/VBUS kapatılır,
+ardından MUIC `COM_OPEN=0x3f` yapılır. Windows 0.1.0.20 yolu yazma
+mailbox'ının yalnız başarı dönmesini yeterli saymaz; `CONTROL1_READ = 0x05`
+ile gerçek CONTROL1 değerini de doğrular.
+
 ## 8. Kablo takıldığında CC ve rol kararı
 
 MAX77705 CC status registerı 0x25 adres alanındadır. `CC_STATUS0` alt üç biti
@@ -599,7 +642,7 @@ invariantlarını Windows PnP/power/driver modeline göre sağlaması gerekir.
 | `i2c-exynos5` HSI2C45/USI | `b2lmax77705.sys`, `ACPI\BYN0004` | USI reset bırakma, timing/master/auto-mode, bounded transfer ve recovery |
 | MAX77705 MFD 0x66/0x25/0x69 | `b2lmax77705.sys` içindeki mantıksal katmanlar | Tek bus kilidi altında identity, USBC opcode/CC ve charger OTG |
 | MAX77705 nested IRQ | Şimdilik pasif KMDF timer/polling | Aynı status/state transition; gelecekte GPIO IRQ kaynağıyla olay temelli model |
-| CC/PD/MUIC policy | `b2lmax77705.sys` sabit-HOST alt kümesi | Auto-VBUS off, Auto-IBUS at-off, CC=SOURCE şartı, detach'te OFF |
+| CC/PD/MUIC policy | `b2lmax77705.sys` sabit-HOST alt kümesi | Auto-VBUS off, Auto-IBUS at-off, CC=SOURCE şartı, D+/D- AP yolu ve detach'te OPEN/OFF |
 | MAX77705 charger OTG | `b2lmax77705.sys` | CHGPROT unlock, INT_MASK, CNFG_00 state machine ve readback |
 | Exynos PHY/DWC3 wrapper | `b2lusb.sys`, `ACPI\BYN0002` | PMU/PHY hazırlığı, DWC3 reset ve HOST handoff |
 | Linux xHCI HCD | Microsoft `USBXHCI.SYS`, `ACPI\BYN0003` | xHCI ring/interrupt/root-hub yönetimi |
@@ -628,12 +671,14 @@ hazırlığının child xHCI başlamadan önce tamamlanmasını sağlamalıdır.
 6. TOP identity doğrulanmadan USBC/charger yazması yapılmaması.
 7. Opcode 0x21/0x41/APCmdRes/0x51 protokolünün ve cevap opcode'unun
    doğrulanması.
-8. Auto-VBUS kapandıktan sonra VBUS'un yalnız CC=SOURCE durumunda açılması.
-9. Charger CHGPROT unlock ve readback.
-10. CNFG_00 UNO->OTG ara `0x4` geçişinin korunması.
-11. OTG kapanışında önceki interrupt maskesinin geri yüklenmesi.
-12. D0Exit/ReleaseHardware/kablo ayrılmasında VBUS'un güvenli kapatılması.
-13. DWC3 HOST/xHCI başladıktan sonra USBHUB3/HID işini inbox sürücülere
+8. OTG attach'te MUIC CONTROL1'in `COM_USB=0x09` yapılması ve readback.
+9. Auto-VBUS kapandıktan sonra VBUS'un yalnız CC=SOURCE durumunda açılması.
+10. Charger CHGPROT unlock ve readback.
+11. CNFG_00 UNO->OTG ara `0x4` geçişinin korunması.
+12. OTG kapanışında önceki interrupt maskesinin geri yüklenmesi.
+13. D0Exit/ReleaseHardware/kablo ayrılmasında önce VBUS'un kapatılması, sonra
+    MUIC yolunun `COM_OPEN=0x3f` ile izole edilmesi.
+14. DWC3 HOST/xHCI başladıktan sonra USBHUB3/HID işini inbox sürücülere
     bırakmak; özel fare protokolü yazmamak.
 
 ### 12.2 Körlemesine kopyalanmaması gereken Android bölümleri
@@ -649,9 +694,9 @@ hazırlığının child xHCI başlamadan önce tamamlanmasını sağlamalıdır.
    class-driver sözleşmeleridir.
 5. Başka SoC'deki HSI2C/GPIO/clock/MMIO adresleri veya sabit opcode payloadları.
 
-### 12.3 Windows 0.1.0.19 kodunun Samsung kaynağına göre fark listesi
+### 12.3 Windows 0.1.0.20 kodunun Samsung kaynağına göre fark listesi
 
-Bu bölüm `windows/b2lusb` sürüm 0.1.0.19 kaynaklarını tarif eder.
+Bu bölüm `windows/b2lusb` sürüm 0.1.0.20 kaynaklarını tarif eder.
 "Eksik" ifadesi bir Linux API'sinin Windows'a taşınmadığını değil, karşılık
 gelen donanım invariantının henüz kanıtlanmadığını belirtir.
 
@@ -672,6 +717,8 @@ gelen donanım invariantının henüz kanıtlanmadığını belirtir.
 | USBC HW/FW/minor okuma | Uygulanmış | HSI2C çalıştığında ilk kimlik kanıtı |
 | UIC/CC/PD/VDM interrupt maskelerinin Samsung başlangıç değerleri | Stock probe'un son `PD_INT_M=0x1C` ve `VDM_INT_M=0xFF` değerleri readback ile uygulanıyor; dört status registerı polling döngüsünde read-to-clear ediliyor | UIC/CC nested-IRQ maskelerini GPIO IRQ'suz Windows profili sahiplenmiyor; status birikmesi önleniyor |
 | MUIC ilk status taraması ve aksesuar sınıflandırması | CC_STATUS0/1, BC_STATUS ve charger detail okunuyor; tam UIDADC/VBADC/DCD/charger-type state makinesi yok | Basit fare-host için alt küme olabilir, fakat hatalı kablo/unsafe VBUS ayrımı eksik |
+| MUIC AP USB veri yolu | SOURCE/OTG durumunda `CONTROL1_WRITE(0x06, COM_USB=0x09)` uygulanıyor ve `CONTROL1_READ(0x05)` sonucu zorunlu olarak 0x09 doğrulanıyor | D+/D- fiziksel olarak AP USB PHY'ye bağlanmadan VBUS açılmıyor |
+| MUIC detach yolu | VBUS/OTG kapandıktan sonra `CONTROL1_WRITE(COM_OPEN=0x3f)` ve readback uygulanıyor; D0Exit/ReleaseHardware da aynı izolasyonu dener | Samsung `com_to_open()` davranışının Windows power modelindeki karşılığı |
 | `CCCTRL1` ile CC detect/source-sink/audio policy | `CCCTRL1_W(0x0C,0x1F)` opcode'u ve cevap doğrulaması uygulanıyor | beyond2lte `support-audio` ile stock `op_ctrl1_w` bitlerinin tamamı açık kuruluyor |
 | `0x54,0x00` Auto-VBUS off | 0x21/0x41 yazma, APCmdRes polling ve 0x51 cevap-opcode doğrulaması var | Samsung protokolüyle eşleşiyor |
 | `0x57,0x01` Auto-IBUS at-off | Aynı opcode protokolüyle uygulanmış | Exynos kaynağına uygun değer |
@@ -688,10 +735,12 @@ Bu karşılaştırmadan çıkan en kısa teknik sonuç şudur:
 
 1. Windows xHCI/PHY yolu cihazda çalışıyor.
 2. HSI2C transport hâlâ gerçek PMIC kimlik cevabıyla kanıtlanmalı.
-3. `CHG_CNFG_06.CHGPROT`, stock PD/VDM maskeleri ve beyond2lte `CCCTRL1`
-   başlangıç adımları 0.1.0.19'da uygulanmıştır; cihaz readback'i bekleniyor.
-4. Sonraki açık donanım sınırı, gerçek CC=SOURCE sonucundan sonra charger
-   OTG readback'i ile xHCI `PORTSC.CCS` oluşumunun birlikte görülmesidir.
+3. `CHG_CNFG_06.CHGPROT`, stock PD/VDM maskeleri, beyond2lte `CCCTRL1` ve
+   MUIC `COM_USB/COM_OPEN` adımları 0.1.0.20'de uygulanmıştır; cihaz readback'i
+   bekleniyor.
+4. Sonraki açık donanım sınırı, gerçek CC=SOURCE ve `CONTROL1=0x09`
+   sonucundan sonra charger OTG readback'i ile xHCI `PORTSC.CCS` oluşumunun
+   birlikte görülmesidir.
 5. Gerçek VBUS ve `PORTSC.CCS` birlikte ölçülmeli;
    yalnız registry flag'i başarı sayılmamalıdır.
 
@@ -715,6 +764,7 @@ USBHUB3 değildir. Öncelikli sınır:
 HSI2C45 erişimi
   -> MAX77705 identity/opcode
   -> CC state SOURCE
+  -> MUIC CONTROL1 COM_USB=0x09 readback
   -> charger CHGPROT + CNFG_00 OTG
   -> konektörde gerçek 5 V VBUS
   -> xHCI PORTSC.CCS geçişi
@@ -737,16 +787,18 @@ doğrulanmalıdır:
 5. `0x57,0x01` opcode işlemi tamamlanmış.
 6. `CC_STATUS0 & 0x7 == SOURCE(2)`; adaptör ters takılırsa CC pin sonucu yine
    doğru okunmalı.
-7. `CHG_CNFG_06.CHGPROT == 3`.
-8. `CHG_INT_MASK` OTG politikasına geçmiş.
-9. `CHG_CNFG_00 & 0xF`, mevcut moda göre `0xA`, `0xE` veya `0xF`.
-10. Konektörde gerçek VBUS ölçümü mevcut.
-11. xHCI HOST/RUN, HCHalted clear ve port power açık.
-12. Alıcı takılınca `PORTSC.CCS=1`; ardından port reset/enable.
-13. `USBHUB3` altında receiver VID/PID görünür.
-14. HID interface `HIDUSB/HIDCLASS` altında Started.
-15. Fare PDO'su `MOUHID/MOUCLASS` altında Started.
-16. Hareket, buton ve wheel raporları masaüstüne ulaşır.
+7. MUIC `CONTROL1_WRITE(0x06,0x09)` tamamlanmış;
+   `CONTROL1_READ(0x05)` sonucu tam olarak `0x09`.
+8. `CHG_CNFG_06.CHGPROT == 3`.
+9. `CHG_INT_MASK` OTG politikasına geçmiş.
+10. `CHG_CNFG_00 & 0xF`, mevcut moda göre `0xA`, `0xE` veya `0xF`.
+11. Konektörde gerçek VBUS ölçümü mevcut.
+12. xHCI HOST/RUN, HCHalted clear ve port power açık.
+13. Alıcı takılınca `PORTSC.CCS=1`; ardından port reset/enable.
+14. `USBHUB3` altında receiver VID/PID görünür.
+15. HID interface `HIDUSB/HIDCLASS` altında Started.
+16. Fare PDO'su `MOUHID/MOUCLASS` altında Started.
+17. Hareket, buton ve wheel raporları masaüstüne ulaşır.
 
 İlk başarısız madde gerçek hata sınırıdır. Örneğin madde 10 başarılı ama 12
 başarısızsa MAX77705 registerlarını genişletmek yerine Type-C data mux/USB2
@@ -770,6 +822,8 @@ Aşağıdaki yollar `ianmacd/d2s` revizyonu
 | CC state machine | `drivers/ccic/max77705_cc.c`: `max77705_ccstat_irq_handler`, `max77705_cc_init` |
 | PD/VBUS policy | `drivers/ccic/max77705_pd.c`: `max77705_pd_init`, `max77705_vbus_turn_on_ctrl` |
 | MUIC sınıflandırma | `drivers/muic/max77705-muic.c`: `max77705_muic_probe`, `max77705_muic_detect_dev` |
+| MUIC D+/D- AP anahtarı | `include/linux/muic/max77705-muic.h`: `COMMAND_CONTROL1_*`, `COM_USB`, `COM_OPEN`; `drivers/muic/max77705-muic.c`: `max77705_switch_path`, `com_to_usb_ap`, `com_to_open`, `max77705_muic_handle_attach` |
+| CCIC -> MUIC OTG yol seçimi | `drivers/muic/muic_manager.c`: `muic_manager_switch_path`, `muic_manager_handle_ccic_attach` |
 | Charger/OTG | `drivers/battery_v2/max77705_charger.c`: `max77705_charger_unlock`, `max77705_set_otg`, `max77705_chg_set_mode_state` |
 | Exynos DWC3 wrapper | `drivers/usb/dwc3/dwc3-exynos.c`: `dwc3_exynos_probe`, role-switch eventleri |
 | DWC3 OTG host geçişi | `drivers/usb/dwc3/otg.c`: `dwc3_otg_start_host`, `dwc3_otg_phy_enable` |
@@ -792,9 +846,10 @@ değildir. Doğru sıra şudur:
 HSI2C45'i tam kur
 -> MAX77705 TOP kimliğini doğrula
 -> MFD USBC/CC/PD/MUIC/charger işlevlerini başlat
--> CC bağlantısını SOURCE olarak doğrula
+-> charger register korumasını aç
 -> firmware Auto-VBUS'u kapat ve opcode cevabını doğrula
--> charger korumasını aç
+-> CC bağlantısını SOURCE olarak doğrula
+-> MUIC D+/D- anahtarını AP USB'ye al ve CONTROL1 readback'i doğrula
 -> güvenli CNFG_00 geçişiyle OTG boost/VBUS üret
 -> Exynos PHY ve DWC3'ü HOST yap
 -> xHCI/root hub'ı başlat

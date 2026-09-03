@@ -23,7 +23,10 @@ Windows'un inbox xHCI yığınına bağlayan güvenli bring-up paketidir.
 - `b2lmax77705.sys`, `ACPI\BYN0004` üzerinde stock HSI2C45'i tek sahibi
   olarak açar. Samsung MFD sırasıyla TOP (`0x66`), USBC (`0x25`) ve charger
   (`0x69`) istemcilerini doğrular; CC state `SOURCE` olduğunda Samsung'un
-  CNFG_00/INT_MASK geçişiyle VBUS/OTG'yi açar ve ayrılmada kapatır.
+  `CONTROL1_WRITE(COM_USB=0x09)` komutuyla D+/D- hatlarını AP USB PHY'ye
+  bağlar, `CONTROL1_READ` ile yolu doğrular, ardından CNFG_00/INT_MASK
+  geçişiyle VBUS/OTG'yi açar. Ayrılmada önce VBUS'u kapatır ve sonra
+  `COM_OPEN=0x3f` readback'ini zorunlu tutar.
 - `b2lusbctl.exe status|observe|host`, durum/gözlem ve idempotent HOST yeniden
   hazırlama aracıdır. Bu sürümde DEVICE/NONE rol değişimi bilerek kapalıdır.
 - Samsung vendor USB2 PHY sırası ve device/host tune sütunları uygulanır.
@@ -336,6 +339,16 @@ dört kesme örneği, gerçek `CNFG_00` OTG donanım durumu ve başarısız HSI2
 `B2LUSB-MAX77705.TXT` dosyasına yazılır. Bootloader'dan A/E/F modu devralınsa
 bile CC değeri SOURCE değilse OTG kapatılır; böylece tek flash sonucu bus,
 USBC firmware, charger koruması ve OTG aşamalarına ayrılabilir.
+
+`0.1.0.20`, Samsung MUIC attach yolunda eksik kalan USB2 analog anahtarını
+tamamlar. OTG/RpRd SOURCE olayında `CONTROL1_WRITE(0x06)` ile
+`COM_USB=0x09` gönderilir; `CONTROL1_READ(0x05)` sonucu 0x09 olmadan charger
+OTG/VBUS açılmaz. SOURCE dışındaki ilk örnekte ve detach'te VBUS kapatıldıktan
+sonra `COM_OPEN=0x3f` yazılıp okunur. İstenen yol, gerçek CONTROL1 readback'i,
+doğrulama sonucu ve AP USB yolu durumu `B2LUSB-MAX77705.TXT` içine eklenmiştir.
+Bu adım MAX77705 CC/VBUS yönetiminden ayrı olan D+/D- -> AP PHY bağlantısını
+kurar; xHCI'nin power-on halde sürekli `CCS=0 / RxDetect` kalmasına karşı
+Samsung kaynakta kullanılan doğrudan donanım karşılığıdır.
 
 `cache_esp.sh --win --system`, sürücü ekleme/çıkarma turlarının standalone
 `boot.wim` içinde bıraktığı kullanılmayan akışları `wimlib-imagex optimize`
