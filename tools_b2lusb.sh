@@ -200,7 +200,12 @@ CHECK="$(mktemp -d)"
 for InboxPath in \
   /Windows/System32/drivers/Ucx01000.sys \
   /Windows/System32/drivers/USBXHCI.SYS \
-  /Windows/System32/drivers/USBHUB3.SYS; do
+  /Windows/System32/drivers/USBHUB3.SYS \
+  /Windows/System32/drivers/HIDCLASS.SYS \
+  /Windows/System32/drivers/HIDPARSE.SYS \
+  /Windows/System32/drivers/HIDUSB.SYS \
+  /Windows/System32/drivers/MOUHID.SYS \
+  /Windows/System32/drivers/MOUCLASS.SYS; do
   rm -rf "$CHECK"/*
   wimlib-imagex extract "$WIM" 1 "$InboxPath" \
     --dest-dir="$CHECK" --no-acls >/dev/null || \

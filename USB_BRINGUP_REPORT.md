@@ -525,7 +525,18 @@ başlatılır; DWC3 `0x10C00000/0x10000`, SPI 241 (Windows GSIV 273) ve ana PHY
 sentetik URS child ve farklı-build UrsCx runtime bağımlılığı kaldırılmıştır.
 PMU/SIDDQ readback doğrulaması bounded poll ile yapılır. MAX77705 yazmaları
 depodaki güvenli salt-okuma sınırı nedeniyle eklenmemiştir; VBUS için ilk test
-hala haricen beslenen USB2 hub ile yapılmalıdır.
+hala haricen beslenen USB2 hub ile yapılmalıdır. Offline DriverStore ile ilk
+boot'ta kurulan statik child otomatik olarak yeniden başlatılmaz; bu sayede
+başarılı olabilecek root-hub/HID zinciri tanı uğruna kesilmez. Paketleyici
+hedef WIM'de `HIDUSB`, `MOUHID` ve `MOUCLASS` dosyalarını da zorunlu tutar;
+çalışan sistemde USB, HIDClass ve Mouse PnP sonuçları ayrı kaydedilir.
+
+Stok Android dosyaları VBUS sınırını da açıklıyor: DWC3 ve PHY düğümlerinde
+`is_not_vbus_pad=1` bulunuyor; rol/attach zinciri `max77705_usbc_init` ve
+`usb_notifier_init` üzerinden, `hsi2c_45` üzerindeki `max77705@66` ile
+kuruluyor. Depodaki HSI2C45 ölçümünde clock/timing/FIFO registerleri sıfır
+olduğu ve doğrulanmış bir OTG-source komut dizisi bulunmadığı için Windows
+sürücüsüne tahmini PMIC/I2C yazması eklenmedi.
 
 Bu aşama HID için gereken Windows host yazılım zincirini hazırlar ama fiziksel
 başarı iddiası değildir. SuperSpeed portu combo PHY abort'u nedeniyle sürücüde

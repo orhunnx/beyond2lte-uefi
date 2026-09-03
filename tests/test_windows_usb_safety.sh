@@ -202,6 +202,11 @@ grep -q 'B2LUSB-AUTOHOST-STATUS.TXT' "$ROOT/windows/startnet.cmd"
 grep -q 'B2LUI/manifest.txt' "$ROOT/cache_esp.sh"
 grep -q 'USBXHCI.SYS' "$ROOT/tools_b2lusb.sh"
 grep -q 'USBHUB3.SYS' "$ROOT/tools_b2lusb.sh"
+grep -q 'HIDCLASS.SYS' "$ROOT/tools_b2lusb.sh"
+grep -q 'HIDPARSE.SYS' "$ROOT/tools_b2lusb.sh"
+grep -q 'HIDUSB.SYS' "$ROOT/tools_b2lusb.sh"
+grep -q 'MOUHID.SYS' "$ROOT/tools_b2lusb.sh"
+grep -q 'MOUCLASS.SYS' "$ROOT/tools_b2lusb.sh"
 grep -q 'B2LUSB_SUPERSPEED=DISABLED_UNTIL_COMBO_PMA_SAFE' "$ROOT/tools_b2lusb.sh"
 grep -Fq 'YOK: %s' "$ROOT/tools_b2lusb.sh"
 grep -q 'tools_b2lusb.sh' "$ROOT/yap.sh"
@@ -217,8 +222,16 @@ if grep -A4 'call :B2LUsbInstall' "$ROOT/windows/startnet.cmd" | grep -q 'goto :
 fi
 grep -q 'UYARI: B2LUSB basarisiz; touch ve UFS tanisi yine de surdurulecek' "$ROOT/windows/startnet.cmd"
 grep -Fq 'Services\Ucx01000' "$ROOT/windows/startnet.cmd"
+grep -Fq 'Services\USBXHCI' "$ROOT/windows/startnet.cmd"
+grep -Fq 'Services\USBHUB3' "$ROOT/windows/startnet.cmd"
 grep -Fq 'drivers\USBXHCI.SYS' "$ROOT/windows/startnet.cmd"
 grep -Fq 'drivers\USBHUB3.SYS' "$ROOT/windows/startnet.cmd"
+grep -Fq 'drivers\HIDUSB.SYS' "$ROOT/windows/startnet.cmd"
+grep -Fq 'drivers\MOUHID.SYS' "$ROOT/windows/startnet.cmd"
+grep -Fq 'drivers\MOUCLASS.SYS' "$ROOT/windows/startnet.cmd"
+grep -Fq 'Services\HidUsb' "$ROOT/windows/startnet.cmd"
+grep -Fq 'Services\mouhid' "$ROOT/windows/startnet.cmd"
+grep -Fq 'Services\mouclass' "$ROOT/windows/startnet.cmd"
 grep -q 'b2lusbctl.exe" status' "$ROOT/windows/startnet.cmd"
 grep -q 'b2lusbctl.exe" observe' "$ROOT/windows/startnet.cmd"
 if rg -n 'pnputil /add-driver .*b2lusb' "$ROOT/windows/startnet.cmd"; then
@@ -231,13 +244,11 @@ if rg -n 'b2lusbctl\.exe" (host|none)' "$ROOT/windows/startnet.cmd"; then
   exit 1
 fi
 grep -q 'if exist "%B2LUSBDIR%\\auto-host.test"' "$ROOT/windows/startnet.cmd"
-test "$(rg -c -F 'pnputil /restart-device /deviceid "ACPI\BYN0003"' "$ROOT/windows/startnet.cmd")" -eq 1
-grep -Fq 'B2LUSB-HOST-RESTART.TXT' "$ROOT/windows/startnet.cmd"
-grep -Fq 'HOST_TARGET_RESTART=BASARILI' "$ROOT/windows/startnet.cmd"
-if rg -n 'restart-device.*(/reboot|/force)' "$ROOT/windows/startnet.cmd"; then
-  echo 'HATA: USB child restart tam sistem rebootu veya force istememeli' >&2
+if rg -n 'pnputil /restart-device|B2LUSB-HOST-RESTART|HOST_TARGET_RESTART' "$ROOT/windows/startnet.cmd"; then
+  echo 'HATA: statik ACPI host ilk boot sonrasi otomatik yeniden baslatilmamali' >&2
   exit 1
 fi
+grep -Fq 'ACPI HOST child yerinde birakildi; hedefli restart yapilmadi.' "$ROOT/windows/startnet.cmd"
 grep -Fq '/services /stack /drivers /resources' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LUSB-HOST-RESOURCES.TXT' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LUSB-HOST-MONITOR.TXT' "$ROOT/windows/startnet.cmd"
@@ -251,6 +262,10 @@ grep -Fq 'B2LUsbCollectSetupApiSummary' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LUSB SetupAPI Code 10 ozeti' "$ROOT/windows/startnet.cmd"
 grep -Fq '/c:"CM_PROB_FAILED_START"' "$ROOT/windows/startnet.cmd"
 grep -Fq '/c:"0xC000009E"' "$ROOT/windows/startnet.cmd"
+grep -Fq 'pnputil /enum-devices /class USB /services /stack /drivers' "$ROOT/windows/startnet.cmd"
+grep -Fq 'pnputil /enum-devices /class HIDClass /services /stack /drivers' "$ROOT/windows/startnet.cmd"
+grep -Fq 'pnputil /enum-devices /class Mouse /services /stack /drivers' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LUSB-MOUSE.TXT' "$ROOT/windows/startnet.cmd"
 grep -Fq 'if exist "%B2LUSBDIR%\auto-host.test" cls' "$ROOT/windows/startnet.cmd"
 grep -Fq 'if not exist "%B2LUSBDIR%\auto-host.test" call :B2LTouchLaunchKeyboard' "$ROOT/windows/startnet.cmd"
 grep -q 'LogPixels /t REG_DWORD /d 168' "$ROOT/windows/startnet.cmd"

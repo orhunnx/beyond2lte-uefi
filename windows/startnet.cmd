@@ -56,10 +56,15 @@ echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
 if exist "%B2LUSBDIR%\b2lusbctl.exe" echo USB host kontrolu: %B2LUSBDIR%\b2lusbctl.exe status^|observe^|host
 if not exist "%B2LUSBDIR%\auto-host.test" call :B2LTouchLaunchKeyboard
 if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
-  if exist "%SystemDrive%\B2LUSB-HOST-RESTART.TXT" (
+  if exist "%SystemDrive%\B2LUSB-INPUT-STACK.TXT" (
     echo.
-    echo === B2LUSB HOST hedefli restart sonucu ===
-    type "%SystemDrive%\B2LUSB-HOST-RESTART.TXT"
+    echo === B2LUSB inbox HID/fare zinciri ===
+    type "%SystemDrive%\B2LUSB-INPUT-STACK.TXT"
+  )
+  if exist "%SystemDrive%\B2LUSB-MOUSE.TXT" (
+    echo.
+    echo === B2LUSB fare aygitlari ===
+    type "%SystemDrive%\B2LUSB-MOUSE.TXT"
   )
   if exist "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" (
     echo.
@@ -123,9 +128,54 @@ if not exist "%SystemRoot%\System32\drivers\USBHUB3.SYS" (
   echo HATA: Microsoft USBHUB3.SYS yok.
   exit /b 1
 )
+if not exist "%SystemRoot%\System32\drivers\HIDCLASS.SYS" (
+  echo HATA: Microsoft HIDCLASS.SYS yok.
+  exit /b 1
+)
+if not exist "%SystemRoot%\System32\drivers\HIDPARSE.SYS" (
+  echo HATA: Microsoft HIDPARSE.SYS yok.
+  exit /b 1
+)
+if not exist "%SystemRoot%\System32\drivers\HIDUSB.SYS" (
+  echo HATA: Microsoft HIDUSB.SYS yok.
+  exit /b 1
+)
+if not exist "%SystemRoot%\System32\drivers\MOUHID.SYS" (
+  echo HATA: Microsoft MOUHID.SYS yok.
+  exit /b 1
+)
+if not exist "%SystemRoot%\System32\drivers\MOUCLASS.SYS" (
+  echo HATA: Microsoft MOUCLASS.SYS yok.
+  exit /b 1
+)
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\Ucx01000" >nul 2>&1
 if errorlevel 1 (
   echo HATA: Microsoft Ucx01000 servis kaydi yok.
+  exit /b 1
+)
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\USBXHCI" >nul 2>&1
+if errorlevel 1 (
+  echo HATA: Microsoft USBXHCI servis kaydi yok.
+  exit /b 1
+)
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\USBHUB3" >nul 2>&1
+if errorlevel 1 (
+  echo HATA: Microsoft USBHUB3 servis kaydi yok.
+  exit /b 1
+)
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\HidUsb" >nul 2>&1
+if errorlevel 1 (
+  echo HATA: Microsoft HidUsb servis kaydi yok.
+  exit /b 1
+)
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\mouhid" >nul 2>&1
+if errorlevel 1 (
+  echo HATA: Microsoft mouhid servis kaydi yok.
+  exit /b 1
+)
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\mouclass" >nul 2>&1
+if errorlevel 1 (
+  echo HATA: Microsoft mouclass servis kaydi yok.
   exit /b 1
 )
 echo Paket kimligi:
@@ -143,30 +193,21 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
   "%B2LUSBDIR%\b2lusbctl.exe" status
   if exist "%B2LUSBDIR%\auto-host.test" (
     echo.
-    echo B2LUSB --usb-test statik ACPI HOST hedefli restart:
-    > "%SystemDrive%\B2LUSB-AUTOHOST.TXT" echo ACPI HOST child hedefli PnP restart baslatildi.
+    echo B2LUSB --usb-test statik ACPI HOST ilk-boot kontrolu:
+    > "%SystemDrive%\B2LUSB-AUTOHOST.TXT" echo ACPI HOST child yerinde birakildi; hedefli restart yapilmadi.
     call :B2LUsbTraceStart
     "%B2LUSBDIR%\b2lusbctl.exe" observe >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
-    pnputil /restart-device /deviceid "ACPI\BYN0003" > "%SystemDrive%\B2LUSB-HOST-RESTART.TXT" 2>&1
-    if errorlevel 1 (
-      echo HOST_TARGET_RESTART=UYARI >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-      echo UYARI: HOST child PnP restart tamamlanamadi; tam sistem rebootu istenmedi. >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-    ) else (
-      echo HOST_TARGET_RESTART=BASARILI >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-    )
-    type "%SystemDrive%\B2LUSB-HOST-RESTART.TXT" >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
-    timeout /t 3 /nobreak >nul 2>&1
     pnputil /scan-devices >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
-    timeout /t 2 /nobreak >nul 2>&1
+    timeout /t 5 /nobreak >nul 2>&1
     call :B2LUsbTraceStop
     pnputil /enum-devices /deviceid "ACPI\BYN0003" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /enum-devices /deviceid "ACPI\BYN0003" /resources > "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" 2>&1
     reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI" /s /f B2LMon > "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT" 2>&1
     call :B2LUsbCollectSetupApiSummary
-    pnputil /enum-devices /class USB >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
-    pnputil /enum-devices /class HIDClass >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
+    call :B2LUsbCollectInputState
     "%B2LUSBDIR%\b2lusbctl.exe" status > "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" 2>&1
     type "%SystemDrive%\B2LUSB-AUTOHOST.TXT"
+    type "%SystemDrive%\B2LUSB-MOUSE.TXT"
     type "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT"
   ) else (
     echo HOST yeniden hazirlama: %B2LUSBDIR%\b2lusbctl.exe host
@@ -219,6 +260,19 @@ rem USB aygit kimligiyle birlikte SetupAPI'nin Code 10/problem-status satirlarin
 rem ekrana sigacak tek dosyada tut. Kaynak log salt okunur; hata yoksa bos kalir.
 if not exist "%SystemRoot%\INF\setupapi.dev.log" exit /b 0
 findstr /i /c:"BYN0002" /c:"BYN0003" /c:"USBXHCI" /c:"Device not started" /c:"CM_PROB_FAILED_START" /c:"0xC000009E" "%SystemRoot%\INF\setupapi.dev.log" > "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" 2>nul
+exit /b 0
+
+:B2LUsbCollectInputState
+rem Root hub/receiver/HID/mouse zincirini birbirinden ayir. Tam PnP raporlari
+rem CACHE'e aktarilir; final ekranda fare sinifi ayrica gorunur.
+> "%SystemDrive%\B2LUSB-INPUT-STACK.TXT" echo USBHUB3/HIDUSB/MOUHID/MOUCLASS servis kayitlari:
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\USBHUB3" /v Start >> "%SystemDrive%\B2LUSB-INPUT-STACK.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\HidUsb" /v Start >> "%SystemDrive%\B2LUSB-INPUT-STACK.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\mouhid" /v Start >> "%SystemDrive%\B2LUSB-INPUT-STACK.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\mouclass" /v Start >> "%SystemDrive%\B2LUSB-INPUT-STACK.TXT" 2>&1
+pnputil /enum-devices /class USB /services /stack /drivers > "%SystemDrive%\B2LUSB-USB.TXT" 2>&1
+pnputil /enum-devices /class HIDClass /services /stack /drivers > "%SystemDrive%\B2LUSB-HID.TXT" 2>&1
+pnputil /enum-devices /class Mouse /services /stack /drivers > "%SystemDrive%\B2LUSB-MOUSE.TXT" 2>&1
 exit /b 0
 
 :B2LTouchInstall

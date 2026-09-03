@@ -41,10 +41,11 @@ ACPI tablolarını aynı turda yeniden derler. `--usb-test`, UEFI `B2LUSB.EFI`
 çıktısına ek olarak `tools_b2lusb.sh` çağırır.
 Bu açık test seçimi ayrıca WIM'e `auto-host.test` işareti koyar. HOST hazırlığı
 parent `PrepareHardware` içinde, ACPI child başlatılmadan önce otomatik yapılır;
-işaret rol değiştirmez. WinPE işaretli turda xHCI gözlemini kurar, gerçek
-`ACPI\BYN0003` child'ını hedefli yeniden başlatır ve sonucu
-`X:\B2LUSB-AUTOHOST.TXT` dosyasına yazar. Normal doğrudan `tools_b2lusb.sh`
-çağrısı bu otomatik tanı/restart turunu açmaz; gerektiğinde
+işaret rol değiştirmez. WinPE işaretli turda xHCI gözlemini kurar fakat gerçek
+`ACPI\BYN0003` child'ını ilk-boot durumunda bırakır; hedefli restart çalışan
+root-hub/HID zincirini kesmesin diye uygulanmaz. USB, HIDClass ve Mouse PnP
+sonuçları ayrı dosyalara yazılır. Normal doğrudan `tools_b2lusb.sh`
+çağrısı bu otomatik tanı/tarama turunu açmaz; gerektiğinde
 `B2L_USB_AUTO_HOST=1` açıkça verilir. `--usb-test` turunda dahi
 `B2L_USB_AUTO_HOST=0` ile kapatılabilir.
 
@@ -216,7 +217,10 @@ artık kullanılmaz. Stok Android DT/initcall sırası gibi platform/PHY hazırl
 önce `ACPI\BYN0002` üzerinde tamamlanır; ardından gerçek `ACPI\BYN0003` çocuk
 DWC3 MMIO+GSIV 273 ile doğrudan inbox USBXHCI'ye bağlanır. PHY PMU ve SIDDQ
 readback'leri bounded poll ile doğrulanmadan çocuk stack'e hazır durum
-bildirilmez. Bu paket sabit USB2 HOST'tur; function-role ve SuperSpeed yoktur.
+bildirilmez. Offline DriverStore ilk boot stack'ini kurduğu için otomatik test
+child'ı yeniden başlatmaz. Hedef WIM'de `HIDUSB`, `MOUHID` ve `MOUCLASS`
+bileşenleri yoksa paketleme durur; cihazda USB/HID/Mouse yığınları ayrı
+raporlanır. Bu paket sabit USB2 HOST'tur; function-role ve SuperSpeed yoktur.
 
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
@@ -240,9 +244,11 @@ paketlenecekse mevcut proje sözleşmesi kullanılır:
 B2L_SKIP_MSVC_BUILD=1 bash tools_b2lusb.sh
 ```
 
-Betik `Ucx01000.sys`, `USBXHCI.SYS` ve `USBHUB3.SYS` dosyalarının hedef WinPE
-WIM'inde bulunduğunu doğrulamadan paket üretmez. UrsCx binary/header/import-lib
-ve harici Windows runtime kaynağı gerekmez. Farklı bir WDK kökü gerekiyorsa
+Betik `Ucx01000.sys`, `USBXHCI.SYS`, `USBHUB3.SYS`, `HIDCLASS.SYS`,
+`HIDPARSE.SYS`, `HIDUSB.SYS`, `MOUHID.SYS` ve `MOUCLASS.SYS` dosyalarının
+hedef WinPE WIM'inde bulunduğunu doğrulamadan paket üretmez. UrsCx
+binary/header/import-lib ve harici Windows runtime kaynağı gerekmez. Farklı
+bir WDK kökü gerekiyorsa
 `B2L_WDK_ROOT='/mnt/.../Windows Kits/10'` verilebilir.
 
 ## İlk cihaz testi
@@ -263,10 +269,12 @@ beslenen bir USB2 hub üzerinden yapılmalıdır. Başarı sırası:
 1. `current=HOST`, `GCTL.PRTCAP=HOST`, `GSTS.CURMOD=HOST` ve `resets>=1`;
 2. `ACPI\BYN0003` için `USBXHCI` servisinin başlaması;
 3. root hub ve haricen beslenen hub'ın numaralandırılması;
-4. USB klavyenin Windows'ta HID Keyboard olarak görünmesi ve tuş üretmesi.
+4. USB alıcının HIDClass altında, fare çocuğunun Mouse sınıfında görünmesi;
+5. `HidUsb -> mouhid -> mouclass` zinciri üzerinden imleç hareketi ve tıklama.
 
 Otomatik testten sonra CACHE kökünde `B2LUSB-HOST-RESOURCES.TXT`,
-`B2LUSB-HOST-MONITOR.TXT`, `B2LUSB-ETW.TXT` ve destekleniyorsa
+`B2LUSB-HOST-MONITOR.TXT`, `B2LUSB-USB.TXT`, `B2LUSB-HID.TXT`,
+`B2LUSB-MOUSE.TXT`, `B2LUSB-ETW.TXT` ve destekleniyorsa
 `B2LUSB-USBXHCI*.etl` bulunur. ETL,
 Windows Performance Analyzer'da USBXHCI ve UCX olaylarıyla açılabilir.
 USB henüz çalışmadığı sürece bu dosyalar test girdisi sayılmaz: `--usb-test`
