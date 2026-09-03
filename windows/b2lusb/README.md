@@ -188,9 +188,13 @@ yalnız `IRP_MN_START_DEVICE` için WDM preprocess/completion kaydı tutar;
 IRP status'unu değiştirmez, geciktirmez veya tamamlamaz. `B2LMonStartIrpSeen`,
 `B2LMonStartCompletionSeen` ve `B2LMonStartCompletionStatus`, USBXHCI'nin
 START_DEVICE isteğini aşağı stack'e iletip hangi NTSTATUS ile döndürdüğünü
-gösterecektir. `startnet.cmd` ayrıca SetupAPI Code 10 satırlarını final ekrana
-çıkarır ve `tracerpt.exe` varsa USBXHCI/UCX ETL içindeki hata/status satırlarını
-metin özetine dönüştürür.
+gösterir. Cihaz ölçümünde `StartIrpSeen=1`, `StartCompletionSeen=1` ve
+`StartCompletionStatus=0xC000009E` elde edildi; `PrepareSeen=0` ve
+`D0EntrySeen=0` kaldı. USBXHCI böylece kaynak atamasından sonra kendi
+START_DEVICE işleyişinde, üst filtrenin KMDF `PrepareHardware` aşamasına
+gelmeden `STATUS_DEVICE_POWER_FAILURE` döndürüyor. Aynı görüntüde raw ve
+translated atanmış descriptor sayıları ikiydi, DMA64/DMA32 probları başarılıydı
+ve xHCI operasyonel registerlerinde geçiş yoktu.
 
 `0.1.0.11`, rol değişimindeki doğrulanmış tek DWC3 farkını düzeltir. Cihaz
 ölçümünde `GUSB3PIPECTL=0x01021102` ile USB3 `SUSPHY` biti açık kalmıştı.
@@ -199,7 +203,9 @@ core/rol başlangıcından önce hem `GUSB2PHYCFG.SUSPHY` hem de
 `GUSB3PIPECTL.SUSPHY` bitlerini temizler. Parent sürücü artık aynı iki standart
 DWC3 bitini temizleyip readback ile doğrular; Samsung wrapper'daki USB3 portu
 kapalı kalır ve combo-PHY, PMA, guard ya da memory-map alanlarına dokunulmaz.
-`0.1.0.10` START_DEVICE/SetupAPI/ETW ölçümleri aynen korunur.
+`0.1.0.10` START_DEVICE/SetupAPI/ETW ölçümleri aynen korunur. Atanmış raw ve
+translated listelerin ilk MMIO base/length ile IRQ level/vector/affinity/flags
+alanları da salt-okuma biçiminde `B2LMonAssigned*` değerlerine kaydedilir.
 
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline

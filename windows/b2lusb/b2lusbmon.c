@@ -29,6 +29,20 @@ typedef struct _B2L_USB_MON_CONTEXT {
     volatile LONG StartCompletionStatus;
 } B2L_USB_MON_CONTEXT, *PB2L_USB_MON_CONTEXT;
 
+typedef struct _B2L_USB_MON_RESOURCE_SUMMARY {
+    ULONG DescriptorCount;
+    ULONG MemoryCount;
+    ULONG MemoryBaseLo;
+    ULONG MemoryBaseHi;
+    ULONG MemoryLength;
+    ULONG InterruptCount;
+    ULONG InterruptFlags;
+    ULONG InterruptLevel;
+    ULONG InterruptVector;
+    ULONG InterruptAffinityLo;
+    ULONG InterruptAffinityHi;
+} B2L_USB_MON_RESOURCE_SUMMARY, *PB2L_USB_MON_RESOURCE_SUMMARY;
+
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(B2L_USB_MON_CONTEXT, B2lUsbMonGetContext)
 
 static
@@ -107,6 +121,68 @@ B2lUsbMonCountRequirementDescriptors(
 
 static
 VOID
+B2lUsbMonSummarizeAssignedResources(
+    WDFCMRESLIST Resources,
+    BOOLEAN Translated,
+    PB2L_USB_MON_RESOURCE_SUMMARY Summary
+    )
+{
+    ULONGLONG Affinity;
+    PCM_PARTIAL_RESOURCE_DESCRIPTOR Resource;
+    ULONG Index;
+
+    RtlZeroMemory(Summary, sizeof(*Summary));
+    Summary->DescriptorCount = WdfCmResourceListGetCount(Resources);
+    for (Index = 0; Index < Summary->DescriptorCount; ++Index) {
+        Resource = WdfCmResourceListGetDescriptor(Resources, Index);
+        if (Resource == NULL) {
+            continue;
+        }
+
+        if (Resource->Type == CmResourceTypeMemory) {
+            ++Summary->MemoryCount;
+            if (Summary->MemoryCount == 1) {
+                Summary->MemoryBaseLo = Resource->u.Memory.Start.LowPart;
+                Summary->MemoryBaseHi =
+                    (ULONG)Resource->u.Memory.Start.HighPart;
+                Summary->MemoryLength = Resource->u.Memory.Length;
+            }
+        } else if (Resource->Type == CmResourceTypeInterrupt) {
+            ++Summary->InterruptCount;
+            if (Summary->InterruptCount != 1) {
+                continue;
+            }
+
+            Summary->InterruptFlags = Resource->Flags;
+            if ((Resource->Flags & CM_RESOURCE_INTERRUPT_MESSAGE) != 0) {
+                if (Translated) {
+                    Summary->InterruptLevel =
+                        Resource->u.MessageInterrupt.Translated.Level;
+                    Summary->InterruptVector =
+                        Resource->u.MessageInterrupt.Translated.Vector;
+                    Affinity = (ULONGLONG)(ULONG_PTR)
+                        Resource->u.MessageInterrupt.Translated.Affinity;
+                } else {
+                    Summary->InterruptLevel = 0;
+                    Summary->InterruptVector =
+                        Resource->u.MessageInterrupt.Raw.Vector;
+                    Affinity = (ULONGLONG)(ULONG_PTR)
+                        Resource->u.MessageInterrupt.Raw.Affinity;
+                }
+            } else {
+                Summary->InterruptLevel = Resource->u.Interrupt.Level;
+                Summary->InterruptVector = Resource->u.Interrupt.Vector;
+                Affinity = (ULONGLONG)(ULONG_PTR)
+                    Resource->u.Interrupt.Affinity;
+            }
+            Summary->InterruptAffinityLo = (ULONG)Affinity;
+            Summary->InterruptAffinityHi = (ULONG)(Affinity >> 32);
+        }
+    }
+}
+
+static
+VOID
 B2lUsbMonResetRequirementTrace(
     WDFDEVICE Device
     )
@@ -137,6 +213,26 @@ B2lUsbMonResetRequirementTrace(
     B2lUsbMonWriteUlong(Key, L"B2LMonReqAddDescriptorCount", 0UL);
     B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawCount", 0UL);
     B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawMemoryCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawMemoryBaseLo", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawMemoryBaseHi", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawMemoryLength", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawInterruptCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawInterruptFlags", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawInterruptLevel", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawInterruptVector", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawInterruptAffinityLo", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawInterruptAffinityHi", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedMemoryCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedMemoryBaseLo", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedMemoryBaseHi", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedMemoryLength", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedInterruptCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedInterruptFlags", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedInterruptLevel", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedInterruptVector", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedInterruptAffinityLo", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedInterruptAffinityHi", 0UL);
     B2lUsbMonWriteUlong(Key, L"B2LMonStartIrpSeen", 0UL);
     B2lUsbMonWriteUlong(Key, L"B2LMonStartCompletionSeen", 0UL);
     B2lUsbMonWriteUlong(Key, L"B2LMonStartCompletionStatus", 0UL);
@@ -610,22 +706,44 @@ B2lUsbMonEvtRemoveAddedResources(
     WDFCMRESLIST ResourcesTranslated
     )
 {
+    B2L_USB_MON_RESOURCE_SUMMARY Raw;
+    B2L_USB_MON_RESOURCE_SUMMARY Translated;
     WDFKEY Key;
 
     // No descriptors were added, so there is deliberately nothing to remove.
     // Reaching this callback proves that PnP produced an assigned resource list.
+    // Preserve the exact read-only MMIO/IRQ summary before USBXHCI can fail and
+    // PnP releases the assignment.
+    B2lUsbMonSummarizeAssignedResources(ResourcesRaw, FALSE, &Raw);
+    B2lUsbMonSummarizeAssignedResources(
+        ResourcesTranslated,
+        TRUE,
+        &Translated
+        );
     if (NT_SUCCESS(B2lUsbMonOpenDeviceKey(Device, &Key))) {
         B2lUsbMonWriteUlong(Key, L"B2LMonRemoveAddedSeen", 1UL);
-        B2lUsbMonWriteUlong(
-            Key,
-            L"B2LMonAssignedRawCount",
-            WdfCmResourceListGetCount(ResourcesRaw)
-            );
-        B2lUsbMonWriteUlong(
-            Key,
-            L"B2LMonAssignedTranslatedCount",
-            WdfCmResourceListGetCount(ResourcesTranslated)
-            );
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawCount", Raw.DescriptorCount);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawMemoryCount", Raw.MemoryCount);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawMemoryBaseLo", Raw.MemoryBaseLo);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawMemoryBaseHi", Raw.MemoryBaseHi);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawMemoryLength", Raw.MemoryLength);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawInterruptCount", Raw.InterruptCount);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawInterruptFlags", Raw.InterruptFlags);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawInterruptLevel", Raw.InterruptLevel);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawInterruptVector", Raw.InterruptVector);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawInterruptAffinityLo", Raw.InterruptAffinityLo);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawInterruptAffinityHi", Raw.InterruptAffinityHi);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedCount", Translated.DescriptorCount);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedMemoryCount", Translated.MemoryCount);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedMemoryBaseLo", Translated.MemoryBaseLo);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedMemoryBaseHi", Translated.MemoryBaseHi);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedMemoryLength", Translated.MemoryLength);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedInterruptCount", Translated.InterruptCount);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedInterruptFlags", Translated.InterruptFlags);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedInterruptLevel", Translated.InterruptLevel);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedInterruptVector", Translated.InterruptVector);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedInterruptAffinityLo", Translated.InterruptAffinityLo);
+        B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedInterruptAffinityHi", Translated.InterruptAffinityHi);
         WdfRegistryClose(Key);
     }
     return STATUS_SUCCESS;

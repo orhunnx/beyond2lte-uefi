@@ -489,9 +489,14 @@ kapandı; USBXHCI hâlâ MMIO'yu programlamadan Code 10 döndürüyor.
 `IRP_MN_START_DEVICE` için preprocess/completion gözlemi ekler. Completion
 rutininde IRP status'u değiştirilmez; sonuç pasif bir work item üzerinden
 registry'ye yazılır. SetupAPI Code 10 özeti final ekrana alınır, `tracerpt.exe`
-varsa mevcut USBXHCI/UCX ETL de hata/status satırlarına indirgenir. Bu tur
-USBXHCI'nin START_DEVICE'ı hiç dispatch etmemesi ile alt stack'ten belirli bir
-NTSTATUS dönmesi arasındaki son ayrımı yapacaktır.
+varsa mevcut USBXHCI/UCX ETL de hata/status satırlarına indirgenir. Cihaz
+ölçümünde upper-filter `START_DEVICE` isteğini gördü ve completion
+`0xC000009E (STATUS_DEVICE_POWER_FAILURE)` döndü; `PrepareSeen=0` ve
+`D0EntrySeen=0` kaldı. Aynı anda raw/translated atanmış descriptor sayıları
+iki, DMA64/DMA32 common-buffer probları başarılı ve xHCI operasyonel register
+geçişleri sıfırdı. Böylece hata kaynak atamasından sonra USBXHCI'nin kendi
+START_DEVICE işleyişinde, upper-filter'ın KMDF PrepareHardware evresinden önce
+sınırlandı.
 
 Statik vendor karşılaştırmasında `0.1.0.9` ölçümündeki
 `GUSB3PIPECTL=0x01021102` değerinin `SUSPHY` bitini açık bıraktığı görüldü.
@@ -500,8 +505,11 @@ Hem upstream Synopsys rol değiştirme yolu hem de sabitlenmiş Exynos9820
 `SUSPHY` isteklerini temizliyor. `0.1.0.11` bu iki standart DWC3 bitini
 temizleyip readback ile doğrular. USB3 wrapper portu kapalı kalır; daha önce
 external abort veren combo-PHY/PMA adresleri, güvenli bellek guard'ları ve
-ACPI kaynakları değişmez. Böylece aynı tur hem START_DEVICE sonucunu ölçer hem
-de kanıtlanan DWC3 handoff farkını giderir.
+ACPI kaynakları değişmez. Aynı paket, USBXHCI başlamadan serbest bırakılan raw
+ve translated listelerin ilk MMIO ve IRQ ayrıntılarını da salt-okuma biçiminde
+`B2LMonAssigned*` değerlerine kaydeder. Böylece aynı tur hem START_DEVICE
+sonucunu ve gerçek kaynak teslimini ölçer hem de kanıtlanan DWC3 handoff farkını
+giderir.
 
 UFS bu değişikliğe bilinçli olarak dahil edilmedi. Mevcut runtime UFS kurulumu
 CACHE yazma/geri-okuma testini başarıyla geçiriyor ve `mountvol /N` sonrasında
