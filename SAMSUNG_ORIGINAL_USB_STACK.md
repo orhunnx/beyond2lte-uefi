@@ -405,7 +405,7 @@ CC=SOURCE
 ```
 
 Ayrılmada güvenli sıra ters işlevlidir: önce charger OTG/VBUS kapatılır,
-ardından MUIC `COM_OPEN=0x3f` yapılır. Windows 0.1.0.22 yolu yazma
+ardından MUIC `COM_OPEN=0x3f` yapılır. Windows 0.1.0.23 yolu yazma
 mailbox'ının yalnız başarı dönmesini yeterli saymaz; `CONTROL1_READ = 0x05`
 ile gerçek CONTROL1 değerini de doğrular.
 
@@ -717,9 +717,9 @@ hazırlığının child xHCI başlamadan önce tamamlanmasını sağlamalıdır.
    class-driver sözleşmeleridir.
 5. Başka SoC'deki HSI2C/GPIO/clock/MMIO adresleri veya sabit opcode payloadları.
 
-### 12.3 Windows 0.1.0.22 kodunun Samsung kaynağına göre fark listesi
+### 12.3 Windows 0.1.0.23 kodunun Samsung kaynağına göre fark listesi
 
-Bu bölüm `windows/b2lusb` sürüm 0.1.0.22 kaynaklarını tarif eder.
+Bu bölüm `windows/b2lusb` sürüm 0.1.0.23 kaynaklarını tarif eder.
 "Eksik" ifadesi bir Linux API'sinin Windows'a taşınmadığını değil, karşılık
 gelen donanım invariantının henüz kanıtlanmadığını belirtir.
 
@@ -734,7 +734,8 @@ gelen donanım invariantının henüz kanıtlanmadığını belirtir.
 | Repeated START register read | Write mesajında STOP yok, ardından read+STOP uygulanıyor | Samsung transfer semantiğiyle eşleşiyor |
 | FIFO threshold, master ID 7, message length ve MASTER_RUN | Uygulanmış | Readback ve gerçek PMIC cevabıyla kanıtlanmalı |
 | Mesaj öncesi bus-idle davranışı | Eski `TRANS_STATUS.MASTER_BUSY` değerini beklemeden ADDRESS/AUTO_CONF yazılıp `MASTER_RUN` veriliyor | `reset-before-trans` bulunmayan stock HSI2C45 `exynos5_i2c_xfer()` davranışıyla eşleşiyor |
-| NACK/timeout sonrası recovery | Bir saniyelik mesaj sınırı, iki tam deneme, 100 us aralık ve yalnız gerçek hata yolunda timing korumalı reset var | Samsung `EXYNOS5_I2C_TIMEOUT`, adapter retry sınırı ve HSI2C45 recovery sınırıyla eşleşiyor |
+| NACK/timeout sonrası recovery | Zaman tabanlı 100 ms mesaj sınırı, iki tam deneme ve yalnız gerçek hata yolunda timing korumalı reset var | İki retry ve recovery sırası Samsung ile aynı; timeout Windows tek-CPU/PASSIVE_LEVEL kurallarına göre daha kısa ve uyuyandır |
+| Probe ve yeniden deneme zamanlaması | İlk iş D0Entry dışında 1 ms gecikmeli timer'dadır; hata 2 s backoff, başarı 200 ms CC polling ile sürer | Samsung'un asenkron CC/charger iş modelinin KMDF karşılığı; PnP boot yolu I2C hatasıyla bloke olmaz |
 | TOP identity/revision tablosu | 0x66 PMICID1/PMICREV ve PASS3/4/5 eşleşmesi var | Doğru MFD giriş kapısı |
 | Mantıksal 0x25/0x69 istemcileri | Ayrı WDF child yerine aynı driver içinde mantıksal adres katmanları var | Windows için geçerli eşdeğer; ortak bus lock korunmalı |
 | MAX77705 firmware update | Uygulanmıyor | Bilinçli güvenlik sınırı; doğrulanmış Samsung firmware paketi olmadan eklenmemeli |
@@ -762,7 +763,7 @@ Bu karşılaştırmadan çıkan en kısa teknik sonuç şudur:
 1. Windows xHCI/PHY yolu cihazda çalışıyor.
 2. HSI2C transport hâlâ gerçek PMIC kimlik cevabıyla kanıtlanmalı.
 3. `CHG_CNFG_06.CHGPROT`, stock PD/VDM maskeleri, beyond2lte `CCCTRL1` ve
-   MUIC `COM_USB/COM_OPEN` adımları 0.1.0.22'de uygulanmıştır; cihaz readback'i
+   MUIC `COM_USB/COM_OPEN` adımları 0.1.0.23'te uygulanmıştır; cihaz readback'i
    bekleniyor.
 4. Sonraki açık donanım sınırı, gerçek CC=SOURCE ve `CONTROL1=0x09`
    sonucundan sonra charger OTG readback'i ile xHCI `PORTSC.CCS` oluşumunun
@@ -872,6 +873,14 @@ süresini Samsung `EXYNOS5_I2C_TIMEOUT` gibi 1 saniye yapar ve reset/retry'ı
 yalnız gerçek transfer hatasına bırakır. Sonraki flaşta ilk ayrım noktası
 `AttemptedAddress != 0` ve `FailurePhase` değerinin artık `0x10` olmamasıdır;
 başarılı yol için ayrıca gerçek PMIC kimliği gerekir.
+
+0.1.0.22'nin bir saniyelik döngüsü `KeStallExecutionProcessor(1)` ile polling
+yaptığından, yalnız tek CPU çekirdeği aktif olan WinPE'de iki transfer denemesi
+boyunca bütün yürütülebilir işlemciyi tuttu. 200 ms sonra timer'ın yeniden
+denemesi bu yükü sürekli hale getirerek boot'u takılmış gibi gösterdi.
+0.1.0.23 transfer semantiğini değiştirmeden polling'i PASSIVE_LEVEL uykuya ve
+100 ms zaman tabanlı deadline'a çevirir; ilk denemeyi D0Entry dışına taşır ve
+başarısız probe'lar arasında 2 saniye bırakır.
 
 Fotoğraf başındaki `B2LUSB_DRIVER_VERSION=0.1.0.18` satırı da bu flaşın MAX
 sürümü değildir: eski manifest tek parent INF sürümünü bütün paket etiketi gibi

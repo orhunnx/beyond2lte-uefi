@@ -127,7 +127,7 @@ grep -q 'Context->MuicPathVerified = TRUE' "$MAIN"
 grep -q 'B2L_MAX_STAGE_MUIC_USB' "$MAIN"
 grep -q 'B2L_MAX_STAGE_MUIC_OPEN' "$MAIN"
 grep -q 'B2lMaxReadAndClearUsbcInterrupts' "$MAIN"
-grep -q 'DriverVer=09/04/2026,0.1.0.22' "$INF"
+grep -q 'DriverVer=09/04/2026,0.1.0.23' "$INF"
 SERVICE_SECTION="$(sed -n '/B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)/,/B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
 AUTOIBUS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureAutoIbus(Context)' | head -n1 | cut -d: -f1)"
 MASKS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureUsbcMasks(Context)' | head -n1 | cut -d: -f1)"
@@ -153,7 +153,14 @@ fi
 
 # HSI2C transfer path is bounded, serialized and uses repeated START for
 # one-byte register reads, matching Samsung's register transport.
-grep -q 'B2L_HSI2C_TIMEOUT_US    1000000UL' "$HW"
+grep -q 'B2L_HSI2C_TIMEOUT_US    100000UL' "$HW"
+grep -q 'B2L_HSI2C_POLL_DELAY_US 1000UL' "$HW"
+grep -q 'KeQueryInterruptTime()' "$HW"
+grep -q 'KeDelayExecutionThread(KernelMode, FALSE, &Interval)' "$HW"
+if grep -q 'KeStallExecutionProcessor' "$HW"; then
+  echo 'HATA: tek cekirdekli WinPE MAX77705 polling yolunda busy-spin yapamaz' >&2
+  exit 1
+fi
 grep -Fq 'B2lMaxWriteRegister(Context, HSI2C_CTRL, HSI2C_MASTER);' "$HW"
 if grep -q 'HSI2C_FUNC_MODE_I2C' "$HW"; then
   echo 'HATA: universal9820 HSI2C45 CTRL durumuna kullanilmayan FUNC_MODE_I2C biti eklendi' >&2
@@ -186,7 +193,9 @@ grep -q 'WdfWaitLockAcquire(Context->BusLock' "$MAIN"
 grep -q 'B2lMaxTransferMessage' "$HW"
 grep -q 'FALSE,' "$HW"
 grep -q '(BOOLEAN)(ReadLength == 0UL)' "$HW"
+grep -q 'B2L_MAX_INITIAL_POLL_MS      1UL' "$HDR"
 grep -q 'B2L_MAX_POLL_MS              200UL' "$HDR"
+grep -q 'B2L_MAX_RETRY_POLL_MS        2000UL' "$HDR"
 grep -q 'WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lMaxEvtPollTimer)' "$MAIN"
 if grep -q 'WDF_TIMER_CONFIG_INIT_PERIODIC' "$MAIN"; then
   echo 'HATA: pasif MAX77705 timer periyodik WDF timer olarak olusturulamaz' >&2
@@ -196,7 +205,14 @@ grep -q 'TimerConfig.AutomaticSerialization = FALSE' "$MAIN"
 grep -q 'Context->PollingEnabled = TRUE' "$MAIN"
 grep -q 'Context->PollingEnabled = FALSE' "$MAIN"
 test "$(rg -c 'WdfTimerStart\(' "$MAIN")" -eq 2
-test "$(rg -c '\(VOID\)B2lMaxServiceConnection\(Context\)' "$MAIN")" -eq 2
+test "$(rg -c 'B2lMaxServiceConnection\(Context\)' "$MAIN")" -eq 1
+if sed -n '/B2lMaxEvtD0Entry(WDFDEVICE Device/,/B2lMaxEvtD0Exit(WDFDEVICE Device/p' "$MAIN" | \
+   grep -q 'B2lMaxServiceConnection'; then
+  echo 'HATA: tek cekirdekte MAX77705 transferi PnP D0Entry yolunu bloklayamaz' >&2
+  exit 1
+fi
+sed -n '/B2lMaxEvtPollTimer(WDFTIMER Timer)/,$p' "$MAIN" | \
+  grep -q 'B2L_MAX_RETRY_POLL_MS'
 if sed -n '/B2lMaxEvtD0Entry/,/B2lMaxEvtD0Exit/p' "$MAIN" | grep -q 'return Status'; then
   echo 'HATA: gecici MAX77705 I2C hatasi ACPI parent D0 girisini dusurmemeli' >&2
   exit 1

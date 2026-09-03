@@ -12,7 +12,9 @@
 #define B2L_MAX_USBC_ADDRESS         0x25U
 #define B2L_MAX_CHARGER_ADDRESS      0x69U
 
+#define B2L_MAX_INITIAL_POLL_MS      1UL
 #define B2L_MAX_POLL_MS              200UL
+#define B2L_MAX_RETRY_POLL_MS        2000UL
 #define B2L_MAX_CC_STATUS_MASK       0x07U
 #define B2L_MAX_CC_NO_CONNECTION     0x00U
 #define B2L_MAX_CC_SINK              0x01U

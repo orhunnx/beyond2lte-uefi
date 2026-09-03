@@ -52,7 +52,8 @@
 
 #define B2L_USI_CONFIG_OFFSET   0x30U
 #define B2L_USI_I2C_MODE        0x04U
-#define B2L_HSI2C_TIMEOUT_US    1000000UL
+#define B2L_HSI2C_TIMEOUT_US    100000UL
+#define B2L_HSI2C_POLL_DELAY_US 1000UL
 #define B2L_HSI2C_RETRIES       2UL
 
 typedef struct _B2L_HSI2C_TIMING_STATE {
@@ -89,6 +90,25 @@ B2lMaxAndOrRegister(
 {
     ULONG Value = B2lMaxReadRegister(Context, Offset);
     B2lMaxWriteRegister(Context, Offset, (Value & AndMask) | OrMask);
+}
+
+static VOID
+B2lMaxSleepMicroseconds(ULONG Microseconds)
+{
+    LARGE_INTEGER Interval;
+
+    // Every caller is serialized by the PASSIVE_LEVEL device/timer
+    // contract.  A single-core WinPE must yield while HSI2C advances;
+    // spinning here can starve PnP and make the whole boot appear hung.
+    Interval.QuadPart = -((LONGLONG)Microseconds * 10LL);
+    (VOID)KeDelayExecutionThread(KernelMode, FALSE, &Interval);
+}
+
+static ULONGLONG
+B2lMaxPollingDeadline(VOID)
+{
+    return KeQueryInterruptTime() +
+           ((ULONGLONG)B2L_HSI2C_TIMEOUT_US * 10ULL);
 }
 
 static VOID
@@ -249,8 +269,8 @@ B2lMaxTransferMessage(
     ULONG Index;
     ULONG InterruptStatus;
     ULONG TargetAddress;
-    ULONG Timeout;
     ULONG TriggerLevel;
+    ULONGLONG Deadline;
     NTSTATUS Status;
 
     if ((Buffer == NULL) || (BufferLength == 0UL) ||
@@ -314,9 +334,9 @@ B2lMaxTransferMessage(
     B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, HSI2C_INT_TRANSFER_DONE);
     B2lMaxAndOrRegister(Context, HSI2C_AUTO_CONF, ~0UL, HSI2C_MASTER_RUN);
 
-    Timeout = B2L_HSI2C_TIMEOUT_US;
+    Deadline = B2lMaxPollingDeadline();
     if (IsRead) {
-        while (Timeout-- != 0UL) {
+        for (;;) {
             Status = B2lMaxCheckTransferError(Context);
             if (!NT_SUCCESS(Status)) {
                 goto Failed;
@@ -338,10 +358,13 @@ B2lMaxTransferMessage(
                 // second required condition and may already be clear.
                 return STATUS_SUCCESS;
             }
-            KeStallExecutionProcessor(1U);
+            if (KeQueryInterruptTime() >= Deadline) {
+                break;
+            }
+            B2lMaxSleepMicroseconds(B2L_HSI2C_POLL_DELAY_US);
         }
     } else {
-        while ((Timeout != 0UL) && (Index < BufferLength)) {
+        while (Index < BufferLength) {
             Status = B2lMaxCheckTransferError(Context);
             if (!NT_SUCCESS(Status)) {
                 goto Failed;
@@ -350,10 +373,12 @@ B2lMaxTransferMessage(
             if (HSI2C_TX_FIFO_LEVEL(FifoStatus) < 16UL) {
                 B2lMaxWriteRegister(Context, HSI2C_TX_DATA, Buffer[Index++]);
             }
-            --Timeout;
-            KeStallExecutionProcessor(1U);
+            if (KeQueryInterruptTime() >= Deadline) {
+                break;
+            }
+            B2lMaxSleepMicroseconds(B2L_HSI2C_POLL_DELAY_US);
         }
-        while (Timeout-- != 0UL) {
+        while (KeQueryInterruptTime() < Deadline) {
             Status = B2lMaxCheckTransferError(Context);
             if (!NT_SUCCESS(Status)) {
                 goto Failed;
@@ -366,7 +391,7 @@ B2lMaxTransferMessage(
                 B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
                 return STATUS_SUCCESS;
             }
-            KeStallExecutionProcessor(1U);
+            B2lMaxSleepMicroseconds(B2L_HSI2C_POLL_DELAY_US);
         }
     }
 
@@ -445,7 +470,7 @@ RetryTransfer:
         // after a real timeout/NACK/arbitration failure.
         B2lMaxResetController(Context);
         B2lMaxHsI2cQuiesce(Context);
-        KeStallExecutionProcessor(100U);
+        B2lMaxSleepMicroseconds(100U);
     }
     Context->HsI2cRetryCount = B2L_HSI2C_RETRIES;
     return Status;

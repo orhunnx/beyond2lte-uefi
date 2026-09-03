@@ -615,6 +615,13 @@ bir saniyelik timeout'una eşlenmiş ve reset/retry yalnız gerçek transfer
 hatasına bırakılmıştır. Bir sonraki başarı kapısı `attempted address != 0`,
 failure phase'in `BUS_IDLE` olmaması ve geçerli PMIC identity readback'idir.
 
+`0.1.0.22`nin bir saniyelik, 1 us `KeStallExecutionProcessor` döngüsü tek
+aktif çekirdekli WinPE'de tüm CPU'yu tuttuğu için boot aşaması çok yavaş veya
+takılmış görünebilir. `0.1.0.23` ilk MAX77705 işini PnP D0Entry dışındaki
+PASSIVE_LEVEL timer'a taşır, polling sırasında 1 ms uyur, deadline'ı 100 ms
+tutar ve başarısız kimlik probe'larını 2 saniye aralıkla tekrarlar. Başarılı
+CC takip aralığı 200 ms olarak korunur.
+
 Tekrar flash sayısını azaltmak için `linux_test/usb-diagnostic.sh` eklendi.
 Araç stok/vendor Linux'ta alıcı çıkarılmış ve takılmış iki durumu aynı bootta,
 MAX77705/I2C/MMIO yazması yapmadan karşılaştırır. HSI2C45, USB PHY/PMU,

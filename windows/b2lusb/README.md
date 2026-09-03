@@ -342,6 +342,14 @@ dört kesme örneği, gerçek `CNFG_00` OTG donanım durumu ve başarısız HSI2
 bile CC değeri SOURCE değilse OTG kapatılır; böylece tek flash sonucu bus,
 USBC firmware, charger koruması ve OTG aşamalarına ayrılabilir.
 
+`0.1.0.23`, tek aktif CPU'lu WinPE için MAX77705 hata yolunu boot'tan ayırır.
+İlk kimlik/CC işlemi artık KMDF `D0Entry` içinde yapılmaz; 1 ms sonra başlayan
+PASSIVE_LEVEL tek-atımlı timer'a bırakılır. HSI2C polling döngüsü CPU'yu
+`KeStallExecutionProcessor` ile tüketmek yerine zaman tabanlı 1 ms uykularla
+100 ms içinde tamamlanır. Başarısız probe 200 ms'de yeniden saldırmak yerine
+2 saniye backoff uygular; başarılı CC takibi yine 200 ms'dir. Böylece MAX77705
+cevap vermese bile PnP/USBXHCI/WinPE boot yolu ilerleyebilir.
+
 `0.1.0.22`, güncel cihaz çıktısında kesinleşen son HSI2C transport farkını
 kaldırır. Stock `hsi2c_45` düğümünde `samsung,reset-before-trans` yoktur ve
 `exynos5_i2c_xfer()` eski `TRANS_STATUS.MASTER_BUSY` değerini mesaj öncesi
@@ -349,7 +357,9 @@ boşaltmayı beklemez; ADDRESS/AUTO_CONF'u programlayıp doğrudan `MASTER_RUN`
 verir. Windows yolu artık ilk 0x66 adres yazımından önce veya STOP sonrasında
 stockta olmayan BUS_IDLE kapısına takılmaz; reset/retry yalnız gerçek
 NACK/arbitration/transfer timeout'undan sonra yapılır. Mesaj polling sınırı da
-Samsung'un bir saniyelik `EXYNOS5_I2C_TIMEOUT` değeriyle eşlenmiştir.
+Samsung'un bir saniyelik `EXYNOS5_I2C_TIMEOUT` değeriyle eşlenmiştir. Bu uzun
+busy-poll sınırı tek aktif CPU'lu WinPE'de boot'u yavaşlattığı için 0.1.0.23'te
+Windows'a uygun uyuyan 100 ms sınırla değiştirilmiştir.
 
 `0.1.0.21`, Samsung universal9820 kaynağıyla yapılan tam sıra karşılaştırmasını
 iki güç/transport düzeltmesiyle tamamlar. HSI2C45 reset/recovery sonunda ortak

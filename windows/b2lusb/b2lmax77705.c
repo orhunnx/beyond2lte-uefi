@@ -1438,11 +1438,13 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     UNREFERENCED_PARAMETER(PreviousState);
     WdfWaitLockAcquire(Context->BusLock, NULL);
     Context->PollingEnabled = TRUE;
-    (VOID)B2lMaxServiceConnection(Context);
     WdfWaitLockRelease(Context->BusLock);
+    // Samsung defers CC/charger work after probe.  Do the same on Windows:
+    // never hold the single active CPU or the PnP D0 path while a failed
+    // HSI2C transaction reaches its bounded timeout.
     (VOID)WdfTimerStart(
         Context->PollTimer,
-        WDF_REL_TIMEOUT_IN_MS(B2L_MAX_POLL_MS)
+        WDF_REL_TIMEOUT_IN_MS(B2L_MAX_INITIAL_POLL_MS)
         );
     return STATUS_SUCCESS;
 }
@@ -1485,6 +1487,8 @@ B2lMaxEvtPollTimer(WDFTIMER Timer)
 {
     WDFDEVICE Device = (WDFDEVICE)WdfTimerGetParentObject(Timer);
     PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
+    ULONG NextPollMs;
+    NTSTATUS Status;
 
     WdfWaitLockAcquire(Context->BusLock, NULL);
     if (!Context->PollingEnabled || !Context->HardwareReady) {
@@ -1493,11 +1497,13 @@ B2lMaxEvtPollTimer(WDFTIMER Timer)
     }
     // ServiceConnection publishes the precise failed stage (BUS, IDENTITY,
     // CC or OTG).  Do not overwrite a retry failure with a generic CC stage.
-    (VOID)B2lMaxServiceConnection(Context);
+    Status = B2lMaxServiceConnection(Context);
+    NextPollMs = NT_SUCCESS(Status) ?
+        B2L_MAX_POLL_MS : B2L_MAX_RETRY_POLL_MS;
     if (Context->PollingEnabled && Context->HardwareReady) {
         (VOID)WdfTimerStart(
             Timer,
-            WDF_REL_TIMEOUT_IN_MS(B2L_MAX_POLL_MS)
+            WDF_REL_TIMEOUT_IN_MS(NextPollMs)
             );
     }
     WdfWaitLockRelease(Context->BusLock);
