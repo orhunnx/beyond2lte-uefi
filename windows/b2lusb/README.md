@@ -20,6 +20,10 @@ Windows'un inbox xHCI yığınına bağlayan güvenli bring-up paketidir.
   USBXHCI'nin numaralandıracağı root hub'a aittir.
 - `b2lusbmon.sys`, yalnız bring-up tanısı için host child altında çalışan,
   MMIO'ya yazmayan pasif KMDF upper-filter'dır.
+- `b2lmax77705.sys`, `ACPI\BYN0004` üzerinde stock HSI2C45'i tek sahibi
+  olarak açar. Samsung MFD sırasıyla TOP (`0x66`), USBC (`0x25`) ve charger
+  (`0x69`) istemcilerini doğrular; CC state `SOURCE` olduğunda Samsung'un
+  CNFG_00/INT_MASK geçişiyle VBUS/OTG'yi açar ve ayrılmada kapatır.
 - `b2lusbctl.exe status|observe|host`, durum/gözlem ve idempotent HOST yeniden
   hazırlama aracıdır. Bu sürümde DEVICE/NONE rol değişimi bilerek kapalıdır.
 - Samsung vendor USB2 PHY sırası ve device/host tune sütunları uygulanır.
@@ -242,7 +246,7 @@ Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
 DEFAULT hive ve WIM geri-okuma doğrulaması `tools_winpe_ui_scale.sh` içindedir.
 Bu betik ayrı `build-b2lusb.ps1` ile Windows MSVC/WDK ARM64 derlemesini yapar,
-iki SYS/EXE ve iki INF'yi ortak katalogla test-imzalar, `boot.wim`e ekler ve her
+üç SYS ile EXE'yi ve üç INF'yi ortak katalogla test-imzalar, `boot.wim`e ekler ve her
 dosyayı hash ile geri okur. `--baseline`, UEFI tanı uygulamalarını SYSTEM
 ESP'den çıkarır fakat WIM içindeki Windows sürücülerini korur.
 
@@ -283,18 +287,20 @@ X:\Windows\B2LUSB\b2lusbctl.exe host
 pnputil /enum-devices /deviceid "ACPI\BYN0003"
 ```
 
-İlk host testi, MAX77705 henüz VBUS source/CC state yönetmediği için haricen
-beslenen bir USB2 hub üzerinden yapılmalıdır. Başarı sırası:
+`0.1.0.14` ile ilk doğrudan konektör testi, MAX77705'in bildirdiği CC durumu
+ve charger OTG readback'iyle birlikte yapılır. Başarı sırası:
 
 1. `current=HOST`, `GCTL.PRTCAP=HOST`, `GSTS.CURMOD=HOST` ve `resets>=1`;
-2. `ACPI\BYN0003` için `USBXHCI` servisinin başlaması;
-3. root hub ve haricen beslenen hub'ın numaralandırılması;
-4. USB alıcının HIDClass altında, fare çocuğunun Mouse sınıfında görünmesi;
-5. `HidUsb -> mouhid -> mouclass` zinciri üzerinden imleç hareketi ve tıklama.
+2. `ACPI\BYN0004` için `B2LMaxCcStatus0 & 7 = 2`,
+   `B2LMaxOtgEnabled=1` ve charger mode `A/E/F`;
+3. `ACPI\BYN0003` için `USBXHCI` servisinin başlaması;
+4. root hub ve USB mouse alıcısının numaralandırılması;
+5. USB alıcının HIDClass altında, fare çocuğunun Mouse sınıfında görünmesi;
+6. `HidUsb -> mouhid -> mouclass` zinciri üzerinden imleç hareketi ve tıklama.
 
 Otomatik testten sonra CACHE kökünde `B2LUSB-HOST-RESOURCES.TXT`,
 `B2LUSB-HOST-MONITOR.TXT`, `B2LUSB-USB.TXT`, `B2LUSB-USB-SUMMARY.TXT`, `B2LUSB-HID.TXT`,
-`B2LUSB-MOUSE.TXT`, `B2LUSB-ETW.TXT` ve destekleniyorsa
+`B2LUSB-MOUSE.TXT`, `B2LUSB-MAX77705.TXT`, `B2LUSB-ETW.TXT` ve destekleniyorsa
 `B2LUSB-USBXHCI*.etl` bulunur. ETL,
 Windows Performance Analyzer'da USBXHCI ve UCX olaylarıyla açılabilir.
 USB henüz çalışmadığı sürece bu dosyalar test girdisi sayılmaz: `--usb-test`
@@ -311,9 +317,10 @@ parent-child sırasıyla yapılır.
 
 1. **USB 3.x PHY:** FSYS0 ownership/clock düzeltildikten sonra combo PCS/PMA
    salt-okuma preflight, PLL/CDR lock ve ancak sonra ACPI kaynak genişletmesi.
-2. **Gerçek Type-C rolü:** HSI2C45 ve MAX77705 için KMDF/UcmCx connector
-   client; CC orientation, data mux, VBUS/VCONN ve PD state machine. Mevcut
-   paket sabit HOST'tur ve bu donanıma yazmaz.
+2. **Tam Type-C/UcmCx profili:** Bu build yalnız sabit HOST için mevcut
+   MAX77705 firmware CC state'ini izler ve Samsung charger VBUS/OTG geçişini
+   uygular. Windows UcmCx rol takası, orientation/data mux, VCONN ve tam PD
+   policy gelecek ayrı dual-role profiline aittir.
 3. **Function stack:** Sabit HOST ACPI düzeninden ayrı bir gelecek profilde
    hedef WIM'deki `UfxSynopsys.inf` bölümünün ve function policy'nin
    doğrulanması.

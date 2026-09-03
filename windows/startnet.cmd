@@ -81,6 +81,11 @@ if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
     echo === B2LUSB USBXHCI gercek PnP kaynaklari ===
     type "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT"
   )
+  if exist "%SystemDrive%\B2LUSB-MAX77705.TXT" (
+    echo.
+    echo === B2LUSB MAX77705 CC/VBUS/OTG durumu ===
+    type "%SystemDrive%\B2LUSB-MAX77705.TXT"
+  )
   if exist "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" (
     echo.
     echo === B2LUSB SetupAPI Code 10 ozeti ===
@@ -111,6 +116,10 @@ if not exist "%B2LUSBDIR%\b2lusb.inf" (
 )
 if not exist "%B2LUSBDIR%\b2lusb-host.inf" (
   echo HATA: B2LUSB host INF yok; yari paket reddedildi.
+  exit /b 1
+)
+if not exist "%B2LUSBDIR%\b2lmax77705.inf" (
+  echo HATA: B2LUSB MAX77705 INF yok; yari paket reddedildi.
   exit /b 1
 )
 if not exist "%B2LUSBDIR%\manifest.txt" (
@@ -183,6 +192,11 @@ if errorlevel 1 (
   echo HATA: Microsoft mouclass servis kaydi yok.
   exit /b 1
 )
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" >nul 2>&1
+if errorlevel 1 (
+  echo HATA: b2lmax77705 servis kaydi yok.
+  exit /b 1
+)
 echo Paket kimligi:
 type "%B2LUSBDIR%\manifest.txt"
 > "%SystemDrive%\B2LUSB-PNP.TXT" echo B2LUSB_OFFLINE_DRIVERSTORE=1
@@ -192,6 +206,8 @@ echo Offline PnP baslangic sonucu:
 type "%SystemDrive%\B2LUSB-PNP.TXT"
 pnputil /enum-devices /deviceid "ACPI\BYN0002" 2>nul
 pnputil /enum-devices /deviceid "ACPI\BYN0003" /services /stack /drivers /resources 2>nul
+pnputil /enum-devices /deviceid "ACPI\BYN0004" /services /stack /drivers /resources 2>nul
+call :B2LUsbCollectMax77705State
 if exist "%B2LUSBDIR%\b2lusbctl.exe" (
   echo.
   echo B2LUSB ilk durum:
@@ -207,6 +223,7 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
     call :B2LUsbTraceStop
     pnputil /enum-devices /deviceid "ACPI\BYN0003" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /enum-devices /deviceid "ACPI\BYN0003" /resources > "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" 2>&1
+    call :B2LUsbCollectMax77705State
     reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI" /s /f B2LMon > "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT" 2>&1
     call :B2LUsbCollectSetupApiSummary
     call :B2LUsbCollectInputState
@@ -264,7 +281,31 @@ exit /b 0
 rem USB aygit kimligiyle birlikte SetupAPI'nin Code 10/problem-status satirlarini
 rem ekrana sigacak tek dosyada tut. Kaynak log salt okunur; hata yoksa bos kalir.
 if not exist "%SystemRoot%\INF\setupapi.dev.log" exit /b 0
-findstr /i /c:"BYN0002" /c:"BYN0003" /c:"USBXHCI" /c:"Device not started" /c:"CM_PROB_FAILED_START" /c:"0xC000009E" "%SystemRoot%\INF\setupapi.dev.log" > "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" 2>nul
+findstr /i /c:"BYN0002" /c:"BYN0003" /c:"BYN0004" /c:"b2lmax77705" /c:"USBXHCI" /c:"Device not started" /c:"CM_PROB_FAILED_START" /c:"0xC000009E" "%SystemRoot%\INF\setupapi.dev.log" > "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" 2>nul
+exit /b 0
+
+:B2LUsbCollectMax77705State
+> "%SystemDrive%\B2LUSB-MAX77705.TXT" echo MAX77705 ACPI/PnP durumu:
+pnputil /enum-devices /deviceid "ACPI\BYN0004" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+echo. >> "%SystemDrive%\B2LUSB-MAX77705.TXT"
+echo Samsung uyumlu CC/VBUS/OTG tani alanlari: >> "%SystemDrive%\B2LUSB-MAX77705.TXT"
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxStage >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxStatus >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPmicId >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPmicRev >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUsbcHwRev >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUsbcFwRev >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUsbcFwMinor >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcStatus0 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcStatus1 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxBcStatus >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgMode >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgIntOk >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgDetails0 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgDetails1 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgDetails2 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxOtgEnabled >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 exit /b 0
 
 :B2LUsbCollectInputState

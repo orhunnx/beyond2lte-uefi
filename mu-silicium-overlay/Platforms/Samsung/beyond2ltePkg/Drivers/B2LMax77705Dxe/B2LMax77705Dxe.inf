@@ -1,0 +1,26 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = B2LMax77705Dxe
+  FILE_GUID                      = F27CE23B-A26E-4BE1-B1A2-C3347AB90E46
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = B2LMax77705Entry
+
+[Sources]
+  B2LMax77705Dxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  SamsungPkg/SamsungPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  MemoryAllocationHelperLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gEfiHsI2cProtocolGuid
+
+[Depex]
+  gEfiHsI2cProtocolGuid

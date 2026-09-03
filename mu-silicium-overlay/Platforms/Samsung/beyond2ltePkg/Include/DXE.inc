@@ -107,6 +107,9 @@
   # Optional sec_ts UEFI input. yap.sh --touch opens this only in the
   # external Mu-Silicium tree; it is deliberately absent from APRIORI.
   # INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf
+  # USB fixed-host builds open this read-only HSI2C45/MAX77705 preparation
+  # driver. Windows remains the owner of CC/VBUS policy.
+  # INF beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf
   INF SamsungPkg/Drivers/PmicDxe/PmicDxe.inf
 
   INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf

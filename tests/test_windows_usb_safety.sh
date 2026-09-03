@@ -6,19 +6,29 @@ WIN="$ROOT/windows/b2lusb"
 DSDT="$ROOT/silicium-acpi-overlay/SoCs/Samsung/S5E9820/DSDT_minimal.dsl"
 PARENT_INF="$WIN/b2lusb.inf.in"
 HOST_INF="$WIN/b2lusb-host.inf.in"
+MAX_INF="$WIN/b2lmax77705.inf.in"
 
 USB_BLOCK="$(sed -n '/Device (USBP)/,/^[[:space:]]*\/\/ Device (UFS0)/p' "$DSDT")"
+MAX_BLOCK="$(sed -n '/Device (USBC)/,/^[[:space:]]*\/\/ Exynos9820 DWC_usb31/p' "$DSDT")"
 test "$(printf '%s\n' "$USB_BLOCK" | rg -c 'Memory32Fixed')" -eq 3
 printf '%s\n' "$USB_BLOCK" | grep -q '0x10C00000, 0x00010000'
 printf '%s\n' "$USB_BLOCK" | grep -q '0x10B00000, 0x00000200'
 printf '%s\n' "$USB_BLOCK" | grep -q '0x1586072C, 0x00000004'
 printf '%s\n' "$USB_BLOCK" | grep -Fq 'Name (_HID, "BYN0002")'
 printf '%s\n' "$USB_BLOCK" | grep -Fq 'Name (_HID, "BYN0003")'
+printf '%s\n' "$USB_BLOCK" | grep -Fq 'Name (_DEP, Package (0x01)'
+printf '%s\n' "$USB_BLOCK" | grep -Fq '\_SB.USBC'
 test "$(printf '%s\n' "$USB_BLOCK" | rg -c 'Name \(_CID, "PNP0D15"\)')" -eq 1
 if printf '%s\n' "$USB_BLOCK" | grep -Fq 'Name (_ADR, Zero)'; then
   echo 'HATA: statik ACPI xHCI host eski URS child _ADR alanini tasimamali' >&2
   exit 1
 fi
+
+test "$(printf '%s\n' "$MAX_BLOCK" | rg -c 'Memory32Fixed')" -eq 2
+printf '%s\n' "$MAX_BLOCK" | grep -Fq 'Name (_HID, "BYN0004")'
+printf '%s\n' "$MAX_BLOCK" | grep -q '0x15D60000, 0x00001000'
+printf '%s\n' "$MAX_BLOCK" | grep -q '0x15C22000, 0x00001000'
+printf '%s\n' "$MAX_BLOCK" | grep -Fq 'Name (_CCA, Zero)'
 if printf '%s\n' "$USB_BLOCK" | rg -n 'Device \(URS0\)|Name \(_HID, "URS'; then
   echo 'HATA: statik HOST ACPI yolu sentetik URS aygiti tasimamali' >&2
   exit 1
@@ -33,8 +43,11 @@ fi
 grep -Fq 'ACPI\BYN0002' "$PARENT_INF"
 grep -q 'KmdfLibraryVersion=1.15' "$PARENT_INF"
 grep -Fq 'ACPI\BYN0003' "$HOST_INF"
-grep -q 'DriverVer=09/03/2026,0.1.0.13' "$PARENT_INF"
-grep -q 'DriverVer=09/03/2026,0.1.0.13' "$HOST_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.14' "$PARENT_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.14' "$HOST_INF"
+grep -Fq 'ACPI\BYN0004' "$MAX_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.14' "$MAX_INF"
+grep -q 'KmdfLibraryVersion=1.15' "$MAX_INF"
 grep -qi 'Include=usbxhci.inf' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT.Services' "$HOST_INF"
@@ -68,7 +81,8 @@ fi
 grep -q '#define B2L_DWC3_PHYSICAL_BASE 0x10C00000ULL' "$WIN/b2lusb.h"
 grep -q '#define B2L_USBPHY_PHYSICAL_BASE 0x10B00000ULL' "$WIN/b2lusb.h"
 grep -q '#define B2L_USBPMU_PHYSICAL_BASE 0x1586072CULL' "$WIN/b2lusb.h"
-if rg -ni '10AE0000|10AF0000|15D60000' "$WIN"/*.[ch]; then
+if rg -ni '10AE0000|10AF0000|15D60000' \
+  "$WIN/b2lusb.c" "$WIN/b2lusb.h" "$WIN/b2lusb_hw.c"; then
   echo 'HATA: ilk Windows USB surucusu combo PHY veya MAX77705 MMIO alanina genislemis' >&2
   exit 1
 fi
@@ -199,8 +213,14 @@ grep -q 'LOG_PIXELS=168' "$ROOT/tools_winpe_ui_scale.sh"
 grep -Fq 'Control Panel\Desktop' "$ROOT/tools_winpe_ui_scale.sh"
 grep -q 'B2L_USB_AUTO_HOST="${B2L_USB_AUTO_HOST:-1}"' "$ROOT/yap.sh"
 grep -q 'B2LUSB_AUTO_HOST=\$AUTO_HOST' "$ROOT/tools_b2lusb.sh"
-grep -q 'B2LUSB_DRIVER_VERSION=0.1.0.13' "$ROOT/tools_b2lusb.sh"
+grep -q 'B2LUSB_DRIVER_VERSION=0.1.0.14' "$ROOT/tools_b2lusb.sh"
 grep -Fq 'B2LUSB_HOST_ID=ACPI\\BYN0003' "$ROOT/tools_b2lusb.sh"
+grep -Fq 'B2LUSB_MAX77705_ID=ACPI\\BYN0004' "$ROOT/tools_b2lusb.sh"
+grep -Fq 'B2LUSB_MAX77705_SYS_SHA256=' "$ROOT/tools_b2lusb.sh"
+grep -Fq 'ManifestMax77705=' "$ROOT/cache_esp.sh"
+grep -Fq 'ExpectedMax77705=' "$ROOT/cache_esp.sh"
+grep -Fq 'ManifestMax77705Inf=' "$ROOT/cache_esp.sh"
+grep -Fq 'ExpectedMax77705Inf=' "$ROOT/cache_esp.sh"
 grep -q 'B2LUSB_OFFLINE_DRIVERSTORE=1' "$ROOT/tools_b2lusb.sh"
 grep -q 'stage-winpe-driverstore.ps1' "$ROOT/tools_b2lusb.sh"
 grep -q 'OFFLINE_PACKAGE="UsbTouch"' "$ROOT/tools_b2lusb.sh"
@@ -208,7 +228,9 @@ grep -Fq -- '-Package "$OFFLINE_PACKAGE"' "$ROOT/tools_b2lusb.sh"
 grep -q 'delete --force /Windows/B2LUSB/offline-driverstore.txt' "$ROOT/tools_b2lusb.sh"
 grep -q 'B2LUSB_MON_SHA256=' "$ROOT/tools_b2lusb.sh"
 grep -q 'b2lusbmon.sys' "$WIN/build-b2lusb.ps1"
+grep -q 'b2lmax77705.sys' "$WIN/build-b2lusb.ps1"
 grep -q 'b2lusbmon.sys' "$ROOT/tools_b2lusb.sh"
+grep -q 'b2lmax77705.sys' "$ROOT/tools_b2lusb.sh"
 grep -q 'auto-host.test' "$ROOT/tools_b2lusb.sh"
 grep -q 'B2LUSB-AUTOHOST-STATUS.TXT' "$ROOT/windows/startnet.cmd"
 grep -q 'B2LUI/manifest.txt' "$ROOT/cache_esp.sh"
@@ -244,6 +266,9 @@ grep -Fq 'drivers\MOUCLASS.SYS' "$ROOT/windows/startnet.cmd"
 grep -Fq 'Services\HidUsb' "$ROOT/windows/startnet.cmd"
 grep -Fq 'Services\mouhid' "$ROOT/windows/startnet.cmd"
 grep -Fq 'Services\mouclass' "$ROOT/windows/startnet.cmd"
+grep -Fq 'Services\b2lmax77705' "$ROOT/windows/startnet.cmd"
+grep -Fq 'ACPI\BYN0004' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LUSB-MAX77705.TXT' "$ROOT/windows/startnet.cmd"
 grep -q 'b2lusbctl.exe" status' "$ROOT/windows/startnet.cmd"
 grep -q 'b2lusbctl.exe" observe' "$ROOT/windows/startnet.cmd"
 if rg -n 'pnputil /add-driver .*b2lusb' "$ROOT/windows/startnet.cmd"; then
@@ -293,6 +318,7 @@ grep -q 'Dismount-WindowsImage.*-Save' "$STAGE_PS"
 grep -q 'Get-WindowsDriver' "$STAGE_PS"
 grep -q 'Remove-WindowsDriver' "$STAGE_PS"
 grep -q 'B2L_OFFLINE_DRIVERSTORE=1' "$STAGE_PS"
+grep -q 'b2lmax77705.inf' "$STAGE_PS"
 grep -q 'ValidateSet("Usb", "Touch", "UsbTouch")' "$STAGE_PS"
 grep -q 'Start-Process.*-Verb RunAs' "$STAGE_PS"
 if rg -n 'Package.*Ufs|b2lufs\.inf' "$STAGE_PS"; then
@@ -300,7 +326,7 @@ if rg -n 'Package.*Ufs|b2lufs\.inf' "$STAGE_PS"; then
   exit 1
 fi
 
-grep -q 'beslenen bir USB2 hub' "$WIN/README.md"
+grep -q 'B2LMaxCcStatus0' "$WIN/README.md"
 grep -q 'Function stack' "$WIN/README.md"
 grep -q 'KDNET-EEM-USB' "$WIN/README.md"
 grep -q 'henüz eklenmemiştir' "$WIN/README.md"

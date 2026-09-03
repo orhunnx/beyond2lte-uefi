@@ -129,7 +129,10 @@ $StageRoot = Join-Path ([IO.Path]::GetTempPath()) ("b2lusb-arm64-{0}" -f [Guid]:
 New-Item -ItemType Directory -Path $StageRoot -Force | Out-Null
 
 try {
-    foreach ($Name in @('b2lusb.h', 'b2lusb_public.h', 'b2lusb.c', 'b2lusb_hw.c', 'b2lusbmon.c', 'b2lusbctl.c')) {
+    foreach ($Name in @(
+            'b2lusb.h', 'b2lusb_public.h', 'b2lusb.c', 'b2lusb_hw.c',
+            'b2lusbmon.c', 'b2lusbctl.c', 'b2lmax77705.h',
+            'b2lmax77705.c', 'b2lmax77705_hw.c')) {
         Copy-Item -LiteralPath (Join-Path $SourceDir $Name) -Destination (Join-Path $StageRoot $Name) -Force
     }
 
@@ -153,6 +156,12 @@ try {
         'if errorlevel 1 exit /b 1',
         "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lusbmon.sys`" `"b2lusbmon.obj`" WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
         'if errorlevel 1 exit /b 1',
+        "`"$Compiler`" $Flags /Fo`"b2lmax77705.obj`" `"b2lmax77705.c`"",
+        'if errorlevel 1 exit /b 1',
+        "`"$Compiler`" $Flags /Fo`"b2lmax77705_hw.obj`" `"b2lmax77705_hw.c`"",
+        'if errorlevel 1 exit /b 1',
+        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lmax77705.sys`" `"b2lmax77705.obj`" `"b2lmax77705_hw.obj`" WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
+        'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $UserFlags /Fo`"b2lusbctl.obj`" `"b2lusbctl.c`" /Fe:`"b2lusbctl.exe`" /link /machine:arm64 /subsystem:console /libpath:`"$WdkUserLib`" kernel32.lib setupapi.lib",
         'exit /b %errorlevel%'
     )
@@ -172,13 +181,15 @@ try {
 
     $BuiltDriver = Join-Path $StageRoot 'b2lusb.sys'
     $BuiltMonitor = Join-Path $StageRoot 'b2lusbmon.sys'
+    $BuiltMax77705 = Join-Path $StageRoot 'b2lmax77705.sys'
     $BuiltControl = Join-Path $StageRoot 'b2lusbctl.exe'
     Assert-Arm64Pe $BuiltDriver 'b2lusb.sys'
     Assert-Arm64Pe $BuiltMonitor 'b2lusbmon.sys'
+    Assert-Arm64Pe $BuiltMax77705 'b2lmax77705.sys'
     Assert-Arm64Pe $BuiltControl 'b2lusbctl.exe'
 
     New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
-    foreach ($Item in @('b2lusb.sys', 'b2lusbmon.sys', 'b2lusbctl.exe')) {
+    foreach ($Item in @('b2lusb.sys', 'b2lusbmon.sys', 'b2lmax77705.sys', 'b2lusbctl.exe')) {
         $Source = Join-Path $StageRoot $Item
         $Destination = Join-Path $OutDir $Item
         Copy-Item -LiteralPath $Source -Destination $Destination -Force

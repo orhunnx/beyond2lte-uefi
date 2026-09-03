@@ -451,7 +451,9 @@ verify_winpe_b2ltouch_package() {
 # Windows ARM64 static-host package.  Baseline deliberately omits B2LUSB.EFI, but it
 # must retain the exact driver build injected into boot.wim.
 verify_winpe_b2lusb_package() {
-  local VerifyDir ExpectedSys ManifestSys ExpectedMon ManifestMon ExpectedCtl ManifestCtl
+  local VerifyDir ExpectedSys ManifestSys ExpectedMon ManifestMon
+  local ExpectedMax77705Inf ManifestMax77705Inf
+  local ExpectedMax77705 ManifestMax77705 ExpectedCtl ManifestCtl
   local ManifestAutoHost ManifestOffline AutoHostDir UiManifestDir UiScale UiPackage
 
   if [ ! -s "$PROJ/out/b2lusb/b2lusb.sys" ]; then
@@ -468,6 +470,14 @@ verify_winpe_b2lusb_package() {
   }
   [ -s "$PROJ/out/b2lusb/b2lusbmon.sys" ] || {
     echo "HATA: b2lusb.sys var ama b2lusbmon.sys yok."
+    return 1
+  }
+  [ -s "$PROJ/out/b2lusb/b2lmax77705.sys" ] || {
+    echo "HATA: b2lusb.sys var ama b2lmax77705.sys yok."
+    return 1
+  }
+  [ -s "$PROJ/out/b2lusb/b2lmax77705.inf" ] || {
+    echo "HATA: b2lusb.sys var ama b2lmax77705.inf yok."
     return 1
   }
   [ -s "$PROJ/esp/sources/boot.wim" ] || {
@@ -492,6 +502,10 @@ verify_winpe_b2lusb_package() {
   ManifestSys="$(sed -n 's/^B2LUSB_SYS_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
   ExpectedMon="$(sha256sum "$PROJ/out/b2lusb/b2lusbmon.sys" | awk '{print $1}')"
   ManifestMon="$(sed -n 's/^B2LUSB_MON_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+  ExpectedMax77705Inf="$(sha256sum "$PROJ/out/b2lusb/b2lmax77705.inf" | awk '{print $1}')"
+  ManifestMax77705Inf="$(sed -n 's/^B2LUSB_MAX77705_INF_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+  ExpectedMax77705="$(sha256sum "$PROJ/out/b2lusb/b2lmax77705.sys" | awk '{print $1}')"
+  ManifestMax77705="$(sed -n 's/^B2LUSB_MAX77705_SYS_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
   ExpectedCtl="$(sha256sum "$PROJ/out/b2lusb/b2lusbctl.exe" | awk '{print $1}')"
   ManifestCtl="$(sed -n 's/^B2LUSB_CTL_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
   ManifestAutoHost="$(sed -n 's/^B2LUSB_AUTO_HOST=//p' "$VerifyDir/manifest.txt" | head -n 1)"
@@ -512,12 +526,18 @@ verify_winpe_b2lusb_package() {
   rm -rf "$VerifyDir"
   if [ "$ManifestSys" != "$ExpectedSys" ] || \
      [ "$ManifestMon" != "$ExpectedMon" ] || \
+     [ "$ManifestMax77705Inf" != "$ExpectedMax77705Inf" ] || \
+     [ "$ManifestMax77705" != "$ExpectedMax77705" ] || \
      [ "$ManifestCtl" != "$ExpectedCtl" ]; then
     echo "HATA: boot.wim B2LUSB hash'leri yerel ARM64 ciktilarla ayni degil."
     echo "  SYS WIM: ${ManifestSys:-YOK}"
     echo "  SYS OUT: $ExpectedSys"
     echo "  MON WIM: ${ManifestMon:-YOK}"
     echo "  MON OUT: $ExpectedMon"
+    echo "  MIF WIM: ${ManifestMax77705Inf:-YOK}"
+    echo "  MIF OUT: $ExpectedMax77705Inf"
+    echo "  MAX WIM: ${ManifestMax77705:-YOK}"
+    echo "  MAX OUT: $ExpectedMax77705"
     echo "  CTL WIM: ${ManifestCtl:-YOK}"
     echo "  CTL OUT: $ExpectedCtl"
     echo "Once: B2L_SKIP_MSVC_BUILD=1 bash tools_b2lusb.sh"
@@ -561,6 +581,8 @@ verify_winpe_b2lusb_package() {
   say "WinPE B2LUSB Windows paketi dogrulandi"
   echo "  SYS SHA256: ${ExpectedSys:0:16}"
   echo "  MON SHA256: ${ExpectedMon:0:16}"
+  echo "  MIF SHA256: ${ExpectedMax77705Inf:0:16}"
+  echo "  MAX SHA256: ${ExpectedMax77705:0:16}"
   echo "  CTL SHA256: ${ExpectedCtl:0:16}"
   echo "  AUTO HOST : $ManifestAutoHost"
   echo "  UI SCALE  : %$UiScale"

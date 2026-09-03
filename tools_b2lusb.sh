@@ -76,6 +76,7 @@ PS_BUILD="$SRC/build-b2lusb.ps1"
 if [ "${B2L_SKIP_MSVC_BUILD:-0}" = "1" ]; then
   [ -s "$OUT/b2lusb.sys" ] || die "B2L_SKIP_MSVC_BUILD=1 ama b2lusb.sys yok"
   [ -s "$OUT/b2lusbmon.sys" ] || die "B2L_SKIP_MSVC_BUILD=1 ama b2lusbmon.sys yok"
+  [ -s "$OUT/b2lmax77705.sys" ] || die "B2L_SKIP_MSVC_BUILD=1 ama b2lmax77705.sys yok"
   [ -s "$OUT/b2lusbctl.exe" ] || die "B2L_SKIP_MSVC_BUILD=1 ama b2lusbctl.exe yok"
   NEWER_DRIVER="$(find "$SRC" -maxdepth 1 -newer "$OUT/b2lusb.sys" \
     \( -name 'b2lusb*.c' -o -name 'b2lusb*.h' -o -name 'build-b2lusb.ps1' \) \
@@ -83,14 +84,18 @@ if [ "${B2L_SKIP_MSVC_BUILD:-0}" = "1" ]; then
   NEWER_MONITOR="$(find "$SRC" -maxdepth 1 -newer "$OUT/b2lusbmon.sys" \
     \( -name 'b2lusbmon.c' -o -name 'build-b2lusb.ps1' \) \
     -printf '%f\n' 2>/dev/null || true)"
+  NEWER_MAX77705="$(find "$SRC" -maxdepth 1 -newer "$OUT/b2lmax77705.sys" \
+    \( -name 'b2lmax77705*.c' -o -name 'b2lmax77705*.h' -o -name 'build-b2lusb.ps1' \) \
+    -printf '%f\n' 2>/dev/null || true)"
   NEWER_CONTROL="$(find "$SRC" -maxdepth 1 -newer "$OUT/b2lusbctl.exe" \
     \( -name 'b2lusbctl.c' -o -name 'b2lusb_public.h' -o -name 'build-b2lusb.ps1' \) \
     -printf '%f\n' 2>/dev/null || true)"
   if { [ -n "$NEWER_DRIVER" ] || [ -n "$NEWER_MONITOR" ] || \
+       [ -n "$NEWER_MAX77705" ] || \
        [ -n "$NEWER_CONTROL" ]; } && \
      [ "${B2L_ALLOW_STALE_SYS:-0}" != "1" ]; then
-    printf 'HATA: B2LUSB ARM64 ciktilari kaynaklardan eski:\n%s\n%s\n%s\n' \
-      "$NEWER_DRIVER" "$NEWER_MONITOR" "$NEWER_CONTROL" >&2
+    printf 'HATA: B2LUSB ARM64 ciktilari kaynaklardan eski:\n%s\n%s\n%s\n%s\n' \
+      "$NEWER_DRIVER" "$NEWER_MONITOR" "$NEWER_MAX77705" "$NEWER_CONTROL" >&2
     exit 1
   fi
   say "Var olan B2LUSB ARM64 ciktilari kullaniliyor"
@@ -104,7 +109,7 @@ else
     -WdkVersion "$WDK_VERSION"
 fi
 
-for Item in b2lusb.sys b2lusbmon.sys b2lusbctl.exe; do
+for Item in b2lusb.sys b2lusbmon.sys b2lmax77705.sys b2lusbctl.exe; do
   [ -s "$OUT/$Item" ] || die "$Item uretilmedi"
   file "$OUT/$Item" | grep -qi 'aarch64\|arm64' || die "$Item ARM64 degil"
 done
@@ -127,11 +132,16 @@ osslsigncode sign -certs "$CERT" -key "$KEY" \
   -in "$OUT/b2lusbmon.sys" -out "$OUT/b2lusbmon-signed.sys" >/dev/null
 mv -f "$OUT/b2lusbmon-signed.sys" "$OUT/b2lusbmon.sys"
 osslsigncode sign -certs "$CERT" -key "$KEY" \
+  -n "beyond2lte MAX77705 Type-C OTG" -h sha256 \
+  -in "$OUT/b2lmax77705.sys" -out "$OUT/b2lmax77705-signed.sys" >/dev/null
+mv -f "$OUT/b2lmax77705-signed.sys" "$OUT/b2lmax77705.sys"
+osslsigncode sign -certs "$CERT" -key "$KEY" \
   -n "beyond2lte USB host control" -h sha256 \
   -in "$OUT/b2lusbctl.exe" -out "$OUT/b2lusbctl-signed.exe" >/dev/null
 mv -f "$OUT/b2lusbctl-signed.exe" "$OUT/b2lusbctl.exe"
 cp "$SRC/b2lusb.inf.in" "$OUT/b2lusb.inf"
 cp "$SRC/b2lusb-host.inf.in" "$OUT/b2lusb-host.inf"
+cp "$SRC/b2lmax77705.inf.in" "$OUT/b2lmax77705.inf"
 rm -f "$OUT/b2lusb.cat"
 "$INF2CAT" /driver:"$(wslpath -w "$OUT")" /os:10_GE_ARM64
 [ -s "$OUT/b2lusb.cat" ] || die "Inf2Cat b2lusb.cat uretmedi"
@@ -173,6 +183,8 @@ verify_test_signature "b2lusb.sys katalog eslesmesi" /v /pa /c \
   "$(wslpath -w "$OUT/b2lusb.cat")" "$(wslpath -w "$OUT/b2lusb.sys")"
 verify_test_signature "b2lusbmon.sys katalog eslesmesi" /v /pa /c \
   "$(wslpath -w "$OUT/b2lusb.cat")" "$(wslpath -w "$OUT/b2lusbmon.sys")"
+verify_test_signature "b2lmax77705.sys katalog eslesmesi" /v /pa /c \
+  "$(wslpath -w "$OUT/b2lusb.cat")" "$(wslpath -w "$OUT/b2lmax77705.sys")"
 verify_test_signature "b2lusbctl.exe" /v /pa "$(wslpath -w "$OUT/b2lusbctl.exe")"
 rm -f "$PFX"
 
@@ -186,16 +198,19 @@ fi
 MANIFEST="$OUT/b2lusb-manifest.txt"
 {
   echo "B2LUSB_PACKAGE=exynos9820-kmdf-static-usb2-host-bringup"
-  echo "B2LUSB_DRIVER_VERSION=0.1.0.13"
+  echo "B2LUSB_DRIVER_VERSION=0.1.0.14"
   echo "B2LUSB_ACPI_ID=ACPI\\BYN0002"
   echo "B2LUSB_HOST_ID=ACPI\\BYN0003"
+  echo "B2LUSB_MAX77705_ID=ACPI\\BYN0004"
   echo "B2LUSB_SUPERSPEED=DISABLED_UNTIL_COMBO_PMA_SAFE"
   echo "B2LUSB_AUTO_HOST=$AUTO_HOST"
   echo "B2LUSB_OFFLINE_DRIVERSTORE=1"
   echo "B2LUSB_INF_SHA256=$(sha256sum "$OUT/b2lusb.inf" | awk '{print $1}')"
   echo "B2LUSB_HOST_INF_SHA256=$(sha256sum "$OUT/b2lusb-host.inf" | awk '{print $1}')"
+  echo "B2LUSB_MAX77705_INF_SHA256=$(sha256sum "$OUT/b2lmax77705.inf" | awk '{print $1}')"
   echo "B2LUSB_SYS_SHA256=$(sha256sum "$OUT/b2lusb.sys" | awk '{print $1}')"
   echo "B2LUSB_MON_SHA256=$(sha256sum "$OUT/b2lusbmon.sys" | awk '{print $1}')"
+  echo "B2LUSB_MAX77705_SYS_SHA256=$(sha256sum "$OUT/b2lmax77705.sys" | awk '{print $1}')"
   echo "B2LUSB_CAT_SHA256=$(sha256sum "$OUT/b2lusb.cat" | awk '{print $1}')"
   echo "B2LUSB_CTL_SHA256=$(sha256sum "$OUT/b2lusbctl.exe" | awk '{print $1}')"
 } > "$MANIFEST"
@@ -243,7 +258,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -Package "$OFFLINE_PACKAGE" || die "B2LUSB offline DriverStore servislemesi basarisiz"
 
 say "B2LUSB paketi boot.wim'e ekleniyor"
-for Item in b2lusb.inf b2lusb-host.inf b2lusb.sys b2lusbmon.sys b2lusb.cat b2lusbctl.exe; do
+for Item in b2lusb.inf b2lusb-host.inf b2lmax77705.inf b2lusb.sys b2lusbmon.sys b2lmax77705.sys b2lusb.cat b2lusbctl.exe; do
   wimlib-imagex update "$WIM" 1 \
     --command="delete --force /Windows/B2LUSB/$Item" >/dev/null 2>&1 || true
   wimlib-imagex update "$WIM" 1 \
@@ -269,7 +284,7 @@ wimlib-imagex update "$WIM" 1 \
 
 rm -rf "$CHECK"
 CHECK="$(mktemp -d)"
-for Item in b2lusb.inf b2lusb-host.inf b2lusb.sys b2lusbmon.sys b2lusb.cat b2lusbctl.exe; do
+for Item in b2lusb.inf b2lusb-host.inf b2lmax77705.inf b2lusb.sys b2lusbmon.sys b2lmax77705.sys b2lusb.cat b2lusbctl.exe; do
   wimlib-imagex extract "$WIM" 1 "/Windows/B2LUSB/$Item" \
     --dest-dir="$CHECK" --no-acls >/dev/null
   Want="$(sha256sum "$OUT/$Item" | awk '{print $1}')"

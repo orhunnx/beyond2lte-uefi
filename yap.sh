@@ -130,11 +130,14 @@ echo "  Resources/{Configs,DTBs}/beyond2lte.*"
 # kopyalayarak iki satiri da kapatir. --touch ayrica ACPI'yi bu turda zorunlu
 # olarak yeniden derler; onceki deneylerden kalan ACPI kullanilmaz.
 #
+if [ "$TOUCH" = 1 ] || [ "$USB_TEST" = 1 ]; then
+  TOUCH_SOC_DSC="$MU/Silicon/Samsung/S5E9820Pkg/S5E9820Pkg.dsc.inc"
+  sed -i 's@^  # HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf$@  HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf@' "$TOUCH_SOC_DSC"
+fi
+
 if [ "$TOUCH" = 1 ]; then
   TOUCH_DXE_INC="$MU/Platforms/Samsung/beyond2ltePkg/Include/DXE.inc"
-  TOUCH_SOC_DSC="$MU/Silicon/Samsung/S5E9820Pkg/S5E9820Pkg.dsc.inc"
   sed -i 's@^  # INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf$@  INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf@' "$TOUCH_DXE_INC"
-  sed -i 's@^  # HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf$@  HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf@' "$TOUCH_SOC_DSC"
   if grep -qx '  INF beyond2ltePkg/Drivers/B2LTouchDxe/B2LTouchDxe.inf' "$TOUCH_DXE_INC" \
      && grep -qx '  HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf' "$TOUCH_SOC_DSC"; then
     echo "  B2LTouchDxe: DENEYSEL PROFIL ACIK (ACPI yeniden derlendi)"
@@ -144,6 +147,18 @@ if [ "$TOUCH" = 1 ]; then
   fi
 else
   echo "  B2LTouchDxe: KAPALI"
+fi
+
+if [ "$USB_TEST" = 1 ]; then
+  MAX77705_DXE_INC="$MU/Platforms/Samsung/beyond2ltePkg/Include/DXE.inc"
+  sed -i 's@^  # INF beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf$@  INF beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf@' "$MAX77705_DXE_INC"
+  if grep -qx '  INF beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf' "$MAX77705_DXE_INC" \
+     && grep -qx '  HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf' "$TOUCH_SOC_DSC"; then
+    echo "  B2LMax77705Dxe: HSI2C45 HAZIRLIK ACIK"
+  else
+    echo "HATA: B2LMax77705Dxe veya HsI2cLib etkinlestirilemedi"
+    exit 1
+  fi
 fi
 
 if [ "$TOUCH_TEST" = 1 ]; then

@@ -1,0 +1,54 @@
+; Beyond2LTE MAX77705 Type-C/OTG policy driver (ARM64 only).
+; Owns the stock HSI2C45 and CMGP03 USI pages exposed by ACPI\BYN0004.
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%B2L%
+CatalogFile=b2lusb.cat
+DriverVer=09/03/2026,0.1.0.14
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir=12
+
+[SourceDisksNames]
+1=%B2LMax.DiskName%,,,
+
+[SourceDisksFiles]
+b2lmax77705.sys=1
+
+[Manufacturer]
+%B2L%=B2L,NTarm64
+
+[B2L.NTarm64]
+%B2LMax.DeviceDesc%=B2LMax_Install,ACPI\BYN0004
+
+[B2LMax_Install.NT]
+CopyFiles=B2LMax_CopyFiles
+
+[B2LMax_CopyFiles]
+b2lmax77705.sys
+
+[B2LMax_Install.NT.Services]
+AddService=b2lmax77705,0x00000002,B2LMax_Service
+
+[B2LMax_Service]
+DisplayName=%B2LMax.ServiceDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%12%\b2lmax77705.sys
+
+[B2LMax_Install.NT.Wdf]
+KmdfService=b2lmax77705,B2LMax_Wdf
+
+[B2LMax_Wdf]
+KmdfLibraryVersion=1.15
+
+[Strings]
+B2L="beyond2lte"
+B2LMax.DeviceDesc="Beyond2LTE MAX77705 Type-C and OTG Controller"
+B2LMax.ServiceDesc="Beyond2LTE MAX77705 Type-C OTG Driver"
+B2LMax.DiskName="Beyond2LTE USB driver package"

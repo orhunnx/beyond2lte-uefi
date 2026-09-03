@@ -94,7 +94,7 @@ function Invoke-B2LOfflineServicing {
     New-Item -ItemType Directory -Path $mountRoot -Force | Out-Null
 
     if ($SelectedPackage -eq "Usb") {
-        $requiredInfs = @("b2lusb-host.inf", "b2lusb.inf")
+        $requiredInfs = @("b2lmax77705.inf", "b2lusb-host.inf", "b2lusb.inf")
         $markerDirectories = @("Windows\B2LUSB")
     }
     elseif ($SelectedPackage -eq "Touch") {
@@ -102,7 +102,7 @@ function Invoke-B2LOfflineServicing {
         $markerDirectories = @("Windows\B2LTOUCH")
     }
     else {
-        $requiredInfs = @("b2lusb-host.inf", "b2lusb.inf", "b2ltouch.inf")
+        $requiredInfs = @("b2lmax77705.inf", "b2lusb-host.inf", "b2lusb.inf", "b2ltouch.inf")
         $markerDirectories = @("Windows\B2LUSB", "Windows\B2LTOUCH")
     }
 
@@ -195,7 +195,10 @@ if (-not (Test-Path -LiteralPath $WimPath -PathType Leaf)) {
 
 $usbSourceDirectory = Join-Path $ProjectRoot "out\b2lusb"
 $touchSourceDirectory = Join-Path $ProjectRoot "out\b2ltouch"
-$usbFiles = @("b2lusb-host.inf", "b2lusb.inf", "b2lusb.sys", "b2lusbmon.sys", "b2lusb.cat")
+$usbFiles = @(
+    "b2lmax77705.inf", "b2lusb-host.inf", "b2lusb.inf",
+    "b2lmax77705.sys", "b2lusb.sys", "b2lusbmon.sys", "b2lusb.cat"
+)
 $touchFiles = @("b2ltouch.inf", "b2ltouch.sys", "b2ltouch.cat")
 
 $workRoot = Join-Path $env:TEMP ("B2LWinPE-{0}" -f [Guid]::NewGuid().ToString("N"))
