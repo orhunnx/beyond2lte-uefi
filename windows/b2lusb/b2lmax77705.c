@@ -10,6 +10,11 @@
 #define MAX77705_USBC_CC_STATUS0   0x0AU
 #define MAX77705_USBC_CC_STATUS1   0x0BU
 #define MAX77705_USBC_UIC_INT      0x02U
+#define MAX77705_USBC_CC_INT       0x03U
+#define MAX77705_USBC_PD_INT       0x04U
+#define MAX77705_USBC_VDM_INT      0x05U
+#define MAX77705_USBC_PD_INT_MASK  0x10U
+#define MAX77705_USBC_VDM_INT_MASK 0x11U
 #define MAX77705_USBC_OPCODE_WRITE 0x21U
 #define MAX77705_USBC_OPCODE_END   0x41U
 #define MAX77705_USBC_OPCODE_READ  0x51U
@@ -19,6 +24,18 @@
 #define MAX77705_FACTORY_AUTO_VBUS_OFF   0x00U
 #define MAX77705_OPCODE_FW_AUTOIBUS      0x57U
 #define MAX77705_AUTOIBUS_AT_OFF         0x01U
+#define MAX77705_OPCODE_CCCTRL1_WRITE    0x0CU
+#define MAX77705_CCCTRL1_SOURCE_SINK     (1U << 4)
+#define MAX77705_CCCTRL1_SINK_SOURCE     (1U << 3)
+#define MAX77705_CCCTRL1_DEBUG_ENABLE    (1U << 2)
+#define MAX77705_CCCTRL1_AUDIO_ENABLE    (1U << 1)
+#define MAX77705_CCCTRL1_DETECT_ENABLE   (1U << 0)
+#define MAX77705_CCCTRL1_BEYOND2LTE      \
+    (MAX77705_CCCTRL1_SOURCE_SINK | MAX77705_CCCTRL1_SINK_SOURCE | \
+     MAX77705_CCCTRL1_DEBUG_ENABLE | MAX77705_CCCTRL1_AUDIO_ENABLE | \
+     MAX77705_CCCTRL1_DETECT_ENABLE)
+#define MAX77705_PD_INT_MASK_STOCK       0x1CU
+#define MAX77705_VDM_INT_MASK_STOCK      0xFFU
 #define MAX77705_OPCODE_RESPONSE_LENGTH  2UL
 #define MAX77705_OPCODE_POLL_COUNT       300UL
 #define MAX77705_OPCODE_POLL_US          10000UL
@@ -29,10 +46,15 @@
 #define MAX77705_CHG_DETAILS_01    0xB4U
 #define MAX77705_CHG_DETAILS_02    0xB5U
 #define MAX77705_CHG_CNFG_00       0xB7U
+#define MAX77705_CHG_CNFG_06       0xBDU
 
 #define MAX77705_CHG_MODE_MASK     0x0FU
 #define MAX77705_CHG_OTG_INT_MASK  0x51U
 #define MAX77705_CHG_OTG_INT_VALUE 0x50U
+#define MAX77705_CHG_PROTECT_MASK  0x0CU
+#define MAX77705_CHG_PROTECT_OPEN  0x0CU
+#define MAX77705_CHG_UNLOCK_RETRIES 10UL
+#define MAX77705_CHG_UNLOCK_WAIT_US 20000UL
 
 #define MAX77705_MODE_ALL_OFF      0x00U
 #define MAX77705_MODE_BUCK         0x04U
@@ -76,7 +98,15 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxHsI2cFifoStatus", L"B2LMaxHsI2cTimingFs1",
         L"B2LMaxHsI2cTimingFs2", L"B2LMaxHsI2cTimingFs3",
         L"B2LMaxHsI2cConfiguration", L"B2LMaxHsI2cAutoConfiguration",
-        L"B2LMaxHsI2cAddress", L"B2LMaxHsI2cRetryCount"
+        L"B2LMaxHsI2cAddress", L"B2LMaxHsI2cUsiControl",
+        L"B2LMaxHsI2cAttemptedAddress", L"B2LMaxHsI2cRetryCount",
+        L"B2LMaxHsI2cFailurePhase", L"B2LMaxChgConfig06",
+        L"B2LMaxChargerUnlocked", L"B2LMaxChargerUnlockAttempts",
+        L"B2LMaxUicInterrupt", L"B2LMaxCcInterrupt",
+        L"B2LMaxPdInterrupt", L"B2LMaxVdmInterrupt",
+        L"B2LMaxPdInterruptMask", L"B2LMaxVdmInterruptMask",
+        L"B2LMaxUsbcMasksConfigured", L"B2LMaxCcControlConfigured",
+        L"B2LMaxCcControlResponse", L"B2LMaxOtgHardwareActive"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -120,7 +150,23 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[30] = Context->HsI2cConfiguration;
     Values[31] = Context->HsI2cAutoConfiguration;
     Values[32] = Context->HsI2cAddress;
-    Values[33] = Context->HsI2cRetryCount;
+    Values[33] = Context->HsI2cUsiControl;
+    Values[34] = Context->HsI2cAttemptedAddress;
+    Values[35] = Context->HsI2cRetryCount;
+    Values[36] = Context->HsI2cFailurePhase;
+    Values[37] = Context->ChargerConfig06;
+    Values[38] = Context->ChargerUnlocked ? 1UL : 0UL;
+    Values[39] = Context->ChargerUnlockAttempts;
+    Values[40] = Context->UicInterrupt;
+    Values[41] = Context->CcInterrupt;
+    Values[42] = Context->PdInterrupt;
+    Values[43] = Context->VdmInterrupt;
+    Values[44] = Context->PdInterruptMask;
+    Values[45] = Context->VdmInterruptMask;
+    Values[46] = Context->UsbcMasksConfigured ? 1UL : 0UL;
+    Values[47] = Context->CcControlConfigured ? 1UL : 0UL;
+    Values[48] = Context->CcControlResponse;
+    Values[49] = Context->OtgHardwareActive ? 1UL : 0UL;
 
     RtlInitUnicodeString(&ServicePath, ServicePathBuffer);
     InitializeObjectAttributes(
@@ -406,6 +452,167 @@ B2lMaxUpdateByte(
 }
 
 static NTSTATUS
+B2lMaxUnlockCharger(PB2L_MAX_CONTEXT Context)
+{
+    UCHAR Current;
+    UCHAR Wanted;
+    ULONG Attempt;
+    NTSTATUS Status;
+
+    Context->ChargerUnlocked = FALSE;
+    Context->ChargerUnlockAttempts = 0UL;
+    for (Attempt = 0UL; Attempt < MAX77705_CHG_UNLOCK_RETRIES; ++Attempt) {
+        Status = B2lMaxReadByte(
+            Context,
+            B2L_MAX_CHARGER_ADDRESS,
+            MAX77705_CHG_CNFG_06,
+            &Current
+            );
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+        Context->ChargerConfig06 = Current;
+        if ((Current & MAX77705_CHG_PROTECT_MASK) ==
+            MAX77705_CHG_PROTECT_OPEN) {
+            Context->ChargerUnlocked = TRUE;
+            return STATUS_SUCCESS;
+        }
+
+        Wanted = (UCHAR)((Current & (UCHAR)~MAX77705_CHG_PROTECT_MASK) |
+                         MAX77705_CHG_PROTECT_OPEN);
+        Status = B2lMaxWriteByte(
+            Context,
+            B2L_MAX_CHARGER_ADDRESS,
+            MAX77705_CHG_CNFG_06,
+            Wanted
+            );
+        Context->ChargerUnlockAttempts = Attempt + 1UL;
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+
+        // Samsung waits 20 ms before testing CHGPROT again.  Do not accept
+        // the write itself as proof that protected charger writes are open.
+        B2lMaxDelayMicroseconds(MAX77705_CHG_UNLOCK_WAIT_US);
+    }
+
+    Status = B2lMaxReadByte(
+        Context,
+        B2L_MAX_CHARGER_ADDRESS,
+        MAX77705_CHG_CNFG_06,
+        &Context->ChargerConfig06
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    if ((Context->ChargerConfig06 & MAX77705_CHG_PROTECT_MASK) !=
+        MAX77705_CHG_PROTECT_OPEN) {
+        return STATUS_DEVICE_DATA_ERROR;
+    }
+    Context->ChargerUnlocked = TRUE;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+B2lMaxReadAndClearUsbcInterrupts(PB2L_MAX_CONTEXT Context)
+{
+    NTSTATUS Status;
+
+    // These four status registers are read-to-clear in the Samsung MFD.
+    // ACPI currently has no MAX77705 GPIO IRQ, so the passive timer performs
+    // the same drain operation and keeps the physical interrupt from staying
+    // asserted while preserving every sample for the diagnostic snapshot.
+    Status = B2lMaxReadByte(
+        Context,
+        B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_UIC_INT,
+        &Context->UicInterrupt
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Status = B2lMaxReadByte(
+        Context,
+        B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_CC_INT,
+        &Context->CcInterrupt
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Status = B2lMaxReadByte(
+        Context,
+        B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_PD_INT,
+        &Context->PdInterrupt
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    return B2lMaxReadByte(
+        Context,
+        B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_VDM_INT,
+        &Context->VdmInterrupt
+        );
+}
+
+static NTSTATUS
+B2lMaxConfigureUsbcMasks(PB2L_MAX_CONTEXT Context)
+{
+    NTSTATUS Status;
+
+    Context->UsbcMasksConfigured = FALSE;
+    Status = B2lMaxReadAndClearUsbcInterrupts(Context);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Status = B2lMaxUpdateByte(
+        Context,
+        B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_PD_INT_MASK,
+        MAX77705_PD_INT_MASK_STOCK,
+        0xFFU,
+        &Context->PdInterruptMask
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Status = B2lMaxUpdateByte(
+        Context,
+        B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_VDM_INT_MASK,
+        MAX77705_VDM_INT_MASK_STOCK,
+        0xFFU,
+        &Context->VdmInterruptMask
+        );
+    if (NT_SUCCESS(Status)) {
+        Context->UsbcMasksConfigured = TRUE;
+    }
+    return Status;
+}
+
+static NTSTATUS
+B2lMaxConfigureCcControl(PB2L_MAX_CONTEXT Context)
+{
+    NTSTATUS Status;
+
+    Context->CcControlConfigured = FALSE;
+    Context->CcControlResponse = 0xFFU;
+    Status = B2lMaxSendOpcode(
+        Context,
+        MAX77705_OPCODE_CCCTRL1_WRITE,
+        MAX77705_CCCTRL1_BEYOND2LTE,
+        1UL,
+        &Context->CcControlResponse
+        );
+    if (NT_SUCCESS(Status)) {
+        Context->CcControlConfigured = TRUE;
+    }
+    return Status;
+}
+
+static NTSTATUS
 B2lMaxProbeIdentity(PB2L_MAX_CONTEXT Context)
 {
     NTSTATUS Status;
@@ -487,6 +694,15 @@ B2lMaxProbeIdentity(PB2L_MAX_CONTEXT Context)
     if (!NT_SUCCESS(Status)) {
         return Status;
     }
+    Status = B2lMaxReadByte(
+        Context,
+        B2L_MAX_CHARGER_ADDRESS,
+        MAX77705_CHG_CNFG_06,
+        &Context->ChargerConfig06
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
     Context->ChargerIntMaskBaseline = Context->ChargerIntMask;
     Context->ChargerModeBaseline = Context->ChargerMode;
     Context->BaselineValid = TRUE;
@@ -499,6 +715,26 @@ B2lMaxReadStatus(PB2L_MAX_CONTEXT Context)
 {
     NTSTATUS Status;
 
+    Status = B2lMaxReadAndClearUsbcInterrupts(Context);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Status = B2lMaxReadByte(
+        Context,
+        B2L_MAX_CHARGER_ADDRESS,
+        MAX77705_CHG_CNFG_00,
+        &Context->ChargerMode
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Context->OtgHardwareActive =
+        (((Context->ChargerMode & MAX77705_CHG_MODE_MASK) ==
+          MAX77705_MODE_BOOST_OTG) ||
+         ((Context->ChargerMode & MAX77705_CHG_MODE_MASK) ==
+          MAX77705_MODE_BUCK_OTG) ||
+         ((Context->ChargerMode & MAX77705_CHG_MODE_MASK) ==
+          MAX77705_MODE_BUCK_CHG_OTG));
     Status = B2lMaxReadByte(
         Context,
         B2L_MAX_USBC_ADDRESS,
@@ -570,6 +806,13 @@ B2lMaxEnableOtg(PB2L_MAX_CONTEXT Context)
     UCHAR ReadBack;
     NTSTATUS Status;
 
+    // CHG_CNFG_00 and INT_MASK are protected settings.  Linux verifies
+    // CNFG_06.CHGPROT before mutable charger work; Windows must do the same
+    // because it cannot assume the Android charger probe already ran.
+    Status = B2lMaxUnlockCharger(Context);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
     Status = B2lMaxReadByte(
         Context,
         B2L_MAX_CHARGER_ADDRESS,
@@ -624,6 +867,7 @@ B2lMaxEnableOtg(PB2L_MAX_CONTEXT Context)
     if (NewMode == Mode) {
         Context->ChargerMode = Current;
         Context->OtgEnabled = TRUE;
+        Context->OtgHardwareActive = TRUE;
         return STATUS_SUCCESS;
     }
 
@@ -657,6 +901,7 @@ B2lMaxEnableOtg(PB2L_MAX_CONTEXT Context)
         goto RestoreModeAndMask;
     }
     Context->OtgEnabled = TRUE;
+    Context->OtgHardwareActive = TRUE;
     return STATUS_SUCCESS;
 
 RestoreModeAndMask:
@@ -689,8 +934,12 @@ B2lMaxDisableOtg(PB2L_MAX_CONTEXT Context)
     NTSTATUS Status;
     NTSTATUS MaskStatus;
 
-    if (!Context->OtgEnabled) {
+    if (!Context->OtgEnabled && !Context->OtgHardwareActive) {
         return STATUS_SUCCESS;
+    }
+    Status = B2lMaxUnlockCharger(Context);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
     }
     Status = B2lMaxReadByte(
         Context,
@@ -741,6 +990,7 @@ B2lMaxDisableOtg(PB2L_MAX_CONTEXT Context)
     }
     if (NT_SUCCESS(Status)) {
         Context->OtgEnabled = FALSE;
+        Context->OtgHardwareActive = FALSE;
     }
     return Status;
 }
@@ -764,9 +1014,11 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)
         }
         return STATUS_SUCCESS;
     }
-    if (Context->OtgEnabled &&
-        ((CcState == B2L_MAX_CC_NO_CONNECTION) ||
-         (CcState == B2L_MAX_CC_SINK))) {
+    // Fixed HOST permits VBUS in exactly one CC state.  This also shuts down
+    // OTG inherited from boot firmware when the current cable is detached,
+    // sink, audio/debug accessory, disabled or erroneous.
+    if ((CcState != B2L_MAX_CC_SOURCE) &&
+        (Context->OtgEnabled || Context->OtgHardwareActive)) {
         Status = B2lMaxDisableOtg(Context);
         B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_OTG_OFF, Status);
         return Status;
@@ -801,6 +1053,36 @@ B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
         }
     }
 
+    if (!Context->ChargerUnlocked) {
+        Status = B2lMaxUnlockCharger(Context);
+        B2lMaxPublishDiagnostic(
+            Context,
+            B2L_MAX_STAGE_CHARGER_UNLOCK,
+            Status
+            );
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+    }
+
+    // Preserve Samsung's probe order: PD initializes AUTOIBUS first, then
+    // the final PD/VDM masks are installed, followed by init opcodes.
+    if (!Context->AutoIbusConfigured) {
+        Status = B2lMaxConfigureAutoIbus(Context);
+        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_AUTO_IBUS, Status);
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+    }
+
+    if (!Context->UsbcMasksConfigured) {
+        Status = B2lMaxConfigureUsbcMasks(Context);
+        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_USBC_MASKS, Status);
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+    }
+
     if (!Context->AutoVbusDisabled) {
         Status = B2lMaxDisableAutoVbus(Context);
         B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_AUTO_VBUS, Status);
@@ -809,9 +1091,9 @@ B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
         }
     }
 
-    if (!Context->AutoIbusConfigured) {
-        Status = B2lMaxConfigureAutoIbus(Context);
-        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_AUTO_IBUS, Status);
+    if (!Context->CcControlConfigured) {
+        Status = B2lMaxConfigureCcControl(Context);
+        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_CC_CONTROL, Status);
         if (!NT_SUCCESS(Status)) {
             return Status;
         }
@@ -841,8 +1123,12 @@ B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)
     Context->HsI2cLength = 0UL;
     Context->UsiLength = 0UL;
     Context->HardwareReady = FALSE;
+    Context->OtgHardwareActive = FALSE;
+    Context->ChargerUnlocked = FALSE;
     Context->AutoVbusDisabled = FALSE;
     Context->AutoIbusConfigured = FALSE;
+    Context->UsbcMasksConfigured = FALSE;
+    Context->CcControlConfigured = FALSE;
 }
 
 NTSTATUS
@@ -892,6 +1178,7 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Context->CcStatus0 = 0xFFU;
     Context->OpcodeResponse = 0xFFU;
     Context->AutoIbusMode = 0xFFU;
+    Context->CcControlResponse = 0xFFU;
 
     WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
     Attributes.ParentObject = Device;
@@ -1018,8 +1305,12 @@ B2lMaxEvtReleaseHardware(
     B2lMaxUnmapResources(Context);
     Context->IdentityReady = FALSE;
     Context->BaselineValid = FALSE;
+    Context->OtgHardwareActive = FALSE;
+    Context->ChargerUnlocked = FALSE;
     Context->AutoVbusDisabled = FALSE;
     Context->AutoIbusConfigured = FALSE;
+    Context->UsbcMasksConfigured = FALSE;
+    Context->CcControlConfigured = FALSE;
     WdfWaitLockRelease(Context->BusLock);
     return STATUS_SUCCESS;
 }
@@ -1058,8 +1349,12 @@ B2lMaxEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
     }
     Context->IdentityReady = FALSE;
     Context->BaselineValid = FALSE;
+    Context->OtgHardwareActive = FALSE;
+    Context->ChargerUnlocked = FALSE;
     Context->AutoVbusDisabled = FALSE;
     Context->AutoIbusConfigured = FALSE;
+    Context->UsbcMasksConfigured = FALSE;
+    Context->CcControlConfigured = FALSE;
     WdfWaitLockRelease(Context->BusLock);
     return STATUS_SUCCESS;
 }

@@ -320,6 +320,23 @@ günlüğündeki `0x57,0x03` kullanılmaz; o değer CC firmware'ini de kapattı�
 bu Windows HOST/CC gözlem modeline uygun değildir. CTRL/CONF/AUTO_CONF/ADDR
 ve iki otomasyon durumunun tanıları bir sonraki cihaz testine eklenmiştir.
 
+`0.1.0.19`, MAX77705 akışını beyond2lte Samsung probe sırasıyla tamamlar.
+HSI2C45 stock DT'de kesmeyle çalışır; Windows ACPI'sinde GPA1-6 kesmesi henüz
+yayınlanmadığı için aynı register sözleşmesinin bounded polling dalı kullanılır
+ve Samsung adapteri gibi toplam iki işlem denemesi yapılır. HSI2C sayfasındaki
+ikinci `USI_CON` reset kapısı da her kurtarmada bırakılır. Kimlik doğrulamasının
+ardından `CHG_CNFG_06.CHGPROT` en fazla on kez, 20 ms aralık ve son readback ile
+açılır; koruma kanıtlanmadan `INT_MASK` veya `CHG_CNFG_00` değiştirilmez.
+USBC tarafında stock sıra `AUTOIBUS(0x57,0x01)`, `PD_INT_M=0x1C`,
+`VDM_INT_M=0xFF`, `AUTO_VBUS_OFF(0x54,0x00)` ve beyond2lte'nin
+`support-audio` profiline ait `CCCTRL1_W(0x0C,0x1F)` olarak uygulanır.
+Fiziksel MAX77705 kesmesi ACPI'de bulunmadığından UIC/CC/PD/VDM read-to-clear
+registerları 200 ms pasif döngüde boşaltılır. Kilit, maskeler, CCCTRL1 cevabı,
+dört kesme örneği, gerçek `CNFG_00` OTG donanım durumu ve başarısız HSI2C fazı
+`B2LUSB-MAX77705.TXT` dosyasına yazılır. Bootloader'dan A/E/F modu devralınsa
+bile CC değeri SOURCE değilse OTG kapatılır; böylece tek flash sonucu bus,
+USBC firmware, charger koruması ve OTG aşamalarına ayrılabilir.
+
 `cache_esp.sh --win --system`, sürücü ekleme/çıkarma turlarının standalone
 `boot.wim` içinde bıraktığı kullanılmayan akışları `wimlib-imagex optimize`
 ile temizler ve `verify` sonrasında gerçek boyuta göre SYSTEM imajını hesaplar.
@@ -331,8 +348,11 @@ Başarı sırası:
 1. `current=HOST`, `GCTL.PRTCAP=HOST`, `GSTS.CURMOD=HOST` ve `resets>=1`;
 2. `ACPI\BYN0004` için `B2LMaxAutoVbusDisabled=1`,
    `B2LMaxAutoIbusConfigured=1`, `B2LMaxAutoIbusMode=1`,
+   `B2LMaxChargerUnlocked=1`, `B2LMaxUsbcMasksConfigured=1`,
+   `B2LMaxPdInterruptMask=0x1c`, `B2LMaxVdmInterruptMask=0xff`,
+   `B2LMaxCcControlConfigured=1`,
    `B2LMaxCcStatus0 & 7 = 2`,
-   `B2LMaxOtgEnabled=1` ve charger mode `A/E/F`;
+   `B2LMaxOtgEnabled=1`, `B2LMaxOtgHardwareActive=1` ve charger mode `A/E/F`;
 3. `ACPI\BYN0003` için `USBXHCI` servisinin başlaması;
 4. root hub ve USB mouse alıcısının numaralandırılması;
 5. USB alıcının HIDClass altında, fare çocuğunun Mouse sınıfında görünmesi;

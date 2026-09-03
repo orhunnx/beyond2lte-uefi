@@ -21,12 +21,20 @@
 #define B2L_MAX_STAGE_RESOURCES      0x10UL
 #define B2L_MAX_STAGE_BUS            0x20UL
 #define B2L_MAX_STAGE_IDENTITY       0x30UL
-#define B2L_MAX_STAGE_CC             0x40UL
+#define B2L_MAX_STAGE_CHARGER_UNLOCK 0x38UL
+#define B2L_MAX_STAGE_AUTO_IBUS      0x40UL
+#define B2L_MAX_STAGE_USBC_MASKS     0x44UL
 #define B2L_MAX_STAGE_AUTO_VBUS      0x48UL
-#define B2L_MAX_STAGE_AUTO_IBUS      0x4CUL
+#define B2L_MAX_STAGE_CC_CONTROL     0x4CUL
 #define B2L_MAX_STAGE_OTG_ON         0x50UL
 #define B2L_MAX_STAGE_OTG_OFF        0x60UL
+#define B2L_MAX_STAGE_CC             0x68UL
 #define B2L_MAX_STAGE_READY          0x70UL
+
+#define B2L_MAX_HSI2C_PHASE_NONE     0x00UL
+#define B2L_MAX_HSI2C_PHASE_BUS_IDLE 0x10UL
+#define B2L_MAX_HSI2C_PHASE_WRITE    0x20UL
+#define B2L_MAX_HSI2C_PHASE_READ     0x30UL
 
 typedef struct _B2L_MAX_CONTEXT {
     WDFDEVICE Device;
@@ -40,8 +48,12 @@ typedef struct _B2L_MAX_CONTEXT {
     BOOLEAN IdentityReady;
     BOOLEAN PollingEnabled;
     BOOLEAN OtgEnabled;
+    BOOLEAN OtgHardwareActive;
+    BOOLEAN ChargerUnlocked;
     BOOLEAN AutoVbusDisabled;
     BOOLEAN AutoIbusConfigured;
+    BOOLEAN UsbcMasksConfigured;
+    BOOLEAN CcControlConfigured;
     BOOLEAN BaselineValid;
     UCHAR PmicId;
     UCHAR PmicRev;
@@ -55,10 +67,18 @@ typedef struct _B2L_MAX_CONTEXT {
     UCHAR ChargerModeBaseline;
     UCHAR ChargerIntMask;
     UCHAR ChargerMode;
+    UCHAR ChargerConfig06;
     UCHAR ChargerIntOk;
     UCHAR ChargerDetails[3];
     UCHAR OpcodeResponse;
     UCHAR AutoIbusMode;
+    UCHAR UicInterrupt;
+    UCHAR CcInterrupt;
+    UCHAR PdInterrupt;
+    UCHAR VdmInterrupt;
+    UCHAR PdInterruptMask;
+    UCHAR VdmInterruptMask;
+    UCHAR CcControlResponse;
     ULONG HsI2cControl;
     ULONG HsI2cClockControl;
     ULONG HsI2cIntStatus;
@@ -69,7 +89,11 @@ typedef struct _B2L_MAX_CONTEXT {
     ULONG HsI2cConfiguration;
     ULONG HsI2cAutoConfiguration;
     ULONG HsI2cAddress;
+    ULONG HsI2cUsiControl;
+    ULONG HsI2cAttemptedAddress;
     ULONG HsI2cRetryCount;
+    ULONG HsI2cFailurePhase;
+    ULONG ChargerUnlockAttempts;
     ULONG DiagnosticStage;
     NTSTATUS DiagnosticStatus;
 } B2L_MAX_CONTEXT, *PB2L_MAX_CONTEXT;

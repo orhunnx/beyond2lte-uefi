@@ -649,9 +649,9 @@ hazırlığının child xHCI başlamadan önce tamamlanmasını sağlamalıdır.
    class-driver sözleşmeleridir.
 5. Başka SoC'deki HSI2C/GPIO/clock/MMIO adresleri veya sabit opcode payloadları.
 
-### 12.3 Mevcut Windows kodunun Samsung kaynağına göre fark listesi
+### 12.3 Windows 0.1.0.19 kodunun Samsung kaynağına göre fark listesi
 
-Bu bölüm belgenin yazıldığı andaki `windows/b2lusb` kaynaklarını tarif eder.
+Bu bölüm `windows/b2lusb` sürüm 0.1.0.19 kaynaklarını tarif eder.
 "Eksik" ifadesi bir Linux API'sinin Windows'a taşınmadığını değil, karşılık
 gelen donanım invariantının henüz kanıtlanmadığını belirtir.
 
@@ -664,22 +664,22 @@ gelen donanım invariantının henüz kanıtlanmadığını belirtir.
 | Interrupt tabanlı HSI2C45 transferi | Windows ACPI kaynağında HSI2C IRQ yok; bounded polling kullanılıyor | Kabul edilebilir geçici uyarlama; kaynak yorumunda HSI2C45'in "stock polling" olduğu yazılmamalı, stock DT yolu interrupt modudur |
 | Repeated START register read | Write mesajında STOP yok, ardından read+STOP uygulanıyor | Samsung transfer semantiğiyle eşleşiyor |
 | FIFO threshold, master ID 7, message length ve MASTER_RUN | Uygulanmış | Readback ve gerçek PMIC cevabıyla kanıtlanmalı |
-| NACK/timeout sonrası recovery | Üç tam deneme, 100 us aralık ve timing korumalı reset var | Samsung'a yakın; Linux adapter bu kaynakta iki retry döngüsü kullanıyor |
+| NACK/timeout sonrası recovery | İki tam deneme, 100 us aralık ve yalnız hata yolunda timing korumalı reset var | Samsung adapter retry sınırı ve `reset-before-trans` bulunmayan HSI2C45 yolu ile eşleşiyor |
 | TOP identity/revision tablosu | 0x66 PMICID1/PMICREV ve PASS3/4/5 eşleşmesi var | Doğru MFD giriş kapısı |
 | Mantıksal 0x25/0x69 istemcileri | Ayrı WDF child yerine aynı driver içinde mantıksal adres katmanları var | Windows için geçerli eşdeğer; ortak bus lock korunmalı |
 | MAX77705 firmware update | Uygulanmıyor | Bilinçli güvenlik sınırı; doğrulanmış Samsung firmware paketi olmadan eklenmemeli |
 | Fiziksel GPA1_6 parent IRQ ve nested IRQ'lar | ACPI IRQ sözleşmesi yok; pasif timer CC durumunu okuyor | Detach/PD hata tepkisi gecikmeli; gelecekte GPIO interrupt controller tanımı gerekir |
 | USBC HW/FW/minor okuma | Uygulanmış | HSI2C çalıştığında ilk kimlik kanıtı |
-| UIC/CC/PD/VDM interrupt maskelerinin Samsung başlangıç değerleri | Mevcut sürücü `PD_INT_M=0x1C`, `VDM_INT_M=0xFF` ve diğer maskeleri programlamıyor | Polling profilinde bile firmware interrupt/status davranışı için açık politika eksik |
+| UIC/CC/PD/VDM interrupt maskelerinin Samsung başlangıç değerleri | Stock probe'un son `PD_INT_M=0x1C` ve `VDM_INT_M=0xFF` değerleri readback ile uygulanıyor; dört status registerı polling döngüsünde read-to-clear ediliyor | UIC/CC nested-IRQ maskelerini GPIO IRQ'suz Windows profili sahiplenmiyor; status birikmesi önleniyor |
 | MUIC ilk status taraması ve aksesuar sınıflandırması | CC_STATUS0/1, BC_STATUS ve charger detail okunuyor; tam UIDADC/VBADC/DCD/charger-type state makinesi yok | Basit fare-host için alt küme olabilir, fakat hatalı kablo/unsafe VBUS ayrımı eksik |
-| `CCCTRL1` ile CC detect/source-sink/audio policy | Samsung başlangıç `op_ctrl1_w` state'i ve audio/CC opcode akışı tam uygulanmıyor | CC firmware'in bootloader'dan doğru durumda kaldığı varsayılıyor; readback/opcode kanıtı yok |
+| `CCCTRL1` ile CC detect/source-sink/audio policy | `CCCTRL1_W(0x0C,0x1F)` opcode'u ve cevap doğrulaması uygulanıyor | beyond2lte `support-audio` ile stock `op_ctrl1_w` bitlerinin tamamı açık kuruluyor |
 | `0x54,0x00` Auto-VBUS off | 0x21/0x41 yazma, APCmdRes polling ve 0x51 cevap-opcode doğrulaması var | Samsung protokolüyle eşleşiyor |
 | `0x57,0x01` Auto-IBUS at-off | Aynı opcode protokolüyle uygulanmış | Exynos kaynağına uygun değer |
-| Charger başlangıç/unlock | `CHG_CNFG_06 (0xBD)` tanımı/readback/unlock yok | İlk somut charger boşluğu; CNFG_00 yazmasından önce eklenip doğrulanmalı |
+| Charger başlangıç/unlock | `CHG_CNFG_06 (0xBD)` bits[3:2] en fazla on yazma ve 20 ms beklemeyle açılıyor; son readback zorunlu | Kilit kanıtlanmadan korumalı charger registerlarına geçilmiyor |
 | Charger INT_MASK OTG politikası | `0x51/0x50` masked update ve baseline restore var | Samsung `set_otg` davranışıyla eşleşiyor |
-| CNFG_00 OTG state machine | 0/4/5/8/C/D -> A/E/F yolları ve 1.5 ms ara geçiş uygulanmış | D modunun Samsung hedefi E olmasına dikkat edilmiş; CHGPROT önkoşulu eksik |
+| CNFG_00 OTG state machine | 0/4/5/8/C/D -> A/E/F yolları, CHGPROT önkoşulu ve 1.5 ms ara geçiş uygulanmış | D modunun Samsung hedefi E olmasına dikkat edilmiş |
 | OTG OFF | A/E/F -> 0/4/5, 50 ms ve mask restore uygulanmış | Samsung kapanışına yakın |
-| CC SOURCE olmadan VBUS açmama | `B2lMaxEvaluateConnection()` yalnız state 2'de açıyor; no-connection/sink durumunda kapatıyor | Doğru temel güvenlik kapısı |
+| CC SOURCE olmadan VBUS açmama | `B2lMaxEvaluateConnection()` yalnız state 2'de açıyor; diğer bütün CC durumlarında kendi açtığı veya bootloader'dan devraldığı A/E/F OTG modunu kapatıyor | Doğru temel güvenlik kapısı |
 | PD hard-reset/PR_SWAP yeniden zamanlaması | Tam PD message state machine yok | Sabit fare host profilinde rol takası dışarıda; fakat PD hatasında VBUS recovery sınırlı |
 | Exynos PHY/DWC3 HOST | `b2lusb.sys` ile uygulanmış ve cihazda xHCI RUN kanıtlanmış | Bu katman mevcut ana engel değil |
 | Root hub/HID/mouse | Microsoft inbox yığınına bırakılmış | Doğru; `PORTSC.CCS` oluşmadan HID tarafında yapılacak iş yok |
@@ -688,11 +688,11 @@ Bu karşılaştırmadan çıkan en kısa teknik sonuç şudur:
 
 1. Windows xHCI/PHY yolu cihazda çalışıyor.
 2. HSI2C transport hâlâ gerçek PMIC kimlik cevabıyla kanıtlanmalı.
-3. Transport çalışınca ilk açık kod boşluğu `CHG_CNFG_06.CHGPROT` başlangıç ve
-   readback adımıdır.
-4. Sonraki boşluk, Samsung USBC/MUIC başlangıç maskeleri ve CC policy'nin
-   bootloader durumuna güvenmeden açık kurulmasıdır.
-5. Bunlar tamamlandıktan sonra gerçek VBUS ve `PORTSC.CCS` birlikte ölçülmeli;
+3. `CHG_CNFG_06.CHGPROT`, stock PD/VDM maskeleri ve beyond2lte `CCCTRL1`
+   başlangıç adımları 0.1.0.19'da uygulanmıştır; cihaz readback'i bekleniyor.
+4. Sonraki açık donanım sınırı, gerçek CC=SOURCE sonucundan sonra charger
+   OTG readback'i ile xHCI `PORTSC.CCS` oluşumunun birlikte görülmesidir.
+5. Gerçek VBUS ve `PORTSC.CCS` birlikte ölçülmeli;
    yalnız registry flag'i başarı sayılmamalıdır.
 
 ## 13. Mevcut cihaz çıktısının bu zincirdeki yeri

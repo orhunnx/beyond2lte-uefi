@@ -322,7 +322,23 @@ reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cConfiguration >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cAutoConfiguration >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cAddress >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cUsiControl >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cAttemptedAddress >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cRetryCount >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cFailurePhase >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgConfig06 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChargerUnlocked >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChargerUnlockAttempts >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUicInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPdInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxVdmInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPdInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxVdmInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUsbcMasksConfigured >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcControlConfigured >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcControlResponse >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxOtgHardwareActive >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 exit /b 0
 
 :B2LUsbCollectInputState

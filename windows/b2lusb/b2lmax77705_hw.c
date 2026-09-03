@@ -23,6 +23,7 @@
 #define HSI2C_TIMING_FS3        0x68U
 #define HSI2C_TIMING_SLA        0x6CU
 #define HSI2C_ADDRESS           0x70U
+#define HSI2C_USI_CON           0xC4U
 
 #define HSI2C_FUNC_MODE_I2C     (1UL << 0)
 #define HSI2C_MASTER            (1UL << 3)
@@ -40,15 +41,7 @@
 #define HSI2C_STOP_AFTER_TRANS  (1UL << 17)
 #define HSI2C_MASTER_RUN        (1UL << 31)
 #define HSI2C_INT_TRANSFER_DONE (1UL << 7)
-#define HSI2C_INT_TRANS_ABORT   (1UL << 8)
-#define HSI2C_INT_NO_DEV_ACK    (1UL << 9)
 #define HSI2C_INT_NO_DEVICE     (1UL << 10)
-#define HSI2C_INT_TIMEOUT       (1UL << 11)
-#define HSI2C_INT_TRANSFER_MASK (HSI2C_INT_TRANSFER_DONE | \
-                                 HSI2C_INT_TRANS_ABORT | \
-                                 HSI2C_INT_NO_DEV_ACK | \
-                                 HSI2C_INT_NO_DEVICE | \
-                                 HSI2C_INT_TIMEOUT)
 #define HSI2C_TX_FIFO_LEVEL(x)  ((x) & 0x7FUL)
 #define HSI2C_TX_FIFO_EMPTY     (1UL << 8)
 #define HSI2C_RX_FIFO_EMPTY     (1UL << 24)
@@ -57,11 +50,12 @@
 #define HSI2C_MASTER_NO_ACK     0x0BUL
 #define HSI2C_MASTER_LOST       0x0CUL
 #define HSI2C_FAST_MASTER_ID    (0x7UL << 24)
+#define HSI2C_USI_RESET_RELEASE 0x00000000UL
 
 #define B2L_USI_CONFIG_OFFSET   0x30U
 #define B2L_USI_I2C_MODE        0x04U
 #define B2L_HSI2C_TIMEOUT_US    100000UL
-#define B2L_HSI2C_RETRIES       3UL
+#define B2L_HSI2C_RETRIES       2UL
 
 typedef struct _B2L_HSI2C_TIMING_STATE {
     ULONG ClockSlot;
@@ -116,6 +110,7 @@ B2lMaxCaptureControllerState(PB2L_MAX_CONTEXT Context)
     Context->HsI2cAutoConfiguration =
         B2lMaxReadRegister(Context, HSI2C_AUTO_CONF);
     Context->HsI2cAddress = B2lMaxReadRegister(Context, HSI2C_ADDRESS);
+    Context->HsI2cUsiControl = B2lMaxReadRegister(Context, HSI2C_USI_CON);
 }
 
 static VOID
@@ -136,6 +131,10 @@ B2lMaxResetController(PB2L_MAX_CONTEXT Context)
     Timing.TimingFs3 = B2lMaxReadRegister(Context, HSI2C_TIMING_FS3);
     Timing.TimingSla = B2lMaxReadRegister(Context, HSI2C_TIMING_SLA);
 
+    // usi-i2c-v2 has a second reset gate inside the HSI2C register page.
+    // Samsung clears it before touching the controller.  The separate
+    // CMGP03 mode register only selects I2C and does not release this gate.
+    B2lMaxWriteRegister(Context, HSI2C_USI_CON, HSI2C_USI_RESET_RELEASE);
     B2lMaxAndOrRegister(Context, HSI2C_CTRL, ~0UL, HSI2C_SW_RST);
     B2lMaxAndOrRegister(Context, HSI2C_CTRL, ~HSI2C_SW_RST, 0UL);
     B2lMaxWriteRegister(Context, HSI2C_CLK_SLOT, Timing.ClockSlot);
@@ -162,17 +161,16 @@ B2lMaxCheckTransferError(PB2L_MAX_CONTEXT Context)
     ULONG TransferStatus = B2lMaxReadRegister(Context, HSI2C_TRANS_STATUS);
     ULONG MasterState = HSI2C_MASTER_STATE(TransferStatus);
 
-    if (((InterruptStatus &
-          (HSI2C_INT_NO_DEV_ACK | HSI2C_INT_NO_DEVICE)) != 0UL) ||
+    // In polling mode Exynos enables only TRANSFER_DONE.  Bits 8..11 are a
+    // grouped transfer-state indication, not four independent enable bits.
+    // NODEV is the only individually defined status bit in Samsung's current
+    // Exynos9820 driver; detailed failures come from TRANS_STATUS.
+    if (((InterruptStatus & HSI2C_INT_NO_DEVICE) != 0UL) ||
         (MasterState == HSI2C_MASTER_NO_ACK)) {
         return STATUS_NO_SUCH_DEVICE;
     }
-    if (((InterruptStatus & HSI2C_INT_TRANS_ABORT) != 0UL) ||
-        (MasterState == HSI2C_MASTER_LOST)) {
+    if (MasterState == HSI2C_MASTER_LOST) {
         return STATUS_DEVICE_PROTOCOL_ERROR;
-    }
-    if ((InterruptStatus & HSI2C_INT_TIMEOUT) != 0UL) {
-        return STATUS_IO_TIMEOUT;
     }
     return STATUS_SUCCESS;
 }
@@ -233,6 +231,11 @@ B2lMaxHsI2cInitialize(PB2L_MAX_CONTEXT Context)
         }
     }
 
+    B2lMaxWriteRegister(Context, HSI2C_USI_CON, HSI2C_USI_RESET_RELEASE);
+    if (B2lMaxReadRegister(Context, HSI2C_USI_CON) !=
+        HSI2C_USI_RESET_RELEASE) {
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
     B2lMaxResetController(Context);
     B2lMaxHsI2cQuiesce(Context);
     B2lMaxCaptureControllerState(Context);
@@ -293,6 +296,7 @@ B2lMaxTransferMessage(
     TargetAddress |= HSI2C_FAST_MASTER_ID |
                      ((SlaveAddress & 0x7FUL) << 10);
     B2lMaxWriteRegister(Context, HSI2C_ADDRESS, TargetAddress);
+    Context->HsI2cAttemptedAddress = TargetAddress;
 
     AutoConfig = B2lMaxReadRegister(Context, HSI2C_AUTO_CONF);
     AutoConfig &= ~(HSI2C_READ_WRITE | HSI2C_STOP_AFTER_TRANS |
@@ -319,7 +323,12 @@ B2lMaxTransferMessage(
             B2lMaxWriteRegister(Context, HSI2C_TX_DATA, Buffer[Index++]);
         }
     }
-    B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, HSI2C_INT_TRANSFER_MASK);
+    // Stock HSI2C45 uses its DT interrupt.  ACPI\BYN0004 deliberately does
+    // not expose GPA1-6 until a Windows GPIO interrupt-controller contract
+    // exists, so this leaf driver applies Samsung's bounded polling branch.
+    // That branch enables only TRANSFER_DONE; the 0xF00 state group belongs
+    // to Samsung's interrupt-driven branch.
+    B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, HSI2C_INT_TRANSFER_DONE);
     B2lMaxAndOrRegister(Context, HSI2C_AUTO_CONF, ~0UL, HSI2C_MASTER_RUN);
 
     Timeout = B2L_HSI2C_TIMEOUT_US;
@@ -337,21 +346,20 @@ B2lMaxTransferMessage(
             }
             if (Index >= BufferLength) {
                 InterruptStatus = B2lMaxReadRegister(Context, HSI2C_INT_STATUS);
-                if ((InterruptStatus & HSI2C_INT_TRANSFER_DONE) != 0UL) {
-                    B2lMaxWriteRegister(
-                        Context,
-                        HSI2C_INT_STATUS,
-                        InterruptStatus
-                        );
-                    B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
-                    if (Stop) {
-                        Status = B2lMaxWaitBusIdle(Context);
-                        if (!NT_SUCCESS(Status)) {
-                            goto Failed;
-                        }
-                    }
-                    return STATUS_SUCCESS;
+                if (InterruptStatus != 0UL) {
+                    B2lMaxWriteRegister(Context, HSI2C_INT_STATUS, InterruptStatus);
                 }
+                B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
+                // Samsung's polling branch completes a read when the
+                // requested bytes have left RX FIFO.  TRANSFER_DONE is not a
+                // second required condition and may already be clear.
+                if (Stop) {
+                    Status = B2lMaxWaitBusIdle(Context);
+                    if (!NT_SUCCESS(Status)) {
+                        goto Failed;
+                    }
+                }
+                return STATUS_SUCCESS;
             }
             KeStallExecutionProcessor(1U);
         }
@@ -395,8 +403,7 @@ B2lMaxTransferMessage(
 
 Failed:
     B2lMaxCaptureControllerState(Context);
-    B2lMaxResetController(Context);
-    B2lMaxHsI2cQuiesce(Context);
+    B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
     return Status;
 }
 
@@ -423,9 +430,9 @@ B2lMaxHsI2cWriteRead(
 
     for (Retry = 0UL; Retry < B2L_HSI2C_RETRIES; ++Retry) {
         Context->HsI2cRetryCount = Retry;
-        B2lMaxResetController(Context);
         Status = B2lMaxWaitBusIdle(Context);
         if (!NT_SUCCESS(Status)) {
+            Context->HsI2cFailurePhase = B2L_MAX_HSI2C_PHASE_BUS_IDLE;
             B2lMaxCaptureControllerState(Context);
             goto RetryTransfer;
         }
@@ -437,8 +444,9 @@ B2lMaxHsI2cWriteRead(
                 WriteLength,
                 FALSE,
                 (BOOLEAN)(ReadLength == 0UL)
-                );
+            );
             if (!NT_SUCCESS(Status)) {
+                Context->HsI2cFailurePhase = B2L_MAX_HSI2C_PHASE_WRITE;
                 goto RetryTransfer;
             }
         }
@@ -450,16 +458,21 @@ B2lMaxHsI2cWriteRead(
                 ReadLength,
                 TRUE,
                 TRUE
-                );
+            );
             if (!NT_SUCCESS(Status)) {
+                Context->HsI2cFailurePhase = B2L_MAX_HSI2C_PHASE_READ;
                 goto RetryTransfer;
             }
         }
+        Context->HsI2cFailurePhase = B2L_MAX_HSI2C_PHASE_NONE;
         B2lMaxCaptureControllerState(Context);
         B2lMaxHsI2cQuiesce(Context);
         return STATUS_SUCCESS;
 
 RetryTransfer:
+        // hsi2c_45 does not carry samsung,reset-before-trans.  Preserve the
+        // live controller on the normal path and recover exactly once only
+        // after a real timeout/NACK/arbitration failure.
         B2lMaxResetController(Context);
         B2lMaxHsI2cQuiesce(Context);
         KeStallExecutionProcessor(100U);
