@@ -81,11 +81,6 @@ if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
     echo === B2LUSB USBXHCI gercek PnP kaynaklari ===
     type "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT"
   )
-  if exist "%SystemDrive%\B2LUSB-MAX77705.TXT" (
-    echo.
-    echo === B2LUSB MAX77705 CC/VBUS/OTG durumu ===
-    type "%SystemDrive%\B2LUSB-MAX77705.TXT"
-  )
   if exist "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" (
     echo.
     echo === B2LUSB SetupAPI Code 10 ozeti ===
@@ -99,6 +94,11 @@ if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
   echo.
   echo === B2LUSB otomatik HOST son durumu ===
   type "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT"
+  if exist "%SystemDrive%\B2LUSB-MAX77705-SUMMARY.TXT" (
+    echo.
+    echo === B2LUSB MAX77705 kritik ozet ===
+    type "%SystemDrive%\B2LUSB-MAX77705-SUMMARY.TXT"
+  )
 ) else if exist "%SystemDrive%\B2LUSB-AUTOHOST.TXT" (
   echo.
   echo === B2LUSB otomatik HOST hata gunlugu ===
@@ -343,6 +343,38 @@ reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuic
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicControl1 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicPathVerified >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicUsbPath >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+> "%SystemDrive%\B2LUSB-MAX77705-SUMMARY.TXT" echo Eksik satir, surucunun o asamaya ulasmadigini gosterir.
+call :B2LUsbAppendMax77705Summary STAGE B2LMaxStage
+call :B2LUsbAppendMax77705Summary STATUS B2LMaxStatus
+call :B2LUsbAppendMax77705Summary I2C_CTL B2LMaxHsI2cControl
+call :B2LUsbAppendMax77705Summary I2C_INT B2LMaxHsI2cIntStatus
+call :B2LUsbAppendMax77705Summary I2C_ERR B2LMaxHsI2cErrorStatus
+call :B2LUsbAppendMax77705Summary I2C_XFER B2LMaxHsI2cTransferStatus
+call :B2LUsbAppendMax77705Summary I2C_FIFO B2LMaxHsI2cFifoStatus
+call :B2LUsbAppendMax77705Summary I2C_AUTO B2LMaxHsI2cAutoConfiguration
+call :B2LUsbAppendMax77705Summary I2C_REGADDR B2LMaxHsI2cAddress
+call :B2LUsbAppendMax77705Summary I2C_TRYADDR B2LMaxHsI2cAttemptedAddress
+call :B2LUsbAppendMax77705Summary I2C_RETRY B2LMaxHsI2cRetryCount
+call :B2LUsbAppendMax77705Summary I2C_PHASE B2LMaxHsI2cFailurePhase
+call :B2LUsbAppendMax77705Summary PMIC_ID B2LMaxPmicId
+call :B2LUsbAppendMax77705Summary PMIC_REV B2LMaxPmicRev
+call :B2LUsbAppendMax77705Summary USBC_HW B2LMaxUsbcHwRev
+call :B2LUsbAppendMax77705Summary USBC_FW B2LMaxUsbcFwRev
+call :B2LUsbAppendMax77705Summary USBC_MINOR B2LMaxUsbcFwMinor
+call :B2LUsbAppendMax77705Summary CC0 B2LMaxCcStatus0
+call :B2LUsbAppendMax77705Summary CC1 B2LMaxCcStatus1
+call :B2LUsbAppendMax77705Summary MUIC_REQ B2LMaxMuicPathRequested
+call :B2LUsbAppendMax77705Summary MUIC_CTL1 B2LMaxMuicControl1
+call :B2LUsbAppendMax77705Summary MUIC_OK B2LMaxMuicPathVerified
+call :B2LUsbAppendMax77705Summary CHG_UNLOCK B2LMaxChargerUnlocked
+call :B2LUsbAppendMax77705Summary CHG_CFG06 B2LMaxChgConfig06
+call :B2LUsbAppendMax77705Summary CHG_MODE B2LMaxChgMode
+call :B2LUsbAppendMax77705Summary OTG_SW B2LMaxOtgEnabled
+call :B2LUsbAppendMax77705Summary OTG_HW B2LMaxOtgHardwareActive
+exit /b 0
+
+:B2LUsbAppendMax77705Summary
+for /f "tokens=3" %%V in ('reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v "%~2" 2^>nul') do >> "%SystemDrive%\B2LUSB-MAX77705-SUMMARY.TXT" echo %~1=%%V
 exit /b 0
 
 :B2LUsbCollectInputState

@@ -373,7 +373,7 @@ MAX77705 yalnız CC ve VBUS denetleyicisi değildir; USB2 D+ ve D- hatlarının
 hangi iç yola bağlandığını seçen bir analog MUIC anahtarını da içerir. Bu
 adım atlanırsa Exynos USB2 PHY ve xHCI çalışıyor, port power biti açık ve VBUS
 mevcut olsa bile alıcının pull-up'ı xHCI'ye ulaşmayabilir. Tipik dış belirti
-`PORTSC.CCS=0`, `PED=0`, `PLS=RxDetect` ve sıfır port transition'dır.
+`PORTSC.CCS=0`, `PED=0`, `PLS=RxDetect` ve sıfır `PORTSC` change bitidir.
 
 Samsung kaynak zinciri şöyledir:
 
@@ -405,7 +405,7 @@ CC=SOURCE
 ```
 
 Ayrılmada güvenli sıra ters işlevlidir: önce charger OTG/VBUS kapatılır,
-ardından MUIC `COM_OPEN=0x3f` yapılır. Windows 0.1.0.21 yolu yazma
+ardından MUIC `COM_OPEN=0x3f` yapılır. Windows 0.1.0.22 yolu yazma
 mailbox'ının yalnız başarı dönmesini yeterli saymaz; `CONTROL1_READ = 0x05`
 ile gerçek CONTROL1 değerini de doğrular.
 
@@ -717,9 +717,9 @@ hazırlığının child xHCI başlamadan önce tamamlanmasını sağlamalıdır.
    class-driver sözleşmeleridir.
 5. Başka SoC'deki HSI2C/GPIO/clock/MMIO adresleri veya sabit opcode payloadları.
 
-### 12.3 Windows 0.1.0.21 kodunun Samsung kaynağına göre fark listesi
+### 12.3 Windows 0.1.0.22 kodunun Samsung kaynağına göre fark listesi
 
-Bu bölüm `windows/b2lusb` sürüm 0.1.0.21 kaynaklarını tarif eder.
+Bu bölüm `windows/b2lusb` sürüm 0.1.0.22 kaynaklarını tarif eder.
 "Eksik" ifadesi bir Linux API'sinin Windows'a taşınmadığını değil, karşılık
 gelen donanım invariantının henüz kanıtlanmadığını belirtir.
 
@@ -733,7 +733,8 @@ gelen donanım invariantının henüz kanıtlanmadığını belirtir.
 | Interrupt tabanlı HSI2C45 transferi | Windows ACPI kaynağında HSI2C IRQ yok; bounded polling kullanılıyor | Kabul edilebilir geçici uyarlama; kaynak yorumunda HSI2C45'in "stock polling" olduğu yazılmamalı, stock DT yolu interrupt modudur |
 | Repeated START register read | Write mesajında STOP yok, ardından read+STOP uygulanıyor | Samsung transfer semantiğiyle eşleşiyor |
 | FIFO threshold, master ID 7, message length ve MASTER_RUN | Uygulanmış | Readback ve gerçek PMIC cevabıyla kanıtlanmalı |
-| NACK/timeout sonrası recovery | İki tam deneme, 100 us aralık ve yalnız hata yolunda timing korumalı reset var | Samsung adapter retry sınırı ve `reset-before-trans` bulunmayan HSI2C45 yolu ile eşleşiyor |
+| Mesaj öncesi bus-idle davranışı | Eski `TRANS_STATUS.MASTER_BUSY` değerini beklemeden ADDRESS/AUTO_CONF yazılıp `MASTER_RUN` veriliyor | `reset-before-trans` bulunmayan stock HSI2C45 `exynos5_i2c_xfer()` davranışıyla eşleşiyor |
+| NACK/timeout sonrası recovery | Bir saniyelik mesaj sınırı, iki tam deneme, 100 us aralık ve yalnız gerçek hata yolunda timing korumalı reset var | Samsung `EXYNOS5_I2C_TIMEOUT`, adapter retry sınırı ve HSI2C45 recovery sınırıyla eşleşiyor |
 | TOP identity/revision tablosu | 0x66 PMICID1/PMICREV ve PASS3/4/5 eşleşmesi var | Doğru MFD giriş kapısı |
 | Mantıksal 0x25/0x69 istemcileri | Ayrı WDF child yerine aynı driver içinde mantıksal adres katmanları var | Windows için geçerli eşdeğer; ortak bus lock korunmalı |
 | MAX77705 firmware update | Uygulanmıyor | Bilinçli güvenlik sınırı; doğrulanmış Samsung firmware paketi olmadan eklenmemeli |
@@ -761,7 +762,7 @@ Bu karşılaştırmadan çıkan en kısa teknik sonuç şudur:
 1. Windows xHCI/PHY yolu cihazda çalışıyor.
 2. HSI2C transport hâlâ gerçek PMIC kimlik cevabıyla kanıtlanmalı.
 3. `CHG_CNFG_06.CHGPROT`, stock PD/VDM maskeleri, beyond2lte `CCCTRL1` ve
-   MUIC `COM_USB/COM_OPEN` adımları 0.1.0.21'de uygulanmıştır; cihaz readback'i
+   MUIC `COM_USB/COM_OPEN` adımları 0.1.0.22'de uygulanmıştır; cihaz readback'i
    bekleniyor.
 4. Sonraki açık donanım sınırı, gerçek CC=SOURCE ve `CONTROL1=0x09`
    sonucundan sonra charger OTG readback'i ile xHCI `PORTSC.CCS` oluşumunun
@@ -779,7 +780,8 @@ Son cihaz ölçümünde xHCI tarafı şunları gösterdi:
 - command ring/DCBAA/config alanları programlanmış;
 - iki portta `PP=1`;
 - fakat iki portta da `CCS=0`, `PED=0`, `PLS=RxDetect`;
-- port transition sayısı sıfır.
+- iki `PORTSC` değerinde de change bitleri sıfırdır; ayrıca gözlemcinin
+  yalnız `USBCMD/USBSTS` değişimini sayan transition değeri sıfırdır.
 
 Bu, `b2lusb.sys -> USBXHCI.SYS` yolunun artık çalıştığını; fakat alıcının
 konektörde elektriksel olarak görünmediğini gösterir. Arıza sınırı HID veya
@@ -808,7 +810,7 @@ yorumlanmamalıdır. Bu eski imajda aynı boot içindeki göstergeler şunlardı
 
 - `ACPI\\BYN0003` ve USBXHCI başlamış, `USBCMD.RUN=1` ve `HCHalted=0`;
 - iki xHCI portu da `PORTSC=0x2A0`: `PP=1`, `PLS=RxDetect`, `CCS=0`,
-  `PED=0` ve attach transition yok;
+  `PED=0` ve `PORTSC` change bitleri sıfır;
 - HSI2C `CTL=0x9`; yani Samsung'un yazdığı yalnız `MASTER=0x8` değerine ek
   olarak eski sürümün yanlış bit 0'ı açık;
 - `TRANS_STATUS=0x000A0006`: `MASTER_BUSY` set ve düşük master state `0x6`,
@@ -823,8 +825,59 @@ ilk 0x66 transferini başlatmadan, önceki transferden kalan `ADDR1 + BUSY`
 durumunun boşalmasını beklerken kesilmiştir. `1bc5fae`, reset/recovery sonundaki
 `CTL=0x9` yazımını Samsung `exynos5_i2c_init()` ile aynı `CTL=0x8` değerine
 indirerek tam bu eski durumu hedefler. Düzeltmenin başarılı sayılması için yeni
-flaşta önce `CTL=0x8`, ardından `AttemptedAddress=0x66` ve geçerli PMIC kimlik
+flaşta önce `CTL=0x8`, ardından 7 numaralı fast-mode master ID ile 0x66
+hedefini kodlayan `AttemptedAddress=0x07019800` ve geçerli PMIC kimlik
 readback'i görülmelidir; eski fotoğraflar bunun kanıtı değildir.
+
+### 13.2 Commit `1bc5fae` sonrası güncel flaşın kanıtladığı sınır
+
+Kullanıcının daha sonra ilettiği ve son sekiz fotoğrafla tamamladığı çıktı
+güncel flaşa aittir. PnP'nin
+yetkili `Driver Version` satırı `ACPI\\BYN0004` için `09/04/2026 0.1.0.21`
+gösterir; dolayısıyla bu set commit `1bc5fae` sonrasındaki MAX77705 binary'sini
+doğrular. Aynı görüntülerde:
+
+- `ACPI\\BYN0002` Exynos9820 USB host platformu `Started`;
+- `ACPI\\BYN0003` USBXHCI aygıtı `Started` ve `b2lusbmon` filtresi yüklü;
+- `ACPI\\BYN0004` MAX77705 aygıtı `Started` ve `b2lmax77705` servisi yüklü;
+- xHCI başlangıç anında HOST/RUN durumunda fakat iki port yine `CCS=0`,
+  `PED=0`, `PP=1`, `PLS=RxDetect` ve `PORTSC` change bitleri sıfırdır;
+- xHCI gözlemcisi 7884 örnek boyunca aynı `USBCMD=0x2005` / `USBSTS=0`
+  çiftini görmüş, bu iki register için transition sayısı sıfır kalmıştır.
+
+Son sekiz fotoğraf final MAX77705 register toplamasını da içerir ve sınırı
+kesinleştirir:
+
+- `B2LMaxStage=0x30` (`IDENTITY`) ve `B2LMaxStatus=0xC00000B5`
+  (`STATUS_IO_TIMEOUT`);
+- reset düzeltmesi uygulanmıştır: `HSI2C_CTRL=0x8`, `USI_CON=0`, FS timing
+  değerleri sıfır değildir ve `CONF=0x980110FF`;
+- buna rağmen `TRANS_STATUS=0x000A0006`, `ADDRESS=0xFF0FFFFF`,
+  `AttemptedAddress=0`, `RetryCount=2` ve `FailurePhase=0x10` (`BUS_IDLE`);
+- PMIC ID/revision, USBC identity, CC/BC/charger, opcode, MUIC ve OTG alanları
+  sıfır veya ulaşılmamış durumdadır.
+
+Bu bileşim, `CTL=0x8` düzeltmesinin doğru uygulandığını fakat 0.1.0.21'in ilk
+0x66 mesajını hâlâ başlatmadığını kanıtlar. Hata MAX77705'in bir komutu veya
+adresi reddetmesi değildir: `B2lMaxWaitBusIdle()` firmware'den kalan
+`ADDR1 + MASTER_BUSY` durumunu transfer öncesi beklemiş, bu yüzden ADDRESS
+registerı dahi programlanmamıştır.
+
+Samsung universal9820 sürücüsünde HSI2C45 düğümü
+`samsung,reset-before-trans` taşımaz. Normal `exynos5_i2c_xfer()` akışı BUSY
+ön-beklemesi yapmadan FIFO/channel/address/AUTO_CONF alanlarını programlar ve
+`MASTER_RUN` bitini verir; polling STOP tamamlanınca ikinci bir bus-idle kapısı
+da kullanmaz. Windows 0.1.0.22 bu farkı kaldırır, bir mesajın bounded polling
+süresini Samsung `EXYNOS5_I2C_TIMEOUT` gibi 1 saniye yapar ve reset/retry'ı
+yalnız gerçek transfer hatasına bırakır. Sonraki flaşta ilk ayrım noktası
+`AttemptedAddress != 0` ve `FailurePhase` değerinin artık `0x10` olmamasıdır;
+başarılı yol için ayrıca gerçek PMIC kimliği gerekir.
+
+Fotoğraf başındaki `B2LUSB_DRIVER_VERSION=0.1.0.18` satırı da bu flaşın MAX
+sürümü değildir: eski manifest tek parent INF sürümünü bütün paket etiketi gibi
+yazıyordu. Güncel paketleyici parent, host ve MAX INF sürümlerini ayrı ayrı
+çıkarır; final ekran ayrıca `B2LUSB-MAX77705-SUMMARY.TXT` içindeki kritik probe
+zincirini en sona koyar.
 
 ## 14. Başarı ölçütü: adım adım doğrulama
 

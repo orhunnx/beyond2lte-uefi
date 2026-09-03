@@ -127,7 +127,7 @@ grep -q 'Context->MuicPathVerified = TRUE' "$MAIN"
 grep -q 'B2L_MAX_STAGE_MUIC_USB' "$MAIN"
 grep -q 'B2L_MAX_STAGE_MUIC_OPEN' "$MAIN"
 grep -q 'B2lMaxReadAndClearUsbcInterrupts' "$MAIN"
-grep -q 'DriverVer=09/04/2026,0.1.0.21' "$INF"
+grep -q 'DriverVer=09/04/2026,0.1.0.22' "$INF"
 SERVICE_SECTION="$(sed -n '/B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)/,/B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
 AUTOIBUS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureAutoIbus(Context)' | head -n1 | cut -d: -f1)"
 MASKS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureUsbcMasks(Context)' | head -n1 | cut -d: -f1)"
@@ -153,7 +153,7 @@ fi
 
 # HSI2C transfer path is bounded, serialized and uses repeated START for
 # one-byte register reads, matching Samsung's register transport.
-grep -q 'B2L_HSI2C_TIMEOUT_US    100000UL' "$HW"
+grep -q 'B2L_HSI2C_TIMEOUT_US    1000000UL' "$HW"
 grep -Fq 'B2lMaxWriteRegister(Context, HSI2C_CTRL, HSI2C_MASTER);' "$HW"
 if grep -q 'HSI2C_FUNC_MODE_I2C' "$HW"; then
   echo 'HATA: universal9820 HSI2C45 CTRL durumuna kullanilmayan FUNC_MODE_I2C biti eklendi' >&2
@@ -167,7 +167,10 @@ grep -q 'HSI2C_MASTER_NO_ACK' "$HW"
 grep -q 'HSI2C_MASTER_LOST' "$HW"
 grep -q 'HSI2C_USI_CON           0xC4U' "$HW"
 grep -q 'HSI2C_USI_RESET_RELEASE 0x00000000UL' "$HW"
-grep -q 'B2lMaxWaitBusIdle' "$HW"
+if grep -q 'B2lMaxWaitBusIdle\|HSI2C_MASTER_BUSY' "$HW"; then
+  echo 'HATA: hsi2c_45 transferi stokta olmayan BUS_IDLE kapisiyla engellenmis' >&2
+  exit 1
+fi
 grep -q 'Timing.TimingFs1 = B2lMaxReadRegister' "$HW"
 grep -q 'B2lMaxWriteRegister(Context, HSI2C_TIMING_FS1, Timing.TimingFs1)' "$HW"
 if grep -q 'Context->HsI2cClockControl == 0UL' "$HW"; then
@@ -176,6 +179,9 @@ if grep -q 'Context->HsI2cClockControl == 0UL' "$HW"; then
 fi
 test "$(grep -n 'HSI2C_TX_DATA, Buffer\[Index++\]' "$HW" | head -n1 | cut -d: -f1)" \
   -lt "$(grep -n 'HSI2C_AUTO_CONF, ~0UL, HSI2C_MASTER_RUN' "$HW" | head -n1 | cut -d: -f1)"
+test "$(grep -n 'HSI2C_ADDRESS, TargetAddress' "$HW" | head -n1 | cut -d: -f1)" \
+  -lt "$(grep -n 'HSI2C_AUTO_CONF, ~0UL, HSI2C_MASTER_RUN' "$HW" | head -n1 | cut -d: -f1)"
+grep -q 'Context->HsI2cAttemptedAddress = TargetAddress' "$HW"
 grep -q 'WdfWaitLockAcquire(Context->BusLock' "$MAIN"
 grep -q 'B2lMaxTransferMessage' "$HW"
 grep -q 'FALSE,' "$HW"

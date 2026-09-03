@@ -142,6 +142,18 @@ mv -f "$OUT/b2lusbctl-signed.exe" "$OUT/b2lusbctl.exe"
 cp "$SRC/b2lusb.inf.in" "$OUT/b2lusb.inf"
 cp "$SRC/b2lusb-host.inf.in" "$OUT/b2lusb-host.inf"
 cp "$SRC/b2lmax77705.inf.in" "$OUT/b2lmax77705.inf"
+
+inf_driver_version() {
+  local InfPath="$1"
+  local Version
+  Version="$(sed -n 's/^[[:space:]]*DriverVer=[^,]*,//p' "$InfPath" | head -n 1 | tr -d '\r')"
+  [ -n "$Version" ] || die "DriverVer okunamadi: $InfPath"
+  printf '%s\n' "$Version"
+}
+
+PARENT_DRIVER_VERSION="$(inf_driver_version "$OUT/b2lusb.inf")"
+HOST_DRIVER_VERSION="$(inf_driver_version "$OUT/b2lusb-host.inf")"
+MAX77705_DRIVER_VERSION="$(inf_driver_version "$OUT/b2lmax77705.inf")"
 rm -f "$OUT/b2lusb.cat"
 "$INF2CAT" /driver:"$(wslpath -w "$OUT")" /os:10_GE_ARM64
 [ -s "$OUT/b2lusb.cat" ] || die "Inf2Cat b2lusb.cat uretmedi"
@@ -198,7 +210,9 @@ fi
 MANIFEST="$OUT/b2lusb-manifest.txt"
 {
   echo "B2LUSB_PACKAGE=exynos9820-kmdf-static-usb2-host-bringup"
-  echo "B2LUSB_DRIVER_VERSION=0.1.0.18"
+  echo "B2LUSB_DRIVER_VERSION=$PARENT_DRIVER_VERSION"
+  echo "B2LUSB_HOST_DRIVER_VERSION=$HOST_DRIVER_VERSION"
+  echo "B2LUSB_MAX77705_DRIVER_VERSION=$MAX77705_DRIVER_VERSION"
   echo "B2LUSB_ACPI_ID=ACPI\\BYN0002"
   echo "B2LUSB_HOST_ID=ACPI\\BYN0003"
   echo "B2LUSB_MAX77705_ID=ACPI\\BYN0004"

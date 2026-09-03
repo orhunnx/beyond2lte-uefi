@@ -342,6 +342,15 @@ dört kesme örneği, gerçek `CNFG_00` OTG donanım durumu ve başarısız HSI2
 bile CC değeri SOURCE değilse OTG kapatılır; böylece tek flash sonucu bus,
 USBC firmware, charger koruması ve OTG aşamalarına ayrılabilir.
 
+`0.1.0.22`, güncel cihaz çıktısında kesinleşen son HSI2C transport farkını
+kaldırır. Stock `hsi2c_45` düğümünde `samsung,reset-before-trans` yoktur ve
+`exynos5_i2c_xfer()` eski `TRANS_STATUS.MASTER_BUSY` değerini mesaj öncesi
+boşaltmayı beklemez; ADDRESS/AUTO_CONF'u programlayıp doğrudan `MASTER_RUN`
+verir. Windows yolu artık ilk 0x66 adres yazımından önce veya STOP sonrasında
+stockta olmayan BUS_IDLE kapısına takılmaz; reset/retry yalnız gerçek
+NACK/arbitration/transfer timeout'undan sonra yapılır. Mesaj polling sınırı da
+Samsung'un bir saniyelik `EXYNOS5_I2C_TIMEOUT` değeriyle eşlenmiştir.
+
 `0.1.0.21`, Samsung universal9820 kaynağıyla yapılan tam sıra karşılaştırmasını
 iki güç/transport düzeltmesiyle tamamlar. HSI2C45 reset/recovery sonunda ortak
 IP'de tanımlı fakat bu SoC yolunda kullanılmayan `FUNC_MODE_I2C` biti artık
@@ -351,6 +360,17 @@ LDO10M/LDO11M/LDO12M raylarını voltajlarına dokunmadan `NORMAL/ON` tutar ve
 Samsung `exynos_usbdrd_phy_conn()` gibi DWC3 başlangıcından önce 1 ms bekler.
 Windows'ta henüz ACPM/S2MPS19 regulator sağlayıcısı olmadığından raylar
 D0Exit'te doğrudan PMIC yazmasıyla kapatılmaz.
+
+Paket manifesti parent, host ve MAX77705 INF sürümlerini artık ayrı alanlarda
+INF dosyalarından türetir. Böylece yalnız MAX77705 değiştiğinde eski sabit paket
+sürümü cihaz fotoğrafını yanlış build ile ilişkilendiremez.
+
+Otomatik testin final ekranı, uzun `B2LUSB-MAX77705.TXT` dökümünü ekrana
+basmak yerine `B2LUSB-MAX77705-SUMMARY.TXT` içindeki kritik probe zincirini en
+sona koyar. `STAGE/STATUS`, HSI2C kontrol-transfer-adres-retry-fazı, PMIC ve CC
+kimliği, MUIC yol doğrulaması, charger kilidi/modu ve yazılım/donanım OTG sonucu
+tek fotoğrafa sığar. Eksik bir özet satırı ilgili probe aşamasına hiç
+ulaşılmadığını gösterir; ayrıntılı PnP ve register dökümü yine CACHE'e aktarılır.
 
 `0.1.0.20`, Samsung MUIC attach yolunda eksik kalan USB2 analog anahtarını
 tamamlar. OTG/RpRd SOURCE olayında `CONTROL1_WRITE(0x06)` ile
@@ -385,7 +405,8 @@ Başarı sırası:
 
 Otomatik testten sonra CACHE kökünde `B2LUSB-HOST-RESOURCES.TXT`,
 `B2LUSB-HOST-MONITOR.TXT`, `B2LUSB-USB.TXT`, `B2LUSB-USB-SUMMARY.TXT`, `B2LUSB-HID.TXT`,
-`B2LUSB-MOUSE.TXT`, `B2LUSB-MAX77705.TXT`, `B2LUSB-ETW.TXT` ve destekleniyorsa
+`B2LUSB-MOUSE.TXT`, `B2LUSB-MAX77705.TXT`, `B2LUSB-MAX77705-SUMMARY.TXT`,
+`B2LUSB-ETW.TXT` ve destekleniyorsa
 `B2LUSB-USBXHCI*.etl` bulunur. ETL,
 Windows Performance Analyzer'da USBXHCI ve UCX olaylarıyla açılabilir.
 USB henüz çalışmadığı sürece bu dosyalar test girdisi sayılmaz: `--usb-test`

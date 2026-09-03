@@ -597,13 +597,23 @@ kaldırılır. Samsung `phy_conn()` yolunun DWC3 core'dan önce açtığı S2MPS
 LDO10/11/12 de UEFI regulator protokolüyle açık devredilir ve 1 ms settle
 uygulanır. Voltaj, MAX77705 firmware'i veya başka PMIC politikası değiştirilmez.
 
-4 Eylül 2026'da alınan son flaş fotoğrafları bu committen öncedir. Eski
-görüntüde `CTL=0x9`, `TRANS_STATUS=0x000A0006`, failure phase `BUS_IDLE=0x10`
-ve attempted address `0` birlikte görülür. `0x000A0006`, `MASTER_BUSY` ile
-Samsung'un `ADDR1` master state'ini aynı anda gösterir; dolayısıyla sürücü
-0x66 PMIC adresine ilk mesajı bile başlatamamış, MAX77705 opcode/charger
-akışına ulaşmamıştır. Bu kayıt `0.1.0.21` sonucu değildir; yeni sürümde başarı
-kapısı `CTL=0x8`, attempted address `0x66` ve geçerli PMIC identity readback'idir.
+4 Eylül 2026'daki ilk fotoğraf seti bu committen öncedir. O sette `CTL=0x9`,
+`TRANS_STATUS=0x000A0006`, failure phase `BUS_IDLE=0x10` ve attempted address
+`0` birlikte görülür. Sonraki tam `0.1.0.21` seti `CTL=0x8` düzeltmesinin
+cihaza ulaştığını, fakat kalan bütün göstergelerin aynı olduğunu kesinleştirir:
+`Stage=IDENTITY`, `Status=STATUS_IO_TIMEOUT`, `ADDRESS=0xFF0FFFFF`, attempted
+address `0`, retry `2` ve PMIC/USBC identity `0`. Bu nedenle sürücü 0x66 PMIC
+adresine ilk mesajı bile başlatamamış, MAX77705 opcode/charger akışına
+ulaşmamıştır.
+
+`0.1.0.22` bu kesin kanıta göre stock HSI2C45 akışındaki son farkı kapatır.
+HSI2C45 DT düğümünde `samsung,reset-before-trans` bulunmadığından Samsung
+`exynos5_i2c_xfer()` mesaj öncesinde `MASTER_BUSY` temizlenmesini beklemez;
+ADDRESS/AUTO_CONF'u programlayıp `MASTER_RUN` verir. Windows'taki ön ve
+STOP-sonrası BUS_IDLE kapıları kaldırılmış, polling mesaj sınırı Samsung'un
+bir saniyelik timeout'una eşlenmiş ve reset/retry yalnız gerçek transfer
+hatasına bırakılmıştır. Bir sonraki başarı kapısı `attempted address != 0`,
+failure phase'in `BUS_IDLE` olmaması ve geçerli PMIC identity readback'idir.
 
 Tekrar flash sayısını azaltmak için `linux_test/usb-diagnostic.sh` eklendi.
 Araç stok/vendor Linux'ta alıcı çıkarılmış ve takılmış iki durumu aynı bootta,

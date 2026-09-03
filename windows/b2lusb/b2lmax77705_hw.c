@@ -45,7 +45,6 @@
 #define HSI2C_TX_FIFO_EMPTY     (1UL << 8)
 #define HSI2C_RX_FIFO_EMPTY     (1UL << 24)
 #define HSI2C_MASTER_STATE(x)   ((x) & 0x0FUL)
-#define HSI2C_MASTER_BUSY       (1UL << 17)
 #define HSI2C_MASTER_NO_ACK     0x0BUL
 #define HSI2C_MASTER_LOST       0x0CUL
 #define HSI2C_FAST_MASTER_ID    (0x7UL << 24)
@@ -53,7 +52,7 @@
 
 #define B2L_USI_CONFIG_OFFSET   0x30U
 #define B2L_USI_I2C_MODE        0x04U
-#define B2L_HSI2C_TIMEOUT_US    100000UL
+#define B2L_HSI2C_TIMEOUT_US    1000000UL
 #define B2L_HSI2C_RETRIES       2UL
 
 typedef struct _B2L_HSI2C_TIMING_STATE {
@@ -172,21 +171,6 @@ B2lMaxCheckTransferError(PB2L_MAX_CONTEXT Context)
         return STATUS_DEVICE_PROTOCOL_ERROR;
     }
     return STATUS_SUCCESS;
-}
-
-static NTSTATUS
-B2lMaxWaitBusIdle(PB2L_MAX_CONTEXT Context)
-{
-    ULONG Timeout = B2L_HSI2C_TIMEOUT_US;
-
-    while (Timeout-- != 0UL) {
-        if ((B2lMaxReadRegister(Context, HSI2C_TRANS_STATUS) &
-             HSI2C_MASTER_BUSY) == 0UL) {
-            return STATUS_SUCCESS;
-        }
-        KeStallExecutionProcessor(1U);
-    }
-    return STATUS_IO_TIMEOUT;
 }
 
 VOID
@@ -352,12 +336,6 @@ B2lMaxTransferMessage(
                 // Samsung's polling branch completes a read when the
                 // requested bytes have left RX FIFO.  TRANSFER_DONE is not a
                 // second required condition and may already be clear.
-                if (Stop) {
-                    Status = B2lMaxWaitBusIdle(Context);
-                    if (!NT_SUCCESS(Status)) {
-                        goto Failed;
-                    }
-                }
                 return STATUS_SUCCESS;
             }
             KeStallExecutionProcessor(1U);
@@ -386,12 +364,6 @@ B2lMaxTransferMessage(
                 ((FifoStatus & HSI2C_TX_FIFO_EMPTY) != 0UL)) {
                 B2lMaxWriteRegister(Context, HSI2C_INT_STATUS, InterruptStatus);
                 B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
-                if (Stop) {
-                    Status = B2lMaxWaitBusIdle(Context);
-                    if (!NT_SUCCESS(Status)) {
-                        goto Failed;
-                    }
-                }
                 return STATUS_SUCCESS;
             }
             KeStallExecutionProcessor(1U);
@@ -429,12 +401,11 @@ B2lMaxHsI2cWriteRead(
 
     for (Retry = 0UL; Retry < B2L_HSI2C_RETRIES; ++Retry) {
         Context->HsI2cRetryCount = Retry;
-        Status = B2lMaxWaitBusIdle(Context);
-        if (!NT_SUCCESS(Status)) {
-            Context->HsI2cFailurePhase = B2L_MAX_HSI2C_PHASE_BUS_IDLE;
-            B2lMaxCaptureControllerState(Context);
-            goto RetryTransfer;
-        }
+        // Stock hsi2c_45 has no samsung,reset-before-trans property.
+        // exynos5_i2c_xfer() therefore does not gate a message on stale
+        // TRANS_STATUS.MASTER_BUSY: xfer_msg overwrites ADDRESS/AUTO_CONF
+        // and asserts MASTER_RUN.  Waiting here deadlocked the Windows path
+        // in the firmware's retained ADDR1 state before ADDRESS was written.
         if (WriteLength != 0UL) {
             Status = B2lMaxTransferMessage(
                 Context,
