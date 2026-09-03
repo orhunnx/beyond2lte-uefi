@@ -534,6 +534,17 @@ başarılı olabilecek root-hub/HID zinciri tanı uğruna kesilmez. Paketleyici
 hedef WIM'de `HIDUSB`, `MOUHID` ve `MOUCLASS` dosyalarını da zorunlu tutar;
 çalışan sistemde USB, HIDClass ve Mouse PnP sonuçları ayrı kaydedilir.
 
+`0.1.0.12` cihaz kanıtında platform ve host child `Started` oldu; USBXHCI
+çalışır duruma (`USBCMD.RUN=1`, `USBSTS.HCH=0`) geçti ve inbox
+`USB\ROOT_HUB30`/`usbhub3.inf` root hub'ı numaralandırıldı. Bu, Code 10'un
+kapanıp Windows host zincirinin çalıştığını doğrular. Aynı boot'ta iki port da
+`PORTSC=0x2A0` gösterdi: port power açık, link `RxDetect`, fakat `CCS=0` ve
+`PED=0`. Kalan sınır controller başlangıcı değil, konektörde elektriksel attach
+ve VBUS/CC rol zinciridir. `0.1.0.13`, çalışan child'ı restart etmeden korur;
+root hub/alıcı PnP özetini ve PORTSC alan çözümünü final ekrana ekler. Donanım
+yazma yolu değişmediğinden ilk alıcı testi haricen beslenen USB2 hub ile
+yapılmalıdır.
+
 Stok Android dosyaları VBUS sınırını da açıklıyor: DWC3 ve PHY düğümlerinde
 `is_not_vbus_pad=1` bulunuyor; rol/attach zinciri `max77705_usbc_init` ve
 `usb_notifier_init` üzerinden, `hsi2c_45` üzerindeki `max77705@66` ile

@@ -228,6 +228,16 @@ raporlanır. ACPI child ayrıca Windows'un debug özelliği olmayan standart SoC
 xHCI kimliği `PNP0D15` ile uyumludur. Bu paket sabit USB2 HOST'tur;
 function-role ve SuperSpeed yoktur.
 
+`0.1.0.12` cihaz sonucu bu mimariyi doğruladı: `ACPI\BYN0003` üzerinde
+USBXHCI başladı ve `USB\ROOT_HUB30` inbox `usbhub3.inf` ile `Started` oldu.
+Dolayısıyla önceki Code 10 kapısı kapanmıştır. Aynı boot'ta iki `PORTSC`
+değeri de `0x2A0` kaldı (`PP=1`, `PLS=RxDetect`, `CCS=0`, `PED=0`); host
+çalışırken konektörde elektriksel aygıt görülmedi. `0.1.0.13` çalışan PnP
+child'ını yeniden başlatmayan akışı ayrı sürümle görünür kılar, her port için
+`CCS/PED/PP/OCA/PLS/speed/change` çözümlemesi basar ve root hub/alıcı özetini
+final ekrana taşır. PHY/DWC3 yazma sırası değişmez; tahmini Type-C/PMIC yazması
+eklenmez.
+
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
 DEFAULT hive ve WIM geri-okuma doğrulaması `tools_winpe_ui_scale.sh` içindedir.
@@ -279,7 +289,7 @@ beslenen bir USB2 hub üzerinden yapılmalıdır. Başarı sırası:
 5. `HidUsb -> mouhid -> mouclass` zinciri üzerinden imleç hareketi ve tıklama.
 
 Otomatik testten sonra CACHE kökünde `B2LUSB-HOST-RESOURCES.TXT`,
-`B2LUSB-HOST-MONITOR.TXT`, `B2LUSB-USB.TXT`, `B2LUSB-HID.TXT`,
+`B2LUSB-HOST-MONITOR.TXT`, `B2LUSB-USB.TXT`, `B2LUSB-USB-SUMMARY.TXT`, `B2LUSB-HID.TXT`,
 `B2LUSB-MOUSE.TXT`, `B2LUSB-ETW.TXT` ve destekleniyorsa
 `B2LUSB-USBXHCI*.etl` bulunur. ETL,
 Windows Performance Analyzer'da USBXHCI ve UCX olaylarıyla açılabilir.

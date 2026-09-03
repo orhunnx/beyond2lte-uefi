@@ -6,6 +6,16 @@
 
 #include "b2lusb_public.h"
 
+#define B2L_XHCI_PORTSC_CCS          (1UL << 0)
+#define B2L_XHCI_PORTSC_PED          (1UL << 1)
+#define B2L_XHCI_PORTSC_OCA          (1UL << 3)
+#define B2L_XHCI_PORTSC_PLS_SHIFT    5U
+#define B2L_XHCI_PORTSC_PLS_MASK     0xFUL
+#define B2L_XHCI_PORTSC_PP           (1UL << 9)
+#define B2L_XHCI_PORTSC_SPEED_SHIFT  10U
+#define B2L_XHCI_PORTSC_SPEED_MASK   0xFUL
+#define B2L_XHCI_PORTSC_CHANGE_MASK  0x00FE0000UL
+
 static HANDLE
 B2lOpenController(VOID)
 {
@@ -110,6 +120,49 @@ B2lRoleName(
     return L"NONE";
 }
 
+static const wchar_t *
+B2lPortLinkStateName(
+    ULONG PortLinkState
+    )
+{
+    static const wchar_t *Names[16] = {
+        L"U0", L"U1", L"U2", L"U3",
+        L"Disabled", L"RxDetect", L"Inactive", L"Polling",
+        L"Recovery", L"HotReset", L"Compliance", L"Test",
+        L"Reserved12", L"Reserved13", L"Reserved14", L"Resume"
+    };
+
+    return Names[PortLinkState & B2L_XHCI_PORTSC_PLS_MASK];
+}
+
+static VOID
+B2lShowPortStatus(
+    ULONG PortNumber,
+    ULONG PortSc
+    )
+{
+    ULONG PortLinkState;
+    ULONG Speed;
+
+    PortLinkState = (PortSc >> B2L_XHCI_PORTSC_PLS_SHIFT) &
+        B2L_XHCI_PORTSC_PLS_MASK;
+    Speed = (PortSc >> B2L_XHCI_PORTSC_SPEED_SHIFT) &
+        B2L_XHCI_PORTSC_SPEED_MASK;
+    wprintf(
+        L"xHCI port%lu raw=%08lX ccs=%lu ped=%lu pp=%lu oca=%lu pls=%lu(%ls) speed=%lu change=%08lX\n",
+        PortNumber,
+        PortSc,
+        (ULONG)((PortSc & B2L_XHCI_PORTSC_CCS) != 0),
+        (ULONG)((PortSc & B2L_XHCI_PORTSC_PED) != 0),
+        (ULONG)((PortSc & B2L_XHCI_PORTSC_PP) != 0),
+        (ULONG)((PortSc & B2L_XHCI_PORTSC_OCA) != 0),
+        PortLinkState,
+        B2lPortLinkStateName(PortLinkState),
+        Speed,
+        PortSc & B2L_XHCI_PORTSC_CHANGE_MASK
+        );
+}
+
 static int
 B2lShowStatus(
     HANDLE Handle
@@ -164,6 +217,8 @@ B2lShowStatus(
     wprintf(L"xHCI dcbaap=%08lX%08lX portsc=%08lX/%08lX\n",
         Status.XhciDcbaapHigh, Status.XhciDcbaapLow,
         Status.XhciPortSc1, Status.XhciPortSc2);
+    B2lShowPortStatus(1, Status.XhciPortSc1);
+    B2lShowPortStatus(2, Status.XhciPortSc2);
     wprintf(L"xECP +00=%08lX +04=%08lX +08=%08lX +0C=%08lX\n",
         Status.XhciExtCap[0], Status.XhciExtCap[1],
         Status.XhciExtCap[2], Status.XhciExtCap[3]);

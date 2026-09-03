@@ -56,6 +56,11 @@ echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
 if exist "%B2LUSBDIR%\b2lusbctl.exe" echo USB host kontrolu: %B2LUSBDIR%\b2lusbctl.exe status^|observe^|host
 if not exist "%B2LUSBDIR%\auto-host.test" call :B2LTouchLaunchKeyboard
 if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
+  if exist "%SystemDrive%\B2LUSB-USB-SUMMARY.TXT" (
+    echo.
+    echo === B2LUSB root hub / USB alici zinciri ===
+    type "%SystemDrive%\B2LUSB-USB-SUMMARY.TXT"
+  )
   if exist "%SystemDrive%\B2LUSB-INPUT-STACK.TXT" (
     echo.
     echo === B2LUSB inbox HID/fare zinciri ===
@@ -271,6 +276,7 @@ reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\HidUsb" /v Start >> "%Syst
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\mouhid" /v Start >> "%SystemDrive%\B2LUSB-INPUT-STACK.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\mouclass" /v Start >> "%SystemDrive%\B2LUSB-INPUT-STACK.TXT" 2>&1
 pnputil /enum-devices /class USB /services /stack /drivers > "%SystemDrive%\B2LUSB-USB.TXT" 2>&1
+findstr /i /c:"Instance ID:" /c:"Device Description:" /c:"Status:" /c:"Problem Code:" /c:"Driver Name:" "%SystemDrive%\B2LUSB-USB.TXT" > "%SystemDrive%\B2LUSB-USB-SUMMARY.TXT" 2>nul
 pnputil /enum-devices /class HIDClass /services /stack /drivers > "%SystemDrive%\B2LUSB-HID.TXT" 2>&1
 pnputil /enum-devices /class Mouse /services /stack /drivers > "%SystemDrive%\B2LUSB-MOUSE.TXT" 2>&1
 exit /b 0
