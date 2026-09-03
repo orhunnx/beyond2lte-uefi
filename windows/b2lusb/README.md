@@ -192,6 +192,15 @@ gösterecektir. `startnet.cmd` ayrıca SetupAPI Code 10 satırlarını final ekr
 çıkarır ve `tracerpt.exe` varsa USBXHCI/UCX ETL içindeki hata/status satırlarını
 metin özetine dönüştürür.
 
+`0.1.0.11`, rol değişimindeki doğrulanmış tek DWC3 farkını düzeltir. Cihaz
+ölçümünde `GUSB3PIPECTL=0x01021102` ile USB3 `SUSPHY` biti açık kalmıştı.
+Synopsys upstream ve sabitlenmiş Exynos9820 vendor başlangıç sırası, DRD
+core/rol başlangıcından önce hem `GUSB2PHYCFG.SUSPHY` hem de
+`GUSB3PIPECTL.SUSPHY` bitlerini temizler. Parent sürücü artık aynı iki standart
+DWC3 bitini temizleyip readback ile doğrular; Samsung wrapper'daki USB3 portu
+kapalı kalır ve combo-PHY, PMA, guard ya da memory-map alanlarına dokunulmaz.
+`0.1.0.10` START_DEVICE/SetupAPI/ETW ölçümleri aynen korunur.
+
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
 DEFAULT hive ve WIM geri-okuma doğrulaması `tools_winpe_ui_scale.sh` içindedir.

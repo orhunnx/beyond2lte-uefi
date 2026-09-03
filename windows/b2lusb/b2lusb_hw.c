@@ -20,6 +20,8 @@
 #define B2L_DWC3_GSTS_CURMOD_MASK     3UL
 #define B2L_DWC3_GSTS_CURMOD_DEVICE   0UL
 #define B2L_DWC3_GSTS_CURMOD_HOST     1UL
+#define B2L_DWC3_GUSB2PHYCFG_SUSPHY   (1UL << 6)
+#define B2L_DWC3_GUSB3PIPECTL_SUSPHY  (1UL << 17)
 #define B2L_DWC3_DCTL_RUN_STOP        (1UL << 31)
 #define B2L_DWC3_DSTS_DEVCTRLHLT      (1UL << 22)
 
@@ -276,6 +278,38 @@ B2lResetDwc3RoleCore(
 {
     LARGE_INTEGER Delay;
     ULONG Gctl;
+    ULONG Usb2PhyCfg;
+    ULONG Usb3PipeCtl;
+
+    // Synopsys requires the PHY suspend requests to be deasserted while a
+    // DRD core changes role.  The Exynos9820 vendor sequence clears both
+    // bits before core/PHY initialization as well.  This only wakes the DWC3
+    // interfaces: the Samsung wrapper still keeps the unproven U3 port
+    // disabled, and no combo-PHY MMIO range is touched here.
+    Usb2PhyCfg = B2lRead32(
+        Context->Dwc3Registers,
+        B2L_DWC3_GUSB2PHYCFG0
+        );
+    Usb3PipeCtl = B2lRead32(
+        Context->Dwc3Registers,
+        B2L_DWC3_GUSB3PIPECTL0
+        );
+    B2lWrite32(
+        Context->Dwc3Registers,
+        B2L_DWC3_GUSB2PHYCFG0,
+        Usb2PhyCfg & ~B2L_DWC3_GUSB2PHYCFG_SUSPHY
+        );
+    B2lWrite32(
+        Context->Dwc3Registers,
+        B2L_DWC3_GUSB3PIPECTL0,
+        Usb3PipeCtl & ~B2L_DWC3_GUSB3PIPECTL_SUSPHY
+        );
+    if (((B2lRead32(Context->Dwc3Registers, B2L_DWC3_GUSB2PHYCFG0) &
+          B2L_DWC3_GUSB2PHYCFG_SUSPHY) != 0) ||
+        ((B2lRead32(Context->Dwc3Registers, B2L_DWC3_GUSB3PIPECTL0) &
+          B2L_DWC3_GUSB3PIPECTL_SUSPHY) != 0)) {
+        return STATUS_DEVICE_HARDWARE_ERROR;
+    }
 
     // DWC_usb31 needs its internal clocks synchronized when changing roles.
     // Keep the core in reset for the conservative interval used by the
