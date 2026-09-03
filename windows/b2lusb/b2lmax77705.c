@@ -56,6 +56,7 @@
 #define MAX77705_CHG_OTG_INT_MASK  0x51U
 #define MAX77705_CHG_OTG_INT_VALUE 0x50U
 #define MAX77705_CHG_PROTECT_MASK  0x0CU
+#define MAX77705_CHG_PROTECT_CLEAR_MASK 0xF3U
 #define MAX77705_CHG_PROTECT_OPEN  0x0CU
 #define MAX77705_CHG_UNLOCK_RETRIES 10UL
 #define MAX77705_CHG_UNLOCK_WAIT_US 20000UL
@@ -555,7 +556,7 @@ B2lMaxUnlockCharger(PB2L_MAX_CONTEXT Context)
             return STATUS_SUCCESS;
         }
 
-        Wanted = (UCHAR)((Current & (UCHAR)~MAX77705_CHG_PROTECT_MASK) |
+        Wanted = (UCHAR)((Current & MAX77705_CHG_PROTECT_CLEAR_MASK) |
                          MAX77705_CHG_PROTECT_OPEN);
         Status = B2lMaxWriteByte(
             Context,

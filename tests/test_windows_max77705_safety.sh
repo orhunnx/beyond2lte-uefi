@@ -55,7 +55,12 @@ grep -q 'MAX77705_CHG_CNFG_06       0xBDU' "$MAIN"
 grep -q 'MAX77705_CHG_OTG_INT_MASK  0x51U' "$MAIN"
 grep -q 'MAX77705_CHG_OTG_INT_VALUE 0x50U' "$MAIN"
 grep -q 'MAX77705_CHG_PROTECT_MASK  0x0CU' "$MAIN"
+grep -q 'MAX77705_CHG_PROTECT_CLEAR_MASK 0xF3U' "$MAIN"
 grep -q 'MAX77705_CHG_PROTECT_OPEN  0x0CU' "$MAIN"
+if rg -n '\(UCHAR\)~MAX77705_CHG_PROTECT_MASK' "$MAIN"; then
+  echo 'HATA: MSVC C4310 uretecek sabit daraltma kalibi geri geldi' >&2
+  exit 1
+fi
 grep -q 'MAX77705_CHG_UNLOCK_RETRIES 10UL' "$MAIN"
 grep -q 'MAX77705_CHG_UNLOCK_WAIT_US 20000UL' "$MAIN"
 grep -q 'B2lMaxUnlockCharger' "$MAIN"
