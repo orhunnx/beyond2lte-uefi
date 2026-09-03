@@ -266,6 +266,10 @@ hedef WinPE WIM'inde bulunduğunu doğrulamadan paket üretmez. UrsCx
 binary/header/import-lib ve harici Windows runtime kaynağı gerekmez. Farklı
 bir WDK kökü gerekiyorsa
 `B2L_WDK_ROOT='/mnt/.../Windows Kits/10'` verilebilir.
+WIM içindeki Microsoft dosya adları farklı harf büyüklükleri taşıyabildiği
+için bu denetim Windows semantiğine uygun olarak case-insensitive yapılır;
+`HIDCLASS.SYS` yolunun yalnız harf büyüklüğü nedeniyle eksik raporlanması
+engellenir.
 
 ## İlk cihaz testi
 

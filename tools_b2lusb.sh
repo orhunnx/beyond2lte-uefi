@@ -4,6 +4,12 @@
 
 set -euo pipefail
 
+# WIM paths are Windows paths even when wimlib runs under Linux.  The ADK
+# image preserves mixed/lower-case names for parts of the inbox input stack
+# (for example hidclass.sys), so exact-case extraction would report a false
+# missing-file error for the upper-case validation paths below.
+export WIMLIB_IMAGEX_IGNORE_CASE=1
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$HERE/windows/b2lusb"
 OUT="$HERE/out/b2lusb"

@@ -187,6 +187,7 @@ grep -Fq 'setupapi.lib' "$WIN/build-b2lusb.ps1"
 grep -q '/machine:arm64' "$WIN/build-b2lusb.ps1"
 grep -q '/MT ' "$WIN/build-b2lusb.ps1"
 grep -q 'build-b2lusb.ps1' "$ROOT/tools_b2lusb.sh"
+grep -q '^export WIMLIB_IMAGEX_IGNORE_CASE=1$' "$ROOT/tools_b2lusb.sh"
 grep -q 'Ucx01000.sys' "$ROOT/tools_b2lusb.sh"
 grep -q 'tools_winpe_ui_scale.sh' "$ROOT/tools_b2lusb.sh"
 if rg -n 'Urs|URS|tools_winpe_urs_runtime' "$ROOT/tools_b2lusb.sh" "$ROOT/cache_esp.sh"; then
