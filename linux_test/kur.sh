@@ -57,6 +57,8 @@ fi
 say "kendi /init'imiz konuyor"
 cp "$HERE/init" "$W/root/init"
 chmod +x "$W/root/init"
+cp "$HERE/usb-diagnostic.sh" "$W/root/b2l-usb-diagnostic"
+chmod +x "$W/root/b2l-usb-diagnostic"
 
 say "yeniden paketleniyor"
 ( cd "$W/root" && find . | cpio -o -H newc --quiet | gzip -9 ) > "$OUT"

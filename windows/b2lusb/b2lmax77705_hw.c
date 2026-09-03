@@ -25,7 +25,6 @@
 #define HSI2C_ADDRESS           0x70U
 #define HSI2C_USI_CON           0xC4U
 
-#define HSI2C_FUNC_MODE_I2C     (1UL << 0)
 #define HSI2C_MASTER            (1UL << 3)
 #define HSI2C_RXCHON            (1UL << 6)
 #define HSI2C_TXCHON            (1UL << 7)
@@ -145,11 +144,11 @@ B2lMaxResetController(PB2L_MAX_CONTEXT Context)
     B2lMaxWriteRegister(Context, HSI2C_TIMING_FS2, Timing.TimingFs2);
     B2lMaxWriteRegister(Context, HSI2C_TIMING_FS3, Timing.TimingFs3);
     B2lMaxWriteRegister(Context, HSI2C_TIMING_SLA, Timing.TimingSla);
-    B2lMaxWriteRegister(
-        Context,
-        HSI2C_CTRL,
-        HSI2C_FUNC_MODE_I2C | HSI2C_MASTER
-        );
+    // universal9820 android-9.0 exynos5_i2c_init() writes MASTER alone.
+    // FUNC_MODE_I2C is defined by the shared IP header but is not asserted
+    // on this USI-backed controller; setting it changes the exact working
+    // HSI2C45 state before the first MAX77705 address phase.
+    B2lMaxWriteRegister(Context, HSI2C_CTRL, HSI2C_MASTER);
     B2lMaxWriteRegister(Context, HSI2C_TRAIL_CTRL, HSI2C_TRAILING_COUNT);
     B2lMaxWriteRegister(Context, HSI2C_CONF, Timing.Conf | HSI2C_AUTO_MODE);
 }

@@ -293,8 +293,10 @@ pnputil /enum-devices /deviceid "ACPI\BYN0003"
 `0.1.0.16`, pasif KMDF zamanlayıcısını tek atımlı çalıştırıp her örnekten
 sonra yeniden kurar. Böylece `EvtDeviceAdd` sırasında görülen
 `CM_PROB_FAILED_ADD / STATUS_NOT_SUPPORTED` kaldırılır. HSI2C software reseti
-sonrasında Samsung sürücüsü gibi `FUNC_MODE_I2C | MASTER` geri yüklenir;
-yalnız `MASTER` yazılarak oluşan ilk PMIC kimlik okuması timeout'u giderilir.
+sonrasında controller modu ve timing yeniden kurulur; ilk PMIC kimlik okuması
+timeout'u için bounded retry/recovery eklenir. Bu eski sürümdeki `CTL` değeri,
+`0.1.0.21` ile universal9820 kaynağındaki tam `MASTER=0x8` değerine
+düzeltilmiştir.
 Bus veya kimlik okuması yine geçici olarak başarısız olursa ACPI parent D0
 başlangıcı düşürülmez: pasif timer bus/kimlik/CC/OTG zincirini yeniden dener ve
 `_DEP` altındaki USB host'un başlamasını engellemez. İlk doğrudan konektör
@@ -339,6 +341,16 @@ dört kesme örneği, gerçek `CNFG_00` OTG donanım durumu ve başarısız HSI2
 `B2LUSB-MAX77705.TXT` dosyasına yazılır. Bootloader'dan A/E/F modu devralınsa
 bile CC değeri SOURCE değilse OTG kapatılır; böylece tek flash sonucu bus,
 USBC firmware, charger koruması ve OTG aşamalarına ayrılabilir.
+
+`0.1.0.21`, Samsung universal9820 kaynağıyla yapılan tam sıra karşılaştırmasını
+iki güç/transport düzeltmesiyle tamamlar. HSI2C45 reset/recovery sonunda ortak
+IP'de tanımlı fakat bu SoC yolunda kullanılmayan `FUNC_MODE_I2C` biti artık
+yazılmaz; `HSI2C_CTL` Samsung `exynos5_i2c_init()` ile aynı `MASTER=0x8`
+durumuna getirilir. UEFI handoff sürücüsü ayrıca DTS'de `boot-on` olan S2MPS19
+LDO10M/LDO11M/LDO12M raylarını voltajlarına dokunmadan `NORMAL/ON` tutar ve
+Samsung `exynos_usbdrd_phy_conn()` gibi DWC3 başlangıcından önce 1 ms bekler.
+Windows'ta henüz ACPM/S2MPS19 regulator sağlayıcısı olmadığından raylar
+D0Exit'te doğrudan PMIC yazmasıyla kapatılmaz.
 
 `0.1.0.20`, Samsung MUIC attach yolunda eksik kalan USB2 analog anahtarını
 tamamlar. OTG/RpRd SOURCE olayında `CONTROL1_WRITE(0x06)` ile

@@ -588,6 +588,21 @@ açık, input-bus otomasyonu kapalı bırakılır. Snapdragon UEFI'de görülen
 çıktısı için HSI2C CTRL/CONF/AUTO_CONF/ADDR ve Auto-IBUS sonucu ayrıca
 yayımlanır.
 
+`0.1.0.20`, MUIC CONTROL1 analog anahtarını attach'te `COM_USB=0x09`,
+detach'te `COM_OPEN=0x3f` yapıp gerçek opcode readback'ini zorunlu kılar.
+`0.1.0.21` ise kullanıcının verdiği universal9820 Android 9 ağacındaki exact
+platform sırasını karşılaştırınca bulunan iki daha alt katman farkını kapatır:
+HSI2C45 `CTL` resetten sonra yalnız `MASTER=0x8` olur; kullanılmayan bit 0
+kaldırılır. Samsung `phy_conn()` yolunun DWC3 core'dan önce açtığı S2MPS19
+LDO10/11/12 de UEFI regulator protokolüyle açık devredilir ve 1 ms settle
+uygulanır. Voltaj, MAX77705 firmware'i veya başka PMIC politikası değiştirilmez.
+
+Tekrar flash sayısını azaltmak için `linux_test/usb-diagnostic.sh` eklendi.
+Araç stok/vendor Linux'ta alıcı çıkarılmış ve takılmış iki durumu aynı bootta,
+MAX77705/I2C/MMIO yazması yapmadan karşılaştırır. HSI2C45, USB PHY/PMU,
+DWC3/xHCI, CCIC/MUIC, USB sysfs, IRQ ve LDO10/11/12 durumlarını tek
+`B2LUSB-LINUX.TXT` dosyasına toplar.
+
 Ayrıca WinPE sürücü enjeksiyonlarının WIM içinde bıraktığı delikler SYSTEM
 imajının her buildde büyümesine neden oluyordu. `cache_esp.sh`, FAT boyutunu
 hesaplamadan önce standalone `boot.wim` üzerinde `wimlib-imagex optimize` ve
@@ -595,6 +610,10 @@ hesaplamadan önce standalone `boot.wim` üzerinde `wimlib-imagex optimize` ve
 
 ## Kaynaklar
 
+- Samsung universal9820 Android 9 exact platform referansı:
+  <https://github.com/corsicanu/android_kernel_samsung_universal9820/tree/55f042627bb7030c93550faafa117674d32b21d1/drivers>
+- Linux generic PHY içindeki Samsung USB2 SoC uyarlama modeli:
+  <https://docs.kernel.org/driver-api/phy/samsung-usb2.html>
 - Samsung Exynos9820 vendor PHY referansı, sabitlenen revizyon:
   `Android-Artisan/android_kernel_samsung_exynos9820@9a0a792d227c8ae6cddac0c9d68a8bb9782c44cb`
   (`phy-exynos-usb3p1.c`, `phy-exynos-usb3p1-reg.h`, `phy-exynos-usbdrd.c`).

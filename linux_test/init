@@ -19,7 +19,7 @@
 #
 # 4) Script ASLA cikmamali; cikarsa panik ekrani yazdiklarimizi bastiriyor.
 #
-/bin/busybox mkdir -p /proc /sys /dev /mnt /bin /sbin
+/bin/busybox mkdir -p /proc /sys /dev /mnt /bin /sbin /tmp
 /bin/busybox mount -t proc     none /proc 2>/dev/null
 /bin/busybox mount -t sysfs    none /sys  2>/dev/null
 /bin/busybox mount -t devtmpfs none /dev  2>/dev/null
@@ -163,6 +163,18 @@ say "-- blok cihazlar (depolama var mi)"
 BD="$(ls /dev/sd* /dev/block/sd* 2>/dev/null | tr '\n' ' ')"
 say "   ${BD:-YOK}"
 
+# --- USB / MAX77705 karsilastirmali tani -----------------------------------
+# Bu yardimci hem bu initramfs'te hem stok/vendor Linux veya Android'de tek
+# basina kullanilabilir. PMIC/I2C/MMIO'ya yazmaz. Alici cikikken ve takildiktan
+# sonra iki ayri sysfs, dmesg ve salt-okunur register anlik goruntusu alir.
+USBLOG=/tmp/B2LUSB-LINUX.TXT
+if [ -x /b2l-usb-diagnostic ]; then
+    say "======== USB / MAX77705 LINUX TANISI ========"
+    /b2l-usb-diagnostic --guided "$USBLOG"
+else
+    say "USB tani yardimcisi initramfs icinde yok"
+fi
+
 # --- depolama varsa tam logu dosyaya yaz ----------------------------------
 ESP=""
 for d in /dev/sd?? /dev/sd??? /dev/block/sd?? /dev/block/sd???; do
@@ -182,6 +194,10 @@ if [ -n "$ESP" ]; then
         ls -l /sys/firmware/acpi/tables/ 2>/dev/null
         echo; echo "########## interrupts ##########"; cat /proc/interrupts
         echo; echo "########## iomem ##########";      cat /proc/iomem
+        if [ -r "$USBLOG" ]; then
+            echo; echo "########## USB / MAX77705 tani ##########"
+            cat "$USBLOG"
+        fi
     } > "$L" 2>&1
     sync
     say "Yazildi: $L ($(wc -c < $L) bayt) - recovery'den cache'i cek"

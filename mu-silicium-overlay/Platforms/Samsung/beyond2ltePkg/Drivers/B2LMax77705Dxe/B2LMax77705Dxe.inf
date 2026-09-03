@@ -22,6 +22,7 @@
 
 [Protocols]
   gEfiHsI2cProtocolGuid
+  gEfiPmicRegulatorProtocolGuid
 
 [Depex]
-  gEfiHsI2cProtocolGuid
+  gEfiHsI2cProtocolGuid AND gEfiPmicRegulatorProtocolGuid

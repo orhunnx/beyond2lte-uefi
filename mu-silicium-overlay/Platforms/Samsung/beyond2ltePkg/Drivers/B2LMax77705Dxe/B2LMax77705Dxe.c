@@ -3,8 +3,9 @@
 
   Windows owns MAX77705 policy.  This DXE driver only performs the same SoC
   bus setup that the Samsung HSI2C driver performs (CMGP pinmux, USI I2C mode
-  and 200 MHz timing) and proves that the three stock MAX77705 I2C clients
-  answer.  It never changes charger, CC/PD, regulator or firmware registers.
+  and 200 MHz timing), keeps the three stock USB PHY boot-on regulators on,
+  and proves that the three stock MAX77705 I2C clients answer.  It never
+  changes charger, CC/PD or firmware registers.
 **/
 
 #include <Uefi.h>
@@ -15,6 +16,7 @@
 #include <Library/UefiDriverEntryPoint.h>
 
 #include <Protocol/EFIHsI2c.h>
+#include <Protocol/EFIPmicRegulator.h>
 
 #define B2L_MAX77705_BUS             45
 #define B2L_MAX77705_USI_PAGE        0x15C22000ULL
@@ -31,7 +33,65 @@
 #define MAX77705_USBC_FW_MINOR       0x09
 #define MAX77705_CHG_CNFG_00         0xB7
 
+#define B2L_USB_PHY_LDO10            10
+#define B2L_USB_PHY_LDO11            11
+#define B2L_USB_PHY_LDO12            12
+#define B2L_USB_PHY_LDO_SETTLE_US    1000
+
 extern EFI_GUID  gEfiHsI2cProtocolGuid;
+
+STATIC
+EFI_STATUS
+EnableUsbPhyPower (
+  VOID
+  )
+{
+  EFI_PMIC_REGULATOR_PROTOCOL  *Pmic;
+  EFI_STATUS                    Status;
+  CONST UINT8                   UsbPhyLdos[] = {
+    B2L_USB_PHY_LDO10,
+    B2L_USB_PHY_LDO11,
+    B2L_USB_PHY_LDO12
+  };
+  UINTN                         Index;
+
+  Status = gBS->LocateProtocol (
+                  &gEfiPmicRegulatorProtocolGuid,
+                  NULL,
+                  (VOID **)&Pmic
+                  );
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  // exynos_usbdrd_phy_conn() enables S2MPS19 LDO10M/11M/12M together and
+  // waits 1 ms before DWC3 initialization.  The beyond2lte DT marks all
+  // three rails boot-on.  SetLdo performs a masked read/modify/write, so the
+  // configured voltages are preserved.  Never disable or power-cycle them:
+  // Windows has no native ACPM/S2MPS19 regulator provider yet.
+  for (Index = 0;
+       Index < (sizeof (UsbPhyLdos) / sizeof (UsbPhyLdos[0]));
+       ++Index) {
+    Status = Pmic->SetLdo (
+                     ID_S2MPS19,
+                     UsbPhyLdos[Index],
+                     S2MPS_MODE_NORMAL,
+                     TRUE
+                     );
+    if (EFI_ERROR (Status)) {
+      DEBUG ((
+        DEBUG_ERROR,
+        "B2LMax77705: USB PHY LDO%u enable failed: %r\n",
+        (UINT32)UsbPhyLdos[Index],
+        Status
+        ));
+      return Status;
+    }
+  }
+
+  gBS->Stall (B2L_USB_PHY_LDO_SETTLE_US);
+  return EFI_SUCCESS;
+}
 
 EFI_STATUS
 EFIAPI
@@ -52,6 +112,11 @@ B2LMax77705Entry (
   // Use the native EDK2 unused-parameter convention.
   (VOID)ImageHandle;
   (VOID)SystemTable;
+
+  Status = EnableUsbPhyPower ();
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
 
   Status = gBS->LocateProtocol (
                   &gEfiHsI2cProtocolGuid,

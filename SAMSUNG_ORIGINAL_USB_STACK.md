@@ -6,12 +6,15 @@ sürücü katmanı tarafından nasıl kurulduğunu adım adım açıklar. Özell
 porta takılan bir USB fare alıcısının algılanmasından fare olayının işletim
 sistemine ulaşmasına kadar olan yolu izler.
 
-Belgenin ana kaynağı Samsung Exynos 9820 Android çekirdek ağacının aşağıdaki
-sabit revizyonudur:
+Belgenin ana kaynakları Samsung Exynos 9820 Android çekirdek ağaçlarının
+aşağıdaki sabit revizyonlarıdır:
 
-- depo: `ianmacd/d2s`
-- revizyon: `d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39`
-- hedef: `exynos9820-d2s_defconfig` ve `exynos9820-d2` ortak aygıt ağacı
+- `corsicanu/android_kernel_samsung_universal9820`, dal `android-9.0`, revizyon
+  `55f042627bb7030c93550faafa117674d32b21d1`;
+- `ianmacd/d2s`, revizyon
+  `d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39`;
+- hedef: `exynos9820-d2s_defconfig`, Exynos9820 ortak SoC tanımı ve
+  `beyond2lte`/D2 ortak aygıt ağacı.
 
 Bu revizyon sabitlendiği için aşağıdaki açıklamalar başka bir MAX77705 kullanan
 Snapdragon cihazından tahmin edilmemiştir. Eski Exynos/Snapdragon kaynakları
@@ -71,6 +74,7 @@ USB paketleri taşınmaz. Fare için iki yolun da aynı anda hazır olması gere
 | MAX77705 kesmesi | `GPA1_6`, aktif düşük, wakeup | `max77705-irq.c` | Tek fiziksel IRQ'yu USBC/CC/PD/MUIC/charger alt IRQ'larına dağıtır |
 | DWC3/xHCI | `0x10C00000`, `0x10000` | `dwc3-exynos.c`, DWC3 core, `xhci-plat.c` | DRD çekirdeği ve xHCI host denetleyicisi |
 | USB2 PHY | `0x10B00000` | Exynos USB DRD PHY sürücüleri | D+/D- analog/dijital PHY hazırlığı |
+| USB PHY beslemeleri | S2MPS19 `LDO10M`, `LDO11M`, `LDO12M` | regulator core + `phy-exynos-usbdrd.c` | USB bağlantısından önce üç PHY rayını birlikte açar |
 | Combo PCS/PMA | `0x10AE0000`, `0x10AF0000` | Exynos USB/DP PHY | SuperSpeed yolu; mevcut Windows USB2-only profili için gerekli değil |
 | USB PHY PMU | PMU offset `0x72C`, tam adres `0x1586072C` | Exynos PHY sürücüsü | PHY izolasyon/güç kapısı |
 
@@ -204,8 +208,10 @@ açar, controller'ı reset durumuna alır ve runtime clock'u kapatır. Resume'da
 6. adapter kilidi bırakılır.
 
 Dolayısıyla reset sonrası yalnız `MASTER` bitini yazmak yeterli değildir;
-timing, `FUNC_MODE_I2C` gereken platform durumu, FIFO/interrupt kalıntıları ve
-`AUTO_MODE` birlikte tutarlı hale getirilmelidir.
+timing, FIFO/interrupt kalıntıları ve `AUTO_MODE` birlikte tutarlı hale
+getirilmelidir. Buna karşılık universal9820 `exynos5_i2c_init()`
+`HSI2C_CTL` alanına tam olarak yalnız `HSI2C_MASTER` yazar. Ortak IP başlığında
+tanımlı olsa da `FUNC_MODE_I2C` bitini bu USI-backed HSI2C45 yolunda set etmez.
 
 ## 5. MAX77705 MFD: tek entegreden çoklu işlev üretme
 
@@ -399,7 +405,7 @@ CC=SOURCE
 ```
 
 Ayrılmada güvenli sıra ters işlevlidir: önce charger OTG/VBUS kapatılır,
-ardından MUIC `COM_OPEN=0x3f` yapılır. Windows 0.1.0.20 yolu yazma
+ardından MUIC `COM_OPEN=0x3f` yapılır. Windows 0.1.0.21 yolu yazma
 mailbox'ının yalnız başarı dönmesini yeterli saymaz; `CONTROL1_READ = 0x05`
 ile gerçek CONTROL1 değerini de doğrular.
 
@@ -562,6 +568,22 @@ programlar ve gerektiğinde combo PHY sahipliğini koordine eder. D2S stock
 profilinde USB3/DP combo PHY mevcuttur; bizim Windows USB2-only hedefimizde
 alıcı için temel zorunlu yol ana USB2 PHY'dir.
 
+USB bağlantısı için ayrıca SoC PHY sürücüsündeki güç sırası vardır:
+
+1. `dwc3_otg_phy_enable(..., on=1)` önce `phy_conn(..., 1)` çağırır.
+2. `exynos_usbdrd_phy_conn()` S2MPS19 üzerindeki `LDO10M`, `LDO11M` ve
+   `LDO12M` regülatörlerini bu sırayla açar.
+3. Üç ray birlikte açıldıktan sonra 1 ms bekler.
+4. Ancak bundan sonra runtime PM alınır ve `dwc3_core_init()` çalıştırılır.
+5. Host kapatılırken core/runtime PM kapandıktan sonra `phy_conn(..., 0)` üç
+   rayı bırakır.
+
+Beyond2lte DTS bu üç regülatörü `regulator-boot-on` olarak işaretler; ancak
+Linux yine de her fiziksel connection lifecycle'ında enable/disable referansı
+alır. Windows'ta henüz ACPM/S2MPS19 regulator provider bulunmadığından eşdeğer
+güvenli köprü UEFI'de voltajı değiştirmeden `SetLdo(..., NORMAL, TRUE)` ile
+üç rayı açık devretmek ve Windows kapanışında doğrudan PMIC yazmamak olur.
+
 ### 10.2 Role switch ve OTG state machine
 
 Exynos role-switch başlangıçta:
@@ -644,6 +666,7 @@ invariantlarını Windows PnP/power/driver modeline göre sağlaması gerekir.
 | MAX77705 nested IRQ | Şimdilik pasif KMDF timer/polling | Aynı status/state transition; gelecekte GPIO IRQ kaynağıyla olay temelli model |
 | CC/PD/MUIC policy | `b2lmax77705.sys` sabit-HOST alt kümesi | Auto-VBUS off, Auto-IBUS at-off, CC=SOURCE şartı, D+/D- AP yolu ve detach'te OPEN/OFF |
 | MAX77705 charger OTG | `b2lmax77705.sys` | CHGPROT unlock, INT_MASK, CNFG_00 state machine ve readback |
+| S2MPS19 USB PHY LDO10/11/12 | `B2LMax77705Dxe` boot handoff | DTS voltajlarını değiştirmeden üç boot-on rayı açar ve 1 ms bekler |
 | Exynos PHY/DWC3 wrapper | `b2lusb.sys`, `ACPI\BYN0002` | PMU/PHY hazırlığı, DWC3 reset ve HOST handoff |
 | Linux xHCI HCD | Microsoft `USBXHCI.SYS`, `ACPI\BYN0003` | xHCI ring/interrupt/root-hub yönetimi |
 | Linux USB core/hub | Microsoft `USBHUB3.SYS` | USB alıcı numaralandırması |
@@ -694,9 +717,9 @@ hazırlığının child xHCI başlamadan önce tamamlanmasını sağlamalıdır.
    class-driver sözleşmeleridir.
 5. Başka SoC'deki HSI2C/GPIO/clock/MMIO adresleri veya sabit opcode payloadları.
 
-### 12.3 Windows 0.1.0.20 kodunun Samsung kaynağına göre fark listesi
+### 12.3 Windows 0.1.0.21 kodunun Samsung kaynağına göre fark listesi
 
-Bu bölüm `windows/b2lusb` sürüm 0.1.0.20 kaynaklarını tarif eder.
+Bu bölüm `windows/b2lusb` sürüm 0.1.0.21 kaynaklarını tarif eder.
 "Eksik" ifadesi bir Linux API'sinin Windows'a taşınmadığını değil, karşılık
 gelen donanım invariantının henüz kanıtlanmadığını belirtir.
 
@@ -705,6 +728,7 @@ gelen donanım invariantının henüz kanıtlanmadığını belirtir.
 | HSI2C45 ve CMGP03 kaynak sahipliği | `BYN0004` iki MMIO sayfasını tek `b2lmax77705.sys` sahibine veriyor | Doğru sahiplik modeli |
 | CMGP03'ü I2C moduna seçme | `0x15C22000 + 0x30` alanına I2C modu yazılıyor | UEFI handoff'a bağımlılığı azaltıyor |
 | HSI2C iç USI resetini bırakma | HSI2C `+0xC4` alanına `0` yazılıyor | Samsung `exynos_usi_init()` ile eşleşiyor |
+| HSI2C `CTL` başlangıç değeri | Reset/recovery sonunda yalnız `HSI2C_MASTER` yazılıyor | universal9820 `exynos5_i2c_init()` ile tam eşleşiyor; önceki fazladan bit 0 kaldırıldı |
 | Clock framework ile gate/IP clock yönetimi | Windows sürücüsü clock framework kullanmıyor; UEFI'nin açık bıraktığı saat/timing durumunu devralıyor | Timing readback var, fakat clock ownership orijinal Linux kadar güçlü değil |
 | Interrupt tabanlı HSI2C45 transferi | Windows ACPI kaynağında HSI2C IRQ yok; bounded polling kullanılıyor | Kabul edilebilir geçici uyarlama; kaynak yorumunda HSI2C45'in "stock polling" olduğu yazılmamalı, stock DT yolu interrupt modudur |
 | Repeated START register read | Write mesajında STOP yok, ardından read+STOP uygulanıyor | Samsung transfer semantiğiyle eşleşiyor |
@@ -729,6 +753,7 @@ gelen donanım invariantının henüz kanıtlanmadığını belirtir.
 | CC SOURCE olmadan VBUS açmama | `B2lMaxEvaluateConnection()` yalnız state 2'de açıyor; diğer bütün CC durumlarında kendi açtığı veya bootloader'dan devraldığı A/E/F OTG modunu kapatıyor | Doğru temel güvenlik kapısı |
 | PD hard-reset/PR_SWAP yeniden zamanlaması | Tam PD message state machine yok | Sabit fare host profilinde rol takası dışarıda; fakat PD hatasında VBUS recovery sınırlı |
 | Exynos PHY/DWC3 HOST | `b2lusb.sys` ile uygulanmış ve cihazda xHCI RUN kanıtlanmış | Bu katman mevcut ana engel değil |
+| USB PHY LDO10/11/12 connection gücü | UEFI, S2MPS19 regulator protokolüyle üç DTS `boot-on` rayını `NORMAL/ON` tutup 1 ms bekliyor | Windows ACPM regulator sürücüsü oluşana kadar Samsung `phy_conn()` invariantını boot handoff koruyor |
 | Root hub/HID/mouse | Microsoft inbox yığınına bırakılmış | Doğru; `PORTSC.CCS` oluşmadan HID tarafında yapılacak iş yok |
 
 Bu karşılaştırmadan çıkan en kısa teknik sonuç şudur:
@@ -736,7 +761,7 @@ Bu karşılaştırmadan çıkan en kısa teknik sonuç şudur:
 1. Windows xHCI/PHY yolu cihazda çalışıyor.
 2. HSI2C transport hâlâ gerçek PMIC kimlik cevabıyla kanıtlanmalı.
 3. `CHG_CNFG_06.CHGPROT`, stock PD/VDM maskeleri, beyond2lte `CCCTRL1` ve
-   MUIC `COM_USB/COM_OPEN` adımları 0.1.0.20'de uygulanmıştır; cihaz readback'i
+   MUIC `COM_USB/COM_OPEN` adımları 0.1.0.21'de uygulanmıştır; cihaz readback'i
    bekleniyor.
 4. Sonraki açık donanım sınırı, gerçek CC=SOURCE ve `CONTROL1=0x09`
    sonucundan sonra charger OTG readback'i ile xHCI `PORTSC.CCS` oluşumunun
@@ -780,35 +805,66 @@ konektörde charger boost/VBUS üretildiğini kanıtlamaz.
 Bir sonraki tek build/flash turunda aşağıdaki zincir aynı boot içinde
 doğrulanmalıdır:
 
-1. HSI2C `USI_CON=0`; FS timing değerleri sıfır değil; `CONF.AUTO_MODE=1`.
-2. 0x66 TOP `PMICID1/PMICREV` okuması geçerli ve desteklenen revizyon.
-3. 0x25 USBC HW/FW/minor registerları geçerli.
-4. `0x54,0x00` opcode cevabının ilk byte'ı `0x54`.
-5. `0x57,0x01` opcode işlemi tamamlanmış.
-6. `CC_STATUS0 & 0x7 == SOURCE(2)`; adaptör ters takılırsa CC pin sonucu yine
+1. UEFI S2MPS19 `LDO10/11/12` açılışı başarıyla tamamlanmış.
+2. HSI2C `USI_CON=0`, `CTL=MASTER(0x8)`; FS timing değerleri sıfır değil;
+   `CONF.AUTO_MODE=1`.
+3. 0x66 TOP `PMICID1/PMICREV` okuması geçerli ve desteklenen revizyon.
+4. 0x25 USBC HW/FW/minor registerları geçerli.
+5. `0x54,0x00` opcode cevabının ilk byte'ı `0x54`.
+6. `0x57,0x01` opcode işlemi tamamlanmış.
+7. `CC_STATUS0 & 0x7 == SOURCE(2)`; adaptör ters takılırsa CC pin sonucu yine
    doğru okunmalı.
-7. MUIC `CONTROL1_WRITE(0x06,0x09)` tamamlanmış;
+8. MUIC `CONTROL1_WRITE(0x06,0x09)` tamamlanmış;
    `CONTROL1_READ(0x05)` sonucu tam olarak `0x09`.
-8. `CHG_CNFG_06.CHGPROT == 3`.
-9. `CHG_INT_MASK` OTG politikasına geçmiş.
-10. `CHG_CNFG_00 & 0xF`, mevcut moda göre `0xA`, `0xE` veya `0xF`.
-11. Konektörde gerçek VBUS ölçümü mevcut.
-12. xHCI HOST/RUN, HCHalted clear ve port power açık.
-13. Alıcı takılınca `PORTSC.CCS=1`; ardından port reset/enable.
-14. `USBHUB3` altında receiver VID/PID görünür.
-15. HID interface `HIDUSB/HIDCLASS` altında Started.
-16. Fare PDO'su `MOUHID/MOUCLASS` altında Started.
-17. Hareket, buton ve wheel raporları masaüstüne ulaşır.
+9. `CHG_CNFG_06.CHGPROT == 3`.
+10. `CHG_INT_MASK` OTG politikasına geçmiş.
+11. `CHG_CNFG_00 & 0xF`, mevcut moda göre `0xA`, `0xE` veya `0xF`.
+12. Konektörde gerçek VBUS ölçümü mevcut.
+13. xHCI HOST/RUN, HCHalted clear ve port power açık.
+14. Alıcı takılınca `PORTSC.CCS=1`; ardından port reset/enable.
+15. `USBHUB3` altında receiver VID/PID görünür.
+16. HID interface `HIDUSB/HIDCLASS` altında Started.
+17. Fare PDO'su `MOUHID/MOUCLASS` altında Started.
+18. Hareket, buton ve wheel raporları masaüstüne ulaşır.
 
-İlk başarısız madde gerçek hata sınırıdır. Örneğin madde 10 başarılı ama 12
+İlk başarısız madde gerçek hata sınırıdır. Örneğin madde 11 başarılı ama 13
 başarısızsa MAX77705 registerlarını genişletmek yerine Type-C data mux/USB2
-PHY fiziksel bağlantısı incelenmelidir. Madde 12 başarılı ama 13 başarısızsa
+PHY fiziksel bağlantısı incelenmelidir. Madde 13 başarılı ama 14 başarısızsa
 hub enumeration/descriptor/transfer hatasına geçilmelidir.
+
+### 14.1 Tek Linux açılışında karşılaştırmalı ölçüm
+
+`linux_test/usb-diagnostic.sh` stok/vendor Linux veya Android üzerinde root
+olarak tek açılışta iki snapshot toplar. Araç MAX77705'e I2C yazmaz ve MMIO
+yazması yapmaz; yalnız sysfs/debugfs/dmesg ile güvenli register okumalarını
+kaydeder:
+
+```sh
+su
+sh /data/local/tmp/usb-diagnostic.sh --guided /sdcard/B2LUSB-LINUX.TXT
+```
+
+İlk 10 saniyede alıcı çıkarılmış tutulur. İlk snapshot tamamlandıktan sonra
+alıcı takılır ve araç 20 saniye sonra ikinci snapshot'ı alır. Çıktıda özellikle
+şunlar birlikte karşılaştırılır:
+
+- `typec`, `usb_role`, `extcon`, `power_supply` ve USB device sysfs alanları;
+- MAX77705/CCIC/MUIC, DWC3/xHCI, HSI2C ve S2MPS19 kernel logları;
+- `m_vdd_ldo10`, `m_vdd_ldo11`, `m_vdd_ldo12` regulator durumları;
+- HSI2C45/USI, USB PHY/PMU, DWC3 ve xHCI register snapshot'ları;
+- IRQ sayaçları ve alıcı VID/PID/USB hız bilgileri.
+
+`linux_test/kur.sh` aynı aracı özel initramfs'e `/b2l-usb-diagnostic` adıyla
+ekler; `linux_test/init` guided ölçümü otomatik çalıştırıp sonucu ana tanı
+loguna ekler. Böylece sonraki Windows değişikliği tahmini bir register yazması
+yerine, çalışan Samsung Linux durumuyla gerçek before/after farkına dayanır.
 
 ## 15. Kaynak dosya indeksi
 
-Aşağıdaki yollar `ianmacd/d2s` revizyonu
-`d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39` içindedir:
+Aşağıdaki yollar öncelikle `corsicanu/android_kernel_samsung_universal9820`
+`55f042627bb7030c93550faafa117674d32b21d1` revizyonundan, cihaz-özel ayrıntılar
+ise `ianmacd/d2s` `d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39`
+revizyonundan doğrulanmıştır:
 
 | Konu | Kaynak dosya/fonksiyon |
 |---|---|
@@ -827,15 +883,17 @@ Aşağıdaki yollar `ianmacd/d2s` revizyonu
 | Charger/OTG | `drivers/battery_v2/max77705_charger.c`: `max77705_charger_unlock`, `max77705_set_otg`, `max77705_chg_set_mode_state` |
 | Exynos DWC3 wrapper | `drivers/usb/dwc3/dwc3-exynos.c`: `dwc3_exynos_probe`, role-switch eventleri |
 | DWC3 OTG host geçişi | `drivers/usb/dwc3/otg.c`: `dwc3_otg_start_host`, `dwc3_otg_phy_enable` |
-| Exynos USB PHY | `drivers/phy/samsung/phy-exynos-usbdrd.c`, `phy-exynos-usb3p1.c` |
+| Exynos USB PHY ve üç LDO connection sırası | `drivers/phy/samsung/phy-exynos-usbdrd.c`: `exynos_usbdrd_phy_conn`, `exynos_usbdrd_ldo_control`; `phy-exynos-usb3p1.c` |
+| S2MPS19 LDO enable semantiği | `drivers/regulator/s2mps19_regulator.c`: `s2m_enable`, `s2m_set_mode`; `include/linux/mfd/samsung/s2mps19-regulator.h`: L10/L11/L12 kontrol registerları |
 | xHCI platform/HCD | `drivers/usb/host/xhci-plat.c`, `drivers/usb/host/xhci.c` |
 | USB hub enumeration | `drivers/usb/core/hub.c`: `hub_event`, `usb_new_device` |
 | USB HID | `drivers/hid/usbhid/hid-core.c`: `usbhid_probe` |
 | HID/input core | `drivers/hid/hid-core.c`, `drivers/input/input.c` |
 
-Sabit GitHub kaynak kökü:
+Sabit GitHub kaynak kökleri:
 
-`https://github.com/ianmacd/d2s/tree/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39`
+- `https://github.com/corsicanu/android_kernel_samsung_universal9820/tree/55f042627bb7030c93550faafa117674d32b21d1/drivers`
+- `https://github.com/ianmacd/d2s/tree/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39`
 
 ## 16. Kısa sonuç
 

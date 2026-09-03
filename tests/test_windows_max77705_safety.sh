@@ -127,7 +127,7 @@ grep -q 'Context->MuicPathVerified = TRUE' "$MAIN"
 grep -q 'B2L_MAX_STAGE_MUIC_USB' "$MAIN"
 grep -q 'B2L_MAX_STAGE_MUIC_OPEN' "$MAIN"
 grep -q 'B2lMaxReadAndClearUsbcInterrupts' "$MAIN"
-grep -q 'DriverVer=09/04/2026,0.1.0.20' "$INF"
+grep -q 'DriverVer=09/04/2026,0.1.0.21' "$INF"
 SERVICE_SECTION="$(sed -n '/B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)/,/B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
 AUTOIBUS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureAutoIbus(Context)' | head -n1 | cut -d: -f1)"
 MASKS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureUsbcMasks(Context)' | head -n1 | cut -d: -f1)"
@@ -154,8 +154,11 @@ fi
 # HSI2C transfer path is bounded, serialized and uses repeated START for
 # one-byte register reads, matching Samsung's register transport.
 grep -q 'B2L_HSI2C_TIMEOUT_US    100000UL' "$HW"
-grep -q 'HSI2C_FUNC_MODE_I2C     (1UL << 0)' "$HW"
-grep -Fq 'HSI2C_FUNC_MODE_I2C | HSI2C_MASTER' "$HW"
+grep -Fq 'B2lMaxWriteRegister(Context, HSI2C_CTRL, HSI2C_MASTER);' "$HW"
+if grep -q 'HSI2C_FUNC_MODE_I2C' "$HW"; then
+  echo 'HATA: universal9820 HSI2C45 CTRL durumuna kullanilmayan FUNC_MODE_I2C biti eklendi' >&2
+  exit 1
+fi
 grep -q 'HSI2C_FAST_MASTER_ID    (0x7UL << 24)' "$HW"
 grep -q 'TargetAddress |= HSI2C_FAST_MASTER_ID' "$HW"
 grep -q 'B2L_HSI2C_RETRIES       2UL' "$HW"
@@ -193,24 +196,34 @@ if sed -n '/B2lMaxEvtD0Entry/,/B2lMaxEvtD0Exit/p' "$MAIN" | grep -q 'return Stat
   exit 1
 fi
 
-# UEFI only prepares/probes the exact stock bus; Windows remains policy owner.
+# UEFI prepares the exact stock bus and boot-on USB PHY rails; Windows remains
+# MAX77705 charger/CC/PD policy owner.
 grep -q '\[45\] = {' "$HSI2C"
 grep -q 'SclBankNum = 12' "$HSI2C"
 grep -q 'SdaBankNum = 13' "$HSI2C"
 grep -q 'B2L_MAX77705_BUS             45' "$DXE"
+for Ldo in 10 11 12; do
+  grep -q "B2L_USB_PHY_LDO${Ldo}[[:space:]]*${Ldo}" "$DXE"
+done
+grep -q 'Pmic->SetLdo (' "$DXE"
+grep -q 'ID_S2MPS19' "$DXE"
+grep -q 'S2MPS_MODE_NORMAL' "$DXE"
+grep -q 'B2L_USB_PHY_LDO_SETTLE_US    1000' "$DXE"
 test "$(rg -c 'HsI2c->Read \(' "$DXE")" -eq 6
 grep -qx '  beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf' "$DSC"
 grep -qx '  # INF beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf' "$DXE_INC"
 grep -q 'MODULE_TYPE                    = DXE_DRIVER' "$DXE_INF"
 grep -q '^  SiliciumPkg/SiliciumPkg.dec$' "$DXE_INF"
 grep -q '^  MemoryAllocationHelperLib$' "$DXE_INF"
+grep -q '^  gEfiPmicRegulatorProtocolGuid$' "$DXE_INF"
+grep -q 'gEfiHsI2cProtocolGuid AND gEfiPmicRegulatorProtocolGuid' "$DXE_INF"
 grep -q '^  (VOID)ImageHandle;$' "$DXE"
 grep -q '^  (VOID)SystemTable;$' "$DXE"
 if rg -n 'UNREFERENCED_PARAMETER|PAGED_CODE|NT_ASSERT|__pragma|__declspec' "$DXE"; then
   echo 'HATA: UEFI MAX77705 DXE kaynaginda Windows-only C makrosu bulundu' >&2
   exit 1
 fi
-if rg -n 'HsI2c->Write|CHG_INT_MASK|CC_STATUS0' "$DXE"; then
+if rg -n 'HsI2c->Write|CHG_INT_MASK|CC_STATUS0|SetBuck' "$DXE"; then
   echo 'HATA: UEFI hazirlik surucusu MAX77705 politikasina yazmamalı' >&2
   exit 1
 fi
