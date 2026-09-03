@@ -2,14 +2,18 @@
 #include <wdf.h>
 
 // Passive lower filter for the URS host child.  It never touches controller
-// registers and never fails PnP; it only persists the resources and PnP stages
-// that actually reached the USBXHCI stack.  This remains useful after a failed
-// start, when pnputil may no longer expose the released resource assignment.
+// registers, changes resource lists or fails PnP; it only persists the resource
+// requirements, assigned resources and PnP stages that actually reached the
+// USBXHCI stack.  This remains useful after a failed start, when pnputil may no
+// longer expose the released resource assignment.
 
 #define B2L_USB_MON_DMA_BYTES 0x00010000UL
 
 DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD B2lUsbMonEvtDeviceAdd;
+EVT_WDF_DEVICE_FILTER_RESOURCE_REQUIREMENTS B2lUsbMonEvtFilterAddResourceRequirements;
+EVT_WDF_DEVICE_FILTER_RESOURCE_REQUIREMENTS B2lUsbMonEvtFilterRemoveResourceRequirements;
+EVT_WDF_DEVICE_REMOVE_ADDED_RESOURCES B2lUsbMonEvtRemoveAddedResources;
 EVT_WDF_DEVICE_PREPARE_HARDWARE B2lUsbMonEvtPrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE B2lUsbMonEvtReleaseHardware;
 EVT_WDF_DEVICE_D0_ENTRY B2lUsbMonEvtD0Entry;
@@ -59,6 +63,191 @@ B2lUsbMonRecordFlag(
         return;
     }
     B2lUsbMonWriteUlong(Key, Name, Value);
+    WdfRegistryClose(Key);
+}
+
+static
+ULONG
+B2lUsbMonCountRequirementDescriptors(
+    WDFIORESREQLIST RequirementsList
+    )
+{
+    WDFIORESLIST ResourceList;
+    ULONG AlternativeCount;
+    ULONG AlternativeIndex;
+    ULONG DescriptorCount;
+
+    AlternativeCount = WdfIoResourceRequirementsListGetCount(RequirementsList);
+    DescriptorCount = 0;
+    for (AlternativeIndex = 0;
+         AlternativeIndex < AlternativeCount;
+         ++AlternativeIndex) {
+        ResourceList = WdfIoResourceRequirementsListGetIoResList(
+            RequirementsList,
+            AlternativeIndex
+            );
+        if (ResourceList != NULL) {
+            DescriptorCount += WdfIoResourceListGetCount(ResourceList);
+        }
+    }
+    return DescriptorCount;
+}
+
+static
+VOID
+B2lUsbMonResetRequirementTrace(
+    WDFDEVICE Device
+    )
+{
+    WDFKEY Key;
+
+    if (!NT_SUCCESS(B2lUsbMonOpenDeviceKey(Device, &Key))) {
+        return;
+    }
+
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqRemoveSeen", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqAddSeen", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonRemoveAddedSeen", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqAlternativeCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqDescriptorCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqMemoryCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqMemoryMinLo", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqMemoryMinHi", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqMemoryMaxLo", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqMemoryMaxHi", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqMemoryLengthLo", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqMemoryLengthHi", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqInterruptCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqInterruptMin", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqInterruptMax", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqInterruptFlags", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqAddAlternativeCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqAddDescriptorCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedRawCount", 0UL);
+    B2lUsbMonWriteUlong(Key, L"B2LMonAssignedTranslatedCount", 0UL);
+    WdfRegistryClose(Key);
+}
+
+static
+VOID
+B2lUsbMonRecordRequirements(
+    WDFDEVICE Device,
+    WDFIORESREQLIST RequirementsList
+    )
+{
+    PIO_RESOURCE_DESCRIPTOR Resource;
+    WDFIORESLIST ResourceList;
+    WDFKEY Key;
+    ULONGLONG Length;
+    ULONGLONG MaximumAddress;
+    ULONGLONG MinimumAddress;
+    ULONG AlternativeCount;
+    ULONG AlternativeIndex;
+    ULONG DescriptorCount;
+    ULONG DescriptorIndex;
+    ULONG InterruptCount;
+    ULONG MemoryCount;
+
+    if (!NT_SUCCESS(B2lUsbMonOpenDeviceKey(Device, &Key))) {
+        return;
+    }
+
+    AlternativeCount = WdfIoResourceRequirementsListGetCount(RequirementsList);
+    DescriptorCount = 0;
+    MemoryCount = 0;
+    InterruptCount = 0;
+    for (AlternativeIndex = 0;
+         AlternativeIndex < AlternativeCount;
+         ++AlternativeIndex) {
+        ResourceList = WdfIoResourceRequirementsListGetIoResList(
+            RequirementsList,
+            AlternativeIndex
+            );
+        if (ResourceList == NULL) {
+            continue;
+        }
+
+        for (DescriptorIndex = 0;
+             DescriptorIndex < WdfIoResourceListGetCount(ResourceList);
+             ++DescriptorIndex) {
+            Resource = WdfIoResourceListGetDescriptor(
+                ResourceList,
+                DescriptorIndex
+                );
+            if (Resource == NULL) {
+                continue;
+            }
+            ++DescriptorCount;
+
+            if (Resource->Type == CmResourceTypeMemory ||
+                Resource->Type == CmResourceTypeMemoryLarge) {
+                ++MemoryCount;
+                if (MemoryCount == 1) {
+                    Length = RtlIoDecodeMemIoResource(
+                        Resource,
+                        NULL,
+                        &MinimumAddress,
+                        &MaximumAddress
+                        );
+                    B2lUsbMonWriteUlong(
+                        Key,
+                        L"B2LMonReqMemoryMinLo",
+                        (ULONG)MinimumAddress
+                        );
+                    B2lUsbMonWriteUlong(
+                        Key,
+                        L"B2LMonReqMemoryMinHi",
+                        (ULONG)(MinimumAddress >> 32)
+                        );
+                    B2lUsbMonWriteUlong(
+                        Key,
+                        L"B2LMonReqMemoryMaxLo",
+                        (ULONG)MaximumAddress
+                        );
+                    B2lUsbMonWriteUlong(
+                        Key,
+                        L"B2LMonReqMemoryMaxHi",
+                        (ULONG)(MaximumAddress >> 32)
+                        );
+                    B2lUsbMonWriteUlong(
+                        Key,
+                        L"B2LMonReqMemoryLengthLo",
+                        (ULONG)Length
+                        );
+                    B2lUsbMonWriteUlong(
+                        Key,
+                        L"B2LMonReqMemoryLengthHi",
+                        (ULONG)(Length >> 32)
+                        );
+                }
+            } else if (Resource->Type == CmResourceTypeInterrupt) {
+                ++InterruptCount;
+                if (InterruptCount == 1) {
+                    B2lUsbMonWriteUlong(
+                        Key,
+                        L"B2LMonReqInterruptMin",
+                        Resource->u.Interrupt.MinimumVector
+                        );
+                    B2lUsbMonWriteUlong(
+                        Key,
+                        L"B2LMonReqInterruptMax",
+                        Resource->u.Interrupt.MaximumVector
+                        );
+                    B2lUsbMonWriteUlong(
+                        Key,
+                        L"B2LMonReqInterruptFlags",
+                        Resource->Flags
+                        );
+                }
+            }
+        }
+    }
+
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqAlternativeCount", AlternativeCount);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqDescriptorCount", DescriptorCount);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqMemoryCount", MemoryCount);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqInterruptCount", InterruptCount);
+    B2lUsbMonWriteUlong(Key, L"B2LMonReqRemoveSeen", 1UL);
     WdfRegistryClose(Key);
 }
 
@@ -196,6 +385,7 @@ B2lUsbMonEvtDeviceAdd(
     PWDFDEVICE_INIT DeviceInit
     )
 {
+    WDF_FDO_EVENT_CALLBACKS FdoCallbacks;
     WDF_PNPPOWER_EVENT_CALLBACKS PnpCallbacks;
     WDFDEVICE Device;
     NTSTATUS Status;
@@ -203,6 +393,15 @@ B2lUsbMonEvtDeviceAdd(
     UNREFERENCED_PARAMETER(Driver);
 
     WdfFdoInitSetFilter(DeviceInit);
+    WDF_FDO_EVENT_CALLBACKS_INIT(&FdoCallbacks);
+    FdoCallbacks.EvtDeviceFilterAddResourceRequirements =
+        B2lUsbMonEvtFilterAddResourceRequirements;
+    FdoCallbacks.EvtDeviceFilterRemoveResourceRequirements =
+        B2lUsbMonEvtFilterRemoveResourceRequirements;
+    FdoCallbacks.EvtDeviceRemoveAddedResources =
+        B2lUsbMonEvtRemoveAddedResources;
+    WdfFdoInitSetEventCallbacks(DeviceInit, &FdoCallbacks);
+
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&PnpCallbacks);
     PnpCallbacks.EvtDevicePrepareHardware = B2lUsbMonEvtPrepareHardware;
     PnpCallbacks.EvtDeviceReleaseHardware = B2lUsbMonEvtReleaseHardware;
@@ -224,7 +423,76 @@ B2lUsbMonEvtDeviceAdd(
     B2lUsbMonRecordFlag(Device, L"B2LMonD0EntrySeen", 0UL);
     B2lUsbMonRecordFlag(Device, L"B2LMonReleaseSeen", 0UL);
     B2lUsbMonRecordFlag(Device, L"B2LMonDmaProbeSeen", 0UL);
+    B2lUsbMonResetRequirementTrace(Device);
     B2lUsbMonProbeDma(Device);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+B2lUsbMonEvtFilterRemoveResourceRequirements(
+    WDFDEVICE Device,
+    WDFIORESREQLIST RequirementsList
+    )
+{
+    // Observe the requirements on the downward pass.  The monitor never
+    // removes, updates or appends a descriptor.
+    B2lUsbMonRecordRequirements(Device, RequirementsList);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+B2lUsbMonEvtFilterAddResourceRequirements(
+    WDFDEVICE Device,
+    WDFIORESREQLIST RequirementsList
+    )
+{
+    WDFKEY Key;
+
+    // Observe the returning pass only.  Registering this callback requires a
+    // matching EvtDeviceRemoveAddedResources callback even though we add no
+    // descriptors.
+    if (NT_SUCCESS(B2lUsbMonOpenDeviceKey(Device, &Key))) {
+        B2lUsbMonWriteUlong(Key, L"B2LMonReqAddSeen", 1UL);
+        B2lUsbMonWriteUlong(
+            Key,
+            L"B2LMonReqAddAlternativeCount",
+            WdfIoResourceRequirementsListGetCount(RequirementsList)
+            );
+        B2lUsbMonWriteUlong(
+            Key,
+            L"B2LMonReqAddDescriptorCount",
+            B2lUsbMonCountRequirementDescriptors(RequirementsList)
+            );
+        WdfRegistryClose(Key);
+    }
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+B2lUsbMonEvtRemoveAddedResources(
+    WDFDEVICE Device,
+    WDFCMRESLIST ResourcesRaw,
+    WDFCMRESLIST ResourcesTranslated
+    )
+{
+    WDFKEY Key;
+
+    // No descriptors were added, so there is deliberately nothing to remove.
+    // Reaching this callback proves that PnP produced an assigned resource list.
+    if (NT_SUCCESS(B2lUsbMonOpenDeviceKey(Device, &Key))) {
+        B2lUsbMonWriteUlong(Key, L"B2LMonRemoveAddedSeen", 1UL);
+        B2lUsbMonWriteUlong(
+            Key,
+            L"B2LMonAssignedRawCount",
+            WdfCmResourceListGetCount(ResourcesRaw)
+            );
+        B2lUsbMonWriteUlong(
+            Key,
+            L"B2LMonAssignedTranslatedCount",
+            WdfCmResourceListGetCount(ResourcesTranslated)
+            );
+        WdfRegistryClose(Key);
+    }
     return STATUS_SUCCESS;
 }
 

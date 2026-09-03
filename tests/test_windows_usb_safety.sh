@@ -25,8 +25,8 @@ fi
 grep -Fq 'ACPI\BYN0002' "$PARENT_INF"
 grep -q 'KmdfLibraryVersion=1.15' "$PARENT_INF"
 grep -Fq 'URS\BYN0002&HOST' "$HOST_INF"
-grep -q 'DriverVer=09/03/2026,0.1.0.8' "$PARENT_INF"
-grep -q 'DriverVer=09/03/2026,0.1.0.8' "$HOST_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.9' "$PARENT_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.9' "$HOST_INF"
 grep -qi 'Include=usbxhci.inf' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT.Services' "$HOST_INF"
@@ -122,6 +122,25 @@ if printf '%s\n' "$OBSERVE_BLOCK" | rg -n 'B2lWrite32|WRITE_REGISTER'; then
 fi
 
 grep -q 'WdfFdoInitSetFilter' "$WIN/b2lusbmon.c"
+grep -q 'WDF_FDO_EVENT_CALLBACKS_INIT' "$WIN/b2lusbmon.c"
+grep -q 'WdfFdoInitSetEventCallbacks' "$WIN/b2lusbmon.c"
+grep -q 'B2lUsbMonEvtFilterRemoveResourceRequirements' "$WIN/b2lusbmon.c"
+grep -q 'B2lUsbMonEvtFilterAddResourceRequirements' "$WIN/b2lusbmon.c"
+grep -q 'B2lUsbMonEvtRemoveAddedResources' "$WIN/b2lusbmon.c"
+grep -q 'WdfIoResourceRequirementsListGetCount' "$WIN/b2lusbmon.c"
+grep -q 'WdfIoResourceListGetDescriptor' "$WIN/b2lusbmon.c"
+grep -q 'RtlIoDecodeMemIoResource' "$WIN/b2lusbmon.c"
+grep -q 'B2LMonReqMemoryMinLo' "$WIN/b2lusbmon.c"
+grep -q 'B2LMonReqInterruptMin' "$WIN/b2lusbmon.c"
+grep -q 'B2LMonRemoveAddedSeen' "$WIN/b2lusbmon.c"
+if rg -n 'WdfIoResource(List|RequirementsList)(Append|Insert|Update|Remove)|RtlIoEncodeMemIoResource' "$WIN/b2lusbmon.c"; then
+  echo 'HATA: USB monitor resource listelerini degistirmemeli' >&2
+  exit 1
+fi
+if rg -n 'MmMapIoSpace|READ_REGISTER|WRITE_REGISTER|B2lRead32|B2lWrite32' "$WIN/b2lusbmon.c"; then
+  echo 'HATA: USB monitor donanim registerlerine erismemeli' >&2
+  exit 1
+fi
 grep -q 'B2LMonPrepareSeen' "$WIN/b2lusbmon.c"
 grep -q 'B2LMonMemoryBaseLo' "$WIN/b2lusbmon.c"
 grep -q 'B2LMonInterruptVector' "$WIN/b2lusbmon.c"
@@ -151,7 +170,7 @@ grep -q 'LOG_PIXELS=168' "$ROOT/tools_winpe_ui_scale.sh"
 grep -Fq 'Control Panel\Desktop' "$ROOT/tools_winpe_ui_scale.sh"
 grep -q 'B2L_USB_AUTO_HOST="${B2L_USB_AUTO_HOST:-1}"' "$ROOT/yap.sh"
 grep -q 'B2LUSB_AUTO_HOST=\$AUTO_HOST' "$ROOT/tools_b2lusb.sh"
-grep -q 'B2LUSB_DRIVER_VERSION=0.1.0.8' "$ROOT/tools_b2lusb.sh"
+grep -q 'B2LUSB_DRIVER_VERSION=0.1.0.9' "$ROOT/tools_b2lusb.sh"
 grep -q 'B2LUSB_OFFLINE_DRIVERSTORE=1' "$ROOT/tools_b2lusb.sh"
 grep -q 'stage-winpe-driverstore.ps1' "$ROOT/tools_b2lusb.sh"
 grep -q 'OFFLINE_PACKAGE="UsbTouch"' "$ROOT/tools_b2lusb.sh"

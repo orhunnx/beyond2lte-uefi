@@ -455,6 +455,24 @@ ring/DCBAA/config programlamasının herhangi bir örnekte görülüp görülmed
 son status çıktısında özetler. Timer 12 saniye sonunda kendini durdurur;
 controller, PHY, PMU ve bellek guard'larına yeni yazım eklenmemiştir.
 
+`0.1.0.8` cihaz ölçümünde gözlemci 7.878 örnek boyunca hiçbir geçiş görmedi:
+ilk/son/OR değerleri `USBCMD=0`, `USBSTS=1`, `CRCR=0`, `DCBAAP=0` ve
+`CONFIG=0` kaldı. HCRST, Run, HCHalted-clear, CNR, HSE ve ring/DCBAA/config
+bayraklarının tamamı sıfırdı. Hedefli restart başarılı olduğu halde child yine
+`Code 10 / 0xC000009E` oldu. Dolayısıyla USBXHCI controller registerlerini hiç
+programlamadan, lower-filter `PrepareHardware` almadan önce çıkıyor.
+
+`0.1.0.9`, bunun öncesindeki PnP kaynak sözleşmesini salt-okuma biçiminde
+yakalar. Lower-filter resource-requirements IRP'sinin aşağı/yukarı geçişlerini,
+logical-configuration ve descriptor sayılarını, ilk MMIO min/max/length ile
+interrupt min/max/flags alanlarını `B2LMonReq*` değerlerine yazar. Ayrıca
+`EvtDeviceRemoveAddedResources` çağrısının görülüp görülmediğini ve bu aşamadaki
+raw/translated descriptor sayılarını kaydeder. Callback'ler descriptor eklemez,
+silmez veya güncellemez; MMIO ve MemoryMap guard'larına dokunmaz. Sonraki cihaz
+ölçümü `0x10C00000/0x10000` ile GSIV 273 child gereksiniminde yoksa URS kaynak
+aktarımını, ikisi de varsa inbox USBXHCI'nin daha sonraki erken kontrolünü hedef
+gösterecektir.
+
 UFS bu değişikliğe bilinçli olarak dahil edilmedi. Mevcut runtime UFS kurulumu
 CACHE yazma/geri-okuma testini başarıyla geçiriyor ve `mountvol /N` sonrasında
 çalışıyor. UFS'yi daha erken PnP'ye taşımak Android RAW bölümlerinin harfleri
@@ -479,6 +497,10 @@ Detaylı test sözleşmesi `windows/b2lusb/README.md` içindedir.
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/how-to-capture-a-usb-event-trace>
 - Microsoft KMDF high-resolution timer sözleşmesi:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdftimer/ns-wdftimer-_wdf_timer_config>
+- Microsoft KMDF resource-requirements akışı:
+  <https://learn.microsoft.com/en-us/windows-hardware/drivers/wdf/introduction-to-hardware-resources>
+- Microsoft KMDF FDO resource callback sözleşmesi:
+  <https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdffdo/ns-wdffdo-_wdf_fdo_event_callbacks>
 - Microsoft `Code 14 / CM_PROB_NEED_RESTART` açıklaması:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/install/cm-prob-need-restart>
 - Microsoft hedefli `pnputil /restart-device` sözdizimi:

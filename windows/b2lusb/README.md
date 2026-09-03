@@ -160,6 +160,23 @@ Run, HCHalted-clear, HSE ile geçici CRCR/DCBAAP/CONFIG programlamasını status
 otomatik çağırır. Gözlemci controller/PHY/PMU registerlerine veya MemoryMap
 guard'larına yazmaz ve 12 saniye sonunda durur.
 
+`0.1.0.8` cihazında gözlemci 7.878 örnek aldı; `USBCMD=0`,
+`USBSTS.HCHalted=1`, `CRCR=0`, `DCBAAP=0` ve `CONFIG=0` değerlerinde tek geçiş
+görmedi. Hedefli PnP restartı başarılı olmasına rağmen child yine
+`Code 10 / 0xC000009E` verdi ve lower-filter `PrepareSeen=0` kaldı. Bu, inbox
+USBXHCI'nin controller resetini veya command-ring kurulumunu hiç başlatmadan
+çıktığını doğrular.
+
+`0.1.0.9`, aynı lower-filter'a PnP resource-requirements gidiş/dönüş
+callback'lerini ekler. Filtre listeleri değiştirmeden logical-configuration ve
+descriptor sayılarını, ilk MMIO aralığını ve ilk interrupt aralığını
+`B2LMonReq*` değerlerine kaydeder. `B2LMonRemoveAddedSeen` ile raw/translated
+descriptor sayıları ise PnP'nin atanmış kaynak listesi üretme aşamasına ulaşıp
+ulaşmadığını gösterir. Böylece DWC3 `0x10C00000/0x10000` ile GSIV 273 child
+gereksinimlerinde yoksa URS aktarımı; ikisi de mevcutsa USBXHCI'nin sonraki
+erken başlatma sözleşmesi araştırılacaktır. Bu sürüm de MMIO, PHY, PMU,
+resource listeleri ve MemoryMap guard'ları üzerinde hiçbir değişiklik yapmaz.
+
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
 DEFAULT hive ve WIM geri-okuma doğrulaması `tools_winpe_ui_scale.sh` içindedir.
