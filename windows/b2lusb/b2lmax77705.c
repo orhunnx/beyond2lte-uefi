@@ -187,6 +187,9 @@ B2lMaxProbeIdentity(PB2L_MAX_CONTEXT Context)
 {
     NTSTATUS Status;
 
+    Context->IdentityReady = FALSE;
+    Context->BaselineValid = FALSE;
+
     // Same ordering as max77705_i2c_probe(): prove TOP first, then create
     // the USBC and charger logical clients on the shared HSI2C45 bus.
     Status = B2lMaxReadByte(
@@ -548,6 +551,42 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)
     return STATUS_SUCCESS;
 }
 
+static NTSTATUS
+B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
+{
+    NTSTATUS Status;
+
+    if (!Context->HardwareReady) {
+        return STATUS_DEVICE_NOT_READY;
+    }
+
+    // Samsung brings MAX77705 up as an MFD and performs CC/charger work
+    // asynchronously.  Keep the same recovery boundary here: a transient
+    // bus/identity failure is retried by the passive timer instead of
+    // permanently failing the ACPI parent and all of its _DEP children.
+    if (!Context->IdentityReady) {
+        Status = B2lMaxHsI2cInitialize(Context);
+        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_BUS, Status);
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+
+        Status = B2lMaxProbeIdentity(Context);
+        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_IDENTITY, Status);
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+    }
+
+    Status = B2lMaxEvaluateConnection(Context);
+    B2lMaxPublishDiagnostic(
+        Context,
+        NT_SUCCESS(Status) ? B2L_MAX_STAGE_READY : B2L_MAX_STAGE_CC,
+        Status
+        );
+    return Status;
+}
+
 static VOID
 B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)
 {
@@ -744,30 +783,12 @@ NTSTATUS
 B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
 {
     PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
-    NTSTATUS Status;
 
     UNREFERENCED_PARAMETER(PreviousState);
     WdfWaitLockAcquire(Context->BusLock, NULL);
-    Status = B2lMaxHsI2cInitialize(Context);
-    B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_BUS, Status);
-    if (NT_SUCCESS(Status)) {
-        Status = B2lMaxProbeIdentity(Context);
-        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_IDENTITY, Status);
-    }
-    if (NT_SUCCESS(Status)) {
-        Status = B2lMaxEvaluateConnection(Context);
-        if (NT_SUCCESS(Status)) {
-            Context->PollingEnabled = TRUE;
-            B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_READY, Status);
-        }
-    }
-    if (!NT_SUCCESS(Status)) {
-        Context->PollingEnabled = FALSE;
-    }
+    Context->PollingEnabled = TRUE;
+    (VOID)B2lMaxServiceConnection(Context);
     WdfWaitLockRelease(Context->BusLock);
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
     (VOID)WdfTimerStart(
         Context->PollTimer,
         WDF_REL_TIMEOUT_IN_MS(B2L_MAX_POLL_MS)
@@ -790,6 +811,8 @@ B2lMaxEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
         (VOID)B2lMaxDisableOtg(Context);
         B2lMaxHsI2cQuiesce(Context);
     }
+    Context->IdentityReady = FALSE;
+    Context->BaselineValid = FALSE;
     WdfWaitLockRelease(Context->BusLock);
     return STATUS_SUCCESS;
 }
@@ -799,25 +822,16 @@ B2lMaxEvtPollTimer(WDFTIMER Timer)
 {
     WDFDEVICE Device = (WDFDEVICE)WdfTimerGetParentObject(Timer);
     PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
-    UCHAR PreviousCc;
-    BOOLEAN PreviousOtg;
-    NTSTATUS Status;
 
     WdfWaitLockAcquire(Context->BusLock, NULL);
-    if (!Context->PollingEnabled || !Context->HardwareReady ||
-        !Context->IdentityReady) {
+    if (!Context->PollingEnabled || !Context->HardwareReady) {
         WdfWaitLockRelease(Context->BusLock);
         return;
     }
-    PreviousCc = Context->CcStatus0;
-    PreviousOtg = Context->OtgEnabled;
-    Status = B2lMaxEvaluateConnection(Context);
-    if (!NT_SUCCESS(Status) || (PreviousCc != Context->CcStatus0) ||
-        (PreviousOtg != Context->OtgEnabled)) {
-        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_CC, Status);
-    }
-    if (Context->PollingEnabled && Context->HardwareReady &&
-        Context->IdentityReady) {
+    // ServiceConnection publishes the precise failed stage (BUS, IDENTITY,
+    // CC or OTG).  Do not overwrite a retry failure with a generic CC stage.
+    (VOID)B2lMaxServiceConnection(Context);
+    if (Context->PollingEnabled && Context->HardwareReady) {
         (VOID)WdfTimerStart(
             Timer,
             WDF_REL_TIMEOUT_IN_MS(B2L_MAX_POLL_MS)

@@ -82,6 +82,8 @@ fi
 # HSI2C transfer path is bounded, serialized and uses repeated START for
 # one-byte register reads, matching Samsung's register transport.
 grep -q 'B2L_HSI2C_TIMEOUT_US    100000UL' "$HW"
+grep -q 'HSI2C_FUNC_MODE_I2C     (1UL << 0)' "$HW"
+grep -Fq 'HSI2C_FUNC_MODE_I2C | HSI2C_MASTER' "$HW"
 grep -q 'WdfWaitLockAcquire(Context->BusLock' "$MAIN"
 grep -q 'B2lMaxTransferMessage' "$HW"
 grep -q 'FALSE,' "$HW"
@@ -96,6 +98,11 @@ grep -q 'TimerConfig.AutomaticSerialization = FALSE' "$MAIN"
 grep -q 'Context->PollingEnabled = TRUE' "$MAIN"
 grep -q 'Context->PollingEnabled = FALSE' "$MAIN"
 test "$(rg -c 'WdfTimerStart\(' "$MAIN")" -eq 2
+test "$(rg -c '\(VOID\)B2lMaxServiceConnection\(Context\)' "$MAIN")" -eq 2
+if sed -n '/B2lMaxEvtD0Entry/,/B2lMaxEvtD0Exit/p' "$MAIN" | grep -q 'return Status'; then
+  echo 'HATA: gecici MAX77705 I2C hatasi ACPI parent D0 girisini dusurmemeli' >&2
+  exit 1
+fi
 
 # UEFI only prepares/probes the exact stock bus; Windows remains policy owner.
 grep -q '\[45\] = {' "$HSI2C"

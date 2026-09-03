@@ -287,9 +287,14 @@ X:\Windows\B2LUSB\b2lusbctl.exe host
 pnputil /enum-devices /deviceid "ACPI\BYN0003"
 ```
 
-`0.1.0.15`, pasif KMDF zamanlayıcısını tek atımlı çalıştırıp her örnekten
+`0.1.0.16`, pasif KMDF zamanlayıcısını tek atımlı çalıştırıp her örnekten
 sonra yeniden kurar. Böylece `EvtDeviceAdd` sırasında görülen
-`CM_PROB_FAILED_ADD / STATUS_NOT_SUPPORTED` kaldırılır. İlk doğrudan konektör
+`CM_PROB_FAILED_ADD / STATUS_NOT_SUPPORTED` kaldırılır. HSI2C software reseti
+sonrasında Samsung sürücüsü gibi `FUNC_MODE_I2C | MASTER` geri yüklenir;
+yalnız `MASTER` yazılarak oluşan ilk PMIC kimlik okuması timeout'u giderilir.
+Bus veya kimlik okuması yine geçici olarak başarısız olursa ACPI parent D0
+başlangıcı düşürülmez: pasif timer bus/kimlik/CC/OTG zincirini yeniden dener ve
+`_DEP` altındaki USB host'un başlamasını engellemez. İlk doğrudan konektör
 testi, MAX77705'in bildirdiği CC durumu ve charger OTG readback'iyle birlikte
 yapılır. Başarı sırası:
 

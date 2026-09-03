@@ -14,6 +14,7 @@
 #define HSI2C_TRANS_STATUS      0x50U
 #define HSI2C_ADDRESS           0x70U
 
+#define HSI2C_FUNC_MODE_I2C     (1UL << 0)
 #define HSI2C_MASTER            (1UL << 3)
 #define HSI2C_RXCHON            (1UL << 6)
 #define HSI2C_TXCHON            (1UL << 7)
@@ -70,7 +71,14 @@ B2lMaxResetController(PB2L_MAX_CONTEXT Context)
 {
     B2lMaxAndOrRegister(Context, HSI2C_CTRL, ~0UL, HSI2C_SW_RST);
     B2lMaxAndOrRegister(Context, HSI2C_CTRL, ~HSI2C_SW_RST, 0UL);
-    B2lMaxWriteRegister(Context, HSI2C_CTRL, HSI2C_MASTER);
+    // A controller software reset drops FUNC_MODE_I2C.  Samsung's Exynos
+    // HSI2C driver restores both bits in exynos5_i2c_init(); restoring only
+    // MASTER leaves AUTO_CONF.RUN inert and every transfer times out.
+    B2lMaxWriteRegister(
+        Context,
+        HSI2C_CTRL,
+        HSI2C_FUNC_MODE_I2C | HSI2C_MASTER
+        );
     B2lMaxWriteRegister(Context, HSI2C_TRAIL_CTRL, HSI2C_TRAILING_COUNT);
     B2lMaxAndOrRegister(Context, HSI2C_CONF, ~0UL, HSI2C_AUTO_MODE);
 }
