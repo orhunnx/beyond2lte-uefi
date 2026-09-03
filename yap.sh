@@ -151,12 +151,14 @@ fi
 
 if [ "$USB_TEST" = 1 ]; then
   MAX77705_DXE_INC="$MU/Platforms/Samsung/beyond2ltePkg/Include/DXE.inc"
+  MAX77705_DSC="$MU/Platforms/Samsung/beyond2ltePkg/beyond2lte.dsc"
   sed -i 's@^  # INF beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf$@  INF beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf@' "$MAX77705_DXE_INC"
   if grep -qx '  INF beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf' "$MAX77705_DXE_INC" \
+     && grep -qx '  beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf' "$MAX77705_DSC" \
      && grep -qx '  HsI2cLib|S5E9820Pkg/Library/HsI2cLib/HsI2cLib.inf' "$TOUCH_SOC_DSC"; then
-    echo "  B2LMax77705Dxe: HSI2C45 HAZIRLIK ACIK"
+    echo "  B2LMax77705Dxe: DSC + FV + HSI2C45 HAZIRLIK ACIK"
   else
-    echo "HATA: B2LMax77705Dxe veya HsI2cLib etkinlestirilemedi"
+    echo "HATA: B2LMax77705Dxe DSC/FV veya HsI2cLib etkinlestirilemedi"
     exit 1
   fi
 fi

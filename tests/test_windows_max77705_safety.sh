@@ -9,6 +9,9 @@ HDR="$WIN/b2lmax77705.h"
 INF="$WIN/b2lmax77705.inf.in"
 DSDT="$ROOT/silicium-acpi-overlay/SoCs/Samsung/S5E9820/DSDT_minimal.dsl"
 DXE="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.c"
+DXE_INF="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf"
+DXE_INC="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Include/DXE.inc"
+DSC="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/beyond2lte.dsc"
 HSI2C="$ROOT/mu-silicium-overlay/Silicon/Samsung/S5E9820Pkg/Library/HsI2cLib/HsI2c.c"
 
 # Stock beyond2lte HSI2C45/USI ownership is isolated in ACPI\BYN0004.
@@ -92,6 +95,9 @@ grep -q 'SclBankNum = 12' "$HSI2C"
 grep -q 'SdaBankNum = 13' "$HSI2C"
 grep -q 'B2L_MAX77705_BUS             45' "$DXE"
 test "$(rg -c 'HsI2c->Read \(' "$DXE")" -eq 6
+grep -qx '  beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf' "$DSC"
+grep -qx '  # INF beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf' "$DXE_INC"
+grep -q 'MODULE_TYPE                    = DXE_DRIVER' "$DXE_INF"
 if rg -n 'HsI2c->Write|CHG_INT_MASK|CC_STATUS0' "$DXE"; then
   echo 'HATA: UEFI hazirlik surucusu MAX77705 politikasina yazmamalı' >&2
   exit 1
