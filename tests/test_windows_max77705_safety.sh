@@ -98,6 +98,8 @@ test "$(rg -c 'HsI2c->Read \(' "$DXE")" -eq 6
 grep -qx '  beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf' "$DSC"
 grep -qx '  # INF beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.inf' "$DXE_INC"
 grep -q 'MODULE_TYPE                    = DXE_DRIVER' "$DXE_INF"
+grep -q '^  SiliciumPkg/SiliciumPkg.dec$' "$DXE_INF"
+grep -q '^  MemoryAllocationHelperLib$' "$DXE_INF"
 if rg -n 'HsI2c->Write|CHG_INT_MASK|CC_STATUS0' "$DXE"; then
   echo 'HATA: UEFI hazirlik surucusu MAX77705 politikasina yazmamalı' >&2
   exit 1
