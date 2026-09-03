@@ -577,6 +577,17 @@ açar; detach veya SINK geçişi aynı baseline'a geri döner. Windows sürücü
 firmware flash, tam PD/UcmCx, orientation mux veya şarj politikası sahipliği
 almaz.
 
+`0.1.0.18`, gerçek cihazın `B2LMaxStage=0x20` ve
+`B2LMaxStatus=0xC0000182` çıktısının sürücü içindeki `CLK_CTRL=0` kapısında
+oluştuğunu düzeltir. Exynos9820 HSI2C45 için sıfır CLK_CTRL geçerlidir; stok
+sürücü gibi FS timing ve AUTO_MODE doğrulanır, fast-mode adresine master ID 7
+yerleştirilir. Kimlik okumasından sonra Exynos Android sırası izlenir:
+Auto-VBUS `0x54/0x00` ile kapatılır ve `FW_AUTOIBUS 0x57/0x01` ile firmware
+açık, input-bus otomasyonu kapalı bırakılır. Snapdragon UEFI'de görülen
+`0x57/0x03`, CC firmware'ini de kapattığından kullanılmaz. Sonraki cihaz
+çıktısı için HSI2C CTRL/CONF/AUTO_CONF/ADDR ve Auto-IBUS sonucu ayrıca
+yayımlanır.
+
 Ayrıca WinPE sürücü enjeksiyonlarının WIM içinde bıraktığı delikler SYSTEM
 imajının her buildde büyümesine neden oluyordu. `cache_esp.sh`, FAT boyutunu
 hesaplamadan önce standalone `boot.wim` üzerinde `wimlib-imagex optimize` ve

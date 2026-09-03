@@ -23,6 +23,7 @@
 #define B2L_MAX_STAGE_IDENTITY       0x30UL
 #define B2L_MAX_STAGE_CC             0x40UL
 #define B2L_MAX_STAGE_AUTO_VBUS      0x48UL
+#define B2L_MAX_STAGE_AUTO_IBUS      0x4CUL
 #define B2L_MAX_STAGE_OTG_ON         0x50UL
 #define B2L_MAX_STAGE_OTG_OFF        0x60UL
 #define B2L_MAX_STAGE_READY          0x70UL
@@ -40,6 +41,7 @@ typedef struct _B2L_MAX_CONTEXT {
     BOOLEAN PollingEnabled;
     BOOLEAN OtgEnabled;
     BOOLEAN AutoVbusDisabled;
+    BOOLEAN AutoIbusConfigured;
     BOOLEAN BaselineValid;
     UCHAR PmicId;
     UCHAR PmicRev;
@@ -56,12 +58,17 @@ typedef struct _B2L_MAX_CONTEXT {
     UCHAR ChargerIntOk;
     UCHAR ChargerDetails[3];
     UCHAR OpcodeResponse;
+    UCHAR AutoIbusMode;
+    ULONG HsI2cControl;
     ULONG HsI2cClockControl;
     ULONG HsI2cIntStatus;
     ULONG HsI2cErrorStatus;
     ULONG HsI2cTransferStatus;
     ULONG HsI2cFifoStatus;
     ULONG HsI2cTimingFs[3];
+    ULONG HsI2cConfiguration;
+    ULONG HsI2cAutoConfiguration;
+    ULONG HsI2cAddress;
     ULONG HsI2cRetryCount;
     ULONG DiagnosticStage;
     NTSTATUS DiagnosticStatus;

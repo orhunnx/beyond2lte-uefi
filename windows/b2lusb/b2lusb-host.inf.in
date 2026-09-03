@@ -6,7 +6,7 @@ Class=USB
 ClassGuid={36fc9e60-c465-11cf-8056-444553540000}
 Provider=%B2L%
 CatalogFile=b2lusb.cat
-DriverVer=09/03/2026,0.1.0.17
+DriverVer=09/03/2026,0.1.0.18
 PnpLockdown=1
 
 [DestinationDirs]

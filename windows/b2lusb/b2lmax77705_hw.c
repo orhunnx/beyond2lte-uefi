@@ -56,6 +56,7 @@
 #define HSI2C_MASTER_BUSY       (1UL << 17)
 #define HSI2C_MASTER_NO_ACK     0x0BUL
 #define HSI2C_MASTER_LOST       0x0CUL
+#define HSI2C_FAST_MASTER_ID    (0x7UL << 24)
 
 #define B2L_USI_CONFIG_OFFSET   0x30U
 #define B2L_USI_I2C_MODE        0x04U
@@ -101,6 +102,7 @@ B2lMaxAndOrRegister(
 static VOID
 B2lMaxCaptureControllerState(PB2L_MAX_CONTEXT Context)
 {
+    Context->HsI2cControl = B2lMaxReadRegister(Context, HSI2C_CTRL);
     Context->HsI2cClockControl = B2lMaxReadRegister(Context, HSI2C_CLK_CTRL);
     Context->HsI2cIntStatus = B2lMaxReadRegister(Context, HSI2C_INT_STATUS);
     Context->HsI2cErrorStatus = B2lMaxReadRegister(Context, HSI2C_ERR_STATUS);
@@ -110,6 +112,10 @@ B2lMaxCaptureControllerState(PB2L_MAX_CONTEXT Context)
     Context->HsI2cTimingFs[0] = B2lMaxReadRegister(Context, HSI2C_TIMING_FS1);
     Context->HsI2cTimingFs[1] = B2lMaxReadRegister(Context, HSI2C_TIMING_FS2);
     Context->HsI2cTimingFs[2] = B2lMaxReadRegister(Context, HSI2C_TIMING_FS3);
+    Context->HsI2cConfiguration = B2lMaxReadRegister(Context, HSI2C_CONF);
+    Context->HsI2cAutoConfiguration =
+        B2lMaxReadRegister(Context, HSI2C_AUTO_CONF);
+    Context->HsI2cAddress = B2lMaxReadRegister(Context, HSI2C_ADDRESS);
 }
 
 static VOID
@@ -230,9 +236,12 @@ B2lMaxHsI2cInitialize(PB2L_MAX_CONTEXT Context)
     B2lMaxResetController(Context);
     B2lMaxHsI2cQuiesce(Context);
     B2lMaxCaptureControllerState(Context);
-    if ((Context->HsI2cClockControl == 0UL) ||
-        ((Context->HsI2cTimingFs[0] | Context->HsI2cTimingFs[1] |
-          Context->HsI2cTimingFs[2]) == 0UL)) {
+    // CLK_CTRL is zero on the working Exynos9820 HSI2C45 hand-off.  Samsung's
+    // driver never treats that register as a readiness flag; the programmed
+    // FS timing and AUTO_MODE state are the meaningful controller contract.
+    if (((Context->HsI2cTimingFs[0] | Context->HsI2cTimingFs[1] |
+          Context->HsI2cTimingFs[2]) == 0UL) ||
+        ((Context->HsI2cConfiguration & HSI2C_AUTO_MODE) == 0UL)) {
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
     return STATUS_SUCCESS;
@@ -278,7 +287,11 @@ B2lMaxTransferMessage(
 
     TargetAddress = B2lMaxReadRegister(Context, HSI2C_ADDRESS);
     TargetAddress &= ~((0x3FFUL << 10) | 0x3FFUL | (0xFFUL << 24));
-    TargetAddress |= (SlaveAddress & 0x7FUL) << 10;
+    // Stock Exynos9820 fast-mode HSI2C writes master ID 7 in bits 31:24
+    // before the 7-bit target address.  Leaving it zero can stall the state
+    // machine before ADDR0 even though the bus and FIFO both look idle.
+    TargetAddress |= HSI2C_FAST_MASTER_ID |
+                     ((SlaveAddress & 0x7FUL) << 10);
     B2lMaxWriteRegister(Context, HSI2C_ADDRESS, TargetAddress);
 
     AutoConfig = B2lMaxReadRegister(Context, HSI2C_AUTO_CONF);

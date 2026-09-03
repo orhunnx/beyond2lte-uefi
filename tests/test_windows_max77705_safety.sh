@@ -76,13 +76,18 @@ grep -q 'Wanted = (UCHAR)((Current &' "$MAIN"
 grep -Fq '((*ReadBack) & Mask) == (Wanted & Mask)' "$MAIN"
 grep -q 'MAX77705_OPCODE_FACTORY_TEST     0x54U' "$MAIN"
 grep -q 'MAX77705_FACTORY_AUTO_VBUS_OFF   0x00U' "$MAIN"
+grep -q 'MAX77705_OPCODE_FW_AUTOIBUS      0x57U' "$MAIN"
+grep -q 'MAX77705_AUTOIBUS_AT_OFF         0x01U' "$MAIN"
 grep -q 'MAX77705_USBC_OPCODE_WRITE 0x21U' "$MAIN"
 grep -q 'MAX77705_USBC_OPCODE_END   0x41U' "$MAIN"
 grep -q 'MAX77705_USBC_OPCODE_READ  0x51U' "$MAIN"
 grep -q 'MAX77705_USBC_INT_APCMDRES' "$MAIN"
-grep -q 'Response\[0\] != MAX77705_OPCODE_FACTORY_TEST' "$MAIN"
+grep -q 'Response\[0\] != Opcode' "$MAIN"
 grep -q 'Context->AutoVbusDisabled = TRUE' "$MAIN"
 grep -q 'B2L_MAX_STAGE_AUTO_VBUS' "$MAIN"
+grep -q 'Context->AutoIbusConfigured = TRUE' "$MAIN"
+grep -q 'B2L_MAX_STAGE_AUTO_IBUS' "$MAIN"
+grep -q 'B2lMaxConfigureAutoIbus' "$MAIN"
 if rg -ni 'firmware.*(write|update|flash)|SW_RESET|USBC_RESET' "$MAIN" "$HDR"; then
   echo 'HATA: MAX77705 Windows yolu firmware/reset politikasina genislemis' >&2
   exit 1
@@ -93,6 +98,8 @@ fi
 grep -q 'B2L_HSI2C_TIMEOUT_US    100000UL' "$HW"
 grep -q 'HSI2C_FUNC_MODE_I2C     (1UL << 0)' "$HW"
 grep -Fq 'HSI2C_FUNC_MODE_I2C | HSI2C_MASTER' "$HW"
+grep -q 'HSI2C_FAST_MASTER_ID    (0x7UL << 24)' "$HW"
+grep -q 'TargetAddress |= HSI2C_FAST_MASTER_ID' "$HW"
 grep -q 'B2L_HSI2C_RETRIES       3UL' "$HW"
 grep -q 'HSI2C_INT_TRANS_ABORT' "$HW"
 grep -q 'HSI2C_INT_NO_DEV_ACK' "$HW"
@@ -101,6 +108,10 @@ grep -q 'HSI2C_INT_TIMEOUT' "$HW"
 grep -q 'B2lMaxWaitBusIdle' "$HW"
 grep -q 'Timing.TimingFs1 = B2lMaxReadRegister' "$HW"
 grep -q 'B2lMaxWriteRegister(Context, HSI2C_TIMING_FS1, Timing.TimingFs1)' "$HW"
+if grep -q 'Context->HsI2cClockControl == 0UL' "$HW"; then
+  echo 'HATA: Exynos9820 HSI2C45 CLK_CTRL=0 durumu sahte hazirlik hatasi sayilamaz' >&2
+  exit 1
+fi
 test "$(grep -n 'HSI2C_TX_DATA, Buffer\[Index++\]' "$HW" | head -n1 | cut -d: -f1)" \
   -lt "$(grep -n 'HSI2C_AUTO_CONF, ~0UL, HSI2C_MASTER_RUN' "$HW" | head -n1 | cut -d: -f1)"
 grep -q 'WdfWaitLockAcquire(Context->BusLock' "$MAIN"
@@ -152,8 +163,14 @@ grep -Fq 'B2LUSB-MAX77705.TXT' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LMaxChgDetails2' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LMaxAutoVbusDisabled' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LMaxOpcodeResponse' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxAutoIbusConfigured' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxAutoIbusMode' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxHsI2cControl' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LMaxHsI2cErrorStatus' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LMaxHsI2cTransferStatus' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxHsI2cConfiguration' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxHsI2cAutoConfiguration' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxHsI2cAddress' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LMaxHsI2cRetryCount' "$ROOT/windows/startnet.cmd"
 
 echo 'Windows MAX77705 safety checks: PASS'

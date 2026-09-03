@@ -309,6 +309,17 @@ penceresinden gönderilir; APCmdRes beklenip 0x51 cevabı doğrulandıktan sonra
 CC=SOURCE için charger OTG geçişi uygulanır. Firmware güncelleme, PD policy,
 VCONN ve mux sahipliği bu sabit HOST sürücüsüne alınmaz.
 
+`0.1.0.18`, cihaz çıktısında görülen `CLK_CTRL=0` değerini sahte bir bus
+hazırlık hatası saymayı bırakır. Stok Exynos9820 HSI2C45 sürücüsü gibi hazır
+olmayı FS timing ve `AUTO_MODE` üzerinden doğrular; fast-mode adres alanına
+master kimliği 7'yi ekler. MAX77705 kimliği okunduktan sonra Samsung'un
+başlangıç sırası tamamlanır: `FACTORY_TEST(0x54, 0x00)` ile firmware Auto-VBUS
+kapatılır, ardından `FW_AUTOIBUS(0x57, 0x01)` ile USBC firmware'i açık
+bırakılıp giriş-bus otomasyonu işletim sistemine devredilir. Snapdragon UEFI
+günlüğündeki `0x57,0x03` kullanılmaz; o değer CC firmware'ini de kapattığı için
+bu Windows HOST/CC gözlem modeline uygun değildir. CTRL/CONF/AUTO_CONF/ADDR
+ve iki otomasyon durumunun tanıları bir sonraki cihaz testine eklenmiştir.
+
 `cache_esp.sh --win --system`, sürücü ekleme/çıkarma turlarının standalone
 `boot.wim` içinde bıraktığı kullanılmayan akışları `wimlib-imagex optimize`
 ile temizler ve `verify` sonrasında gerçek boyuta göre SYSTEM imajını hesaplar.
@@ -319,6 +330,7 @@ Başarı sırası:
 
 1. `current=HOST`, `GCTL.PRTCAP=HOST`, `GSTS.CURMOD=HOST` ve `resets>=1`;
 2. `ACPI\BYN0004` için `B2LMaxAutoVbusDisabled=1`,
+   `B2LMaxAutoIbusConfigured=1`, `B2LMaxAutoIbusMode=1`,
    `B2LMaxCcStatus0 & 7 = 2`,
    `B2LMaxOtgEnabled=1` ve charger mode `A/E/F`;
 3. `ACPI\BYN0003` için `USBXHCI` servisinin başlaması;
