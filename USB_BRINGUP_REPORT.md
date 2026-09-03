@@ -434,6 +434,27 @@ touch `0.2.0.1` paketini ve mevcut `vhf.sys` için demand-start servis kaydını
 da offline hazırlar. Standart `--touch --usb-test` turunda ikisi tek DISM/UAC
 işleminde eklenir.
 
+`0.1.0.7` cihaz ölçümü offline staging'i iki tarafta doğruladı. Touch, WinPE
+açıldığı andan itibaren çalıştı; VHF HID Device ile HID-compliant touch screen
+devnode'ları `Started` oldu. USB HOST child için hedefli PnP restart da bu kez
+`Device restarted successfully` döndürdü ve önceki Code 14 kapandı. Buna
+rağmen `USBXHCI` yine `Code 10 / 0xC000009E (STATUS_DEVICE_POWER_FAILURE)`
+verdi. Lower filter `AddSeen=1` ve iki DMA canary başarısı kaydederken
+`PrepareSeen=0`, `D0EntrySeen=0` kaldı. Son xHCI snapshot'ında `USBCMD=0`,
+`USBSTS.HCHalted=1`, `CRCR=0`, `DCBAAP=0`, `CONFIG=0` görüldü. Artık sorun
+runtime INF/restart, MemoryMap guard veya DMA tahsisi değil; USBXHCI'nin
+fonksiyon sürücüsü başlangıcında, lower filter `PrepareHardware` çağrılmadan
+önce dönen erken bir controller başlangıç hatasıdır.
+
+`0.1.0.8`, bu kısa ve sonradan sıfırlanan register hareketini tek fotoğrafla
+ayırt etmek için parent sürücüye 12 saniyelik salt-okuma xHCI gözlemcisi ekler.
+`startnet.cmd`, HOST child restartından hemen önce `b2lusbctl.exe observe`
+çağırır. Yüksek çözünürlüklü KMDF timer yalnız `USBCMD`, `USBSTS`, `CRCR`,
+`DCBAAP` ve `CONFIG` okur; HCRST, CNR, Run, HCHalted-clear, host-system-error ve
+ring/DCBAA/config programlamasının herhangi bir örnekte görülüp görülmediğini
+son status çıktısında özetler. Timer 12 saniye sonunda kendini durdurur;
+controller, PHY, PMU ve bellek guard'larına yeni yazım eklenmemiştir.
+
 UFS bu değişikliğe bilinçli olarak dahil edilmedi. Mevcut runtime UFS kurulumu
 CACHE yazma/geri-okuma testini başarıyla geçiriyor ve `mountvol /N` sonrasında
 çalışıyor. UFS'yi daha erken PnP'ye taşımak Android RAW bölümlerinin harfleri
@@ -456,6 +477,8 @@ Detaylı test sözleşmesi `windows/b2lusb/README.md` içindedir.
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-dual-role-driver-stack-architecture>
 - Microsoft USBXHCI/UCX ETW yakalama yöntemi:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/how-to-capture-a-usb-event-trace>
+- Microsoft KMDF high-resolution timer sözleşmesi:
+  <https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdftimer/ns-wdftimer-_wdf_timer_config>
 - Microsoft `Code 14 / CM_PROB_NEED_RESTART` açıklaması:
   <https://learn.microsoft.com/en-us/windows-hardware/drivers/install/cm-prob-need-restart>
 - Microsoft hedefli `pnputil /restart-device` sözdizimi:

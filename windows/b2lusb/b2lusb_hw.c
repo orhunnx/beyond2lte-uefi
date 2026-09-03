@@ -43,6 +43,10 @@
 #define B2L_XHCI_PORTSC_BASE          0x400UL
 #define B2L_XHCI_PORTSC_STRIDE        0x10UL
 #define B2L_XHCI_USBSTS_HCH           (1UL << 0)
+#define B2L_XHCI_USBCMD_RUN           (1UL << 0)
+#define B2L_XHCI_USBCMD_HCRST         (1UL << 1)
+#define B2L_XHCI_USBSTS_HSE           (1UL << 2)
+#define B2L_XHCI_USBSTS_CNR           (1UL << 11)
 #define B2L_XHCI_CAPLENGTH_MIN        0x20U
 #define B2L_XHCI_CAPLENGTH_MAX        0x80U
 #define B2L_XHCI_HCC_XECP_SHIFT       16U
@@ -138,6 +142,112 @@ B2lDwc3IdIsValid(
     return (Family == B2L_DWC3_ID_USB3) ||
            (Family == B2L_DWC3_ID_USB31) ||
            (Family == B2L_DWC3_ID_USB32);
+}
+
+VOID
+B2lUsbHardwareObserveXhci(
+    PB2L_USB_CONTEXT Context
+    )
+{
+    UCHAR CapLength;
+    ULONG UsbCmd;
+    ULONG UsbSts;
+    ULONG CrcrLow;
+    ULONG CrcrHigh;
+    ULONG DcbaapLow;
+    ULONG DcbaapHigh;
+    ULONG Config;
+
+    if (!Context->HardwareReady || (Context->Dwc3Registers == NULL)) {
+        return;
+    }
+
+    CapLength = READ_REGISTER_UCHAR(
+        (volatile UCHAR *)Context->Dwc3Registers
+        );
+    if ((CapLength < B2L_XHCI_CAPLENGTH_MIN) ||
+        (CapLength > B2L_XHCI_CAPLENGTH_MAX) ||
+        (((ULONG)CapLength + B2L_XHCI_CONFIG + sizeof(ULONG)) >
+            Context->Dwc3Length)) {
+        return;
+    }
+
+    // These xHCI operational-register reads have no clear-on-read behavior.
+    // The bounded observer never changes controller, PHY, PMU or guard state.
+    UsbCmd = B2lRead32(
+        Context->Dwc3Registers,
+        (ULONG)CapLength + B2L_XHCI_USBCMD
+        );
+    UsbSts = B2lRead32(
+        Context->Dwc3Registers,
+        (ULONG)CapLength + B2L_XHCI_USBSTS
+        );
+    CrcrLow = B2lRead32(
+        Context->Dwc3Registers,
+        (ULONG)CapLength + B2L_XHCI_CRCR_LOW
+        );
+    CrcrHigh = B2lRead32(
+        Context->Dwc3Registers,
+        (ULONG)CapLength + B2L_XHCI_CRCR_HIGH
+        );
+    DcbaapLow = B2lRead32(
+        Context->Dwc3Registers,
+        (ULONG)CapLength + B2L_XHCI_DCBAAP_LOW
+        );
+    DcbaapHigh = B2lRead32(
+        Context->Dwc3Registers,
+        (ULONG)CapLength + B2L_XHCI_DCBAAP_HIGH
+        );
+    Config = B2lRead32(
+        Context->Dwc3Registers,
+        (ULONG)CapLength + B2L_XHCI_CONFIG
+        );
+
+    if (Context->XhciObserveSamples == 0) {
+        Context->XhciObserveFirstUsbCmd = UsbCmd;
+        Context->XhciObserveFirstUsbSts = UsbSts;
+    } else if ((UsbCmd != Context->XhciObserveLastUsbCmd) ||
+               (UsbSts != Context->XhciObserveLastUsbSts)) {
+        ++Context->XhciObserveTransitions;
+    }
+    ++Context->XhciObserveSamples;
+    Context->XhciObserveLastUsbCmd = UsbCmd;
+    Context->XhciObserveLastUsbSts = UsbSts;
+    Context->XhciObserveUsbCmdOr |= UsbCmd;
+    Context->XhciObserveUsbStsOr |= UsbSts;
+
+    if ((UsbCmd & B2L_XHCI_USBCMD_HCRST) != 0) {
+        Context->XhciObserveFlags |= B2L_XHCI_OBSERVE_SEEN_HCRST;
+    }
+    if ((UsbCmd & B2L_XHCI_USBCMD_RUN) != 0) {
+        Context->XhciObserveFlags |= B2L_XHCI_OBSERVE_SEEN_RUN;
+    }
+    if ((UsbSts & B2L_XHCI_USBSTS_HCH) == 0) {
+        Context->XhciObserveFlags |= B2L_XHCI_OBSERVE_SEEN_HCH_CLEAR;
+    }
+    if ((UsbSts & B2L_XHCI_USBSTS_CNR) != 0) {
+        Context->XhciObserveFlags |= B2L_XHCI_OBSERVE_SEEN_CNR;
+    }
+    if ((UsbSts & B2L_XHCI_USBSTS_HSE) != 0) {
+        Context->XhciObserveFlags |= B2L_XHCI_OBSERVE_SEEN_HSE;
+    }
+    if (((CrcrLow | CrcrHigh) != 0) &&
+        ((Context->XhciObserveFlags & B2L_XHCI_OBSERVE_SEEN_CRCR) == 0)) {
+        Context->XhciObserveFlags |= B2L_XHCI_OBSERVE_SEEN_CRCR;
+        Context->XhciObserveCrcrLow = CrcrLow;
+        Context->XhciObserveCrcrHigh = CrcrHigh;
+    }
+    if (((DcbaapLow | DcbaapHigh) != 0) &&
+        ((Context->XhciObserveFlags & B2L_XHCI_OBSERVE_SEEN_DCBAAP) == 0)) {
+        Context->XhciObserveFlags |= B2L_XHCI_OBSERVE_SEEN_DCBAAP;
+        Context->XhciObserveDcbaapLow = DcbaapLow;
+        Context->XhciObserveDcbaapHigh = DcbaapHigh;
+    }
+    if ((Config != 0) &&
+        ((Context->XhciObserveFlags & B2L_XHCI_OBSERVE_SEEN_CONFIG) == 0)) {
+        Context->XhciObserveFlags |= B2L_XHCI_OBSERVE_SEEN_CONFIG;
+        Context->XhciObserveConfig = Config;
+    }
 }
 
 static NTSTATUS
@@ -560,6 +670,22 @@ B2lUsbHardwareGetStatus(
     Status->PmuUsbPhy = READ_REGISTER_ULONG(
         (volatile ULONG *)Context->PmuUsbPhy
         );
+    WdfSpinLockAcquire(Context->XhciObserveLock);
+    Status->XhciObserveFlags = Context->XhciObserveFlags;
+    Status->XhciObserveSamples = Context->XhciObserveSamples;
+    Status->XhciObserveTransitions = Context->XhciObserveTransitions;
+    Status->XhciObserveFirstUsbCmd = Context->XhciObserveFirstUsbCmd;
+    Status->XhciObserveFirstUsbSts = Context->XhciObserveFirstUsbSts;
+    Status->XhciObserveLastUsbCmd = Context->XhciObserveLastUsbCmd;
+    Status->XhciObserveLastUsbSts = Context->XhciObserveLastUsbSts;
+    Status->XhciObserveUsbCmdOr = Context->XhciObserveUsbCmdOr;
+    Status->XhciObserveUsbStsOr = Context->XhciObserveUsbStsOr;
+    Status->XhciObserveCrcrLow = Context->XhciObserveCrcrLow;
+    Status->XhciObserveCrcrHigh = Context->XhciObserveCrcrHigh;
+    Status->XhciObserveDcbaapLow = Context->XhciObserveDcbaapLow;
+    Status->XhciObserveDcbaapHigh = Context->XhciObserveDcbaapHigh;
+    Status->XhciObserveConfig = Context->XhciObserveConfig;
+    WdfSpinLockRelease(Context->XhciObserveLock);
 
     UsbStatus = 0;
     if (NT_SUCCESS(B2lReadXhciUsbStatus(Context, &UsbStatus))) {

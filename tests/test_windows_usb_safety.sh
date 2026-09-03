@@ -25,8 +25,8 @@ fi
 grep -Fq 'ACPI\BYN0002' "$PARENT_INF"
 grep -q 'KmdfLibraryVersion=1.15' "$PARENT_INF"
 grep -Fq 'URS\BYN0002&HOST' "$HOST_INF"
-grep -q 'DriverVer=09/03/2026,0.1.0.7' "$PARENT_INF"
-grep -q 'DriverVer=09/03/2026,0.1.0.7' "$HOST_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.8' "$PARENT_INF"
+grep -q 'DriverVer=09/03/2026,0.1.0.8' "$HOST_INF"
 grep -qi 'Include=usbxhci.inf' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT.Services' "$HOST_INF"
@@ -84,14 +84,42 @@ grep -q 'B2lResetDwc3RoleCore' "$WIN/b2lusb_hw.c"
 grep -q 'KeDelayExecutionThread' "$WIN/b2lusb_hw.c"
 test "$(rg -c 'Status = B2lResetDwc3RoleCore' "$WIN/b2lusb_hw.c")" -eq 2
 grep -q 'B2L_USB_STATUS_CORE_RESET' "$WIN/b2lusb_public.h"
-grep -q '#define B2L_USB_IOCTL_VERSION 4UL' "$WIN/b2lusb_public.h"
+grep -q '#define B2L_USB_IOCTL_VERSION 5UL' "$WIN/b2lusb_public.h"
 grep -q 'XhciUsbCmd' "$WIN/b2lusb_public.h"
 grep -q 'XhciDcbaapLow' "$WIN/b2lusb_public.h"
 grep -q 'XhciExtCap\[12\]' "$WIN/b2lusb_public.h"
+grep -q 'IOCTL_B2L_USB_ARM_XHCI_OBSERVER' "$WIN/b2lusb_public.h"
+grep -q 'B2L_XHCI_OBSERVE_SEEN_HCRST' "$WIN/b2lusb_public.h"
+grep -q 'B2L_XHCI_OBSERVE_SEEN_CRCR' "$WIN/b2lusb_public.h"
 grep -q 'Dwc3Gusb2PhyCfg' "$WIN/b2lusb_public.h"
 grep -q 'B2L_XHCI_EXT_CAP_DWORDS' "$WIN/b2lusb_hw.c"
 grep -q 'ExtCapOffset <= Context->Dwc3Length' "$WIN/b2lusb_hw.c"
 grep -q 'XhciExtCap\[11\]' "$WIN/b2lusbctl.c"
+grep -q 'b2lusbctl.exe status|observe|host|device|none' "$WIN/b2lusbctl.c"
+grep -q 'B2lUsbEvtXhciObserveTimer' "$WIN/b2lusb.c"
+grep -q 'B2L_XHCI_OBSERVE_WINDOW_100NS' "$WIN/b2lusb.c"
+grep -q 'WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lUsbEvtXhciObserveTimer)' "$WIN/b2lusb.c"
+if grep -q 'WDF_TIMER_CONFIG_INIT_PERIODIC' "$WIN/b2lusb.c"; then
+  echo 'HATA: observer kendi callbackinden durdurulan periodic timer kullanmamali' >&2
+  exit 1
+fi
+grep -q 'UseHighResolutionTimer = WdfTrue' "$WIN/b2lusb.c"
+grep -q 'TimerConfig.AutomaticSerialization = FALSE' "$WIN/b2lusb.c"
+grep -q 'Attributes.ExecutionLevel = WdfExecutionLevelDispatch' "$WIN/b2lusb.c"
+grep -q 'WdfSpinLockAcquire(Context->XhciObserveLock)' "$WIN/b2lusb.c"
+TIMER_BLOCK="$(sed -n '/^B2lUsbEvtXhciObserveTimer(/,/^}/p' "$WIN/b2lusb.c")"
+printf '%s\n' "$TIMER_BLOCK" | grep -q 'WdfTimerStart'
+if printf '%s\n' "$TIMER_BLOCK" | grep -q 'WdfTimerStop'; then
+  echo 'HATA: observer callbacki ayni timer icin concurrent stop yarismamali' >&2
+  exit 1
+fi
+grep -q 'B2L_XHCI_OBSERVE_PERIOD_MS 1UL' "$WIN/b2lusb.h"
+OBSERVE_BLOCK="$(sed -n '/^B2lUsbHardwareObserveXhci(/,/^}/p' "$WIN/b2lusb_hw.c")"
+printf '%s\n' "$OBSERVE_BLOCK" | grep -q 'B2lRead32'
+if printf '%s\n' "$OBSERVE_BLOCK" | rg -n 'B2lWrite32|WRITE_REGISTER'; then
+  echo 'HATA: xHCI observer salt-okuma olmali' >&2
+  exit 1
+fi
 
 grep -q 'WdfFdoInitSetFilter' "$WIN/b2lusbmon.c"
 grep -q 'B2LMonPrepareSeen' "$WIN/b2lusbmon.c"
@@ -123,7 +151,7 @@ grep -q 'LOG_PIXELS=168' "$ROOT/tools_winpe_ui_scale.sh"
 grep -Fq 'Control Panel\Desktop' "$ROOT/tools_winpe_ui_scale.sh"
 grep -q 'B2L_USB_AUTO_HOST="${B2L_USB_AUTO_HOST:-1}"' "$ROOT/yap.sh"
 grep -q 'B2LUSB_AUTO_HOST=\$AUTO_HOST' "$ROOT/tools_b2lusb.sh"
-grep -q 'B2LUSB_DRIVER_VERSION=0.1.0.7' "$ROOT/tools_b2lusb.sh"
+grep -q 'B2LUSB_DRIVER_VERSION=0.1.0.8' "$ROOT/tools_b2lusb.sh"
 grep -q 'B2LUSB_OFFLINE_DRIVERSTORE=1' "$ROOT/tools_b2lusb.sh"
 grep -q 'stage-winpe-driverstore.ps1' "$ROOT/tools_b2lusb.sh"
 grep -q 'OFFLINE_PACKAGE="UsbTouch"' "$ROOT/tools_b2lusb.sh"
@@ -163,6 +191,7 @@ grep -q 'UYARI: B2LUSB basarisiz; touch ve UFS tanisi yine de surdurulecek' "$RO
 grep -Fq 'Services\UrsCx01000' "$ROOT/windows/startnet.cmd"
 grep -Fq 'Services\Ucx01000' "$ROOT/windows/startnet.cmd"
 grep -q 'b2lusbctl.exe" status' "$ROOT/windows/startnet.cmd"
+grep -q 'b2lusbctl.exe" observe' "$ROOT/windows/startnet.cmd"
 if rg -n 'pnputil /add-driver .*b2lusb' "$ROOT/windows/startnet.cmd"; then
   echo 'HATA: USB paketi calisan WinPE oturumunda kurulmamali' >&2
   exit 1

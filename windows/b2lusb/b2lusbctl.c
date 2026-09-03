@@ -173,6 +173,26 @@ B2lShowStatus(
     wprintf(L"xECP +20=%08lX +24=%08lX +28=%08lX +2C=%08lX\n",
         Status.XhciExtCap[8], Status.XhciExtCap[9],
         Status.XhciExtCap[10], Status.XhciExtCap[11]);
+    wprintf(L"xHCI obs flags=%08lX samples=%lu transitions=%lu\n",
+        Status.XhciObserveFlags, Status.XhciObserveSamples,
+        Status.XhciObserveTransitions);
+    wprintf(L"xHCI obs first=%08lX/%08lX last=%08lX/%08lX or=%08lX/%08lX\n",
+        Status.XhciObserveFirstUsbCmd, Status.XhciObserveFirstUsbSts,
+        Status.XhciObserveLastUsbCmd, Status.XhciObserveLastUsbSts,
+        Status.XhciObserveUsbCmdOr, Status.XhciObserveUsbStsOr);
+    wprintf(L"xHCI obs seen reset=%lu run=%lu hch0=%lu cnr=%lu hse=%lu ring=%lu dcbaa=%lu cfg=%lu\n",
+        (ULONG)((Status.XhciObserveFlags & B2L_XHCI_OBSERVE_SEEN_HCRST) != 0),
+        (ULONG)((Status.XhciObserveFlags & B2L_XHCI_OBSERVE_SEEN_RUN) != 0),
+        (ULONG)((Status.XhciObserveFlags & B2L_XHCI_OBSERVE_SEEN_HCH_CLEAR) != 0),
+        (ULONG)((Status.XhciObserveFlags & B2L_XHCI_OBSERVE_SEEN_CNR) != 0),
+        (ULONG)((Status.XhciObserveFlags & B2L_XHCI_OBSERVE_SEEN_HSE) != 0),
+        (ULONG)((Status.XhciObserveFlags & B2L_XHCI_OBSERVE_SEEN_CRCR) != 0),
+        (ULONG)((Status.XhciObserveFlags & B2L_XHCI_OBSERVE_SEEN_DCBAAP) != 0),
+        (ULONG)((Status.XhciObserveFlags & B2L_XHCI_OBSERVE_SEEN_CONFIG) != 0));
+    wprintf(L"xHCI obs ring=%08lX%08lX dcbaa=%08lX%08lX cfg=%08lX\n",
+        Status.XhciObserveCrcrHigh, Status.XhciObserveCrcrLow,
+        Status.XhciObserveDcbaapHigh, Status.XhciObserveDcbaapLow,
+        Status.XhciObserveConfig);
     wprintf(L"PHY link=%08lX clkrst=%08lX utmi=%08lX\n",
         Status.PhyLinkCtrl, Status.PhyClkRst, Status.PhyUtmi);
     wprintf(L"PHY hsp=%08lX tune=%08lX  PMU[1586072C]=%08lX\n",
@@ -196,8 +216,9 @@ wmain(
         ((_wcsicmp(Arguments[1], L"status") != 0) &&
          (_wcsicmp(Arguments[1], L"host") != 0) &&
          (_wcsicmp(Arguments[1], L"device") != 0) &&
-         (_wcsicmp(Arguments[1], L"none") != 0))) {
-        fwprintf(stderr, L"Kullanim: b2lusbctl.exe status|host|device|none\n");
+         (_wcsicmp(Arguments[1], L"none") != 0) &&
+         (_wcsicmp(Arguments[1], L"observe") != 0))) {
+        fwprintf(stderr, L"Kullanim: b2lusbctl.exe status|observe|host|device|none\n");
         return 2;
     }
 
@@ -211,6 +232,27 @@ wmain(
         Result = B2lShowStatus(Handle);
         CloseHandle(Handle);
         return Result;
+    }
+
+    if (_wcsicmp(Arguments[1], L"observe") == 0) {
+        Returned = 0;
+        if (!DeviceIoControl(
+                Handle,
+                IOCTL_B2L_USB_ARM_XHCI_OBSERVER,
+                NULL,
+                0,
+                NULL,
+                0,
+                &Returned,
+                NULL)) {
+            fwprintf(stderr, L"XHCI_OBSERVER basarisiz: Win32=%lu\n",
+                GetLastError());
+            CloseHandle(Handle);
+            return 1;
+        }
+        wprintf(L"xHCI startup observer 12 saniye icin kuruldu.\n");
+        CloseHandle(Handle);
+        return 0;
     }
 
     Role = B2lUsbRoleNone;

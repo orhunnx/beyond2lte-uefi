@@ -122,9 +122,11 @@ B2lUsbEvtDeviceAdd(
     WDF_OBJECT_ATTRIBUTES Attributes;
     WDF_PNPPOWER_EVENT_CALLBACKS PowerCallbacks;
     WDF_IO_QUEUE_CONFIG QueueConfig;
+    WDF_TIMER_CONFIG TimerConfig;
     WDFDEVICE Device;
     PB2L_USB_CONTEXT Context;
     WDFWAITLOCK Lock;
+    WDFSPINLOCK SpinLock;
     URS_CONFIG UrsConfig;
     UNICODE_STRING Sddl;
     NTSTATUS Status;
@@ -182,6 +184,29 @@ B2lUsbEvtDeviceAdd(
         return Status;
     }
     Context->RoleLock = Lock;
+
+    WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
+    Attributes.ParentObject = Device;
+    Status = WdfSpinLockCreate(&Attributes, &SpinLock);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Context->XhciObserveLock = SpinLock;
+
+    WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lUsbEvtXhciObserveTimer);
+    TimerConfig.AutomaticSerialization = FALSE;
+    TimerConfig.UseHighResolutionTimer = WdfTrue;
+    WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
+    Attributes.ParentObject = Device;
+    Attributes.ExecutionLevel = WdfExecutionLevelDispatch;
+    Status = WdfTimerCreate(
+        &TimerConfig,
+        &Attributes,
+        &Context->XhciObserveTimer
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
 
     Status = WdfDeviceCreateDeviceInterface(
         Device,
@@ -348,12 +373,91 @@ B2lUsbEvtReleaseHardware(
     UNREFERENCED_PARAMETER(ResourcesTranslated);
 
     Context = B2lUsbGetContext(Device);
+    WdfTimerStop(Context->XhciObserveTimer, TRUE);
     WdfWaitLockAcquire(Context->RoleLock, NULL);
+    WdfSpinLockAcquire(Context->XhciObserveLock);
+    Context->XhciObserveFlags &= ~B2L_XHCI_OBSERVE_ACTIVE;
+    WdfSpinLockRelease(Context->XhciObserveLock);
     Context->HardwareReady = FALSE;
     Context->CurrentRole = B2lUsbRoleNone;
     B2lUsbUnmapResources(Context);
     WdfWaitLockRelease(Context->RoleLock);
     return STATUS_SUCCESS;
+}
+
+VOID
+B2lUsbEvtXhciObserveTimer(
+    WDFTIMER Timer
+    )
+{
+    WDFDEVICE Device;
+    PB2L_USB_CONTEXT Context;
+    BOOLEAN Rearm;
+
+    Device = (WDFDEVICE)WdfTimerGetParentObject(Timer);
+    Context = B2lUsbGetContext(Device);
+    Rearm = FALSE;
+
+    WdfSpinLockAcquire(Context->XhciObserveLock);
+    if ((Context->XhciObserveFlags & B2L_XHCI_OBSERVE_ACTIVE) != 0) {
+        if (KeQueryInterruptTime() >= Context->XhciObserveDeadline) {
+            Context->XhciObserveFlags &= ~B2L_XHCI_OBSERVE_ACTIVE;
+        } else {
+            B2lUsbHardwareObserveXhci(Context);
+            Rearm = TRUE;
+        }
+    }
+    WdfSpinLockRelease(Context->XhciObserveLock);
+
+    if (Rearm) {
+        (VOID)WdfTimerStart(
+            Timer,
+            WDF_REL_TIMEOUT_IN_MS(B2L_XHCI_OBSERVE_PERIOD_MS)
+            );
+    }
+}
+
+static NTSTATUS
+B2lUsbArmXhciObserver(
+    PB2L_USB_CONTEXT Context
+    )
+{
+    NTSTATUS Status;
+
+    (VOID)WdfTimerStop(Context->XhciObserveTimer, TRUE);
+    WdfWaitLockAcquire(Context->RoleLock, NULL);
+    Status = Context->HardwareReady ? STATUS_SUCCESS : STATUS_DEVICE_NOT_READY;
+    if (NT_SUCCESS(Status)) {
+        WdfSpinLockAcquire(Context->XhciObserveLock);
+        Context->XhciObserveDeadline = KeQueryInterruptTime() +
+            B2L_XHCI_OBSERVE_WINDOW_100NS;
+        Context->XhciObserveFlags = B2L_XHCI_OBSERVE_ARMED |
+            B2L_XHCI_OBSERVE_ACTIVE;
+        Context->XhciObserveSamples = 0;
+        Context->XhciObserveTransitions = 0;
+        Context->XhciObserveFirstUsbCmd = 0;
+        Context->XhciObserveFirstUsbSts = 0;
+        Context->XhciObserveLastUsbCmd = 0;
+        Context->XhciObserveLastUsbSts = 0;
+        Context->XhciObserveUsbCmdOr = 0;
+        Context->XhciObserveUsbStsOr = 0;
+        Context->XhciObserveCrcrLow = 0;
+        Context->XhciObserveCrcrHigh = 0;
+        Context->XhciObserveDcbaapLow = 0;
+        Context->XhciObserveDcbaapHigh = 0;
+        Context->XhciObserveConfig = 0;
+        B2lUsbHardwareObserveXhci(Context);
+        WdfSpinLockRelease(Context->XhciObserveLock);
+    }
+    WdfWaitLockRelease(Context->RoleLock);
+
+    if (NT_SUCCESS(Status)) {
+        (VOID)WdfTimerStart(
+            Context->XhciObserveTimer,
+            WDF_REL_TIMEOUT_IN_MS(B2L_XHCI_OBSERVE_PERIOD_MS)
+            );
+    }
+    return Status;
 }
 
 NTSTATUS
@@ -455,6 +559,12 @@ B2lUsbEvtIoDeviceControl(
             Length = sizeof(*Output);
         }
         WdfRequestCompleteWithInformation(Request, Status, Length);
+        return;
+    }
+
+    if (IoControlCode == IOCTL_B2L_USB_ARM_XHCI_OBSERVER) {
+        Status = B2lUsbArmXhciObserver(Context);
+        WdfRequestComplete(Request, Status);
         return;
     }
 

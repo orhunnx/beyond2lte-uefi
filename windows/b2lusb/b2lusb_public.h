@@ -9,7 +9,7 @@ DEFINE_GUID(
     0x43eb6f1d, 0x81b9, 0x4e9a, 0x93, 0xd4, 0x76, 0xc7, 0xe0, 0x2c, 0x1b, 0xf4
     );
 
-#define B2L_USB_IOCTL_VERSION 4UL
+#define B2L_USB_IOCTL_VERSION 5UL
 
 typedef enum _B2L_USB_ROLE {
     B2lUsbRoleNone = 0,
@@ -22,6 +22,17 @@ typedef enum _B2L_USB_ROLE {
 #define B2L_USB_STATUS_MANUAL_URS     0x00000004UL
 #define B2L_USB_STATUS_XHCI_HALTED    0x00000008UL
 #define B2L_USB_STATUS_CORE_RESET     0x00000010UL
+
+#define B2L_XHCI_OBSERVE_ARMED          0x00000001UL
+#define B2L_XHCI_OBSERVE_ACTIVE         0x00000002UL
+#define B2L_XHCI_OBSERVE_SEEN_HCRST     0x00000004UL
+#define B2L_XHCI_OBSERVE_SEEN_RUN       0x00000008UL
+#define B2L_XHCI_OBSERVE_SEEN_HCH_CLEAR 0x00000010UL
+#define B2L_XHCI_OBSERVE_SEEN_CNR       0x00000020UL
+#define B2L_XHCI_OBSERVE_SEEN_HSE       0x00000040UL
+#define B2L_XHCI_OBSERVE_SEEN_CRCR      0x00000080UL
+#define B2L_XHCI_OBSERVE_SEEN_DCBAAP    0x00000100UL
+#define B2L_XHCI_OBSERVE_SEEN_CONFIG    0x00000200UL
 
 typedef struct _B2L_USB_SET_ROLE_INPUT {
     ULONG Version;
@@ -66,6 +77,20 @@ typedef struct _B2L_USB_STATUS {
     ULONG XhciPortSc2;
     ULONG XhciExtCapOffset;
     ULONG XhciExtCap[12];
+    ULONG XhciObserveFlags;
+    ULONG XhciObserveSamples;
+    ULONG XhciObserveTransitions;
+    ULONG XhciObserveFirstUsbCmd;
+    ULONG XhciObserveFirstUsbSts;
+    ULONG XhciObserveLastUsbCmd;
+    ULONG XhciObserveLastUsbSts;
+    ULONG XhciObserveUsbCmdOr;
+    ULONG XhciObserveUsbStsOr;
+    ULONG XhciObserveCrcrLow;
+    ULONG XhciObserveCrcrHigh;
+    ULONG XhciObserveDcbaapLow;
+    ULONG XhciObserveDcbaapHigh;
+    ULONG XhciObserveConfig;
     ULONG PhyLinkCtrl;
     ULONG PhyClkRst;
     ULONG PhyUtmi;
@@ -78,5 +103,7 @@ typedef struct _B2L_USB_STATUS {
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_READ_ACCESS)
 #define IOCTL_B2L_USB_SET_ROLE \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_WRITE_ACCESS)
+#define IOCTL_B2L_USB_ARM_XHCI_OBSERVER \
+    CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_WRITE_ACCESS)
 
 #endif

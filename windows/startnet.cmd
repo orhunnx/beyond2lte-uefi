@@ -136,6 +136,7 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
     echo B2LUSB --usb-test mevcut HOST child hedefli restart:
     > "%SystemDrive%\B2LUSB-AUTOHOST.TXT" echo URS HOST child hedefli PnP restart baslatildi.
     call :B2LUsbTraceStart
+    "%B2LUSBDIR%\b2lusbctl.exe" observe >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /restart-device /deviceid "URS\BYN0002&HOST" > "%SystemDrive%\B2LUSB-HOST-RESTART.TXT" 2>&1
     if errorlevel 1 (
       echo HOST_TARGET_RESTART=UYARI >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT"

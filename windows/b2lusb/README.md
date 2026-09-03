@@ -14,7 +14,7 @@ Bu dizin Exynos9820 `DWC_usb31` denetleyicisini Windows'un USB Role Switch
   `USBHUB3` ve HID class sürücüleri kullanılır.
 - `b2lusbmon.sys`, yalnız bring-up tanısı için host child altında çalışan,
   MMIO'ya yazmayan pasif KMDF lower-filter'dır.
-- `b2lusbctl.exe status|host|device|none`, yöneticiye açık bring-up rol
+- `b2lusbctl.exe status|observe|host|device|none`, yöneticiye açık bring-up rol
   denetimidir. İstek URS'e bildirilir; eski role ait çocuk yığını kaldırıldıktan
   sonra `EvtUrsSetRole` Exynos PHY ve DWC3 rolünü değiştirir.
 - Samsung vendor USB2 PHY sırası ve device/host tune sütunları uygulanır.
@@ -146,6 +146,20 @@ stack'i lower filter hazır halde ilk boot sırasında oluşur.
 mount/commit işleminde stage edilir. UFS, çalışan CACHE yolu ve `mountvol /N`
 sıralaması korunmak için bu erken-boot değişikliğinin dışındadır.
 
+`0.1.0.7` cihaz testi bu offline yolu doğruladı: touch ilk WinPE ekranından
+itibaren çalıştı ve VHF/HID touch devnode'ları `Started` oldu. USB child için
+hedefli restart da başarıyla tamamlandı; Code 14 temizlendi. Kalan hata
+`USBXHCI` üzerinde `Code 10 / 0xC000009E` oldu. Filter hâlâ
+`PrepareSeen=0/D0EntrySeen=0`, xHCI ise son durumda halted ve
+`CRCR/DCBAAP/CONFIG=0` kaldığı için hata USBXHCI'nin erken başlangıç yolundadır.
+
+`0.1.0.8` parent içinden 12 saniyelik, 1 ms yüksek çözünürlüklü ve salt-okuma
+xHCI gözlemi yapar. `b2lusbctl.exe observe` ile kurulan gözlemci HCRST, CNR,
+Run, HCHalted-clear, HSE ile geçici CRCR/DCBAAP/CONFIG programlamasını status
+çıktısında saklar. `--usb-test` bu komutu HOST child restartından hemen önce
+otomatik çağırır. Gözlemci controller/PHY/PMU registerlerine veya MemoryMap
+guard'larına yazmaz ve 12 saniye sonunda durur.
+
 Telefonun 1440x3040 panelinde WinPE oturumu başlamadan önce sistem ölçeği
 %175 (`LogPixels=168`) yapılır ve konsol ızgarası 64x41'e ayarlanır. Offline
 DEFAULT hive ve WIM geri-okuma doğrulaması `tools_winpe_ui_scale.sh` içindedir.
@@ -195,11 +209,12 @@ gerekiyorsa `B2L_WDK_ROOT='/mnt/.../Windows Kits/10'` verilebilir.
 
 ## İlk cihaz testi
 
-`startnet.cmd` iki INF'yi yükler ve ilk durumu basar. Rol otomatik olarak host
-yapılmaz; ölçüm kabuğunda açıkça seçilir:
+INF'ler offline DriverStore'dan ilk boot sırasında bağlanır; `startnet.cmd`
+ilk durumu basar. Manuel bring-up oturumunda rol ve gözlem açıkça seçilebilir:
 
 ```text
 X:\Windows\B2LUSB\b2lusbctl.exe status
+X:\Windows\B2LUSB\b2lusbctl.exe observe
 X:\Windows\B2LUSB\b2lusbctl.exe host
 pnputil /enum-devices /deviceid "URS\BYN0002&HOST"
 ```
