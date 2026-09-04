@@ -1,5 +1,179 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 4 Eylül kaynak incelemesi ve `.28` tanı sürümü
+
+**Son cihaz kanıtı hâlâ `.27`dir. `.28` aşağıda açıklanan gözlem değişikliğidir;
+henüz WSL/WDK ile derlenmiş veya telefonda doğrulanmış değildir.** Alttaki
+16 adımlı tablo ve zaman çizgisi `.27` devir kaydını korur. ForceError ve
+bir sonraki değişiklik hakkındaki yorumlar için bu bölüm önceliklidir.
+
+### Linux kaynak incelemesinin düzelttiği teşhis
+
+Karşılaştırma, `SAMSUNG_ORIGINAL_USB_STACK.md` içinde sabitlenen
+`ianmacd/d2s@d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39` üzerinden yapıldı.
+Bu GPL referansının çalışan recovery çekirdeğiyle aynı derleme olduğu iddia
+edilmez; canlı log ve kaynak incelemesi ayrı kanıtlardır.
+
+- `max77705_ccpinstat_irq()` CC pin durumunu okur/kaydeder; `CC1_ACTIVE`
+  görünce yazılımla `cc_SOURCE` üretmez.
+- `max77705_ccstat_irq_handler()` önce `CC_STATUS0 & 7` değerini okur.
+  Sıfır olmayan durum için `PLUG_ATTACHED` kaydeder; `cc_SOURCE=2` dalına
+  girdikten sonra güç rolü ve VBUS işlerini yapar. Bu yüzden
+  `PLUG_ATTACHED -> SOURCE` bir donanım programlama tarifi değildir.
+  [CC işleyicisi](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_cc.c#L539)
+- `max77705_set_CCForceError()`, incelenen USBC kaynağında manuel CC-open
+  **etkinleştirme** dalından çağrılır. CC-open bırakma dalı yalnız
+  `LockErrorEn` temizler. Normal attach için eksik bir ForceError çağrısı
+  bulunduğu doğrulanmadı; önceki “attach sonrasında ForceError koordinasyonu”
+  teşhisi geri çekildi.
+  [CC-open iş akışı](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_usbc.c#L1017)
+- Windows `.27` opcode bekleme yolu `UIC_INT` registerını komuttan önce ve
+  cevap beklerken okuyup temizler; APCMDRES dışındaki bitleri bu yolda
+  korumaz. `B2LMaxUicInterruptSeen` yalnız normal taramayı kapsadığı için
+  bütün init olaylarının kaydı değildi. Windows ayrıca `USBC_STATUS2/SYSMSG`
+  okumuyordu. Linux SYSMSG işleyicisi bu alanı okur; WDT/POR durumlarında
+  ayrı kurtarma yolları vardır. `.28` bunları yalnız gözler; reset/kurtarma
+  davranışı eklemez.
+  [SYSMSG işleyicisi](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_usbc.c#L2526)
+- `.27` `CC_SEEN=0x6d` birikimi `AttachSrcErrI` bit 5'i de içerir. Ancak
+  `CC_INT_MASK=0x20` aynı olayı maskeler; ham okunması Linux'ta nested ISR
+  çalıştığını veya hatanın hâlâ aktif olduğunu kanıtlamaz. İlgili olayda
+  `CC_STATUS1` bit 2 ile birlikte değerlendirilmelidir.
+  [Register/bit tanımları](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/include/linux/ccic/max77705.h#L112)
+
+Önemli kanıt sınırı: bu makinedeki `out/B2LUSB-LINUX-HOST-MOUSE-RERUN.txt`
+dosyasının AFTER_PLUGGED log bölümü `461.183842` ile başlıyor. Devirdeki
+`461.169117 / PLUG_ATTACHED / cc_SOURCE` satırları bu kopyada bulunmuyor.
+Toplama betiği filtrelenmiş logun son 300 satırını saklıyor; erken attach
+kayıtları kesilmiş olabilir. Aşağıdaki milisaniye tablosunun erken bölümü
+önceki devirden aktarılmıştır, bu yerel dosyayla yeniden doğrulanmış değildir.
+MUIC `06 09`, host açılışı ve alıcının enumeration kanıtı dosyada mevcut.
+
+Linux betiği önce alıcı ayrıkken, sonra takıldıktan sonra snapshot alıyor;
+`.27` Windows testi ise alıcı baştan takılıyken yapıldı. Aynı alıcı kullanımı
+aynı başlangıç durumu demek değildir. `.27` sayaçları, **başarılı politika
+örneklerinde** SOURCE görülmediğini kanıtlar; init öncesi veya iki örnek
+arasındaki bütün geçici donanım durumlarını dışlamaz.
+
+### `.28` neyi kaydeder?
+
+`b2lmax77705.sys=0.1.0.28`; parent ve host INF sürümleri `0.1.0.18` kalır.
+
+| Olay `o` | Yakalama noktası | `irq` / `policy` anlamı |
+|---|---|---|
+| 1 | Başarılı kimlik probe'undan sonra, ilk init opcode'undan önce | IRQ okunmadı; `policy=ffffffff` |
+| 2 | Opcode öncesi eski UIC olaylarını temizleyen okuma | Yalnız UIC geçerli; `op` sıradaki komuttur, olayın nedeni olduğu iddia edilmez |
+| 3 | Opcode cevabı beklenirken sıfır olmayan UIC okuması | APCMDRES ile aynı bayttaki SYSMSG dahil bütün bitler korunur |
+| 4 | Normal taramada ilk CC örneği, ham CC0/CC1 değişikliği veya sıfır olmayan child IRQ | Politikanın CC örneği ve dört IRQ baytı korunur |
+| 5 | IRQ temizlendikten sonraki politika CC okuması başarısız | IRQ korunur; eski CC kullanılmaz, `policy=ffffffff` |
+
+Her olayda 100 ns saat kaynağından zaman, sıra numarası ve `0x06..0x0d`
+registerlarının sekiz baytlık salt okunur snapshot'ı saklanır:
+
+```text
+raw = USBC_STATUS1 / SYSMSG / BC_STATUS / FW_MINOR / CC0 / CC1 / PD0 / PD1
+irq = VDM PD CC UIC                 (hex DWORD, yüksek bayttan düşüğe)
+policy = CC1 CC0                    (yalnız o=4; diğerlerinde ffffffff)
+v=1: raw geçerli                    v=0: raw yorumlanmaz; nt okuma hatası
+```
+
+Snapshot, IRQ ve politika örneğinden **sonra** okunur; atomik donanım kaydı
+değildir. `policy` ile `raw` CC alanlarının farklı olması bir geçişi veya
+örnekler arası farkı araştırmaya yarar. Snapshot SOURCE gösterse bile bu veri
+politikanın yerine geçip VBUS açmaz. Tanı okuması başarısızsa `SNAP_FAIL`
+artar; asıl opcode/politika çağrısının hata veya başarı sonucu korunur.
+`o=5` yolunda ek I2C okuması yapılmaz; `nt` asıl politika CC okuma hatasıdır.
+Bu durumda `v=0` ve `SNAP_FAIL` artışı, snapshot'ın alınamadığını belirtir;
+mevcut taşıma hata ayrıntıları korunur ve `STAGE/STATUS` da yayımlanır.
+
+Sabit 3.128 baytlık kayıt alanı D0 başına ilk 16 olayı saklar, sonraki 48
+slotta son olayları döndürür. `overwritten`, son bölümde üstüne yazılmış olay
+sayısıdır; sıra numaralarındaki boşluk bu kaybı görünür kılar. Yeni D0'da kayıt
+sıfırlanır; `MAX_EVENT_START_100NS` oturumları ayırır. Sıfır UIC bekleme
+örnekleri ve değişmeyen, olaysız CC taramaları ek I2C okuması/kayıt üretmez.
+`o=5` dışındaki olay başına ek bir sekiz baytlık I2C okuması vardır; gecikmeye etkisi cihazda
+ölçülmelidir. Timer aralıkları ve güç/rol işlemleri değiştirilmedi.
+
+Kayıt, mevcut tanı yayınında ve yalnız değiştiğinde tek `REG_BINARY`
+`B2LMaxEventLog` değeriyle yazılır. Opcode döngüsünde registry yazılmaz.
+`b2lusbctl.exe maxevents` bu değeri tek okumada alır; BYN0002 arayüzüne
+bağımlı değildir. Son yayımlanmış olayları gösterir, canlı donanım sorgulamaz.
+Normal tarama o ana kadar olay görmediyse `MAX_LAST` güncel CC ölçümü değildir.
+
+`startnet.cmd` iki mevcut MAX toplama çağrısında bu çıktıyı alır:
+
+- `X:\B2LUSB-MAX77705-EVENTS.TXT`: iki toplamanın tarih/saat başlıklı birleşik kaydı;
+- `X:\B2LUSB-MAX77705-EVENTS-LAST.TXT`: son toplama;
+- mevcut `X:\B2LUSB-MAX77705-SUMMARY.TXT`: yalnız kısa `MAX_` satırları.
+
+Mevcut CACHE doğrulamalı dışa aktarma yolu `B2LUSB-*.TXT` dosyalarını zaten
+kapsar; CACHE yolu başarılı değilse kalıcı dışa aktarım varsayılmaz. SYSMSG
+sayaçları firmware reset sayısı değildir: ham kesme gözlemlerini sayar.
+Linux'taki üçlü SYSMSG tutarlılık kontrolü/kurtarma işlemleri bu tanı sürümüne
+taşınmadı. Tek bir `SYSMSG=03` veya `05`, sırasıyla WDT/POR hipotezini araştırma
+gerekçesidir; zaman sırası ve tekrar okunmuş kayıtlarla desteklenmelidir.
+
+### WSL build ve flaş sonrası test sözleşmesi
+
+Bu makinede Windows sürücüsü/UEFI/WIM build'i yapılmaz. `DEVIR.md` bölüm
+0.5–0.9'daki WSL2 Ubuntu + Windows ARM64 MSVC/WDK iş bölümü kullanılır.
+WSL'deki güncel repo kökünde, kaynaklar bu değişikliği içerirken:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+tar -tf out/uefi-boot.tar
+tar -tf out/system-esp.tar
+```
+
+İlk tar yalnız `boot.img`, ikincisi yalnız `system.img` içermelidir. Aynı
+turun BOOT ve SYSTEM çıktıları Odin AP ile, Re-Partition kapalıyken kullanılır.
+Bu baseline profilinde eski birleşik `beyond2lte-usb-diag.tar` kullanılmaz.
+`B2L_SKIP_MSVC_BUILD` / `B2L_ALLOW_STALE_SYS` ile eski çıktılar atlatılmaz;
+`b2lusbctl.exe` de değiştiği için yeniden derlenip WIM'e girmelidir.
+
+İlk kontrol: manifestte `B2LUSB_MAX77705_DRIVER_VERSION=0.1.0.28`,
+parent/host için `.18`; olay özetinde `MAX_EVENTS v=1`, `count>0`,
+`SNAP_FAIL=0` beklenir. `MAX_EVENT_READ_ERROR` veya `FORMAT_ERROR` başarılı
+tanı sayılmaz. İlk kimlik/init başarısızsa boş olay kaydı mümkün olabilir;
+`STAGE/STATUS` ile birlikte değerlendirilir.
+
+İki ayrı açılış karşılaştırılır; her açılışın logu/fotoğrafı yeniden
+başlatmadan önce ayrı saklanır:
+
+1. **A — baştan takılı:** aynı adaptör/alıcı açılış boyunca takılı kalır.
+   `.27` ile aynı koşulda olay kaydı, kritik MAX özeti ve xHCI çıktısı alınır.
+2. **B — hazır olduktan sonra takılı:** Windows alıcı ayrıkken açılır.
+   MAX `STAGE=0x70, STATUS=0` görüldükten sonra aynı alıcı takılır; 10 saniye
+   beklenir, olay kaydı yeniden alınır. Sonra çıkarılır, 10 saniye beklenir
+   ve ikinci kayıt alınır. Otomatik iki toplama bittikten sonraki fiziksel
+   değişiklikler için aşağıdaki komutlarla yeni dosyalar alınmalıdır.
+
+WinPE terminalinde, uygun fiziksel adımın ardından:
+
+```bat
+X:\Windows\B2LUSB\b2lusbctl.exe maxevents > X:\B2LUSB-MAX77705-B-ATTACH.TXT
+X:\Windows\B2LUSB\b2lusbctl.exe status > X:\B2LUSB-B-ATTACH-STATUS.TXT
+rem Aliciyi cikardiktan ve 10 saniye bekledikten sonra:
+X:\Windows\B2LUSB\b2lusbctl.exe maxevents > X:\B2LUSB-MAX77705-B-DETACH.TXT
+```
+
+Terminal girdisi mümkün değilse, ilk otomatik MAX dökümündeki READY'den
+sonra alıcı takılıp ikinci otomatik toplamaya kadar takılı tutulabilir.
+Bu durumda testin tam hangi aşamasında takıldığı fotoğrafla belirtilmelidir;
+kontrollü sonradan çıkarma kaydı ayrıca alınana kadar detach doğrulanmış sayılmaz.
+
+Bu sürümün ilk başarı ölçütü **nedenin görünürleşmesidir**; fareyi çalıştırdığı
+iddia edilmez. SOURCE oluşursa politika `CC_STATE=2`, `CC_SRC_EV>0`, ardından
+MUIC `0x09`, OTG aktif, xHCI `CCS=1` ve `046d:c52e` beklenir. Ayrık durumdan
+takma senaryosunda `CC_TRANS>0` da beklenir; ilk politika örneği zaten SOURCE
+ise mevcut sayaç tasarımı gereği `CC_TRANS=0` kalabilir. SOURCE hâlâ yoksa
+özellikle `o=1/2/3` kayıtları, SYSMSG, CC1 bit 2 ve A/B farkı paylaşılmalıdır.
+
+17 dakikalık tanı gecikmesinin faz ölçümü ve MAX READY → HOST kapısı ayrı
+işlerdir. Bu değişiklik yalnız gözlem ekler; konsoldaki eski “observer 12
+saniye” mesajını gerçek 5 saniyelik ayarla eşleştirir.
+
 ## Kapsam ve kanıt sürümleri
 
 Bu belge, Logitech `046d:c52e` alıcısının Samsung Linux/Lineage altında fiziksel olarak takılmasından HID klavye ve farenin oluşmasına kadar çalışan akışı, mevcut Windows sürücüleriyle yan yana karşılaştırır.
@@ -9,7 +183,7 @@ Bu belge, Logitech `046d:c52e` alıcısının Samsung Linux/Lineage altında fiz
 - `.27` cihaz kanıtı: kullanıcının son flaştan sağladığı sekiz ekran görüntüsü. Logitech `046d:c52e` alıcısı, çalışan recovery/Linux analizindekiyle aynı biçimde bütün Windows testi boyunca fiziksel olarak takılıydı.
 - Gözlenen duvar saati: ilk fotoğraf ile test sonunu gösteren son fotoğraf arasında yaklaşık 17 dakika. Scriptte aşama zaman damgaları bulunmadığından bu süre tek bir komuta kesin olarak yüklenemez.
 
-## En kısa sonuç
+## `.27` cihaz sonucunun özeti
 
 `.27`, 6. probe/init adımını artık cihaz üzerinde baştan sona doğrulamıştır. Sürücü `STAGE=0x70`, `STATUS=0`, `PLATFORM_OK=1` durumuna ulaşmış; Linux çalışma maskeleri, `CCCTRL1=0x1f` ve probe-final CC-open işlemi tamamlanmıştır. Yeni kanıt `CCOPEN_OK=1`, `CTRL3_BEFORE=0x64`, `CTRL3_AFTER=0x64` değerlerini verir. `0x64 & 0x02 == 0` olduğundan `LockErrorEn` zaten kapalıdır: kod ve read-back çalışmıştır, fakat donanımda değiştirilecek bir bit yoktur. Böylece 6. adım kapanmış, “attach'i LockErrorEn engelliyordu” hipotezi yanlışlanmıştır.
 
@@ -189,7 +363,11 @@ Source oluştuğunda Windows güvenlik amacıyla önce MUIC `06 09` + `05` doğr
 
 Linux akışı charger, battery, MUIC, Type-C manager, USB notifier, runtime-PM ve role-switch bileşenlerini birlikte yürütür. Windows sürücüsü gerekli register/opcode çekirdeğini uygular ama bu framework koordinasyonunun tamamını modellemez. Sabit HOST hedefi için kabul edilebilir olabilir; attach/detach, hata kurtarma ve güç politikası açısından tam eşdeğer değildir.
 
-## Son teşhis ve bir sonraki değişiklik sınırı
+## `.27` devir teşhisi ve sonraki değişiklik sınırı
+
+**Kaynak incelemesi güncellemesi:** Aşağıdaki cihaz sırası geçerlidir; bu
+bölümde korunmuş ForceError odaklı eski önerinin yerini dosyanın başındaki
+`.28` olay tanısı almıştır. SOURCE görülmemesi ForceError eksikliğini kanıtlamaz.
 
 Son `.27` Windows flaşında, Logitech alıcı test boyunca takılıyken fareyi engelleyen sıra şöyledir:
 

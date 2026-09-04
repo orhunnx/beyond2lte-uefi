@@ -171,7 +171,7 @@ CC_STATUS_LINE="$(printf '%s\n' "$READ_STATUS_SECTION" | grep -n 'B2lMaxReadCcSt
 CHARGER_LINE="$(printf '%s\n' "$READ_STATUS_SECTION" | grep -n 'B2L_MAX_CHARGER_ADDRESS' | head -n1 | cut -d: -f1)"
 test "$IRQ_DRAIN_LINE" -lt "$CC_STATUS_LINE"
 test "$CC_STATUS_LINE" -lt "$CHARGER_LINE"
-grep -q 'DriverVer=09/04/2026,0.1.0.27' "$INF"
+grep -q 'DriverVer=09/04/2026,0.1.0.28' "$INF"
 SERVICE_SECTION="$(sed -n '/B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)/,/B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
 AUTOIBUS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureAutoIbus(Context)' | head -n1 | cut -d: -f1)"
 MASKS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureUsbcMasks(Context)' | head -n1 | cut -d: -f1)"

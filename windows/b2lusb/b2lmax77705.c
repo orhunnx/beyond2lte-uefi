@@ -7,6 +7,7 @@
 
 #define MAX77705_USBC_HW_REV       0x00U
 #define MAX77705_USBC_FW_REV       0x01U
+#define MAX77705_USBC_STATUS1      0x06U
 #define MAX77705_USBC_BC_STATUS    0x08U
 #define MAX77705_USBC_FW_MINOR     0x09U
 #define MAX77705_USBC_CC_STATUS0   0x0AU
@@ -24,6 +25,8 @@
 #define MAX77705_USBC_OPCODE_READ  0x51U
 
 #define MAX77705_USBC_INT_APCMDRES       (1U << 7)
+#define MAX77705_USBC_INT_SYSMSG         (1U << 6)
+#define MAX77705_CC_INT_ATTACH_ERROR    (1U << 5)
 #define MAX77705_CC_INT_STATE            (1U << 0)
 #define MAX77705_CC_INT_CURRENT          (1U << 2)
 #define MAX77705_CC_INT_PIN_STATE        (1U << 3)
@@ -271,6 +274,17 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
             (ULONG)sizeof(Values[Index])
             );
     }
+    // A single value keeps the event header and records in one reader snapshot.
+    // Capture never writes the registry inside an opcode wait loop. Retry a
+    // failed publication at the next normal diagnostic publish.
+    if (Context->EventLogDirty) {
+        RtlInitUnicodeString(&ValueName, B2L_MAX_EVENT_VALUE);
+        if (NT_SUCCESS(ZwSetValueKey(
+                Key, &ValueName, 0UL, REG_BINARY,
+                &Context->EventLog, (ULONG)sizeof(Context->EventLog)))) {
+            Context->EventLogDirty = FALSE;
+        }
+    }
     ZwClose(Key);
     Context->DiagnosticDirty = FALSE;
     Context->DiagnosticPollCount = 0UL;
@@ -365,6 +379,91 @@ B2lMaxReadBlock(
         );
 }
 
+static VOID
+B2lMaxCaptureEvent(
+    PB2L_MAX_CONTEXT Context,
+    ULONG Origin,
+    ULONG Opcode,
+    ULONG Interrupts,
+    NTSTATUS TriggerStatus
+    )
+{
+    B2L_MAX_EVENT_LOG *Log = &Context->EventLog;
+    B2L_MAX_EVENT *Event;
+    ULONG Index;
+    NTSTATUS Status;
+
+    // BusLock serializes all callers at PASSIVE_LEVEL. Retain the first 16
+    // records permanently for this D0 session, then rotate the latest 48.
+    if (Log->Count < B2L_MAX_EVENT_FIRST) {
+        Index = Log->Count;
+    } else {
+        Index = B2L_MAX_EVENT_FIRST + Log->NextTail;
+        Log->NextTail = (Log->NextTail + 1UL) % B2L_MAX_EVENT_TAIL;
+    }
+    if (Log->Count < B2L_MAX_EVENT_CAPACITY) {
+        ++Log->Count;
+    } else {
+        ++Log->Overwritten;
+    }
+    Event = &Log->Events[Index];
+    RtlZeroMemory(Event, sizeof(*Event));
+    Event->Time = KeQueryInterruptTime();
+    Event->Sequence = ++Log->Total;
+    Event->Origin = Origin;
+    Event->Opcode = Opcode;
+    Event->Interrupts = Interrupts;
+    Event->PolicyCc = (Origin == B2L_MAX_EVENT_POLL) ?
+        ((ULONG)Context->CcStatus0 | ((ULONG)Context->CcStatus1 << 8)) :
+        0xFFFFFFFFUL;
+    if ((Interrupts & MAX77705_USBC_INT_SYSMSG) != 0UL) {
+        ++Log->SysmsgEvents;
+    }
+    if ((Interrupts & (MAX77705_CC_INT_ATTACH_ERROR << 8)) != 0UL) {
+        ++Log->AttachErrorEvents;
+    }
+
+    // Observational read only: no extra interrupt drain, opcode, reset or
+    // role update. These later bytes are not an atomic latch with Interrupts
+    // or PolicyCc. Failed reads remain explicit records and never turn an
+    // otherwise successful opcode/policy operation into a failure.
+    // If the policy CC read already failed, preserve that failure and its
+    // transport diagnostics. Do not start another I2C transfer on this path.
+    Status = TriggerStatus;
+    if (NT_SUCCESS(Status)) {
+        Status = B2lMaxReadBlock(Context, B2L_MAX_USBC_ADDRESS,
+            MAX77705_USBC_STATUS1, Event->Status,
+            (ULONG)sizeof(Event->Status));
+    }
+    Event->ReadStatus = (ULONG)Status;
+    if (NT_SUCCESS(Status)) {
+        Event->Valid = 1UL;
+    } else {
+        RtlZeroMemory(Event->Status, sizeof(Event->Status));
+        ++Log->SnapshotFailures;
+    }
+    Context->EventLogDirty = TRUE;
+    Context->DiagnosticDirty = TRUE;
+}
+
+static VOID
+B2lMaxRecordOpcodeUic(
+    PB2L_MAX_CONTEXT Context,
+    ULONG Origin,
+    UCHAR Opcode,
+    UCHAR Interrupts
+    )
+{
+    // Account for every successful read-to-clear UIC sample, including stale
+    // pre-command samples and APCMDRES combined with SYSMSG. Empty polling
+    // iterations perform no extra I2C traffic and consume no record slots.
+    Context->UicInterruptSeen |= Interrupts;
+    Context->EventLog.OpcodeUicSeen |= Interrupts;
+    if (Interrupts != 0U) {
+        B2lMaxCaptureEvent(Context, Origin, Opcode, Interrupts, STATUS_SUCCESS);
+    }
+}
+
 static NTSTATUS
 B2lMaxExchangeOpcode(
     PB2L_MAX_CONTEXT Context,
@@ -402,6 +501,7 @@ B2lMaxExchangeOpcode(
         return Status;
     }
 
+    B2lMaxRecordOpcodeUic(Context, B2L_MAX_EVENT_DRAIN, Opcode, InterruptStatus);
     Command[0] = Opcode;
     if (WriteDataLength != 0UL) {
         Command[1] = *WriteData;
@@ -436,6 +536,7 @@ B2lMaxExchangeOpcode(
         if (!NT_SUCCESS(Status)) {
             return Status;
         }
+        B2lMaxRecordOpcodeUic(Context, B2L_MAX_EVENT_WAIT, Opcode, InterruptStatus);
         if ((InterruptStatus & MAX77705_USBC_INT_APCMDRES) != 0U) {
             Status = B2lMaxReadBlock(
                 Context,
@@ -1081,7 +1182,28 @@ B2lMaxReadStatus(PB2L_MAX_CONTEXT Context)
     }
     Status = B2lMaxReadCcStatus(Context);
     if (!NT_SUCCESS(Status)) {
+        // The interrupt bytes have already been cleared. Keep their evidence
+        // even if the following policy CC read fails; do not reuse stale CC.
+        B2lMaxCaptureEvent(Context, B2L_MAX_EVENT_CC_FAILED, 0xFFUL,
+            (ULONG)Context->UicInterrupt | ((ULONG)Context->CcInterrupt << 8) |
+            ((ULONG)Context->PdInterrupt << 16) | ((ULONG)Context->VdmInterrupt << 24),
+            Status);
         return Status;
+    }
+    // Track raw CC bytes too: pin/error changes can occur without a role
+    // transition. Opcode snapshots never update these policy sample fields.
+    if (!Context->EventCcValid ||
+        (Context->EventLastCc != (USHORT)((USHORT)Context->CcStatus0 |
+            ((USHORT)Context->CcStatus1 << 8))) ||
+        (Context->UicInterrupt != 0U) || (Context->CcInterrupt != 0U) ||
+        (Context->PdInterrupt != 0U) || (Context->VdmInterrupt != 0U)) {
+        Context->EventLastCc = (USHORT)((USHORT)Context->CcStatus0 |
+            ((USHORT)Context->CcStatus1 << 8));
+        Context->EventCcValid = TRUE;
+        B2lMaxCaptureEvent(Context, B2L_MAX_EVENT_POLL, 0xFFUL,
+            (ULONG)Context->UicInterrupt | ((ULONG)Context->CcInterrupt << 8) |
+            ((ULONG)Context->PdInterrupt << 16) | ((ULONG)Context->VdmInterrupt << 24),
+            STATUS_SUCCESS);
     }
     NeedDetails = (BOOLEAN)(NeedDetails || Context->CcStateChanged ||
         (Context->TopInterruptSource != 0U) ||
@@ -1437,6 +1559,7 @@ B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
         if (!NT_SUCCESS(Status)) {
             return Status;
         }
+        B2lMaxCaptureEvent(Context, B2L_MAX_EVENT_BASELINE, 0xFFUL, 0UL, STATUS_SUCCESS);
     }
 
     if (!Context->ChargerUnlocked) {
@@ -1785,6 +1908,13 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     UNREFERENCED_PARAMETER(PreviousState);
     WdfWaitLockAcquire(Context->BusLock, NULL);
     Context->CcStatusValid = FALSE;
+    RtlZeroMemory(&Context->EventLog, sizeof(Context->EventLog));
+    Context->EventLog.Version = B2L_MAX_EVENT_VERSION;
+    Context->EventLog.Size = (ULONG)sizeof(Context->EventLog);
+    Context->EventLog.StartTime = KeQueryInterruptTime();
+    Context->EventLogDirty = TRUE;
+    Context->EventCcValid = FALSE;
+    Context->EventLastCc = 0U;
     Context->CcStateChanged = FALSE;
     Context->DiagnosticDirty = TRUE;
     Context->UicInterrupt = 0U;

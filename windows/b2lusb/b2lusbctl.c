@@ -5,6 +5,7 @@
 #include <wchar.h>
 
 #include "b2lusb_public.h"
+#include "b2lmax77705_events.h"
 
 #define B2L_XHCI_PORTSC_CCS          (1UL << 0)
 #define B2L_XHCI_PORTSC_PED          (1UL << 1)
@@ -255,6 +256,73 @@ B2lShowStatus(
     return 0;
 }
 
+static int
+B2lShowMaxEvents(VOID)
+{
+    B2L_MAX_EVENT_LOG Log;
+    const B2L_MAX_EVENT *Event;
+    DWORD Size = (DWORD)sizeof(Log);
+    DWORD Type = 0;
+    LSTATUS Error;
+    ULONG Order;
+    ULONG Index;
+    ULONG TailCount;
+
+    // One read of one binary value: no per-field process or registry loop,
+    // and no dependency on BYN0002 being ready to expose its interface.
+    ZeroMemory(&Log, sizeof(Log));
+    Error = RegGetValueW(HKEY_LOCAL_MACHINE,
+        L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705",
+        B2L_MAX_EVENT_VALUE, RRF_RT_REG_BINARY, &Type, &Log, &Size);
+    if (Error != ERROR_SUCCESS) {
+        fwprintf(stderr, L"MAX_EVENT_READ_ERROR=%ld\n", Error);
+        return 1;
+    }
+    if ((Type != REG_BINARY) || (Size != (DWORD)sizeof(Log)) ||
+        (Log.Size != (ULONG)sizeof(Log)) ||
+        (Log.Version != B2L_MAX_EVENT_VERSION) ||
+        (Log.Count > B2L_MAX_EVENT_CAPACITY) ||
+        (Log.NextTail >= B2L_MAX_EVENT_TAIL)) {
+        fwprintf(stderr, L"MAX_EVENT_FORMAT_ERROR\n");
+        return 1;
+    }
+    wprintf(L"MAX_EVENTS v=%lu count=%lu total=%llu overwritten=%llu\n",
+        Log.Version, Log.Count, Log.Total, Log.Overwritten);
+    wprintf(L"MAX_EVENT_START_100NS=%llu OPCODE_UIC=%02lX\n",
+        Log.StartTime, Log.OpcodeUicSeen);
+    wprintf(L"MAX_SYSMSG_IRQS=%lu ATTACH_ERR_IRQS=%lu SNAP_FAIL=%lu\n",
+        Log.SysmsgEvents, Log.AttachErrorEvents, Log.SnapshotFailures);
+    wprintf(L"origin: 1=baseline 2=opcode-drain 3=opcode-wait 4=poll\n");
+    wprintf(L"        5=policy-CC-read-failed (policy unavailable)\n");
+    wprintf(L"irq=VDM/PD/CC/UIC (only UIC for 2/3); policy=CC1/CC0\n");
+    wprintf(L"raw=USBC1/SYSMSG/BC/FWMIN/CC0/CC1/PD0/PD1; v=0 invalid\n");
+    for (Order = 0UL; Order < Log.Count; ++Order) {
+        Index = Order;
+        if ((Order >= B2L_MAX_EVENT_FIRST) &&
+            (Log.Count == B2L_MAX_EVENT_CAPACITY)) {
+            TailCount = Order - B2L_MAX_EVENT_FIRST;
+            Index = B2L_MAX_EVENT_FIRST +
+                ((Log.NextTail + TailCount) % B2L_MAX_EVENT_TAIL);
+        }
+        Event = &Log.Events[Index];
+        wprintf(L"#%llu t=%llu ms o=%lu op=%02lX irq=%08lX policy=%08lX\n",
+            Event->Sequence, (Event->Time - Log.StartTime) / 10000ULL,
+            Event->Origin, Event->Opcode, Event->Interrupts, Event->PolicyCc);
+        wprintf(L"  v=%lu nt=%08lX raw=%02X/%02X/%02X/%02X/%02X/%02X/%02X/%02X\n",
+            Event->Valid, Event->ReadStatus,
+            (unsigned int)Event->Status[0], (unsigned int)Event->Status[1],
+            (unsigned int)Event->Status[2], (unsigned int)Event->Status[3],
+            (unsigned int)Event->Status[4], (unsigned int)Event->Status[5],
+            (unsigned int)Event->Status[6], (unsigned int)Event->Status[7]);
+        if (Order == Log.Count - 1UL) {
+            wprintf(L"MAX_LAST v=%lu SYSMSG=%02X CC=%02X/%02X\n",
+                Event->Valid, (unsigned int)Event->Status[1],
+                (unsigned int)Event->Status[4], (unsigned int)Event->Status[5]);
+        }
+    }
+    return 0;
+}
+
 int
 wmain(
     int ArgumentCount,
@@ -267,11 +335,14 @@ wmain(
     DWORD Returned;
     int Result;
 
+    if ((ArgumentCount == 2) && (_wcsicmp(Arguments[1], L"maxevents") == 0)) {
+        return B2lShowMaxEvents();
+    }
     if ((ArgumentCount != 2) ||
         ((_wcsicmp(Arguments[1], L"status") != 0) &&
          (_wcsicmp(Arguments[1], L"host") != 0) &&
          (_wcsicmp(Arguments[1], L"observe") != 0))) {
-        fwprintf(stderr, L"Kullanim: b2lusbctl.exe status|observe|host\n");
+        fwprintf(stderr, L"Kullanim: b2lusbctl.exe status|observe|host|maxevents\n");
         return 2;
     }
 
@@ -303,7 +374,7 @@ wmain(
             CloseHandle(Handle);
             return 1;
         }
-        wprintf(L"xHCI startup observer 12 saniye icin kuruldu.\n");
+        wprintf(L"xHCI startup observer 5 saniye icin kuruldu.\n");
         CloseHandle(Handle);
         return 0;
     }

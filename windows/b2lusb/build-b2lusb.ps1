@@ -132,7 +132,7 @@ try {
     foreach ($Name in @(
             'b2lusb.h', 'b2lusb_public.h', 'b2lusb.c', 'b2lusb_hw.c',
             'b2lusbmon.c', 'b2lusbctl.c', 'b2lmax77705.h',
-            'b2lmax77705.c', 'b2lmax77705_hw.c')) {
+            'b2lmax77705.c', 'b2lmax77705_hw.c', 'b2lmax77705_events.h')) {
         Copy-Item -LiteralPath (Join-Path $SourceDir $Name) -Destination (Join-Path $StageRoot $Name) -Force
     }
 
@@ -162,7 +162,7 @@ try {
         'if errorlevel 1 exit /b 1',
         "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lmax77705.sys`" `"b2lmax77705.obj`" `"b2lmax77705_hw.obj`" WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
         'if errorlevel 1 exit /b 1',
-        "`"$Compiler`" $UserFlags /Fo`"b2lusbctl.obj`" `"b2lusbctl.c`" /Fe:`"b2lusbctl.exe`" /link /machine:arm64 /subsystem:console /libpath:`"$WdkUserLib`" kernel32.lib setupapi.lib",
+        "`"$Compiler`" $UserFlags /Fo`"b2lusbctl.obj`" `"b2lusbctl.c`" /Fe:`"b2lusbctl.exe`" /link /machine:arm64 /subsystem:console /libpath:`"$WdkUserLib`" kernel32.lib setupapi.lib advapi32.lib",
         'exit /b %errorlevel%'
     )
     $BuildCmd = Join-Path $StageRoot 'build-b2lusb-arm64.cmd'

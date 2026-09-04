@@ -350,6 +350,16 @@ PASSIVE_LEVEL tek-atımlı timer'a bırakılır. HSI2C polling döngüsü CPU'yu
 2 saniye backoff uygular; başarılı CC takibi yine 200 ms'dir. Böylece MAX77705
 cevap vermese bile PnP/USBXHCI/WinPE boot yolu ilerleyebilir.
 
+`0.1.0.28`, henüz cihazda doğrulanmamış olay tanısıdır. Opcode öncesi ve
+cevap bekleme UIC okumaları dahil ilk 16 ve son 48 olay, SYSMSG/CC/PD ham
+durumları ve zamanları sabit 3.128 baytlık bir kayıtta tutulur. Tanı snapshot'ı
+güç rolü kararını değiştirmez; ForceError veya firmware reset eklenmez.
+`b2lusbctl.exe maxevents` tek registry okumasıyla kaydı gösterir; BYN0002
+başlamamış olsa da çalışır. Otomatik toplama `B2LUSB-MAX77705-EVENTS.TXT`
+dosyasına iki raporu ekler; olay özeti mevcut kritik MAX ekranına girer.
+Kayıt formatı, hata yorumlama ve WSL/flaş A/B deneyi için
+`specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` başındaki `.28` bölümüne bakın.
+
 `0.1.0.27`, Linux MAX77705 probe sonundaki tek-seferlik manual CC-open bırakma
 adımını tamamlar. Çalışma maskeleri kurulduktan sonra `CONTROL3_R(0x1c)` okunur;
 `LockErrorEn` biti açıksa diğer bitler korunarak `CONTROL3_W(0x1d)` ile yalnız

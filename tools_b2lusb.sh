@@ -88,7 +88,7 @@ if [ "${B2L_SKIP_MSVC_BUILD:-0}" = "1" ]; then
     \( -name 'b2lmax77705*.c' -o -name 'b2lmax77705*.h' -o -name 'build-b2lusb.ps1' \) \
     -printf '%f\n' 2>/dev/null || true)"
   NEWER_CONTROL="$(find "$SRC" -maxdepth 1 -newer "$OUT/b2lusbctl.exe" \
-    \( -name 'b2lusbctl.c' -o -name 'b2lusb_public.h' -o -name 'build-b2lusb.ps1' \) \
+    \( -name 'b2lusbctl.c' -o -name 'b2lusb_public.h' -o -name 'b2lmax77705_events.h' -o -name 'build-b2lusb.ps1' \) \
     -printf '%f\n' 2>/dev/null || true)"
   if { [ -n "$NEWER_DRIVER" ] || [ -n "$NEWER_MONITOR" ] || \
        [ -n "$NEWER_MAX77705" ] || \

@@ -3,6 +3,7 @@
 
 #include <ntddk.h>
 #include <wdf.h>
+#include "b2lmax77705_events.h"
 
 #define B2L_MAX_CMGP_CMU_PHYSICAL_BASE     0x15C00000ULL
 #define B2L_MAX_USI_PHYSICAL_BASE          0x15C22000ULL
@@ -148,6 +149,10 @@ typedef struct _B2L_MAX_CONTEXT {
     ULONGLONG CcLastTransitionTime;
     ULONG DiagnosticStage;
     NTSTATUS DiagnosticStatus;
+    B2L_MAX_EVENT_LOG EventLog;
+    BOOLEAN EventLogDirty;
+    BOOLEAN EventCcValid;
+    USHORT EventLastCc;
 } B2L_MAX_CONTEXT, *PB2L_MAX_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(B2L_MAX_CONTEXT, B2lMaxGetContext)

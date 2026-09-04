@@ -431,6 +431,16 @@ call :B2LUsbAppendMax77705Summary CHG_CFG06 B2LMaxChgConfig06
 call :B2LUsbAppendMax77705Summary CHG_MODE B2LMaxChgMode
 call :B2LUsbAppendMax77705Summary OTG_SW B2LMaxOtgEnabled
 call :B2LUsbAppendMax77705Summary OTG_HW B2LMaxOtgHardwareActive
+rem Keep both automatic captures; print only the compact event summary.
+rem maxevents reads one registry value and works even if BYN0002 is absent.
+if exist "%B2LUSBDIR%\b2lusbctl.exe" (
+  "%B2LUSBDIR%\b2lusbctl.exe" maxevents > "%SystemDrive%\B2LUSB-MAX77705-EVENTS-LAST.TXT" 2>&1
+  >> "%SystemDrive%\B2LUSB-MAX77705-EVENTS.TXT" echo CAPTURE=%DATE% %TIME%
+  type "%SystemDrive%\B2LUSB-MAX77705-EVENTS-LAST.TXT" >> "%SystemDrive%\B2LUSB-MAX77705-EVENTS.TXT"
+  findstr /b /c:"MAX_" "%SystemDrive%\B2LUSB-MAX77705-EVENTS-LAST.TXT" >> "%SystemDrive%\B2LUSB-MAX77705-SUMMARY.TXT"
+)
+echo MAX77705 toplama tamamlandi; son yayimlanan durum:
+findstr /b /c:"STAGE=" /c:"STATUS=" /c:"MAX_" "%SystemDrive%\B2LUSB-MAX77705-SUMMARY.TXT"
 exit /b 0
 
 :B2LUsbAppendMax77705Summary

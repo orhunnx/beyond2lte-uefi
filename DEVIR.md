@@ -18,6 +18,11 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **4 Eylül kaynak güncellemesi:** `.28` olay tanısı hazırlandı; son cihaz
+> kanıtı aşağıdaki `.27` olmaya devam ediyor. `.28` için bölüm 0.18 ve
+> karşılaştırma dosyasının başındaki kaynak incelemesi önceliklidir.
+> ForceError'ın normal attach için gerekli olduğu varsayımı doğrulanmadı.
+
 ### 0.1 Altmış saniyelik özet
 
 Hedef, Samsung Galaxy S10+ `SM-G975F / beyond2lte / Exynos 9820` üzerinde
@@ -554,6 +559,42 @@ Bir sonraki çalışma, `24af2a4` üzerindeki kanıtı başlangıç kabul etmeli
 adımına ilerlemelidir.
 
 ---
+
+### 0.18 `.28` olay tanısı — WSL build ve cihaz doğrulaması bekliyor
+
+MAX77705 sürüm kaynağı `0.1.0.28` oldu; parent/host `0.1.0.18` kaldı.
+Opcode öncesinde ve cevap beklerken tüketilen UIC olayları artık kaydediliyor.
+SYSMSG, CC ve PD status snapshot'ları; ilk 16 + son 48 olay; zaman damgaları;
+snapshot hata geçerliliği eklendi. Kayıt `b2lusbctl.exe maxevents` ile okunur
+ve mevcut iki otomatik MAX dökümünde `B2LUSB-MAX77705-EVENTS*.TXT` olarak alınır.
+
+Bu sürüm ForceError/reset/VBUS politikası değiştirmez. GPL kaynak incelemesi,
+Linux'un SOURCE rolünü CC pin bilgisinden üretmediğini; doğrudan donanım
+status'undan okuduğunu gösterdi. Eski bölüm 0.14'teki araştırma soruları için
+güncel cevap ve A/B test yöntemi
+`specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` başındadır.
+
+Windows ARM64/UEFI/WIM build'i bu macOS makinesinde çalıştırılmadı.
+Build sözleşmesi değişmedi; güncel kaynakların bulunduğu WSL repo kökünde:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+tar -tf out/uefi-boot.tar
+tar -tf out/system-esp.tar
+```
+
+Aynı turdan `boot.img` ve `system.img` flaşlanır. Yeni `.sys` ve `b2lusbctl.exe`
+birlikte yeniden derlenmelidir; eski çıktı atlatma bayrakları kullanılmaz.
+Manifest MAX sürümü `.28` olmalı; `MAX_EVENTS v=1`, `count>0`, `SNAP_FAIL=0`
+ilk tanı beklentisidir. Sonra baştan takılı ve READY'den sonra takılı alıcı
+senaryoları karşılaştırılır. `.28` henüz cihazda çalıştı veya fare düzeldi
+olarak kayda geçirilmemelidir.
+
+Yerel kontrol: mevcut Windows MAX/USB güvenlik testleri ve
+`python3 tests/test_max77705_events.py` donanımsız hata benzetimi.
+Bu test gerçek olay/opcode ve okuyucu fonksiyonlarını sahte I2C/registry
+ile sınar; WDK derlemesinin veya fiziksel cihaz testinin yerine geçmez.
 
 ## TARİHSEL ARŞİV
 
