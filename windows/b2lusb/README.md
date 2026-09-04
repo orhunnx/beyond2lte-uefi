@@ -1,5 +1,14 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
+**5 Eylül / MAX 0.1.0.29:** HSI2C FIFO tüketimi ve Linux'taki
+`CC_SOURCE -> VBUS -> MUIC USB_AP` sırası düzeltildi. Yeni `MAX FOTO v2` ve
+`USB FOTO v2` sayfaları RX hatalarını, port bağlantısını ve USB/HID kimliklerini
+klavyesiz gösterir. `b2lusbctl filter` WinPE'deki eksik findstr bağımlılığını
+kaldırır. WSL build ve telefon doğrulaması bekleniyor. Gerçek IRQ ve MAX'tan
+DWC3/xHCI'ye rol bildirimi hâlâ eksik; aşağıdaki statik HOST uygulaması tam
+Linux akışı olarak kabul edilmiyor. Güncel kanıt ve açık işler:
+[Linux karşılaştırması](../../specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md).
+
 Bu dizin Exynos9820 `DWC_usb31` denetleyicisini sabit USB2 HOST olarak
 Windows'un inbox xHCI yığınına bağlayan güvenli bring-up paketidir.
 
@@ -23,9 +32,9 @@ Windows'un inbox xHCI yığınına bağlayan güvenli bring-up paketidir.
 - `b2lmax77705.sys`, `ACPI\BYN0004` üzerinde stock HSI2C45'i tek sahibi
   olarak açar. Samsung MFD sırasıyla TOP (`0x66`), USBC (`0x25`) ve charger
   (`0x69`) istemcilerini doğrular; CC state `SOURCE` olduğunda Samsung'un
-  `CONTROL1_WRITE(COM_USB=0x09)` komutuyla D+/D- hatlarını AP USB PHY'ye
-  bağlar, `CONTROL1_READ` ile yolu doğrular, ardından CNFG_00/INT_MASK
-  geçişiyle VBUS/OTG'yi açar. Ayrılmada önce VBUS'u kapatır ve sonra
+  CNFG_00/INT_MASK geçişiyle VBUS/OTG'yi açar; ardından
+  `CONTROL1_WRITE(COM_USB=0x09)` ile D+/D- hatlarını AP USB PHY'ye bağlar
+  ve `CONTROL1_READ` ile yolu doğrular. Ayrılmada önce VBUS'u kapatır ve sonra
   `COM_OPEN=0x3f` readback'ini zorunlu tutar.
 - `b2lusbctl.exe status|observe|host`, durum/gözlem ve idempotent HOST yeniden
   hazırlama aracıdır. Bu sürümde DEVICE/NONE rol değişimi bilerek kapalıdır.

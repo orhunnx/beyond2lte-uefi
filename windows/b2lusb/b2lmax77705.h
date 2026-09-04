@@ -134,6 +134,10 @@ typedef struct _B2L_MAX_CONTEXT {
     ULONG HsI2cAttemptedAddress;
     ULONG HsI2cRetryCount;
     ULONG HsI2cFailurePhase;
+    ULONG HsI2cReadFailures;
+    ULONG HsI2cLastReadFailureStatus;
+    ULONG HsI2cLastReadFailureLength;
+    ULONG HsI2cLastReadFailureTransferred;
     ULONG CmgpMuxUsi3;
     ULONG CmgpDivUsi3;
     ULONG CmgpQchUsi3;

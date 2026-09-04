@@ -561,9 +561,10 @@ B2lMaxTransferMessage(
             B2lMaxWriteRegister(Context, HSI2C_TX_DATA, Buffer[Index++]);
         }
     }
-    // Stock HSI2C45 uses its DT interrupt.  ACPI\BYN0004 deliberately does
-    // not expose GPA1-6 until a Windows GPIO interrupt-controller contract
-    // exists, so this leaf driver applies Samsung's bounded polling branch.
+    // Stock HSI2C45 uses GSIV 114; MAX's separate GPA1-6 EINT uses GSIV 51.
+    // Neither interrupt is exposed by the current ACPI\BYN0004 contract.
+    // This existing transport still uses polling; FIFO repair below does
+    // not implement the stock interrupt completion/CC notification path.
     // That branch enables only TRANSFER_DONE; the 0xF00 state group belongs
     // to Samsung's interrupt-driven branch.
     B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, HSI2C_INT_TRANSFER_DONE);
@@ -576,13 +577,22 @@ B2lMaxTransferMessage(
             if (!NT_SUCCESS(Status)) {
                 goto Failed;
             }
-            if ((Index < BufferLength) &&
-                ((B2lMaxReadRegister(Context, HSI2C_FIFO_STATUS) &
-                  HSI2C_RX_FIFO_EMPTY) == 0UL)) {
+            // Drain the available FIFO before yielding. A 1 ms Windows wait
+            // is not a 1 ms execution guarantee: sleeping per byte can time
+            // out an 8-byte status read although all bytes are already ready.
+            // The length bounds this loop; an empty FIFO returns to the
+            // deadline/sleep path instead of busy-waiting for the bus.
+            while ((Index < BufferLength) &&
+                   ((B2lMaxReadRegister(Context, HSI2C_FIFO_STATUS) &
+                     HSI2C_RX_FIFO_EMPTY) == 0UL)) {
                 Buffer[Index++] =
                     (UCHAR)B2lMaxReadRegister(Context, HSI2C_RX_DATA);
             }
             if (Index >= BufferLength) {
+                Status = B2lMaxCheckTransferError(Context);
+                if (!NT_SUCCESS(Status)) {
+                    goto Failed;
+                }
                 InterruptStatus = B2lMaxReadRegister(Context, HSI2C_INT_STATUS);
                 if (InterruptStatus != 0UL) {
                     B2lMaxWriteRegister(Context, HSI2C_INT_STATUS, InterruptStatus);
@@ -604,9 +614,15 @@ B2lMaxTransferMessage(
             if (!NT_SUCCESS(Status)) {
                 goto Failed;
             }
-            FifoStatus = B2lMaxReadRegister(Context, HSI2C_FIFO_STATUS);
-            if (HSI2C_TX_FIFO_LEVEL(FifoStatus) < 16UL) {
+            // Refill available slots in one visit, as for RX above. All
+            // current opcodes fit the preload; keep longer writes correct.
+            while ((Index < BufferLength) &&
+                   (HSI2C_TX_FIFO_LEVEL(B2lMaxReadRegister(
+                       Context, HSI2C_FIFO_STATUS)) < 16UL)) {
                 B2lMaxWriteRegister(Context, HSI2C_TX_DATA, Buffer[Index++]);
+            }
+            if (Index == BufferLength) {
+                break;
             }
             if (KeQueryInterruptTime() >= Deadline) {
                 break;
@@ -633,6 +649,14 @@ B2lMaxTransferMessage(
     Status = STATUS_IO_TIMEOUT;
 
 Failed:
+    if (IsRead) {
+        // Retain the last failed read across successful health/register
+        // reads. Otherwise a later 1-byte success hides an 8-byte timeout.
+        ++Context->HsI2cReadFailures;
+        Context->HsI2cLastReadFailureStatus = (ULONG)Status;
+        Context->HsI2cLastReadFailureLength = BufferLength;
+        Context->HsI2cLastReadFailureTransferred = Index;
+    }
     B2lMaxCaptureControllerState(Context);
     B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
     return Status;

@@ -10,7 +10,7 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 
 ---
 
-## 0. GÜNCEL BAŞLANGIÇ NOKTASI — 4 Eylül 2026
+## 0. GÜNCEL BAŞLANGIÇ NOKTASI — 5 Eylül 2026
 
 > **Bu bölüm güncel tek devir kaynağıdır.** Aşağıdaki 1–14. bölümler, projenin
 > önceki UEFI, Windows açılışı ve UFS araştırmalarını koruyan tarihsel günlüktür.
@@ -18,10 +18,11 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
-> **4 Eylül kaynak güncellemesi:** `.28` olay tanısı hazırlandı; son cihaz
-> kanıtı aşağıdaki `.27` olmaya devam ediyor. `.28` için bölüm 0.18 ve
-> karşılaştırma dosyasının başındaki kaynak incelemesi önceliklidir.
-> ForceError'ın normal attach için gerekli olduğu varsayımı doğrulanmadı.
+> **5 Eylül kaynak güncellemesi:** Son fotoğraflar `.28` olay tanısının
+> 8 baytlık okumalarının tamamında timeout olduğunu gösterdi. `.29` FIFO,
+> VBUS/MUIC sırası ve foto ekranı düzeltmeleri için bölüm **0.19** ve Linux
+> karşılaştırma dosyasının başı önceliklidir. USB henüz çalışır doğrulanmadı;
+> gerçek IRQ/rol bildirimi tamamlanmadan tam Linux eşdeğerliği iddia edilmez.
 
 ### 0.1 Altmış saniyelik özet
 
@@ -35,21 +36,25 @@ Bugün itibarıyla:
   çekirdeği ve WinPE erken kullanıcı modu çalışıyor.
 - Windows `b2ltouch.sys` + VHF yolu çalışıyor; on temaslı gerçek multi-touch ve
   imleç hareketi cihazda doğrulandı.
-- Windows USB tarafında Exynos DWC3/xHCI sabit USB2 HOST denetleyicisi ve inbox
-  `USBXHCI -> USBHUB3` root-hub yolu çalışıyor.
+- Windows USB tarafında sabit USB2 HOST denetleyicisi `Started/RUN` görülüyor.
+  Root-hub/alıcı/HID zincirinin bütünü bu fotoğraflarla doğrulanmış değil;
+  boş özetlerde eksik `findstr` etkisi var. USB henüz çalışmıyor.
 - MAX77705, Windows'tan HSI2C45 üzerinden erişiliyor; kimlik, charger kilidi,
   opcode zinciri, kesme maskeleri, CCCTRL1 ve Linux probe-sonu CONTROL3 işlemi
-  başarıyla tamamlanıyor.
+  başarıyla tamamlanıyor. Ancak `.28` fotoğraflarındaki bütün sekiz baytlık
+  status okumaları timeout veriyor; taşıma katmanı tamamlanmış değil.
 - Fakat fiziksel Type-C attach kararı oluşmuyor. Takılı Logitech `046d:c52e`
-  alıcısıyla CC1 pini aktif görülmesine rağmen MAX77705 rolü `SOURCE` olmuyor.
+  alıcısıyla önceki flaşta CC1, yeni fotoğraflarda CC2 pin durumu görülmesine
+  rağmen MAX77705 rolü `SOURCE` olmuyor.
   Bu yüzden güvenlik gereği VBUS kapalı, MUIC analog yolu `OPEN=0x3f` ve xHCI
   portu `RxDetect/CCS=0` kalıyor. Fare/HID katmanına henüz gelinmedi.
-- İlk işlevsel uyuşmazlık, Linux karşılaştırma tablosunun **7. adımıdır:
-  Type-C CC olay/FSM ve ForceError koordinasyonu**.
-- Son flaşın ilk ve son fotoğrafı arasında yaklaşık 17 dakika var. Son sayaçlar
-  agresif polling'in düzeldiğini gösteriyor; gecikmenin kesin aşaması henüz
-  ölçülmedi. En güçlü aday seri `PnP/SetupAPI/registry/ETW/konsol` tanı
-  orkestrasyonudur.
+- En erken doğrulanmış hata artık **3. adım: sekiz baytlık I2C okuması**.
+  `.29` hazır FIFO'yu bayt başına uyumadan tüketir; cihaz sonucu bekleniyor.
+  Gerçek IRQ işleme ve MAX CC/PD -> DWC3 rol bildirimi de eksiktir.
+- Yeni fotoğraflar aynı D0 oturumunda 13 -> 15 olayı gösteriyor; tamamının
+  status snapshot'ı geçersiz. ForceError veya firmware reset gerektiği bu
+  kayıtlardan çıkarılamaz. Eksik `findstr` ve seri registry sorguları tanı
+  akışında ayrıca düzeltildi; cihazdaki toplam süre henüz ölçülmedi.
 
 Tam Windows masaüstü kurulumu henüz hedeflenen günlük test değildir. WinPE,
 Android `SYSTEM` bölümüne konan FAT32 ESP'deki `boot.wim`den RAM diske açılır.
@@ -76,21 +81,21 @@ kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikle
 
 ### 0.3 Güncel repo ve sürüm çıpası
 
-Bu bölüm yazılırken:
+`.29` değişikliğinin taban commit'i:
 
 ```text
 dal:    codex/touch-from-8549bfa
-HEAD:   24af2a4  docs: record .27 timing and CC results
+taban:  651c74c  feat: show MAX77705 diagnostics on automatic photo pages
 ```
 
-Son cihaz ekranında beklenen paket sürümleri:
+Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
 
 | Bileşen | Sürüm | ACPI kimliği / işlev |
 |---|---:|---|
 | `b2ltouch.sys` | `0.2.0.1` | `ACPI\BYN0001`, Samsung sec_ts -> KMDF/VHF touch |
 | `b2lusb.sys` parent | `0.1.0.18` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
 | inbox host | `0.1.0.18` INF | `ACPI\BYN0003`, `USBXHCI` + GSIV 273 |
-| `b2lmax77705.sys` | `0.1.0.27` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG |
+| `b2lmax77705.sys` | `0.1.0.29` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG |
 | `b2lufs.sys` | `0.0.4.5` kaynak sürümü | Deneysel Windows UFS miniport; güncel USB kapısı değil |
 
 Yalnız MAX77705 değiştiğinde parent/host sürümünün aynı kalması normaldir.
@@ -560,7 +565,7 @@ adımına ilerlemelidir.
 
 ---
 
-### 0.18 `.28` olay tanısı — WSL build ve cihaz doğrulaması bekliyor
+### 0.18 Tarihsel: `.28` olay tanısının ilk build/test planı
 
 USB olmadan kullanıcı kanıtı artık **fotoğraf** üzerinden alınır. Güncel
 `startnet.cmd`, test sonunda `b2lusbctl.exe maxscreen` açar: GENEL DURUM ve
@@ -604,6 +609,67 @@ Yerel kontrol: mevcut Windows MAX/USB güvenlik testleri ve
 `python3 tests/test_max77705_events.py` donanımsız hata benzetimi.
 Bu test gerçek olay/opcode ve okuyucu fonksiyonlarını sahte I2C/registry
 ile sınar; WDK derlemesinin veya fiziksel cihaz testinin yerine geçmez.
+
+### 0.19 5 Eylül: `.28` fotoğrafları incelendi, `.29` kaynak düzeltmesi
+
+Kullanıcının güncel şartı: **USB akışı Linux/Android'deki gerçek işlem sırasını
+izleyecek; eksik aşamalar alternatif yolla veya başarılı gösterilerek
+atlanmayacak.** Bu nedenle statik HOST ve polling nihai akışın eşdeğeri kabul
+edilmiyor. Ayrıntılı 16 aşama denetimi, 15 olaylık fotoğraf dökümü ve kaynak
+bağlantıları `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` başında.
+
+Son cihaz kanıtı `.28` olay tanısını içeriyor: aynı D0 oturumunun iki turunda
+13/15 kaydın tamamı `v=0, nt=c00000b5` ve `FAIL=13/15`. Bu 8 baytlık tanı
+okuması hatasıdır; sıfır raw/SYSMSG alanları veri değildir. Kısa kimlik/CC/
+opcode okumaları çalışıyor. CC `80/00 -> 00/00`, SOURCE/geçiş `0`, OTG `0/0`,
+MUIC `3f`; xHCI Started/RUN fakat PORTSC CCS/PED `0`. `findstr` eksikliği
+nedeniyle boş USB/SetupAPI özetleri negatif kanıt olarak kullanılamaz.
+
+`.29` kaynak değişiklikleri:
+
+- HSI2C, hazır RX/TX FIFO verilerini her baytta uyumadan tüketir/doldurur.
+  Aynı 100 ms sınırında eski kodun 7/8 baytta timeout verdiği gecikmeli FIFO
+  modeliyle yeni kod doğrulandı. Bu model cihazın ölçülmüş timer periyodu
+  değildir. D0 boyunca kalıcı son RX hata status/uzunluk/ilerleme alanları var.
+- Gerçek SOURCE sonrası Linux sırası düzeltildi: VBUS/OTG, ardından MUIC
+  USB_AP. Önceki MUIC-before-VBUS kapısı Linux'a ait değildi. Kaynak pin
+  durumundan rol üretmez; başarısız VBUS işleminden sonra MUIC açılmaz.
+- `MAX FOTO v2`: geçersiz ham veri `OKUNAMADI`, RX_FAIL/NT/WANTED/READ görünür.
+  Yeni `USB FOTO v2` sayfası güncel port ve gerçek USB/HID PnP kimliklerini
+  okur; restart/rol komutu göndermez. Genel + USB + olay sayfaları 20 saniyede
+  bir döner, tam 64 olayla tur 160 saniyedir; klavye/TXT gerekmez.
+- Eksik `findstr` yerine mevcut kontrol aracına `filter` komutu eklendi.
+  Eşleşmeme ve okuma hatası ayrı gösterilir. Tam registry dökümündeki 86
+  ayrı süreç bir key sorgusuna indirildi; kısa özet alanları korundu.
+
+**Henüz tamamlanmış sayılmayacak işler:** gerçek HSI2C/MAX IRQ işleme,
+CC/PD veri/güç rolü bildirimi, MAX sonucuna bağlı DWC3/xHCI başlama/durma ve
+runtime PM. Kaynak incelemesi “IRQ bilgisi yok” ifadesini düzeltti: birleşik
+DT'de HSI2C SPI82 -> GSIV114; MAX GPA1_6 -> SPI19 -> GSIV51 bağlantısı var.
+Mevcut ACPI/driver bunları sahiplenmiyor; EINT/pinctrl/ack ve Windows interrupt
+yaşam döngüsü olmadan numara eklemek yeterli değil. BYN0002 hâlâ statik HOST;
+`_DEP` yalnız PnP bağımlılığı, MAX READY/SOURCE bildirimi değildir.
+
+MAX `0.1.0.29`, parent/host `0.1.0.18`, binary olay şeması v1, foto ekranı v2.
+Mac'te Windows/UEFI/WIM build yapılmadı. WSL'deki güncel repo kökünde:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+tar -tf out/uefi-boot.tar
+tar -tf out/system-esp.tar
+```
+
+Aynı turdan boot.img ve system.img flaşlanır. Önce `v=1`, `nt=0`, `RX_FAIL=0`
+aranır. USB başarı ölçütü gerçek SOURCE=2, OTG=1/1, MUIC=09, port bağlantısı,
+Logitech `VID_046D&PID_C52E`, ilgili HID ve fiziksel fare hareketidir. Bu
+ölçütler henüz gerçekleşmiş değildir. Kaynak düzeltmesi USB çalıştı diye
+raporlanmamalıdır; açık aşamalar tam Linux akışının gereğidir.
+
+Yerel doğrulama: `tests/test_max77705_transport.py`,
+`tests/test_max77705_connection.py`, `tests/test_max77705_events.py`,
+`tests/test_b2lusb_log_filter.py`; mevcut Windows MAX/USB ve UEFI USB güvenlik
+testleri. Donanımsız C testleri WDK/WinPE ve telefon doğrulamasının yerine geçmez.
 
 ## TARİHSEL ARŞİV
 

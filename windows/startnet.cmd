@@ -267,7 +267,7 @@ if not "%B2LUSBTRACEACTIVE%"=="1" exit /b 0
 logman stop -n B2LUSBTRACE >> "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
 if exist "%SystemRoot%\System32\tracerpt.exe" if exist "%SystemDrive%\B2LUSB-USBXHCI.etl" (
   tracerpt "%SystemDrive%\B2LUSB-USBXHCI.etl" -o "%SystemDrive%\B2LUSB-USBXHCI.csv" -of CSV -y >> "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
-  if exist "%SystemDrive%\B2LUSB-USBXHCI.csv" findstr /i /c:"error" /c:"fail" /c:"status" /c:"0xC000009E" "%SystemDrive%\B2LUSB-USBXHCI.csv" > "%SystemDrive%\B2LUSB-ETW-SUMMARY.TXT" 2>nul
+  if exist "%SystemDrive%\B2LUSB-USBXHCI.csv" "%B2LUSBDIR%\b2lusbctl.exe" filter "%SystemDrive%\B2LUSB-USBXHCI.csv" "error" "fail" "status" "0xC000009E" > "%SystemDrive%\B2LUSB-ETW-SUMMARY.TXT" 2>nul
 )
 logman delete -n B2LUSBTRACE >> "%SystemDrive%\B2LUSB-ETW.TXT" 2>&1
 set "B2LUSBTRACEACTIVE=0"
@@ -281,9 +281,9 @@ exit /b 0
 
 :B2LUsbCollectSetupApiSummary
 rem USB aygit kimligiyle birlikte SetupAPI'nin Code 10/problem-status satirlarini
-rem ekrana sigacak tek dosyada tut. Kaynak log salt okunur; hata yoksa bos kalir.
+rem ekrana sigacak tek dosyada tut. Eslesme yok/hata ayrimi acikca yazilir.
 if not exist "%SystemRoot%\INF\setupapi.dev.log" exit /b 0
-findstr /i /c:"BYN0002" /c:"BYN0003" /c:"BYN0004" /c:"b2lmax77705" /c:"USBXHCI" /c:"Device not started" /c:"CM_PROB_FAILED_START" /c:"0xC000009E" "%SystemRoot%\INF\setupapi.dev.log" > "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" 2>nul
+"%B2LUSBDIR%\b2lusbctl.exe" filter "%SystemRoot%\INF\setupapi.dev.log" "BYN0002" "BYN0003" "BYN0004" "b2lmax77705" "USBXHCI" "Device not started" "CM_PROB_FAILED_START" "0xC000009E" > "%SystemDrive%\B2LUSB-SETUPAPI-SLICE.TXT" 2>nul
 exit /b 0
 
 :B2LUsbCollectMax77705State
@@ -291,92 +291,8 @@ exit /b 0
 pnputil /enum-devices /deviceid "ACPI\BYN0004" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 echo. >> "%SystemDrive%\B2LUSB-MAX77705.TXT"
 echo Samsung uyumlu CC/VBUS/OTG tani alanlari: >> "%SystemDrive%\B2LUSB-MAX77705.TXT"
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxStage >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxStatus >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPmicId >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPmicRev >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUsbcHwRev >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUsbcFwRev >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUsbcFwMinor >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcStatus0 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcStatus1 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxBcStatus >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgMode >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgIntOk >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgDetails0 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgDetails1 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgDetails2 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxOtgEnabled >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxAutoVbusDisabled >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxOpcodeResponse >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxAutoIbusConfigured >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxAutoIbusMode >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cControl >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cClockControl >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cIntStatus >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cErrorStatus >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cTransferStatus >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cFifoStatus >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cTimingFs1 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cTimingFs2 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cTimingFs3 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cConfiguration >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cAutoConfiguration >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cAddress >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cUsiControl >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cAttemptedAddress >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cRetryCount >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cFailurePhase >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPlatformPrepared >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCmgpMuxUsi3 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCmgpDivUsi3 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCmgpQchUsi3 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxGpm12Con >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxGpm13Con >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgConfig06 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChargerUnlocked >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChargerUnlockAttempts >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUicInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPdInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxVdmInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxTopInterruptSource >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxTopInterruptSourceSeen >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxTopInterruptSourceMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUicInterruptSeen >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcInterruptSeen >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPdInterruptSeen >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxVdmInterruptSeen >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcState >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPreviousCcState >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcStatusValid >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcStateChanged >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcSampleCount >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcTransitionCount >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcInterruptCount >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcSourceEventCount >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcLastSampleTimeLow >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcLastSampleTimeHigh >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcLastTransitionTimeLow >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcLastTransitionTimeHigh >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUicInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPdInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxVdmInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUsbcMasksConfigured >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUsbcRuntimeMasksConfigured >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcControlConfigured >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcControlResponse >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcControlReadBack >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcOpenNormalized >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxControl3Before >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxControl3After >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxOtgHardwareActive >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicPathRequested >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicControl1 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicPathVerified >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
-reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicUsbPath >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+rem Bir key dokumu: her alan icin ayri reg.exe sureci acma.
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 > "%SystemDrive%\B2LUSB-MAX77705-SUMMARY.TXT" echo Eksik satir, surucunun o asamaya ulasmadigini gosterir.
 call :B2LUsbAppendMax77705Summary STAGE B2LMaxStage
 call :B2LUsbAppendMax77705Summary STATUS B2LMaxStatus
@@ -433,16 +349,20 @@ call :B2LUsbAppendMax77705Summary CHG_CFG06 B2LMaxChgConfig06
 call :B2LUsbAppendMax77705Summary CHG_MODE B2LMaxChgMode
 call :B2LUsbAppendMax77705Summary OTG_SW B2LMaxOtgEnabled
 call :B2LUsbAppendMax77705Summary OTG_HW B2LMaxOtgHardwareActive
+call :B2LUsbAppendMax77705Summary RX_FAIL B2LMaxHsI2cReadFailures
+call :B2LUsbAppendMax77705Summary RX_NT B2LMaxHsI2cLastReadFailureStatus
+call :B2LUsbAppendMax77705Summary RX_WANTED B2LMaxHsI2cLastReadFailureLength
+call :B2LUsbAppendMax77705Summary RX_READ B2LMaxHsI2cLastReadFailureTransferred
 rem Keep both automatic captures; print only the compact event summary.
 rem maxevents reads one registry value and works even if BYN0002 is absent.
 if exist "%B2LUSBDIR%\b2lusbctl.exe" (
   "%B2LUSBDIR%\b2lusbctl.exe" maxevents > "%SystemDrive%\B2LUSB-MAX77705-EVENTS-LAST.TXT" 2>&1
   >> "%SystemDrive%\B2LUSB-MAX77705-EVENTS.TXT" echo CAPTURE=%DATE% %TIME%
   type "%SystemDrive%\B2LUSB-MAX77705-EVENTS-LAST.TXT" >> "%SystemDrive%\B2LUSB-MAX77705-EVENTS.TXT"
-  findstr /b /c:"MAX_" "%SystemDrive%\B2LUSB-MAX77705-EVENTS-LAST.TXT" >> "%SystemDrive%\B2LUSB-MAX77705-SUMMARY.TXT"
+  "%B2LUSBDIR%\b2lusbctl.exe" filter "%SystemDrive%\B2LUSB-MAX77705-EVENTS-LAST.TXT" "MAX_" >> "%SystemDrive%\B2LUSB-MAX77705-SUMMARY.TXT"
 )
 echo MAX77705 toplama tamamlandi; son yayimlanan durum:
-findstr /b /c:"STAGE=" /c:"STATUS=" /c:"MAX_" "%SystemDrive%\B2LUSB-MAX77705-SUMMARY.TXT"
+"%B2LUSBDIR%\b2lusbctl.exe" filter "%SystemDrive%\B2LUSB-MAX77705-SUMMARY.TXT" "STAGE=" "STATUS=" "MAX_"
 exit /b 0
 
 :B2LUsbAppendMax77705Summary
@@ -458,7 +378,7 @@ reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\HidUsb" /v Start >> "%Syst
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\mouhid" /v Start >> "%SystemDrive%\B2LUSB-INPUT-STACK.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\mouclass" /v Start >> "%SystemDrive%\B2LUSB-INPUT-STACK.TXT" 2>&1
 pnputil /enum-devices /class USB /services /stack /drivers > "%SystemDrive%\B2LUSB-USB.TXT" 2>&1
-findstr /i /c:"Instance ID:" /c:"Device Description:" /c:"Status:" /c:"Problem Code:" /c:"Driver Name:" "%SystemDrive%\B2LUSB-USB.TXT" > "%SystemDrive%\B2LUSB-USB-SUMMARY.TXT" 2>nul
+"%B2LUSBDIR%\b2lusbctl.exe" filter "%SystemDrive%\B2LUSB-USB.TXT" "Instance ID:" "Device Description:" "Status:" "Problem Code:" "Driver Name:" > "%SystemDrive%\B2LUSB-USB-SUMMARY.TXT" 2>nul
 pnputil /enum-devices /class HIDClass /services /stack /drivers > "%SystemDrive%\B2LUSB-HID.TXT" 2>&1
 pnputil /enum-devices /class Mouse /services /stack /drivers > "%SystemDrive%\B2LUSB-MOUSE.TXT" 2>&1
 exit /b 0

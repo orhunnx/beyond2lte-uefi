@@ -1,6 +1,217 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
-## 4 Eylül kaynak incelemesi ve `.28` tanı sürümü
+## 5 Eylül 2026: `.28` fotoğraf sonucu ve `.29` kaynak düzeltmesi
+
+**Güncel cihaz kanıtı artık `.28` olay tanısını içeren flaştır.** Kullanıcının
+12 fotoğrafı incelendi. Bazıları aynı çıktının devamı/tekrarıdır; 12 ayrı
+başarılı test değildir. Olay ekranlarının iki turunda da `D0=448517796`
+bulunur: aynı oturumda sayaç 13'ten 15'e ilerlemiştir. MAX INF sürümü bu
+fotoğraflarda görünmediği için `.28` tanımlaması olay şeması ve `MAX FOTO v1`
+çıktısına dayanır; host INF `0.1.0.18` açıkça görünür.
+
+**Çalışma ölçütü:** Linux/Android'in gerçek donanım ve olay sırası uygulanacak.
+Bir aşama başka bir aşamanın başarılı görünmesiyle tamamlanmış sayılmayacak.
+Özellikle pin aktifliği SOURCE rolü değildir; `STAGE=70` USB hazır anlamına
+gelmez; `_DEP` MAX bağlantı durumunu beklemez; xHCI `PP=1` konektörde VBUS
+ölçümü değildir. Bu bölüm alttaki tarihsel `.27/.28` planlarının önüne geçer.
+
+### Fotoğrafların söylediği ve söylemediği
+
+| Kanıt | Okunan değer | Yorum |
+|---|---|---|
+| Fotoğraf 1/3/4/5, host | `ACPI\BYN0003\0 Started`, `USBXHCI`, MMIO `10c00000..10c0ffff`, raw IRQ `273` | PnP start başarılı. Root-hub/alıcı/HID enumeration kanıtı değildir. |
+| Fotoğraf 3/5, kaynak ve DMA tanısı | START completion `0`, DMA64 ve DMA32 buffer/enabler status `0`; raw IRQ `111`, translated vector `a00`, level `a` | Kaynak ataması ve buffer ayırma başarılı. Gerçek xHCI interrupt teslimini veya tamamlanan bir USB transferini kanıtlamaz. |
+| Fotoğraf 4/6/7, controller | `CMD=2005`, `STS=0`, `CFG=40`, `DCBAAP=000000097feb0000`, `CRCR=0`; observer `161` örnek, `0` transition | Controller çalışır durumda görülmüş. CRCR sıfır okunmasını tek başına “command ring kurulmamış” diye yorumlamıyoruz. |
+| Aynı fotoğraflar, port | USB2 `000002a0`, diğer port `0e0002a0`; `CCS=0`, `PED=0`, `PP=1`, `RxDetect` | Fiziksel USB bağlantısı xHCI tarafında görünmüyor. |
+| Fotoğraf 2/6/7/10, MAX init | `STAGE=70`, `STATUS=0`, PMIC `15/rev2`, HW/FW `1a/1a`, minor `10`, maskeler `00/20/00/f0`, `CCCTRL1=1f` | Kimlik, kısa I2C okumaları ve init/read-back işlemleri tamamlanmış. Bütün I2C uzunluklarının çalıştığı sonucu çıkarılamaz. |
+| CC-open | `CCOPEN_OK=1`, CONTROL3 `64 -> 64` | LockErrorEn zaten kapalı; bu önceki hipotez tekrar doğrulanmıyor. |
+| Genel ekran tur 1 / tur 2 | CC `80/00 -> 00/00`; örnek sayısı `aca -> b6b`; rol/geçiş/source sayaçları `0` | CC2 pin durumu değişiyor; güç rolü örnekleri hâlâ No Connection. |
+| Bağlantı yolu | MUIC `3f`, OTG SW/HW `0/0`, charger mode `15` | SOURCE görülmediğinden güç ve veri yolu açılmamış. HID servislerini değiştirmek bu katmanı onarmaz. |
+| Fotoğraf 4 | `'findstr' is not recognized...` | Boş root-hub/SetupAPI özetleri “aygıt/hata yok” kanıtı değildir. Özetleme aracı çalışmamış. |
+| Fotoğraf 8/9/11/12 | `count=13 -> 15`, `FAIL=13 -> 15`, her kayıtta `v=0 nt=c00000b5` | **Bütün 8 baytlık status snapshot'ları zaman aşımına düşmüş.** Sıfırlanmış `r` alanları donanım verisi değildir. |
+
+`UIC=B2`, SYSMSG interrupt biti `0x40` içermiyor. `SYS=0`, yakalanan olaylarda
+bu bitin görülmediğini söyler; geçerli SYSMSG register okuması bulunmadığı
+için “firmware hatası yok” denemez. `ERR=1`, tek ham AttachSrcErrI örneğidir;
+CC maskesindeki bit 5 de set olduğundan Linux nested IRQ'sının çalıştığı veya
+hatanın o anda sürdüğü çıkarılamaz. CC_STATUS1 bit 2'yi geçerli okumak gerekir.
+
+### Aynı D0 oturumundaki olay zaman çizgisi
+
+Zamanlar MAX D0 başlangıcına göre milisaniyedir. `p`, ayrı ve başarılı
+politika CC okumasıdır; `r` bütün satırlarda geçersizdir.
+
+| Sıra | t (ms) | Kaynak / opcode / IRQ | Politika CC |
+|---:|---:|---|---|
+| 1 | 2331 | baseline, `FF`, `00000000` | yok |
+| 2 | 2675 | opcode öncesi, `57`, UIC `32` | yok |
+| 3 | 3020 | opcode bekleme, `57`, UIC `80` | yok |
+| 4 | 3850 | opcode bekleme, `54`, UIC `80` | yok |
+| 5 | 4273 | opcode bekleme, `0c`, UIC `80` | yok |
+| 6 | 4696 | opcode bekleme, `0b`, UIC `80` | yok |
+| 7 | 5400 | opcode bekleme, `1c`, UIC `80` | yok |
+| 8 | 5823 | opcode bekleme, `1c`, UIC `80` | yok |
+| 9 | 6309 | normal CC, `00000000` | `0080` |
+| 10 | 6872 | opcode bekleme, `06`, UIC `80` | yok |
+| 11 | 7279 | opcode bekleme, `05`, UIC `80` | yok |
+| 12 | 819188 | normal CC, `00000902` | `0000` |
+| 13 | 820018 | normal CC, `00002802` | `0080` |
+| 14 | 1532845 | normal CC, `00000802` | `0000` |
+| 15 | 1533675 | normal CC, `00000100` | `0000` |
+
+12–15 numaralı kayıtlar pin/CC olaylarının sonradan da geldiğini gösteriyor.
+Fotoğraflarda fiziksel takma/çıkarma anları etiketli olmadığından hangi
+satırın hangi elle yapılan işleme karşılık geldiği kesinleştirilmedi.
+Hiçbir başarılı politika örneğinde `CCStat=2` yok. Genel ekrandaki son
+`I2C_RETRY=0/I2C_PHASE=0`, önceki snapshot hatalarını çürütmez: son başarılı
+kısa transfer bu alanları yeniden yazmıştır.
+
+### Kodda doğrulanan iki hata ve `.29` değişikliği
+
+**1. HSI2C hazır FIFO verisi her baytta uyunarak tüketiliyordu.**
+`B2lMaxTransferMessage()` yalnız bir RX baytı alıp 1 ms bekleme istiyordu;
+mesajın toplam sınırı 100 ms. Windows beklemesinin ardından thread'in hemen
+çalışacağı garanti edilmez. Bu, hazır 8 baytın bile süre içinde alınamamasına
+neden olabilir. [Windows bekleme sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-kedelayexecutionthread)
+
+Samsung interrupt işleyicisi hazır RX FIFO'yu boşaltır, TX FIFO'nun boş
+yerlerini doldurur. Windows `.29` da hazır veriyi aynı ziyaret içinde
+alır/yazar; yalnız FIFO boş/dolu olup ilerleme bekleniyorsa uyur. İstenen
+uzunluk, mevcut 100 ms timeout, error kontrolleri ve tekrar sınırı korunur.
+Timeout'u büyüterek ya da sıfır veri döndürerek başarı üretilmez.
+[Samsung FIFO işleyicisi](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/i2c/busses/i2c-exynos5.c#L616)
+
+Gerçek transfer fonksiyonuyla yapılan host testi, ilk baytların ilk
+zamanlayıcı dönüşünde geldiği 15,625 ms'lik gecikme modelinde eski kodun
+**7/8 baytta timeout** verdiğini, yeni kodun tek FIFO boşaltımıyla okuduğunu
+gösterdi. Bu telefonda ölçülmüş zamanlayıcı periyodu değildir; kaynak
+hatasının yeniden üretimidir. Cihazdaki 8 baytlık hatanın bu düzeltmeyle
+kapanması WSL build + flaşla doğrulanacaktır.
+
+`RX_FAIL`, `RX_NT`, `RX_WANTED`, `RX_READ` tanıları eklendi. Başarısız fiziksel
+okuma denemelerinin sayısını ve son hatada istenen/alınan bayt sayısını
+saklar; sonraki başarılı kısa okumalar bunları silmez. D0 başlangıcında
+sıfırlanır. Retry sayıldığı için RX_FAIL ile olay başına artan FAIL birebir
+aynı sayaç değildir.
+
+**2. Windows MUIC ve VBUS sırasını ters kuruyordu.**
+Linux `max77705_ccstat_irq_handler()` gerçek `cc_SOURCE` dalında VBUS'u açar;
+MUIC OTG/RpRd akışı ardından `06 09` gönderir. Windows'taki “önce MUIC
+read-back, sonra VBUS” kapısı Linux'a ait değildi. `.29`, bu iki adımı
+`CC_SOURCE -> VBUS/OTG -> MUIC USB_AP` sırasına aldı. VBUS çağrısı başarısızsa
+MUIC dalına geçilmez. SOURCE dışına çıkınca güç kapatma ve OPEN yolu sürer.
+[Samsung CC source dalı](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_cc.c#L683)
+
+Gerçek CC çözümleme ve bağlantı fonksiyonlarını çalıştıran testler; pin
+aktifliğinin SOURCE'a dönüşmediğini, bütün source dışı durumları,
+`CC -> VBUS -> MUIC` sırasını, detach'i ve hata/yeniden deneme yollarını
+kontrol eder. **Bu sıra hatası tek başına mevcut CCStat=0'ın nedeni olarak
+kanıtlanmadı.** Çalışan Linux logunun yerel kopyasındaki ilk gerçek host
+bildirimi `461.183854`, USB_HOST_ATTACHED `461.183916`, MUIC seçim kararı
+`461.185836`dır; erken CC/VBUS zamanları aşağıdaki tarihsel tablodan gelir.
+
+### Tanı ekranı ve toplama düzeltmeleri
+
+- Beş `findstr` çağrısı kaldırıldı. Aynı WIM'de bulunan `b2lusbctl filter`
+  büyük/küçük harf duyarsız sabit metin eşlemesi yapar. BOM'lu UTF-8/UTF-16LE
+  UCRT Unicode modunda, BOM'suz çıktı normal metin modunda okunur.
+  Eşleşmeme, açma/okuma hatası, desteklenmeyen UTF-16BE ve aşırı uzun satır
+  ayrı `LOG_FILTER_*` sonuçlarıdır; hata boş özet gibi sunulmaz.
+  [UCRT BOM davranışı](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/fopen-wfopen)
+- Tam MAX registry dökümü için 86 ayrı `reg.exe` yerine tek key sorgusu
+  kullanılır. Kısa özetin 55 eski alanı ve dört yeni RX alanı korunur.
+  Toplam toplama süresinin ne kadar azalacağı cihazda ölçülmedi.
+- `MAX FOTO v2`: geçersiz olaylarda sıfır ham registerlar yerine
+  `r=OKUNAMADI`; genel ekranda kalıcı RX hata bilgileri ve STAGE açıklaması.
+- Yeni `USB FOTO v2` sayfası, mevcut salt-okuma GET_STATUS arayüzünden
+  port CCS/PED/PP değerlerini ve PnP'den mevcut USB/HID kimliklerini gösterir.
+  Yeniden tarama, host restart veya rol komutu göndermez. Her enumerator için
+  ilk 6 kimliğin ilk 48 karakteri ve toplam sayı gösterilir. HID listesi
+  başka giriş aygıtlarını da kapsayabilir; sayının artması tek başına USB
+  fare kanıtı değildir, alıcının VID/PID'si aranır.
+- Sayfalar 20 saniye kalır: genel MAX, canlı USB/PnP, sonra aynı snapshot'ın
+  olay sayfaları. Tam 64 kayıtla tur 8 sayfa/160 saniyedir. MAX alanları,
+  USB/PnP ve olay kaydı birbirleriyle atomik anlık görüntü sayılmaz.
+
+### 16 aşamanın yeniden denetimi ve açık işler
+
+| Aşama | `.28` kanıtı ve `.29` sonrası durum |
+|---|---|
+| 1. Sahiplik | MAX ve host ACPI aygıtları var; bu iki sürücünün başlaması donanım olay zincirini bağlamıyor. |
+| 2. Platform | CMGP, USI ve pinctrl hazırlığı kimlik/kısa transferlerle doğrulanmış. |
+| 3. I2C mesajı | **Kısmen çalışıyor.** Sekiz bayt timeout kanıtı nedeniyle “taşıma katmanı tamamlandı” kararı geri alındı; FIFO düzeltmesinin cihaz doğrulaması bekleniyor. |
+| 4. Kimlik | PMIC/HW/FW okunuyor; firmware değiştirilmedi. |
+| 5. Kesme | Read-to-clear register olayları var; gerçek HSI2C/MAX ISR teslimi uygulanmış değil. Aşağıdaki DT kaynak bağlantısı bulundu. |
+| 6. Init | Init opcode/read-back'leri başarılı, fakat bütün firmware/FSM hata durumları dışlanmış değil; snapshot'lar geçersiz. |
+| 7. Attach/rol | CC pin olayı var; `CC_SOURCE` yok. SOURCE'un yerine pin/Rp/Rd tahmini kullanılmaz. |
+| 8. VBUS | Source dalı var; cihazda açılmadı. `.29` Linux'taki VBUS-önce sırasını düzeltir. |
+| 9. MUIC | OPEN read-back başarılı; gerçek attach üzerinde USB_AP henüz cihazda doğrulanmadı. |
+| 10. Rol bildirimi | **Eksik.** BYN0002 hâlâ sabit HOST başlatıyor; MAX CC/PD bildirimine bağlı başlama/durma sözleşmesi yok. `_DEP` bunun yerine sayılamaz. |
+| 11. PHY/runtime PM | Host PHY registerları açık görülüyor; Linux'taki bağlantı temelli runtime resume/suspend bütünü doğrulanmış değil. |
+| 12. xHCI | Started/RUN var. IRQ273, root-hub veya alıcı transferlerinin tamamlandığı anlamına gelmez. |
+| 13. Port | CCS/PED sıfır; bağlantı henüz yok. Yeni foto sayfası sonradan takma/çıkarma sonrası güncel sonucu gösterir. |
+| 14. Enumeration | Logitech USB kimliği bu Windows kanıtında yok. |
+| 15. HID | Servislerin Start=3 olması yeterli değil; mevcut fare PnP sorgusu aygıt bulmamış. |
+| 16. Detach | OPEN/OTG-off başlangıcı var; önce başarılı attach görülmediği için tamamlanmış bir detach çevrimi doğrulanmadı. |
+
+**IRQ kaynağı konusunda önceki ifade düzeltilmiştir.** Depodaki birleştirilmiş
+`mu-silicium-overlay/Resources/DTBs/beyond2lte.dts` içinde:
+
+- `hsi2c@15D60000` interrupt tuple'ı `<0 0x52 0>`: SPI 82, GIC GSIV 114
+  (`0x72`). Bu, Linux `/proc/interrupts` satırını Windows'a kopyalayarak
+  değil, DT'nin SPI tanımından `+32` ile türetilmiştir.
+- MAX `irq-gpio=<0x135 6 1>`; `0x135` GPA1 bankıdır. GPA1 interrupt
+  listesinin 6. pini SPI `0x13`/19'a gider: GIC GSIV 51 (`0x33`). Bank,
+  `pinctrl@15850000` altındadır; pin işlevi `0xf` olarak tanımlanmış.
+- Bu bağlantılar **kaynak düzeyinde bellidir**; mevcut ACPI BYN0004 `_CRS`
+  bunları henüz taşımıyor. EINT türü, maskesi, pending/ack, pinctrl sahipliği
+  ve Windows interrupt yaşam döngüsü kurulmadan yalnız iki numara eklemek
+  bir IRQ portu sayılmaz. Fiziksel MAX pininin active-low olması GIC uç
+  polaritesini tek başına belirlemez.
+
+Tam Linux eşdeğerliği için 5 ve 10. aşamalar açık kalır: gerçek interrupt
+sahipliği/işleme, CC/PD veri-güç rolü ayrımı, MAX'tan DWC3'e olay bildirimi,
+xHCI child'ın bağlantı/power yaşam döngüsü ve detach'te ters sıra gerekir.
+`.29` bunların yapıldığını iddia etmez. Statik HOST, sürekli polling veya
+registry'deki READY'yi okuyan bir kapı nihai Linux akışının yerine kabul
+edilmez. Fiziksel attach tamamlanmadan host'u yeniden başlatmak, SOURCE
+uydurmak, maskeli AttachSrcErrI'yi başarı olayı saymak veya tek SYSMSG örneği
+üzerinden firmware resetlemek bu eksikleri kapatmaz. Linux SYSMSG işleyicisi
+karar öncesi registerı üç kez eşit okuma koşuluyla değerlendirir; `.28`
+geçersiz snapshot'ları böyle bir kurtarma kararını desteklemiyor.
+
+### WSL build ve flaşta aranacak kanıt
+
+MAX sürümü `0.1.0.29`, parent/host `0.1.0.18`; olay binary şeması v1 kalır,
+foto arayüzü v2 olur. macOS üzerinde WDK/UEFI/WIM derlenmedi. Aynı WSL repo
+kökünde normal yöntem:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+tar -tf out/uefi-boot.tar
+tar -tf out/system-esp.tar
+```
+
+Aynı turda üretilen `boot.img` ve `system.img` kullanılır. MAX `.sys`, kontrol
+EXE'si ve startnet'in birlikte WIM'e girmesi gerekir. İlk kabul ölçütü
+`MAX FOTO v2`, `RX_FAIL=0`, olaylarda `v=1/nt=0` ve gerçek ham registerlardır.
+Bunlar beklenen sonuçtur, gerçekleşmiş test sonucu değildir. Hata sürerse
+RX_NT/WANTED/READ ve ilgili olay sayfası birlikte fotoğraflanır.
+
+USB işlevinin kabulü ayrıca gerçek SOURCE `2`, OTG SW/HW `1/1`, MUIC `09`,
+USB portunda CCS/PED, USB kimliklerinde `VID_046D&PID_C52E`, ardından ilgili
+HID arayüzü ve fiziksel fare hareketidir. Sonra çıkarma ile OTG off/MUIC OPEN
+ve port detach görülmelidir. SOURCE hiç oluşmazsa sonraki adım geçerli
+CC/SYSMSG/PD verisini yorumlamaktır; diğer aşamalar tamamlandı sayılmaz.
+Klavye veya TXT dışa aktarımı önkoşul değildir.
+
+Host doğrulaması: gerçek C fonksiyonlarıyla FIFO/timing/hata testi, CC/OTG/
+MUIC sıralama testi, olay/registry/33 satır–64 sütun foto testi ve log filtresi
+testi; mevcut üç kaynak güvenlik testi. Bunlar WDK derlemesi, GIC/IRQ donanım
+ölçümü veya gerçek USB veri aktarımı yerine geçmez.
+
+## Tarihsel: 4 Eylül kaynak incelemesi ve `.28` tanı tasarımı
 
 ### USB olmadan kanıt: otomatik fotoğraf ekranı
 

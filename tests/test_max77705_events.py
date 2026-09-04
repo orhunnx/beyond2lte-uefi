@@ -105,6 +105,7 @@ static LSTATUS registry_error;
 static ULONGLONG printed[64];
 static ULONG printed_count;
 static ULONG output_lines, max_width;
+static ULONG invalid_rows;
 static LSTATUS RegGetValueW(int key, const wchar_t *path, const wchar_t *name,
         DWORD flags, DWORD *type, void *buffer, DWORD *size) {
     (void)key; (void)path; (void)name; assert(flags == RRF_RT_REG_BINARY);
@@ -143,6 +144,7 @@ static int mock_wprintf(const wchar_t *format, ...) {
     *d = 0;
     va_start(args, format); va_copy(render, args);
     assert(vswprintf(output, 1024, normalized, render) >= 0);
+    if (wcsstr(output, L"r=OKUNAMADI") != NULL) ++invalid_rows;
     va_end(render);
     for (p=output; *p; ++p) {
         if (*p == L'\n') {
@@ -167,6 +169,56 @@ harness += "\n".join(function(name, control) for name in (
 harness += "\n" + re.search(r"^#define B2L_MAX_PHOTO_ROWS .*", control, re.M)[0] + "\n"
 harness += function("B2lPrintMaxEventPage", control)
 harness += function("B2lPrintMaxPhotoOverview", control)
+
+harness += r"""
+typedef int HANDLE;
+typedef int HDEVINFO;
+typedef int BOOL;
+#define FALSE 0
+#define INVALID_HANDLE_VALUE (-1)
+#define DIGCF_ALLCLASSES 4
+#define DIGCF_PRESENT 2
+#define ERROR_NO_MORE_ITEMS 259
+#define B2L_USB_IOCTL_VERSION 6
+#define IOCTL_B2L_USB_GET_STATUS 123
+#define B2L_XHCI_PORTSC_CCS 1
+#define B2L_XHCI_PORTSC_PED 2
+#define B2L_XHCI_PORTSC_PP 512
+typedef struct { DWORD cbSize; } SP_DEVINFO_DATA;
+typedef struct {
+    ULONG Version, Size, RequestedRole, CurrentRole, LastRoleStatus;
+    ULONG XhciUsbCmd, XhciUsbSts, XhciConfig, XhciPortSc1, XhciPortSc2;
+} B2L_USB_STATUS;
+static int usb_failure;
+static DWORD pnp_count;
+static HANDLE B2lOpenController(void) { return usb_failure == 1 ? -1 : 1; }
+static const WCHAR *B2lRoleName(ULONG role) { (void)role; return L"HOST"; }
+static DWORD GetLastError(void) { return ERROR_NO_MORE_ITEMS; }
+static BOOL CloseHandle(HANDLE h) { assert(h == 1); return 1; }
+static BOOL DeviceIoControl(HANDLE h, DWORD code, void *in, DWORD n,
+        B2L_USB_STATUS *s, DWORD size, DWORD *returned, void *overlap) {
+    assert(h == 1 && code == IOCTL_B2L_USB_GET_STATUS && in == NULL && n == 0);
+    assert(size == sizeof(*s) && overlap == NULL);
+    *returned = sizeof(*s); s->Version = 6; s->Size = sizeof(*s);
+    s->XhciPortSc1 = 0x203;
+    if (usb_failure == 3) s->Version=0;
+    return usb_failure != 2;
+}
+static HDEVINFO SetupDiGetClassDevsW(void *guid, const WCHAR *name, void *window, DWORD flags) {
+    assert(guid == NULL && window == NULL && flags == (DIGCF_ALLCLASSES|DIGCF_PRESENT));
+    assert(wcscmp(name,L"USB")==0 || wcscmp(name,L"HID")==0);
+    return usb_failure == 4 ? -1 : 1;
+}
+static BOOL SetupDiEnumDeviceInfo(HDEVINFO h,DWORD count,SP_DEVINFO_DATA *d) {
+    assert(h == 1 && d->cbSize == sizeof(*d)); return count < pnp_count;
+}
+static BOOL SetupDiGetDeviceInstanceIdW(HDEVINFO h,SP_DEVINFO_DATA *d,WCHAR *id,DWORD size,void *required) {
+    (void)d; assert(h == 1 && size == 256 && required == NULL);
+    wmemset(id,L'X',255); id[255]=0; return usb_failure != 5;
+}
+static BOOL SetupDiDestroyDeviceInfoList(HDEVINFO h) { assert(h == 1); return 1; }
+"""
+harness += function("B2lPrintUsbPhotoStatus", control)
 harness += r'''
 static void reset(B2L_MAX_CONTEXT *c) {
     memset(c, 0, sizeof(*c)); memset(samples, 0, sizeof(samples));
@@ -269,12 +321,25 @@ int main(void) {
     reset(&c); output_lines=max_width=printed_count=0;
     B2lPrintMaxEventPage(&c.EventLog, 0, 2);
     assert(printed_count == 0 && output_lines <= 33 && max_width < 64);
+    snapshot_result=STATUS_IO_TIMEOUT;
+    B2lMaxCaptureEvent(&c, B2L_MAX_EVENT_POLL, 0xff, 0x2802, 0);
+    invalid_rows=0; output_lines=max_width=0;
+    B2lPrintMaxEventPage(&c.EventLog, 0, 2);
+    assert(invalid_rows==1 && output_lines<=33 && max_width<64);
     output_lines=max_width=0;
     B2lPrintMaxPhotoOverview(2);
-    assert(output_lines == 23 && max_width < 64);
+    assert(output_lines == 29 && max_width < 64);
     output_lines=max_width=0; registry_error=2;
     B2lPrintMaxPhotoOverview(3);
     assert(output_lines == 3 && max_width < 64);
+    for (usb_failure=0; usb_failure<=5; ++usb_failure) {
+        output_lines=max_width=0; pnp_count=100;
+        B2lPrintUsbPhotoStatus(3);
+        assert(output_lines<=33 && max_width<64);
+    }
+    output_lines=max_width=0; usb_failure=0; pnp_count=0;
+    B2lPrintUsbPhotoStatus(4);
+    assert(output_lines<=33 && max_width<64);
     return 0;
 }
 '''

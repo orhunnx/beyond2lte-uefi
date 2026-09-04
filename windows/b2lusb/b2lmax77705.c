@@ -151,7 +151,9 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxCcSourceEventCount", L"B2LMaxCcLastSampleTimeLow",
         L"B2LMaxCcLastSampleTimeHigh", L"B2LMaxCcLastTransitionTimeLow",
         L"B2LMaxCcLastTransitionTimeHigh", L"B2LMaxCcOpenNormalized",
-        L"B2LMaxControl3Before", L"B2LMaxControl3After"
+        L"B2LMaxControl3Before", L"B2LMaxControl3After",
+        L"B2LMaxHsI2cReadFailures", L"B2LMaxHsI2cLastReadFailureStatus",
+        L"B2LMaxHsI2cLastReadFailureLength", L"B2LMaxHsI2cLastReadFailureTransferred"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -250,6 +252,10 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[83] = Context->CcOpenNormalized ? 1UL : 0UL;
     Values[84] = Context->Control3Before;
     Values[85] = Context->Control3After;
+    Values[86] = Context->HsI2cReadFailures;
+    Values[87] = Context->HsI2cLastReadFailureStatus;
+    Values[88] = Context->HsI2cLastReadFailureLength;
+    Values[89] = Context->HsI2cLastReadFailureTransferred;
 
     RtlInitUnicodeString(&ServicePath, ServicePathBuffer);
     InitializeObjectAttributes(
@@ -1488,9 +1494,16 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)
     }
     CcState = Context->CcState;
     if (CcState == B2L_MAX_CC_SOURCE) {
-        // Samsung's OTG/RpRd attach path routes D+/D- to the AP with
-        // CONTROL1_WRITE(COM_USB) before the USB host path is useful.  VBUS
-        // remains gated until CONTROL1_READ proves that physical route.
+        // Samsung max77705_ccstat_irq_handler turns on VBUS in cc_SOURCE.
+        // MUIC's later OTG/RpRd notification selects USB_AP. Do not invert
+        // that dependency by requiring the MUIC switch before source power.
+        if (!Context->OtgEnabled) {
+            Status = B2lMaxEnableOtg(Context);
+            B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_OTG_ON, Status);
+            if (!NT_SUCCESS(Status)) {
+                return Status;
+            }
+        }
         if (!Context->MuicPathVerified ||
             (Context->MuicControl1 != MAX77705_MUIC_COM_USB_AP)) {
             Status = B2lMaxSetMuicPath(
@@ -1501,11 +1514,6 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)
             if (!NT_SUCCESS(Status)) {
                 return Status;
             }
-        }
-        if (!Context->OtgEnabled) {
-            Status = B2lMaxEnableOtg(Context);
-            B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_OTG_ON, Status);
-            return Status;
         }
         return STATUS_SUCCESS;
     }
@@ -1915,6 +1923,10 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     Context->EventLogDirty = TRUE;
     Context->EventCcValid = FALSE;
     Context->EventLastCc = 0U;
+    Context->HsI2cReadFailures = 0UL;
+    Context->HsI2cLastReadFailureStatus = 0UL;
+    Context->HsI2cLastReadFailureLength = 0UL;
+    Context->HsI2cLastReadFailureTransferred = 0UL;
     Context->CcStateChanged = FALSE;
     Context->DiagnosticDirty = TRUE;
     Context->UicInterrupt = 0U;
@@ -2006,8 +2018,8 @@ B2lMaxEvtPollTimer(WDFTIMER Timer)
     } else if (Context->CcStatusValid &&
                (Context->CcState == B2L_MAX_CC_NO_CONNECTION) &&
                (Context->CcSampleCount <= B2L_MAX_ATTACH_FAST_POLLS)) {
-        // With no verified GPA1_6 ACPI interrupt resource, approximate the
-        // Linux CCStat wakeup only for a bounded post-init attach window.
+        // GPA1_6's DT source is known, but its EINT/ACPI interrupt lifecycle
+        // is not implemented. This existing timer is not a Linux CCStat IRQ.
         // A stable role or an expired window returns to the 200 ms health
         // cadence; late physical attach remains observable without a
         // permanent 50 Hz polling load.

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <wchar.h>
 #include <conio.h>
+#include <wctype.h>
 
 #include "b2lusb_public.h"
 #include "b2lmax77705_events.h"
@@ -17,6 +18,86 @@
 #define B2L_XHCI_PORTSC_SPEED_SHIFT  10U
 #define B2L_XHCI_PORTSC_SPEED_MASK   0xFUL
 #define B2L_XHCI_PORTSC_CHANGE_MASK  0x00FE0000UL
+
+// The reduced WinPE image has no findstr.exe. Keep literal, case-insensitive
+// log filtering in this already-staged tool; no shell or driver is involved.
+static BOOL
+B2lLogLineMatches(const WCHAR *Line, int Count, WCHAR **Patterns)
+{
+    const WCHAR *Start;
+    size_t Index;
+    int Pattern;
+
+    for (Pattern = 0; Pattern < Count; ++Pattern) {
+        for (Start = Line; *Start != 0; ++Start) {
+            for (Index = 0; Patterns[Pattern][Index] != 0; ++Index) {
+                if ((Start[Index] == 0) ||
+                    (towlower(Start[Index]) != towlower(Patterns[Pattern][Index]))) {
+                    break;
+                }
+            }
+            if (Patterns[Pattern][Index] == 0) {
+                return TRUE;
+            }
+        }
+    }
+    return FALSE;
+}
+
+static int
+B2lFilterLog(const WCHAR *Path, int Count, WCHAR **Patterns)
+{
+    FILE *Input;
+    unsigned char Bom[3] = {0, 0, 0};
+    WCHAR Line[16384];
+    size_t Length;
+    ULONG Matches = 0;
+
+    if (_wfopen_s(&Input, Path, L"rb") != 0) {
+        wprintf(L"LOG_FILTER_OPEN_ERROR: %ls\n", Path);
+        return 2;
+    }
+    (VOID)fread(Bom, 1, sizeof(Bom), Input);
+    fclose(Input);
+    if ((Bom[0] == 0xFE) && (Bom[1] == 0xFF)) {
+        wprintf(L"LOG_FILTER_UNSUPPORTED_UTF16BE: %ls\n", Path);
+        return 2;
+    }
+    // UCRT honors a UTF-8 or UTF-16LE BOM in Unicode mode. BOM-less reg.exe
+    // and pnputil redirection uses the ordinary text mode/code page instead.
+    if (_wfopen_s(&Input, Path,
+        (((Bom[0] == 0xFF) && (Bom[1] == 0xFE)) ||
+         ((Bom[0] == 0xEF) && (Bom[1] == 0xBB) && (Bom[2] == 0xBF))) ?
+        L"rt, ccs=UNICODE" : L"rt") != 0) {
+        wprintf(L"LOG_FILTER_OPEN_ERROR: %ls\n", Path);
+        return 2;
+    }
+    while (fgetws(Line, (int)ARRAYSIZE(Line), Input) != NULL) {
+        Length = wcslen(Line);
+        if ((Length == ARRAYSIZE(Line) - 1) && (Line[Length - 1] != L'\n')) {
+            wprintf(L"LOG_FILTER_LINE_TOO_LONG: %ls\n", Path);
+            fclose(Input);
+            return 2;
+        }
+        if (B2lLogLineMatches(Line, Count, Patterns)) {
+            wprintf(L"%ls", Line);
+            if ((Length != 0) && (Line[Length - 1] != L'\n')) {
+                wprintf(L"\n");
+            }
+            ++Matches;
+        }
+    }
+    if (ferror(Input)) {
+        wprintf(L"LOG_FILTER_READ_ERROR: %ls\n", Path);
+        fclose(Input);
+        return 2;
+    }
+    fclose(Input);
+    if (Matches == 0) {
+        wprintf(L"LOG_FILTER_NO_MATCH: %ls\n", Path);
+    }
+    return 0;
+}
 
 static HANDLE
 B2lOpenController(VOID)
@@ -328,9 +409,13 @@ B2lShowMaxEvents(VOID)
             (unsigned int)Event->Status[4], (unsigned int)Event->Status[5],
             (unsigned int)Event->Status[6], (unsigned int)Event->Status[7]);
         if (Order == Log.Count - 1UL) {
-            wprintf(L"MAX_LAST v=%lu SYSMSG=%02X CC=%02X/%02X\n",
-                Event->Valid, (unsigned int)Event->Status[1],
-                (unsigned int)Event->Status[4], (unsigned int)Event->Status[5]);
+            if (Event->Valid != 0UL) {
+                wprintf(L"MAX_LAST v=1 SYSMSG=%02X CC=%02X/%02X\n",
+                    (unsigned int)Event->Status[1],
+                    (unsigned int)Event->Status[4], (unsigned int)Event->Status[5]);
+            } else {
+                wprintf(L"MAX_LAST v=0 nt=%08lX raw=OKUNAMADI\n", Event->ReadStatus);
+            }
         }
     }
     return 0;
@@ -349,13 +434,16 @@ B2lPrintMaxPhotoOverview(ULONG Cycle)
         L"B2LMaxCcSourceEventCount", L"B2LMaxCcControlReadBack",
         L"B2LMaxCcOpenNormalized", L"B2LMaxControl3Before",
         L"B2LMaxControl3After", L"B2LMaxMuicControl1",
-        L"B2LMaxOtgEnabled", L"B2LMaxOtgHardwareActive"
+        L"B2LMaxOtgEnabled", L"B2LMaxOtgHardwareActive",
+        L"B2LMaxHsI2cReadFailures", L"B2LMaxHsI2cLastReadFailureStatus",
+        L"B2LMaxHsI2cLastReadFailureLength", L"B2LMaxHsI2cLastReadFailureTransferred"
     };
     static const WCHAR *Labels[] = {
         L"STAGE", L"STATUS", L"PMIC_ID", L"FW", L"FW_MINOR",
         L"CC0", L"CC1", L"CC_STATE", L"CC_SAMPLES", L"CC_TRANS",
         L"CC_SRC_EV", L"CCCTRL1", L"CCOPEN_OK", L"CTRL3_BEFORE",
-        L"CTRL3_AFTER", L"MUIC_CTL1", L"OTG_SW", L"OTG_HW"
+        L"CTRL3_AFTER", L"MUIC_CTL1", L"OTG_SW", L"OTG_HW",
+        L"RX_FAIL", L"RX_NT", L"RX_WANTED", L"RX_READ"
     };
     HKEY Key;
     LSTATUS Error;
@@ -365,8 +453,8 @@ B2lPrintMaxPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v1 / tur %lu / GENEL DURUM\n", Cycle);
-    wprintf(L"Fotograf cekin. Olay sayfalari 20 sn sonra.\n");
+    wprintf(L"MAX FOTO v2 / tur %lu / GENEL DURUM\n", Cycle);
+    wprintf(L"Fotograf cekin. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
     if (Error != ERROR_SUCCESS) {
@@ -392,6 +480,8 @@ B2lPrintMaxPhotoOverview(ULONG Cycle)
     RegCloseKey(Key);
     wprintf(L"Takma/cikarma sonrasi bir sonraki turu da cekin.\n");
     wprintf(L"Genel alanlar sirayla okunur; atomik kayit degildir.\n");
+    wprintf(L"STAGE=70: MAX init hazir; USB baglandi anlamina gelmez.\n");
+    wprintf(L"HOST zinciri: CC_STATE=2 -> OTG=1 -> MUIC_CTL1=09\n");
     wprintf(L"Klavye gerekmez. Varsa Q/Esc: cikis.\n");
 }
 
@@ -407,7 +497,7 @@ B2lPrintMaxEventPage(const B2L_MAX_EVENT_LOG *Log, ULONG Page, ULONG Cycle)
     }
     // At most 33 lines on the WinPE 64x41 console. One immutable registry
     // snapshot for the whole cycle: new events cannot reorder later pages.
-    wprintf(L"MAX FOTO v1 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
+    wprintf(L"MAX FOTO v2 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
     wprintf(L"Bu ekrani fotograflayin. Sonraki sayfa: 20 sn\n");
     wprintf(L"D0=%llu count=%lu total=%llu\n", Log->StartTime, Log->Count, Log->Total);
     wprintf(L"kayip=%llu UIC=%02lX SYS=%lu ERR=%lu FAIL=%lu\n",
@@ -423,12 +513,17 @@ B2lPrintMaxEventPage(const B2L_MAX_EVENT_LOG *Log, ULONG Page, ULONG Cycle)
         wprintf(L"#%llu t=%llu ms o=%lu op=%02lX irq=%08lX\n",
             Event->Sequence, (Event->Time - Log->StartTime) / 10000ULL,
             Event->Origin, Event->Opcode, Event->Interrupts);
-        wprintf(L"v=%lu nt=%08lX p=%08lX r=%02X%02X%02X%02X%02X%02X%02X%02X\n",
-            Event->Valid, Event->ReadStatus, Event->PolicyCc,
-            (unsigned int)Event->Status[0], (unsigned int)Event->Status[1],
-            (unsigned int)Event->Status[2], (unsigned int)Event->Status[3],
-            (unsigned int)Event->Status[4], (unsigned int)Event->Status[5],
-            (unsigned int)Event->Status[6], (unsigned int)Event->Status[7]);
+        if (Event->Valid != 0UL) {
+            wprintf(L"v=1 nt=%08lX p=%08lX r=%02X%02X%02X%02X%02X%02X%02X%02X\n",
+                Event->ReadStatus, Event->PolicyCc,
+                (unsigned int)Event->Status[0], (unsigned int)Event->Status[1],
+                (unsigned int)Event->Status[2], (unsigned int)Event->Status[3],
+                (unsigned int)Event->Status[4], (unsigned int)Event->Status[5],
+                (unsigned int)Event->Status[6], (unsigned int)Event->Status[7]);
+        } else {
+            wprintf(L"v=0 nt=%08lX p=%08lX r=OKUNAMADI\n",
+                Event->ReadStatus, Event->PolicyCc);
+        }
     }
     if (Log->Count == 0UL) {
         wprintf(L"Henuz olay yok; yeni turda yeniden okunacak.\n");
@@ -457,6 +552,86 @@ B2lClearPhotoConsole(HANDLE Output)
     return SetConsoleCursorPosition(Output, Origin);
 }
 
+static VOID
+B2lPrintUsbPhotoStatus(ULONG Cycle)
+{
+    B2L_USB_STATUS Status;
+    HANDLE Controller;
+    DWORD Returned = 0;
+    ULONG Ports[2];
+    ULONG Index;
+    HDEVINFO Devices;
+    SP_DEVINFO_DATA Device;
+    WCHAR Id[256];
+    DWORD Count;
+    DWORD Error;
+
+    wprintf(L"USB FOTO v2 / tur %lu / PORT VE AYGITLAR\n", Cycle);
+    Controller = B2lOpenController();
+    if (Controller == INVALID_HANDLE_VALUE) {
+        wprintf(L"USB_ARAYUZ_HATASI=%lu\n", GetLastError());
+    } else {
+        ZeroMemory(&Status, sizeof(Status));
+        if (!DeviceIoControl(Controller, IOCTL_B2L_USB_GET_STATUS,
+                NULL, 0, &Status, (DWORD)sizeof(Status), &Returned, NULL)) {
+            wprintf(L"USB_DURUM_HATASI=%lu\n", GetLastError());
+        } else if ((Returned != sizeof(Status)) ||
+                   (Status.Version != B2L_USB_IOCTL_VERSION) ||
+                   (Status.Size != sizeof(Status))) {
+            wprintf(L"USB_DURUM_SURUM_BOYUT_HATASI\n");
+        } else {
+            wprintf(L"Istenen=%ls simdiki=%ls NT=%08lX\n",
+                B2lRoleName(Status.RequestedRole), B2lRoleName(Status.CurrentRole),
+                (ULONG)Status.LastRoleStatus);
+            wprintf(L"xHCI CMD=%08lX STS=%08lX CFG=%08lX\n",
+                Status.XhciUsbCmd, Status.XhciUsbSts, Status.XhciConfig);
+            Ports[0] = Status.XhciPortSc1;
+            Ports[1] = Status.XhciPortSc2;
+            for (Index = 0; Index < ARRAYSIZE(Ports); ++Index) {
+                wprintf(L"Port%lu raw=%08lX CCS=%lu PED=%lu PP=%lu\n", Index + 1,
+                    Ports[Index], (ULONG)((Ports[Index] & B2L_XHCI_PORTSC_CCS) != 0),
+                    (ULONG)((Ports[Index] & B2L_XHCI_PORTSC_PED) != 0),
+                    (ULONG)((Ports[Index] & B2L_XHCI_PORTSC_PP) != 0));
+            }
+        }
+        CloseHandle(Controller);
+    }
+    wprintf(L"PP=1 konektorde VBUS olctugumuz anlamina gelmez.\n");
+    // Read the current PnP inventory, without starting a bus rescan/restart.
+    // USB lists the real root hub and receiver; HID lists bound interfaces.
+    for (Index = 0; Index < 2; ++Index) {
+        const WCHAR *Enumerator = Index == 0 ? L"USB" : L"HID";
+        Devices = SetupDiGetClassDevsW(NULL, Enumerator, NULL,
+            DIGCF_ALLCLASSES | DIGCF_PRESENT);
+        if (Devices == INVALID_HANDLE_VALUE) {
+            wprintf(L"%ls_PNP_HATASI=%lu\n", Enumerator, GetLastError());
+            continue;
+        }
+        Count = 0;
+        ZeroMemory(&Device, sizeof(Device));
+        Device.cbSize = (DWORD)sizeof(Device);
+        while (SetupDiEnumDeviceInfo(Devices, Count, &Device)) {
+            if (Count < 6) {
+                if (SetupDiGetDeviceInstanceIdW(Devices, &Device, Id,
+                        (DWORD)ARRAYSIZE(Id), NULL)) {
+                    wprintf(L"%ls: %.48ls\n", Enumerator, Id);
+                } else {
+                    wprintf(L"%ls_KIMLIK_HATASI=%lu\n", Enumerator, GetLastError());
+                }
+            }
+            ++Count;
+        }
+        Error = GetLastError();
+        if (Error != ERROR_NO_MORE_ITEMS) {
+            wprintf(L"%ls_LISTE_HATASI=%lu\n", Enumerator, Error);
+        }
+        wprintf(L"%ls_PRESENT=%lu (ilk 6 kimlik, en fazla 48 karakter)\n", Enumerator, Count);
+        SetupDiDestroyDeviceInfoList(Devices);
+    }
+    wprintf(L"PRESENT: PnP kaydi; calisan fare kaniti degildir.\n");
+    wprintf(L"Tak/cikar sonrasi yeni turu cekin. Sonraki sayfa: 20 sn\n");
+}
+
 static int
 B2lShowMaxPhotoScreen(VOID)
 {
@@ -481,16 +656,18 @@ B2lShowMaxPhotoScreen(VOID)
         if (Pages == 0UL) {
             Pages = 1UL;
         }
-        // Page 0 is the current policy overview, followed by frozen event
-        // pages. Repeat indefinitely so photos never require a keyboard.
-        for (Page = 0UL; Page <= Pages; ++Page) {
+        // Current policy, current USB/PnP state, then frozen event pages.
+        // Repeat indefinitely so photos never require a keyboard.
+        for (Page = 0UL; Page <= Pages + 1UL; ++Page) {
             if ((Page != 0UL) && !B2lClearPhotoConsole(Output)) {
                 return 1;
             }
             if (Page == 0UL) {
                 B2lPrintMaxPhotoOverview(Cycle);
+            } else if (Page == 1UL) {
+                B2lPrintUsbPhotoStatus(Cycle);
             } else if (Result == 0) {
-                B2lPrintMaxEventPage(&Log, Page - 1UL, Cycle);
+                B2lPrintMaxEventPage(&Log, Page - 2UL, Cycle);
             } else {
                 // Read errors were initially printed before the overview;
                 // repeat the actual error on this page after clearing it.
@@ -532,6 +709,9 @@ wmain(
     DWORD Returned;
     int Result;
 
+    if ((ArgumentCount >= 4) && (_wcsicmp(Arguments[1], L"filter") == 0)) {
+        return B2lFilterLog(Arguments[2], ArgumentCount - 3, &Arguments[3]);
+    }
     if ((ArgumentCount == 2) && (_wcsicmp(Arguments[1], L"maxevents") == 0)) {
         return B2lShowMaxEvents();
     }
@@ -543,6 +723,7 @@ wmain(
          (_wcsicmp(Arguments[1], L"host") != 0) &&
          (_wcsicmp(Arguments[1], L"observe") != 0))) {
         fwprintf(stderr, L"Kullanim: b2lusbctl.exe status|observe|host|maxevents|maxscreen\n");
+        fwprintf(stderr, L"          b2lusbctl.exe filter dosya kelime [kelime ...]\n");
         return 2;
     }
 
