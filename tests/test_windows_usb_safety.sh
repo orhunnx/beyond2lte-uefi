@@ -24,10 +24,12 @@ if printf '%s\n' "$USB_BLOCK" | grep -Fq 'Name (_ADR, Zero)'; then
   exit 1
 fi
 
-test "$(printf '%s\n' "$MAX_BLOCK" | rg -c 'Memory32Fixed')" -eq 2
+test "$(printf '%s\n' "$MAX_BLOCK" | rg -c 'Memory32Fixed')" -eq 4
 printf '%s\n' "$MAX_BLOCK" | grep -Fq 'Name (_HID, "BYN0004")'
+printf '%s\n' "$MAX_BLOCK" | grep -q '0x15C00000, 0x00008000'
 printf '%s\n' "$MAX_BLOCK" | grep -q '0x15D60000, 0x00001000'
 printf '%s\n' "$MAX_BLOCK" | grep -q '0x15C22000, 0x00001000'
+printf '%s\n' "$MAX_BLOCK" | grep -q '0x15C30000, 0x00001000'
 printf '%s\n' "$MAX_BLOCK" | grep -Fq 'Name (_CCA, Zero)'
 if printf '%s\n' "$USB_BLOCK" | rg -n 'Device \(URS0\)|Name \(_HID, "URS'; then
   echo 'HATA: statik HOST ACPI yolu sentetik URS aygiti tasimamali' >&2
@@ -46,7 +48,7 @@ grep -Fq 'ACPI\BYN0003' "$HOST_INF"
 grep -q 'DriverVer=09/03/2026,0.1.0.18' "$PARENT_INF"
 grep -q 'DriverVer=09/03/2026,0.1.0.18' "$HOST_INF"
 grep -Fq 'ACPI\BYN0004' "$MAX_INF"
-grep -q 'DriverVer=09/04/2026,0.1.0.23' "$MAX_INF"
+grep -q 'DriverVer=09/04/2026,0.1.0.24' "$MAX_INF"
 grep -q 'KmdfLibraryVersion=1.15' "$MAX_INF"
 grep -qi 'Include=usbxhci.inf' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT' "$HOST_INF"

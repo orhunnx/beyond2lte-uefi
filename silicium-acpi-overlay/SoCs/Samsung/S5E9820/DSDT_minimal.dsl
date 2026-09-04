@@ -269,8 +269,14 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000006)
 
             Name (_CRS, ResourceTemplate ()
             {
+                // CMGP3 rate/QCH registers and GPM12/GPM13 pinctrl are part
+                // of the stock hsi2c_45 platform contract.  Expose them to
+                // the same BYN0004 owner; no second Windows driver may map
+                // or mutate these ranges while MAX77705 is active.
+                Memory32Fixed (ReadWrite, 0x15C00000, 0x00008000)
                 Memory32Fixed (ReadWrite, 0x15D60000, 0x00001000)
                 Memory32Fixed (ReadWrite, 0x15C22000, 0x00001000)
+                Memory32Fixed (ReadWrite, 0x15C30000, 0x00001000)
             })
         }
 

@@ -15,12 +15,15 @@ DSC="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/beyond2lte.dsc"
 HSI2C="$ROOT/mu-silicium-overlay/Silicon/Samsung/S5E9820Pkg/Library/HsI2cLib/HsI2c.c"
 
 # Stock beyond2lte HSI2C45/USI ownership is isolated in ACPI\BYN0004.
-grep -q 'B2L_MAX_HSI2C_PHYSICAL_BASE 0x15D60000ULL' "$HDR"
-grep -q 'B2L_MAX_USI_PHYSICAL_BASE    0x15C22000ULL' "$HDR"
+grep -Eq 'B2L_MAX_HSI2C_PHYSICAL_BASE[[:space:]]+0x15D60000ULL' "$HDR"
+grep -Eq 'B2L_MAX_USI_PHYSICAL_BASE[[:space:]]+0x15C22000ULL' "$HDR"
+grep -q 'B2L_MAX_CMGP_CMU_PHYSICAL_BASE     0x15C00000ULL' "$HDR"
+grep -q 'B2L_MAX_CMGP_PINCTRL_PHYSICAL_BASE 0x15C30000ULL' "$HDR"
+grep -q 'B2L_MAX_CMGP_CMU_LENGTH            0x00008000UL' "$HDR"
 grep -Fq 'ACPI\BYN0004' "$INF"
 grep -Fq 'Name (_HID, "BYN0004")' "$DSDT"
 grep -Fq '\_SB.USBC' "$DSDT"
-test "$(rg -c 'MmMapIoSpaceEx' "$MAIN")" -eq 2
+test "$(rg -c 'MmMapIoSpaceEx' "$MAIN")" -eq 4
 if rg -n '10C00000|10B00000|10AE0000|10AF0000|1586072C' "$MAIN" "$HW" "$HDR"; then
   echo 'HATA: MAX77705 surucusu DWC3/PHY/PMU kaynagina genislemis' >&2
   exit 1
@@ -127,7 +130,7 @@ grep -q 'Context->MuicPathVerified = TRUE' "$MAIN"
 grep -q 'B2L_MAX_STAGE_MUIC_USB' "$MAIN"
 grep -q 'B2L_MAX_STAGE_MUIC_OPEN' "$MAIN"
 grep -q 'B2lMaxReadAndClearUsbcInterrupts' "$MAIN"
-grep -q 'DriverVer=09/04/2026,0.1.0.23' "$INF"
+grep -q 'DriverVer=09/04/2026,0.1.0.24' "$INF"
 SERVICE_SECTION="$(sed -n '/B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)/,/B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
 AUTOIBUS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureAutoIbus(Context)' | head -n1 | cut -d: -f1)"
 MASKS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureUsbcMasks(Context)' | head -n1 | cut -d: -f1)"
@@ -178,8 +181,24 @@ if grep -q 'B2lMaxWaitBusIdle\|HSI2C_MASTER_BUSY' "$HW"; then
   echo 'HATA: hsi2c_45 transferi stokta olmayan BUS_IDLE kapisiyla engellenmis' >&2
   exit 1
 fi
-grep -q 'Timing.TimingFs1 = B2lMaxReadRegister' "$HW"
+grep -q 'B2L_HSI2C_FS1_400KHZ    0x00F00000UL' "$HW"
+grep -q 'B2L_HSI2C_FS2_400KHZ    0x000000E0UL' "$HW"
+grep -q 'B2L_HSI2C_FS3_400KHZ    0x00210000UL' "$HW"
 grep -q 'B2lMaxWriteRegister(Context, HSI2C_TIMING_FS1, Timing.TimingFs1)' "$HW"
+grep -q 'B2L_CMGP_MUX_USI3       0x1020U' "$HW"
+grep -q 'B2L_CMGP_DIV_USI3       0x1824U' "$HW"
+grep -q 'B2L_CMGP_QCH_USI3       0x304CU' "$HW"
+grep -q 'B2L_GPM12_CON           0x180U' "$HW"
+grep -q 'B2L_GPM13_CON           0x1A0U' "$HW"
+grep -q 'B2L_PIN_FUNCTION_I2C    0x00000002UL' "$HW"
+grep -q 'B2lMaxPreparePlatform(Context)' "$HW"
+grep -q 'Context->PlatformPrepared = TRUE' "$HW"
+grep -q 'B2L_MAX_HSI2C_PHASE_PLATFORM 0x08UL' "$HDR"
+PLATFORM_SECTION="$(sed -n '/B2lMaxPreparePlatform(PB2L_MAX_CONTEXT Context)/,/^}/p' "$HW")"
+DIV_LINE="$(printf '%s\n' "$PLATFORM_SECTION" | grep -n 'B2L_CMGP_DIV_USI3,' | head -n1 | cut -d: -f1)"
+MUX_LINE="$(printf '%s\n' "$PLATFORM_SECTION" | grep -n 'B2L_CMGP_MUX_USI3,' | head -n1 | cut -d: -f1)"
+test "$DIV_LINE" -lt "$MUX_LINE"
+test "$(printf '%s\n' "$PLATFORM_SECTION" | rg -c 'B2L_GPM1[23]_(PUD|DRV)')" -ge 8
 if grep -q 'Context->HsI2cClockControl == 0UL' "$HW"; then
   echo 'HATA: Exynos9820 HSI2C45 CLK_CTRL=0 durumu sahte hazirlik hatasi sayilamaz' >&2
   exit 1
@@ -286,5 +305,11 @@ grep -Fq 'B2LMaxMuicPathRequested' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LMaxMuicControl1' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LMaxMuicPathVerified' "$ROOT/windows/startnet.cmd"
 grep -Fq 'B2LMaxMuicUsbPath' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxPlatformPrepared' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxCmgpMuxUsi3' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxCmgpDivUsi3' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxCmgpQchUsi3' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxGpm12Con' "$ROOT/windows/startnet.cmd"
+grep -Fq 'B2LMaxGpm13Con' "$ROOT/windows/startnet.cmd"
 
 echo 'Windows MAX77705 safety checks: PASS'

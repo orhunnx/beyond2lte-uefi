@@ -4,9 +4,12 @@
 #include <ntddk.h>
 #include <wdf.h>
 
-#define B2L_MAX_HSI2C_PHYSICAL_BASE 0x15D60000ULL
-#define B2L_MAX_USI_PHYSICAL_BASE    0x15C22000ULL
-#define B2L_MAX_DEVICE_PAGE_LENGTH   0x00001000UL
+#define B2L_MAX_CMGP_CMU_PHYSICAL_BASE     0x15C00000ULL
+#define B2L_MAX_USI_PHYSICAL_BASE          0x15C22000ULL
+#define B2L_MAX_CMGP_PINCTRL_PHYSICAL_BASE 0x15C30000ULL
+#define B2L_MAX_HSI2C_PHYSICAL_BASE        0x15D60000ULL
+#define B2L_MAX_CMGP_CMU_LENGTH            0x00008000UL
+#define B2L_MAX_DEVICE_PAGE_LENGTH         0x00001000UL
 
 #define B2L_MAX_TOP_ADDRESS          0x66U
 #define B2L_MAX_USBC_ADDRESS         0x25U
@@ -36,6 +39,7 @@
 #define B2L_MAX_STAGE_READY          0x70UL
 
 #define B2L_MAX_HSI2C_PHASE_NONE     0x00UL
+#define B2L_MAX_HSI2C_PHASE_PLATFORM 0x08UL
 #define B2L_MAX_HSI2C_PHASE_BUS_IDLE 0x10UL
 #define B2L_MAX_HSI2C_PHASE_WRITE    0x20UL
 #define B2L_MAX_HSI2C_PHASE_READ     0x30UL
@@ -46,9 +50,14 @@ typedef struct _B2L_MAX_CONTEXT {
     WDFWAITLOCK BusLock;
     PUCHAR HsI2cRegisters;
     PUCHAR UsiRegisters;
+    PUCHAR CmgpCmuRegisters;
+    PUCHAR CmgpPinctrlRegisters;
     ULONG HsI2cLength;
     ULONG UsiLength;
+    ULONG CmgpCmuLength;
+    ULONG CmgpPinctrlLength;
     BOOLEAN HardwareReady;
+    BOOLEAN PlatformPrepared;
     BOOLEAN IdentityReady;
     BOOLEAN PollingEnabled;
     BOOLEAN OtgEnabled;
@@ -100,6 +109,11 @@ typedef struct _B2L_MAX_CONTEXT {
     ULONG HsI2cAttemptedAddress;
     ULONG HsI2cRetryCount;
     ULONG HsI2cFailurePhase;
+    ULONG CmgpMuxUsi3;
+    ULONG CmgpDivUsi3;
+    ULONG CmgpQchUsi3;
+    ULONG Gpm12Con;
+    ULONG Gpm13Con;
     ULONG ChargerUnlockAttempts;
     ULONG DiagnosticStage;
     NTSTATUS DiagnosticStatus;

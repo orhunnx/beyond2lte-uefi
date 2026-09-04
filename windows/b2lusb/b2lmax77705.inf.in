@@ -1,5 +1,6 @@
 ; Beyond2LTE MAX77705 Type-C/OTG policy driver (ARM64 only).
-; Owns the stock HSI2C45 and CMGP03 USI pages exposed by ACPI\BYN0004.
+; Owns the stock HSI2C45, CMGP03 USI, CMGP clock and pinctrl pages exposed
+; by ACPI\BYN0004.
 
 [Version]
 Signature="$WINDOWS NT$"
@@ -7,7 +8,7 @@ Class=System
 ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider=%B2L%
 CatalogFile=b2lusb.cat
-DriverVer=09/04/2026,0.1.0.23
+DriverVer=09/04/2026,0.1.0.24
 PnpLockdown=1
 
 [DestinationDirs]

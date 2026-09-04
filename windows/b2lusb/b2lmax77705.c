@@ -113,7 +113,10 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxUsbcMasksConfigured", L"B2LMaxCcControlConfigured",
         L"B2LMaxCcControlResponse", L"B2LMaxOtgHardwareActive",
         L"B2LMaxMuicPathRequested", L"B2LMaxMuicControl1",
-        L"B2LMaxMuicPathVerified", L"B2LMaxMuicUsbPath"
+        L"B2LMaxMuicPathVerified", L"B2LMaxMuicUsbPath",
+        L"B2LMaxPlatformPrepared", L"B2LMaxCmgpMuxUsi3",
+        L"B2LMaxCmgpDivUsi3", L"B2LMaxCmgpQchUsi3",
+        L"B2LMaxGpm12Con", L"B2LMaxGpm13Con"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -180,6 +183,12 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[53] = (Context->MuicPathVerified &&
                   (Context->MuicControl1 == MAX77705_MUIC_COM_USB_AP)) ?
         1UL : 0UL;
+    Values[54] = Context->PlatformPrepared ? 1UL : 0UL;
+    Values[55] = Context->CmgpMuxUsi3;
+    Values[56] = Context->CmgpDivUsi3;
+    Values[57] = Context->CmgpQchUsi3;
+    Values[58] = Context->Gpm12Con;
+    Values[59] = Context->Gpm13Con;
 
     RtlInitUnicodeString(&ServicePath, ServicePathBuffer);
     InitializeObjectAttributes(
@@ -1224,9 +1233,23 @@ B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)
         MmUnmapIoSpace(Context->UsiRegisters, Context->UsiLength);
         Context->UsiRegisters = NULL;
     }
+    if (Context->CmgpCmuRegisters != NULL) {
+        MmUnmapIoSpace(Context->CmgpCmuRegisters, Context->CmgpCmuLength);
+        Context->CmgpCmuRegisters = NULL;
+    }
+    if (Context->CmgpPinctrlRegisters != NULL) {
+        MmUnmapIoSpace(
+            Context->CmgpPinctrlRegisters,
+            Context->CmgpPinctrlLength
+            );
+        Context->CmgpPinctrlRegisters = NULL;
+    }
     Context->HsI2cLength = 0UL;
     Context->UsiLength = 0UL;
+    Context->CmgpCmuLength = 0UL;
+    Context->CmgpPinctrlLength = 0UL;
     Context->HardwareReady = FALSE;
+    Context->PlatformPrepared = FALSE;
     Context->OtgHardwareActive = FALSE;
     Context->ChargerUnlocked = FALSE;
     Context->AutoVbusDisabled = FALSE;
@@ -1341,18 +1364,9 @@ B2lMaxEvtPrepareHardware(
         if (Resource->Type != CmResourceTypeMemory) {
             continue;
         }
-        if (Resource->u.Memory.Length != B2L_MAX_DEVICE_PAGE_LENGTH) {
-            B2lMaxUnmapResources(Context);
-            B2lMaxPublishDiagnostic(
-                Context,
-                B2L_MAX_STAGE_RESOURCES,
-                STATUS_DEVICE_CONFIGURATION_ERROR
-                );
-            return STATUS_DEVICE_CONFIGURATION_ERROR;
-        }
-        ++MemoryCount;
         Start = (ULONGLONG)Resource->u.Memory.Start.QuadPart;
         if ((Start == B2L_MAX_HSI2C_PHYSICAL_BASE) &&
+            (Resource->u.Memory.Length == B2L_MAX_DEVICE_PAGE_LENGTH) &&
             (Context->HsI2cRegisters == NULL)) {
             Context->HsI2cRegisters = (PUCHAR)MmMapIoSpaceEx(
                 Resource->u.Memory.Start,
@@ -1361,6 +1375,8 @@ B2lMaxEvtPrepareHardware(
                 );
             Context->HsI2cLength = Resource->u.Memory.Length;
         } else if ((Start == B2L_MAX_USI_PHYSICAL_BASE) &&
+                   (Resource->u.Memory.Length ==
+                    B2L_MAX_DEVICE_PAGE_LENGTH) &&
                    (Context->UsiRegisters == NULL)) {
             Context->UsiRegisters = (PUCHAR)MmMapIoSpaceEx(
                 Resource->u.Memory.Start,
@@ -1368,6 +1384,25 @@ B2lMaxEvtPrepareHardware(
                 PAGE_READWRITE | PAGE_NOCACHE
                 );
             Context->UsiLength = Resource->u.Memory.Length;
+        } else if ((Start == B2L_MAX_CMGP_CMU_PHYSICAL_BASE) &&
+                   (Resource->u.Memory.Length == B2L_MAX_CMGP_CMU_LENGTH) &&
+                   (Context->CmgpCmuRegisters == NULL)) {
+            Context->CmgpCmuRegisters = (PUCHAR)MmMapIoSpaceEx(
+                Resource->u.Memory.Start,
+                Resource->u.Memory.Length,
+                PAGE_READWRITE | PAGE_NOCACHE
+                );
+            Context->CmgpCmuLength = Resource->u.Memory.Length;
+        } else if ((Start == B2L_MAX_CMGP_PINCTRL_PHYSICAL_BASE) &&
+                   (Resource->u.Memory.Length ==
+                    B2L_MAX_DEVICE_PAGE_LENGTH) &&
+                   (Context->CmgpPinctrlRegisters == NULL)) {
+            Context->CmgpPinctrlRegisters = (PUCHAR)MmMapIoSpaceEx(
+                Resource->u.Memory.Start,
+                Resource->u.Memory.Length,
+                PAGE_READWRITE | PAGE_NOCACHE
+                );
+            Context->CmgpPinctrlLength = Resource->u.Memory.Length;
         } else {
             B2lMaxUnmapResources(Context);
             B2lMaxPublishDiagnostic(
@@ -1377,9 +1412,12 @@ B2lMaxEvtPrepareHardware(
                 );
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         }
+        ++MemoryCount;
     }
-    if ((MemoryCount != 2UL) || (Context->HsI2cRegisters == NULL) ||
-        (Context->UsiRegisters == NULL)) {
+    if ((MemoryCount != 4UL) || (Context->HsI2cRegisters == NULL) ||
+        (Context->UsiRegisters == NULL) ||
+        (Context->CmgpCmuRegisters == NULL) ||
+        (Context->CmgpPinctrlRegisters == NULL)) {
         B2lMaxUnmapResources(Context);
         B2lMaxPublishDiagnostic(
             Context,

@@ -326,6 +326,12 @@ reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cAttemptedAddress >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cRetryCount >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxHsI2cFailurePhase >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPlatformPrepared >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCmgpMuxUsi3 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCmgpDivUsi3 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCmgpQchUsi3 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxGpm12Con >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxGpm13Con >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChgConfig06 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChargerUnlocked >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxChargerUnlockAttempts >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
@@ -356,6 +362,12 @@ call :B2LUsbAppendMax77705Summary I2C_REGADDR B2LMaxHsI2cAddress
 call :B2LUsbAppendMax77705Summary I2C_TRYADDR B2LMaxHsI2cAttemptedAddress
 call :B2LUsbAppendMax77705Summary I2C_RETRY B2LMaxHsI2cRetryCount
 call :B2LUsbAppendMax77705Summary I2C_PHASE B2LMaxHsI2cFailurePhase
+call :B2LUsbAppendMax77705Summary PLATFORM_OK B2LMaxPlatformPrepared
+call :B2LUsbAppendMax77705Summary CMGP_MUX3 B2LMaxCmgpMuxUsi3
+call :B2LUsbAppendMax77705Summary CMGP_DIV3 B2LMaxCmgpDivUsi3
+call :B2LUsbAppendMax77705Summary CMGP_QCH3 B2LMaxCmgpQchUsi3
+call :B2LUsbAppendMax77705Summary GPM12_CON B2LMaxGpm12Con
+call :B2LUsbAppendMax77705Summary GPM13_CON B2LMaxGpm13Con
 call :B2LUsbAppendMax77705Summary PMIC_ID B2LMaxPmicId
 call :B2LUsbAppendMax77705Summary PMIC_REV B2LMaxPmicRev
 call :B2LUsbAppendMax77705Summary USBC_HW B2LMaxUsbcHwRev
