@@ -106,6 +106,8 @@ if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
 )
 if exist "%B2LUSBDIR%\auto-host.test" echo Native OSK, USB tani ekranini kapatmamasi icin otomatik acilmadi.
 echo Multi-touch testi gerekirse: %B2LTOUCHDIR%\b2lmt.exe
+rem USB/klavye olmadan olay kaniti: son asamada otomatik foto sayfalari.
+if exist "%B2LUSBDIR%\auto-host.test" if exist "%B2LUSBDIR%\b2lusbctl.exe" "%B2LUSBDIR%\b2lusbctl.exe" maxscreen
 cmd.exe /k
 goto :eof
 

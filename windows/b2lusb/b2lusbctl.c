@@ -3,6 +3,7 @@
 #include <setupapi.h>
 #include <stdio.h>
 #include <wchar.h>
+#include <conio.h>
 
 #include "b2lusb_public.h"
 #include "b2lmax77705_events.h"
@@ -257,33 +258,52 @@ B2lShowStatus(
 }
 
 static int
-B2lShowMaxEvents(VOID)
+B2lReadMaxEvents(B2L_MAX_EVENT_LOG *Log)
 {
-    B2L_MAX_EVENT_LOG Log;
-    const B2L_MAX_EVENT *Event;
-    DWORD Size = (DWORD)sizeof(Log);
+    DWORD Size = (DWORD)sizeof(*Log);
     DWORD Type = 0;
     LSTATUS Error;
-    ULONG Order;
-    ULONG Index;
-    ULONG TailCount;
 
     // One read of one binary value: no per-field process or registry loop,
     // and no dependency on BYN0002 being ready to expose its interface.
-    ZeroMemory(&Log, sizeof(Log));
+    ZeroMemory(Log, sizeof(*Log));
     Error = RegGetValueW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705",
-        B2L_MAX_EVENT_VALUE, RRF_RT_REG_BINARY, &Type, &Log, &Size);
+        B2L_MAX_EVENT_VALUE, RRF_RT_REG_BINARY, &Type, Log, &Size);
     if (Error != ERROR_SUCCESS) {
         fwprintf(stderr, L"MAX_EVENT_READ_ERROR=%ld\n", Error);
         return 1;
     }
-    if ((Type != REG_BINARY) || (Size != (DWORD)sizeof(Log)) ||
-        (Log.Size != (ULONG)sizeof(Log)) ||
-        (Log.Version != B2L_MAX_EVENT_VERSION) ||
-        (Log.Count > B2L_MAX_EVENT_CAPACITY) ||
-        (Log.NextTail >= B2L_MAX_EVENT_TAIL)) {
+    if ((Type != REG_BINARY) || (Size != (DWORD)sizeof(*Log)) ||
+        (Log->Size != (ULONG)sizeof(*Log)) ||
+        (Log->Version != B2L_MAX_EVENT_VERSION) ||
+        (Log->Count > B2L_MAX_EVENT_CAPACITY) ||
+        (Log->NextTail >= B2L_MAX_EVENT_TAIL)) {
         fwprintf(stderr, L"MAX_EVENT_FORMAT_ERROR\n");
+        return 1;
+    }
+    return 0;
+}
+
+static ULONG
+B2lMaxEventIndex(const B2L_MAX_EVENT_LOG *Log, ULONG Order)
+{
+    if ((Order >= B2L_MAX_EVENT_FIRST) &&
+        (Log->Count == B2L_MAX_EVENT_CAPACITY)) {
+        return B2L_MAX_EVENT_FIRST +
+            ((Log->NextTail + Order - B2L_MAX_EVENT_FIRST) % B2L_MAX_EVENT_TAIL);
+    }
+    return Order;
+}
+
+static int
+B2lShowMaxEvents(VOID)
+{
+    B2L_MAX_EVENT_LOG Log;
+    const B2L_MAX_EVENT *Event;
+    ULONG Order;
+
+    if (B2lReadMaxEvents(&Log) != 0) {
         return 1;
     }
     wprintf(L"MAX_EVENTS v=%lu count=%lu total=%llu overwritten=%llu\n",
@@ -297,14 +317,7 @@ B2lShowMaxEvents(VOID)
     wprintf(L"irq=VDM/PD/CC/UIC (only UIC for 2/3); policy=CC1/CC0\n");
     wprintf(L"raw=USBC1/SYSMSG/BC/FWMIN/CC0/CC1/PD0/PD1; v=0 invalid\n");
     for (Order = 0UL; Order < Log.Count; ++Order) {
-        Index = Order;
-        if ((Order >= B2L_MAX_EVENT_FIRST) &&
-            (Log.Count == B2L_MAX_EVENT_CAPACITY)) {
-            TailCount = Order - B2L_MAX_EVENT_FIRST;
-            Index = B2L_MAX_EVENT_FIRST +
-                ((Log.NextTail + TailCount) % B2L_MAX_EVENT_TAIL);
-        }
-        Event = &Log.Events[Index];
+        Event = &Log.Events[B2lMaxEventIndex(&Log, Order)];
         wprintf(L"#%llu t=%llu ms o=%lu op=%02lX irq=%08lX policy=%08lX\n",
             Event->Sequence, (Event->Time - Log.StartTime) / 10000ULL,
             Event->Origin, Event->Opcode, Event->Interrupts, Event->PolicyCc);
@@ -323,6 +336,190 @@ B2lShowMaxEvents(VOID)
     return 0;
 }
 
+#define B2L_MAX_PHOTO_ROWS 12UL
+
+static VOID
+B2lPrintMaxPhotoOverview(ULONG Cycle)
+{
+    static const WCHAR *Names[] = {
+        L"B2LMaxStage", L"B2LMaxStatus", L"B2LMaxPmicId",
+        L"B2LMaxUsbcFwRev", L"B2LMaxUsbcFwMinor",
+        L"B2LMaxCcStatus0", L"B2LMaxCcStatus1", L"B2LMaxCcState",
+        L"B2LMaxCcSampleCount", L"B2LMaxCcTransitionCount",
+        L"B2LMaxCcSourceEventCount", L"B2LMaxCcControlReadBack",
+        L"B2LMaxCcOpenNormalized", L"B2LMaxControl3Before",
+        L"B2LMaxControl3After", L"B2LMaxMuicControl1",
+        L"B2LMaxOtgEnabled", L"B2LMaxOtgHardwareActive"
+    };
+    static const WCHAR *Labels[] = {
+        L"STAGE", L"STATUS", L"PMIC_ID", L"FW", L"FW_MINOR",
+        L"CC0", L"CC1", L"CC_STATE", L"CC_SAMPLES", L"CC_TRANS",
+        L"CC_SRC_EV", L"CCCTRL1", L"CCOPEN_OK", L"CTRL3_BEFORE",
+        L"CTRL3_AFTER", L"MUIC_CTL1", L"OTG_SW", L"OTG_HW"
+    };
+    HKEY Key;
+    LSTATUS Error;
+    DWORD Value;
+    DWORD Size;
+    DWORD Type;
+    ULONG Index;
+
+    C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
+    wprintf(L"MAX FOTO v1 / tur %lu / GENEL DURUM\n", Cycle);
+    wprintf(L"Fotograf cekin. Olay sayfalari 20 sn sonra.\n");
+    Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+        L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
+    if (Error != ERROR_SUCCESS) {
+        wprintf(L"MAX_OVERVIEW_READ_ERROR=%ld\n", Error);
+        return;
+    }
+    // One key, no reg.exe processes. Fields are sequential reads, not one
+    // atomic policy snapshot; event pages carry their own snapshot identity.
+    for (Index = 0UL; Index < ARRAYSIZE(Names); ++Index) {
+        Size = (DWORD)sizeof(Value);
+        Type = 0;
+        Value = 0;
+        Error = RegQueryValueExW(Key, Names[Index], NULL, &Type,
+            (LPBYTE)&Value, &Size);
+        if ((Error == ERROR_SUCCESS) && (Type == REG_DWORD) &&
+            (Size == (DWORD)sizeof(Value))) {
+            wprintf(L"%-14ls = %08lX\n", Labels[Index], Value);
+        } else {
+            wprintf(L"%-14ls = YOK / hata=%ld tip=%lu boyut=%lu\n",
+                Labels[Index], Error, Type, Size);
+        }
+    }
+    RegCloseKey(Key);
+    wprintf(L"Takma/cikarma sonrasi bir sonraki turu da cekin.\n");
+    wprintf(L"Genel alanlar sirayla okunur; atomik kayit degildir.\n");
+    wprintf(L"Klavye gerekmez. Varsa Q/Esc: cikis.\n");
+}
+
+static VOID
+B2lPrintMaxEventPage(const B2L_MAX_EVENT_LOG *Log, ULONG Page, ULONG Cycle)
+{
+    ULONG Pages = (Log->Count + B2L_MAX_PHOTO_ROWS - 1UL) / B2L_MAX_PHOTO_ROWS;
+    ULONG Order;
+    const B2L_MAX_EVENT *Event;
+
+    if (Pages == 0UL) {
+        Pages = 1UL;
+    }
+    // At most 33 lines on the WinPE 64x41 console. One immutable registry
+    // snapshot for the whole cycle: new events cannot reorder later pages.
+    wprintf(L"MAX FOTO v1 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
+    wprintf(L"Bu ekrani fotograflayin. Sonraki sayfa: 20 sn\n");
+    wprintf(L"D0=%llu count=%lu total=%llu\n", Log->StartTime, Log->Count, Log->Total);
+    wprintf(L"kayip=%llu UIC=%02lX SYS=%lu ERR=%lu FAIL=%lu\n",
+        Log->Overwritten, Log->OpcodeUicSeen, Log->SysmsgEvents,
+        Log->AttachErrorEvents, Log->SnapshotFailures);
+    wprintf(L"o:1=ilk 2=op-once 3=op-bekle 4=CC 5=CC-hata\n");
+    wprintf(L"irq=VDM/PD/CC/UIC; p=CC1CC0; r=06..0D ham baytlar\n");
+    wprintf(L"r: USBC1 SYS BC FW CC0 CC1 PD0 PD1; v=0 gecersiz\n");
+    for (Order = Page * B2L_MAX_PHOTO_ROWS;
+         (Order < Log->Count) && (Order < (Page + 1UL) * B2L_MAX_PHOTO_ROWS);
+         ++Order) {
+        Event = &Log->Events[B2lMaxEventIndex(Log, Order)];
+        wprintf(L"#%llu t=%llu ms o=%lu op=%02lX irq=%08lX\n",
+            Event->Sequence, (Event->Time - Log->StartTime) / 10000ULL,
+            Event->Origin, Event->Opcode, Event->Interrupts);
+        wprintf(L"v=%lu nt=%08lX p=%08lX r=%02X%02X%02X%02X%02X%02X%02X%02X\n",
+            Event->Valid, Event->ReadStatus, Event->PolicyCc,
+            (unsigned int)Event->Status[0], (unsigned int)Event->Status[1],
+            (unsigned int)Event->Status[2], (unsigned int)Event->Status[3],
+            (unsigned int)Event->Status[4], (unsigned int)Event->Status[5],
+            (unsigned int)Event->Status[6], (unsigned int)Event->Status[7]);
+    }
+    if (Log->Count == 0UL) {
+        wprintf(L"Henuz olay yok; yeni turda yeniden okunacak.\n");
+    }
+    wprintf(L"Yeni turda kayit yenilenir. Klavye gerekmez.\n");
+    wprintf(L"Varsa Q/Esc: cikis. Diger tus: sonraki sayfa.\n");
+}
+
+static BOOL
+B2lClearPhotoConsole(HANDLE Output)
+{
+    CONSOLE_SCREEN_BUFFER_INFO Info;
+    COORD Origin = {0, 0};
+    DWORD Written;
+    DWORD Cells;
+
+    fflush(stdout);
+    if (!GetConsoleScreenBufferInfo(Output, &Info)) {
+        return FALSE;
+    }
+    Cells = (DWORD)Info.dwSize.X * (DWORD)Info.dwSize.Y;
+    if (!FillConsoleOutputCharacterW(Output, L' ', Cells, Origin, &Written) ||
+        !FillConsoleOutputAttribute(Output, Info.wAttributes, Cells, Origin, &Written)) {
+        return FALSE;
+    }
+    return SetConsoleCursorPosition(Output, Origin);
+}
+
+static int
+B2lShowMaxPhotoScreen(VOID)
+{
+    B2L_MAX_EVENT_LOG Log;
+    HANDLE Output = GetStdHandle(STD_OUTPUT_HANDLE);
+    ULONG Cycle = 0UL;
+    ULONG Page;
+    ULONG Pages;
+    ULONG Tick;
+    int Key;
+    int Result;
+
+    for (;;) {
+        if (!B2lClearPhotoConsole(Output)) {
+            fwprintf(stderr, L"MAX_FOTO_CONSOLE_ERROR=%lu\n", GetLastError());
+            return 1;
+        }
+        ++Cycle;
+        Result = B2lReadMaxEvents(&Log);
+        Pages = (Result == 0) ?
+            (Log.Count + B2L_MAX_PHOTO_ROWS - 1UL) / B2L_MAX_PHOTO_ROWS : 1UL;
+        if (Pages == 0UL) {
+            Pages = 1UL;
+        }
+        // Page 0 is the current policy overview, followed by frozen event
+        // pages. Repeat indefinitely so photos never require a keyboard.
+        for (Page = 0UL; Page <= Pages; ++Page) {
+            if ((Page != 0UL) && !B2lClearPhotoConsole(Output)) {
+                return 1;
+            }
+            if (Page == 0UL) {
+                B2lPrintMaxPhotoOverview(Cycle);
+            } else if (Result == 0) {
+                B2lPrintMaxEventPage(&Log, Page - 1UL, Cycle);
+            } else {
+                // Read errors were initially printed before the overview;
+                // repeat the actual error on this page after clearing it.
+                if (B2lReadMaxEvents(&Log) == 0) {
+                    wprintf(L"Olay kaydi simdi hazir; sonraki turda gosterilecek.\n");
+                } else {
+                    wprintf(L"MAX FOTO: yukaridaki hatayi fotograflayin.\n");
+                }
+                wprintf(L"20 sn sonra yeniden denenecek. Q/Esc: cikis.\n");
+            }
+            fflush(stdout);
+            // UI-only sleep; no driver calls, I2C or repeated PnP scans.
+            for (Tick = 0UL; Tick < 80UL; ++Tick) {
+                if (_kbhit()) {
+                    Key = _getwch();
+                    if ((Key == L'q') || (Key == L'Q') || (Key == 27)) {
+                        return 0;
+                    }
+                    if ((Key == 0) || (Key == 0xE0)) {
+                        (VOID)_getwch();
+                    }
+                    break;
+                }
+                Sleep(250UL);
+            }
+        }
+    }
+}
+
 int
 wmain(
     int ArgumentCount,
@@ -338,11 +535,14 @@ wmain(
     if ((ArgumentCount == 2) && (_wcsicmp(Arguments[1], L"maxevents") == 0)) {
         return B2lShowMaxEvents();
     }
+    if ((ArgumentCount == 2) && (_wcsicmp(Arguments[1], L"maxscreen") == 0)) {
+        return B2lShowMaxPhotoScreen();
+    }
     if ((ArgumentCount != 2) ||
         ((_wcsicmp(Arguments[1], L"status") != 0) &&
          (_wcsicmp(Arguments[1], L"host") != 0) &&
          (_wcsicmp(Arguments[1], L"observe") != 0))) {
-        fwprintf(stderr, L"Kullanim: b2lusbctl.exe status|observe|host|maxevents\n");
+        fwprintf(stderr, L"Kullanim: b2lusbctl.exe status|observe|host|maxevents|maxscreen\n");
         return 2;
     }
 

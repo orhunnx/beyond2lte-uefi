@@ -562,6 +562,15 @@ adımına ilerlemelidir.
 
 ### 0.18 `.28` olay tanısı — WSL build ve cihaz doğrulaması bekliyor
 
+USB olmadan kullanıcı kanıtı artık **fotoğraf** üzerinden alınır. Güncel
+`startnet.cmd`, test sonunda `b2lusbctl.exe maxscreen` açar: GENEL DURUM ve
+numaralı olay sayfaları 20 saniyede bir otomatik döner; yeni turda kayıtlar
+yenilenir. Komut/klavye veya TXT dışa aktarımı gerekmez. Son ekranda bu döngünün
+sürmesi donma değildir. `MAX FOTO v1` ekranı görünmüyorsa yeni EXE/startnet
+içeren WIM kullanılmıyor olabilir. MAX kernel sürümü `.28` kaldı; WSL build
+ve WIM yenilemesi yine gereklidir. Ayrıntılı fotoğraf A/B adımları Linux
+karşılaştırma dosyasının başındadır.
+
 MAX77705 sürüm kaynağı `0.1.0.28` oldu; parent/host `0.1.0.18` kaldı.
 Opcode öncesinde ve cevap beklerken tüketilen UIC olayları artık kaydediliyor.
 SYSMSG, CC ve PD status snapshot'ları; ilk 16 + son 48 olay; zaman damgaları;

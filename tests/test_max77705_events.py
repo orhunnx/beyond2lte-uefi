@@ -35,7 +35,7 @@ harness = r'''
 #include <assert.h>
 typedef uint8_t UCHAR;
 typedef uint32_t ULONG;
-typedef uint64_t ULONGLONG;
+typedef unsigned long long ULONGLONG;
 typedef int32_t NTSTATUS;
 typedef void VOID;
 #define TRUE 1
@@ -88,9 +88,15 @@ harness += r'''
 #include <stdio.h>
 typedef uint32_t DWORD;
 typedef int32_t LSTATUS;
+typedef wchar_t WCHAR;
+typedef int HKEY;
+typedef UCHAR *LPBYTE;
+#define ARRAYSIZE(x) (sizeof(x)/sizeof((x)[0]))
+#define KEY_QUERY_VALUE 1
 #define HKEY_LOCAL_MACHINE 0
 #define RRF_RT_REG_BINARY 8
 #define REG_BINARY 3
+#define REG_DWORD 4
 #define ERROR_SUCCESS 0
 #define ZeroMemory(p,n) memset(p,0,n)
 static B2L_MAX_EVENT_LOG fixture;
@@ -98,14 +104,52 @@ static DWORD fixture_size, fixture_type;
 static LSTATUS registry_error;
 static ULONGLONG printed[64];
 static ULONG printed_count;
+static ULONG output_lines, max_width;
 static LSTATUS RegGetValueW(int key, const wchar_t *path, const wchar_t *name,
         DWORD flags, DWORD *type, void *buffer, DWORD *size) {
     (void)key; (void)path; (void)name; assert(flags == RRF_RT_REG_BINARY);
     assert(*size == sizeof(fixture)); memcpy(buffer, &fixture, sizeof(fixture));
     *type = fixture_type; *size = fixture_size; return registry_error;
 }
+static LSTATUS RegOpenKeyExW(HKEY root, const WCHAR *path, DWORD options,
+        DWORD access, HKEY *key) {
+    (void)root; (void)path; assert(options == 0 && access == KEY_QUERY_VALUE);
+    *key=1; return registry_error;
+}
+static LSTATUS RegQueryValueExW(HKEY key, const WCHAR *name, void *reserved,
+        DWORD *type, LPBYTE value, DWORD *size) {
+    DWORD sample=0x70;
+    (void)name; assert(key == 1 && reserved == NULL && *size == 4);
+    *type=REG_DWORD; memcpy(value, &sample, 4); return 0;
+}
+static LSTATUS RegCloseKey(HKEY key) { assert(key == 1); return 0; }
 static int mock_wprintf(const wchar_t *format, ...) {
-    va_list args; va_start(args, format);
+    wchar_t normalized[256], output[1024];
+    const wchar_t *p;
+    wchar_t *d = normalized;
+    int conversion = 0;
+    ULONG width = 0;
+    va_list args, render;
+    // Windows ULONG is 32 bits even though host unsigned long is 64 bits.
+    // Normalize only numeric long format lengths for the host renderer.
+    for (p=format; *p; ++p) {
+        if (*p == L'%') conversion = 1;
+        if (conversion && *p == L'l' && p[1] != L'l' &&
+            (p == format || p[-1] != L'l') &&
+            (p[1] == L'u' || p[1] == L'X' || p[1] == L'd')) continue;
+        *d++ = *p;
+        if (conversion && (*p == L'u' || *p == L'X' || *p == L'd' || *p == L's')) conversion = 0;
+    }
+    *d = 0;
+    va_start(args, format); va_copy(render, args);
+    assert(vswprintf(output, 1024, normalized, render) >= 0);
+    va_end(render);
+    for (p=output; *p; ++p) {
+        if (*p == L'\n') {
+            if (width > max_width) max_width = width;
+            ++output_lines; width = 0;
+        } else ++width;
+    }
     if (format[0] == L'#') {
         assert(printed_count < 64); printed[printed_count++] = va_arg(args, ULONGLONG);
     }
@@ -117,7 +161,12 @@ static int mock_fwprintf(FILE *stream, const wchar_t *format, ...) {
 #define wprintf mock_wprintf
 #define fwprintf mock_fwprintf
 '''
-harness += function("B2lShowMaxEvents", (SRC / "b2lusbctl.c").read_text())
+control = (SRC / "b2lusbctl.c").read_text()
+harness += "\n".join(function(name, control) for name in (
+    "B2lReadMaxEvents", "B2lMaxEventIndex", "B2lShowMaxEvents"))
+harness += "\n" + re.search(r"^#define B2L_MAX_PHOTO_ROWS .*", control, re.M)[0] + "\n"
+harness += function("B2lPrintMaxEventPage", control)
+harness += function("B2lPrintMaxPhotoOverview", control)
 harness += r'''
 static void reset(B2L_MAX_CONTEXT *c) {
     memset(c, 0, sizeof(*c)); memset(samples, 0, sizeof(samples));
@@ -204,6 +253,28 @@ int main(void) {
     assert(c.EventLog.Events[0].Interrupts == 0x2000 && c.EventLog.Events[0].Valid == 0);
     assert(c.EventLog.Events[0].ReadStatus == (ULONG)-9);
     assert(c.EventLog.Events[0].PolicyCc == 0xffffffffU);
+    // Every preserved record appears exactly once across camera pages, in
+    // chronological order, and fits the phone's 64-column / 41-line console.
+    reset(&c);
+    for (i=0; i<113; ++i) B2lMaxCaptureEvent(&c, B2L_MAX_EVENT_POLL, 0xff, 0x2000, 0);
+    printed_count=0;
+    for (i=0; i<6; ++i) {
+        output_lines=max_width=0;
+        B2lPrintMaxEventPage(&c.EventLog, i, 1);
+        assert(output_lines <= 33 && max_width < 64);
+    }
+    assert(printed_count == 64);
+    for (i=0; i<16; ++i) assert(printed[i] == i+1);
+    for (i=16; i<64; ++i) assert(printed[i] == 50+i);
+    reset(&c); output_lines=max_width=printed_count=0;
+    B2lPrintMaxEventPage(&c.EventLog, 0, 2);
+    assert(printed_count == 0 && output_lines <= 33 && max_width < 64);
+    output_lines=max_width=0;
+    B2lPrintMaxPhotoOverview(2);
+    assert(output_lines == 23 && max_width < 64);
+    output_lines=max_width=0; registry_error=2;
+    B2lPrintMaxPhotoOverview(3);
+    assert(output_lines == 3 && max_width < 64);
     return 0;
 }
 '''

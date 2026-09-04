@@ -360,6 +360,12 @@ dosyasına iki raporu ekler; olay özeti mevcut kritik MAX ekranına girer.
 Kayıt formatı, hata yorumlama ve WSL/flaş A/B deneyi için
 `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` başındaki `.28` bölümüne bakın.
 
+USB/klavye gerektirmeyen ana kanıt yöntemi `maxscreen` fotoğraf görünümüdür.
+`startnet.cmd` otomatik HOST testi sonunda bu görünümü açar; genel MAX durumu
+ve 12 kayıtlık olay sayfaları 20 saniyede bir değişir, turlar otomatik tekrarlanır.
+Her yeni turda registry kaydı yenilenir; takma/çıkarma sonraki turdan fotoğraflanır.
+`maxevents` ve TXT dosyaları isteğe bağlı yardımcı yol olarak kalır.
+
 `0.1.0.27`, Linux MAX77705 probe sonundaki tek-seferlik manual CC-open bırakma
 adımını tamamlar. Çalışma maskeleri kurulduktan sonra `CONTROL3_R(0x1c)` okunur;
 `LockErrorEn` biti açıksa diğer bitler korunarak `CONTROL3_W(0x1d)` ile yalnız

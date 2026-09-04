@@ -2,6 +2,46 @@
 
 ## 4 Eylül kaynak incelemesi ve `.28` tanı sürümü
 
+### USB olmadan kanıt: otomatik fotoğraf ekranı
+
+USB bağlantısı henüz çalışmadığı için TXT dışa aktarımı kullanıcı testinin
+önkoşulu değildir. `.28` kontrol aracı güncellendi: `startnet.cmd`, otomatik
+HOST testi sonunda `b2lusbctl.exe maxscreen` çalıştırır. Komut yazmak, klavye
+bağlamak veya dosya çıkarmak gerekmez.
+
+Ekranda önce **MAX FOTO v1 / GENEL DURUM**, sonra olay sayfaları görünür.
+Her ekran **20 saniye** kalır; son sayfadan sonra yeni tur otomatik başlar.
+Genel ekranda STAGE/STATUS, CC0/CC1, rol/geçiş/source sayaçları, CONTROL3,
+MUIC ve OTG değerleri bulunur. Olay sayfaları en fazla 12 kayıt/33 satırdır;
+mevcut 64 sütun × 41 satırlık konsola göre düzenlenmiştir. Her kaydın iki
+satırında zaman, opcode, IRQ, politika CC örneği, snapshot geçerliliği/hatası
+ve sekiz ham register baytı yer alır.
+
+Bir turdaki bütün olay sayfaları aynı registry snapshot'ından gelir; yeni
+olaylar bir sonraki turda alınır. 64 kayıt doluysa genel ekran + 6 olay sayfası,
+yani yaklaşık **2 dakika 20 saniyelik** bir tur vardır. Genel ekrandaki alanlar
+ayrı registry okumalarıdır; olay snapshot'ı ile atomik eşzamanlılık iddiası yoktur.
+Bu ekran döngüsü test sonunda bilerek devam eder; donma değildir. Bir klavye
+mevcutsa Q/Esc ile terminale dönülebilir, fakat fotoğraf testi bunu gerektirmez.
+Görüntüleyici yalnız kullanıcı modunda uyur/registry okur; I2C veya PnP taraması
+başlatmaz. Kernel MAX sürümü `.28` ve kayıt şeması v1 değişmedi; **yeni EXE ve
+startnet içeren WIM** aynı WSL build yöntemiyle yeniden hazırlanmalıdır.
+
+İstenecek kanıt artık **fotoğraflardır**:
+
+1. A açılışında alıcı baştan takılıyken GENEL DURUM ve aynı turun bütün
+   numaralı olay sayfalarını fotoğraflayın.
+2. B açılışında alıcı ayrıkken GENEL DURUM ekranında `STAGE=00000070`,
+   `STATUS=00000000` görülmesini bekleyin ve fotoğraflayın. Alıcıyı takın;
+   tur numarası ilerledikten sonra GENEL DURUM ve bütün olay sayfalarını çekin.
+3. Alıcıyı çıkarın; sonraki turda aynı ekranları tekrar çekin. Hangi fotoğraf
+   grubunun takılmadan önce, takıldıktan sonra ve çıkarıldıktan sonra olduğunu
+   belirtin. Sayfalardaki tur/D0 kimlikleri grupları eşleştirmeyi sağlar.
+
+TXT dosyaları yerel yardımcı kayıt olarak kalır. Aşağıdaki terminal/TXT
+komutları yalnız terminal veya kalıcı depolama erişimi mümkün olduğunda
+kullanılabilecek ek yöntemlerdir; USB çalışmadan bunları dışarı çıkarma talebi yoktur.
+
 **Son cihaz kanıtı hâlâ `.27`dir. `.28` aşağıda açıklanan gözlem değişikliğidir;
 henüz WSL/WDK ile derlenmiş veya telefonda doğrulanmış değildir.** Alttaki
 16 adımlı tablo ve zaman çizgisi `.27` devir kaydını korur. ForceError ve
