@@ -1,5 +1,133 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.30` — HSI2C45 gerçek aktarım kesmesi
+
+**Hedef değişmedi:** cihazın özgün USB olay/rol/güç akışını Windows'ta gerçek
+kaynaklarıyla çalıştırmak. `.30`, bu hedefin HSI2C kesme adımını uygular;
+MAX GPA1_6 kesmesi ve CC/PD -> DWC3/xHCI yaşam döngüsü henüz tamamlanmadı.
+Telefonun son kanıtı hâlâ paylaşılan `.28` fotoğraflarıdır. `.29/.30` için
+WSL build, gerçek GSIV teslimi ve USB bağlantısı cihazda doğrulanmış değildir.
+Bu bölüm aşağıdaki `.29` durum tablosundaki HSI2C maddelerini günceller.
+
+### Kaynak ve uygulanan aktarım sözleşmesi
+
+Birleşik DT `hsi2c@15D60000` düğümündeki `<0 0x52 0>` SPI82 -> GSIV114
+(`0x72`) kaynağı ACPI `USBC/BYN0004` `_CRS`'ye level/active-high olarak
+eklendi. MAX'ın ayrı GPIO kesmesi GSIV51 ile karıştırılmıyor. KMDF nesnesi
+atanan interrupt kaynağını kullanır; raw GSIV, translated vector, eksik/çift
+kaynak ve edge/MSI uyumsuzluğu sürücü tarafından denetlenir. GIC yönlendirme
+ve EOI işlemleri Windows HAL/KMDF'ye aittir; sürücü GIC dağıtıcısına yazmaz.
+GIC SPI için Samsung sürücüsünün desteklediği seviye türü active-high'dır.
+[Samsung GIC türü](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/irqchip/irq-gic-v3.c#L297)
+
+`b2lmax77705_hw.c` içindeki eski pasif RX/TX polling döngüsü kaldırıldı:
+
+1. Mesaj, register adresi, repeated START/STOP seçimi ve FIFO eşikleri
+   interrupt kilidi altında hazırlanır. Buffer ve uzunluk MASTER_RUN'dan
+   önce yayımlanır. TX preload yolu da kaldırıldı; Samsung IRQ yolundaki gibi
+   FIFO'yu TX almost-empty kesmesi doldurur.
+2. RX için almost-full + trailing, TX için almost-empty; ikisi için
+   `TRANSFER_DONE` ve `CHK_TRANS_STATE=0xf00` açılır. Hata grubu artık
+   polling dalındaki dar kontrolle sınırlandırılmaz.
+3. Gerçek `EvtInterruptIsr`, enabled/pending kesişimini kontrol eder.
+   ISR bir çağrıda en fazla 16 FIFO baytını işler; bekleme, registry veya
+   MAX opcode çağrısı yapmaz. FIFO işleme sonunda status yeniden okunur;
+   geç gelen hata DONE'a üstün tutulur. Captured status W1C ile temizlenir.
+4. RX, bütün istenen baytlar **ISR tarafından** alındığında tamamlanır;
+   ayrı DONE koşulu yoktur. TX, tüm veri kuyruğa konduktan sonra gerçek
+   DONE ve boş FIFO ister. Tamamlanma durumu ISR'de kaydedilir; DPC yalnız
+   `KeSetEvent` ile pasif bekleyiciyi uyandırır.
+5. Bekleyici her uyanışta kilit altında mesaj durumunu kontrol eder.
+   Eski/gecikmiş DPC yeni mesaja başarı veremez, toplam süreyi uzatamaz.
+   Timeout ile ISR yarışında buffer ancak interrupt kilidi altında ayrılır;
+   geç kesme önceki stack buffer'ına erişemez.
+6. DT'deki `samsung,scl-clk-stretching` nedeniyle gerçek tamamlanmadan sonra
+   master INIT durumu en fazla 100 ms beklenir. Bu, transfer başlamadan
+   firmware'den kalan BUSY üzerinde bekleyen eski hatalı kapı değildir.
+   INIT'e dönülmezse başarısızlık bildirilir.
+
+Samsung kaynakta `EXYNOS5_I2C_TIMEOUT=msecs_to_jiffies(1000)` kullanır;
+`.30` IRQ bekleme sınırı bu nedenle 1 saniyedir. `.29`'un 100 ms pasif FIFO
+okuma sınırı sürdürülmedi. Bu değişiklik kayıp kesmeyi gizlemez: testte RX
+FIFO'da sekiz bayt hazır olsa dahi IRQ teslim edilmezse **0 bayt / timeout**
+sonucu alınır; hiçbir polling fallback bulunmaz. Mevcut hata sonrası controller
+recovery/retry sınırı korunur.
+[Samsung IRQ ve mesaj sırası](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/i2c/busses/i2c-exynos5.c#L616),
+[özgün timeout](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/i2c/busses/i2c-exynos5.c#L206)
+
+### Güç ve sürücü yaşam döngüsü
+
+HSI2C saat/pin/denetleyici hazırlığı `D0Entry` içinde, donanım kesmesi
+etkinleştirilmeden önce yapılır. Başarısız adapter hazırlığı PnP'ye hata döner.
+MAX istemci/kimlik/opcode işi ancak `D0EntryPostInterruptsEnabled` sonrasında
+başlar. Pasif işçi D0 girişinde artık IRQ hazır olmadan yarışamaz.
+
+Kapanışta timer durdurulup çalışan callback'in bitmesi beklenir. OTG off ve
+MUIC OPEN işlemleri `D0ExitPreInterruptsDisabled` içinde, HSI2C kesmesi hâlâ
+çalışırken yapılır. Bu işlemler hata verirse hata saklanır ve callback'e
+iletilir; başarısız OTG-off, yazılımla donanım kapandı şeklinde işaretlenmez.
+`ReleaseHardware` kesme ayrıldıktan sonra yeni I2C mesajı göndermez.
+[KMDF başlangıç sınırı](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdfdevice/nc-wdfdevice-evt_wdf_device_d0_entry_post_interrupts_enabled),
+[KMDF kapanış sınırı](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdfdevice/nc-wdfdevice-evt_wdf_device_d0_exit_pre_interrupts_disabled),
+[ISR/DPC iş bölümü](https://learn.microsoft.com/en-us/windows-hardware/drivers/wdf/porting-interrupt-functionality)
+
+### MAX olay kesmesinin sonraki bağımlılığı
+
+Samsung pinctrl kaynağı tekrar incelendi. GPA1 bankının offset'i `0x20`,
+EINT offset'i `0x04`; DT wakeup-controller türü `exynos7-wakeup-eint`.
+Bu tanımlardan EINT CON/MASK/PEND register offset'leri `0x704/0x904/0xa04`
+çıkar. Pin6 için CON alanı `[27:24]`, MASK/PEND biti `6`dır. Linux MAX IRQ
+isteği `IRQF_TRIGGER_LOW | IRQF_ONESHOT`; pin EINT işlevi `0xf`, PUD/DRV `0`.
+Linux seviye kesmesinde unmask'ten hemen önce yalnız ilgili pending bitini
+W1C ile temizler. Diğer pinlerin maskelerini/pending bitlerini değiştirmek
+özgün kaynak sahipliğini ihlal eder.
+[9820 bankı](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/pinctrl/samsung/pinctrl-exynos-arm64.c#L579),
+[EINT mask/ack/unmask](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/pinctrl/samsung/pinctrl-exynos.c#L64),
+[MAX IRQ isteği](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/mfd/max77705-irq.c#L449)
+
+**Bunlar `.30`'da MAX EINT uygulanmış anlamına gelmez.** Sonraki değişiklikte
+EINT/pin sahipliği, mask/ack ve MFD UIC/CC/PD/VDM dispatcher birlikte
+bağlanmalı. Mevcut `B2lMaxEvtPollTimer` tüm servis/opcode çağrısı boyunca
+`BusLock` tutuyor; opcode ise APCMDRES'i okuyarak bekliyor. Ayrı MAX IRQ
+işleyicisine aynı kilidi aldırıp bekleyiciyi değiştirmemek, yanıtın gelmesini
+engeller. Gerçek IRQ portu bu kilit/yanıt düzenini de değiştirmelidir.
+HSI2C IRQ'sının çalışması tek başına bu MAX olay portunu sağlamaz.
+
+### Tanı ve doğrulama
+
+MAX sürümü `0.1.0.30`, foto arayüzü `MAX FOTO v3`; USB foto sayfası v2 ve
+binary olay şeması v1. Genel sayfa 32 satırdır. Yeni alanlar:
+
+- `I2C_GSIV`: PnP raw kaynağı; beklenen `00000072`.
+- `I2C_IRQ`: enabled/pending kaynağı gerçekten işleyen ISR sayısı.
+- `I2C_DONE`: ISR'nin sonuçlandırdığı mesaj sayısı; hatalı mesajları da
+  içerir, tek başına başarı değildir. STATUS/RX_NT ile birlikte okunur.
+
+Translated vector ve son interrupt status ayrıca registry'de saklanır.
+`I2C_IRQ=0`, veri hazır olsa dahi gerçek kesme tesliminin kanıtlanmadığını
+söyler; artan sayaçlar da USB enumeration kanıtı değildir.
+
+Yerel kontroller geçti: gerçek C ISR/DPC/transfer fonksiyonlarıyla 1–64 bayt
+RX/TX, trailing, hata + DONE, FIFO sırasında geç NACK, masked status, kayıp
+IRQ, 3/8 RX, eksik TX DONE, geç/eski DPC, sabit deadline, güç kapatma ve
+clock-stretch; gerçek Prepare/D0/Release callback'leriyle kaynak ve güç
+sırası; mevcut CC/opcode/olay/foto/log testleri ve üç kaynak güvenlik testi.
+Bu host fixture'ları fiziksel GIC teslimi ve WDK derlemesi değildir.
+
+WSL yöntemi değişmedi:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+ACPI de değiştiği için aynı turdan **boot.img ve system.img birlikte** gerekir.
+Cihazda ilk beklenen kanıt `I2C_GSIV=72`, artan IRQ/DONE, başarılı kimlik ve
+`v=1/nt=0` snapshot'lardır. Hedefin tamamlanması için hâlâ özgün MAX/CC/PD
+kesmeleri, gerçek rol/güç bildirim zinciri, USB enumeration/veri aktarımı ve
+takma/çıkarma çevriminin cihaz kanıtı gerekir. Hedef aktif kalır.
+
+
 ## 5 Eylül 2026: `.28` fotoğraf sonucu ve `.29` kaynak düzeltmesi
 
 **Güncel cihaz kanıtı artık `.28` olay tanısını içeren flaştır.** Kullanıcının

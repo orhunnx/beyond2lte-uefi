@@ -39,7 +39,13 @@
 #define HSI2C_READ_WRITE        (1UL << 16)
 #define HSI2C_STOP_AFTER_TRANS  (1UL << 17)
 #define HSI2C_MASTER_RUN        (1UL << 31)
+#define HSI2C_INT_TX_ALMOSTEMPTY (1UL << 0)
+#define HSI2C_INT_RX_ALMOSTFULL  (1UL << 1)
+#define HSI2C_INT_FIFO_ERROR     (0xFUL << 2)
+#define HSI2C_INT_TRAILING       (1UL << 6)
 #define HSI2C_INT_TRANSFER_DONE (1UL << 7)
+#define HSI2C_INT_CHECK_STATE    (0xFUL << 8)
+#define HSI2C_TX_FIFO_FULL       (1UL << 7)
 #define HSI2C_INT_NO_DEVICE     (1UL << 10)
 #define HSI2C_TX_FIFO_LEVEL(x)  ((x) & 0x7FUL)
 #define HSI2C_TX_FIFO_EMPTY     (1UL << 8)
@@ -77,8 +83,8 @@
 #define B2L_HSI2C_FS2_400KHZ    0x000000E0UL
 #define B2L_HSI2C_FS3_MASK      0x00FF0000UL
 #define B2L_HSI2C_FS3_400KHZ    0x00210000UL
-#define B2L_HSI2C_TIMEOUT_US    100000UL
-#define B2L_HSI2C_POLL_DELAY_US 1000UL
+// exynos5-i2c IRQ completion timeout: msecs_to_jiffies(1000).
+#define B2L_HSI2C_IRQ_TIMEOUT_100NS 10000000ULL
 #define B2L_HSI2C_RETRIES       2UL
 #define B2L_CMGP_CLOCK_TIMEOUT_US 10000UL
 
@@ -148,18 +154,11 @@ B2lMaxSleepMicroseconds(ULONG Microseconds)
 {
     LARGE_INTEGER Interval;
 
-    // Every caller is serialized by the PASSIVE_LEVEL device/timer
-    // contract.  A single-core WinPE must yield while HSI2C advances;
-    // spinning here can starve PnP and make the whole boot appear hung.
+    // Clock setup/stretch and recovery waits run at PASSIVE_LEVEL.
+    // Message completion itself is signaled by the real HSI2C interrupt.
+    // Yield during peripheral clock settling on the single-core WinPE.
     Interval.QuadPart = -((LONGLONG)Microseconds * 10LL);
     (VOID)KeDelayExecutionThread(KernelMode, FALSE, &Interval);
-}
-
-static ULONGLONG
-B2lMaxPollingDeadline(VOID)
-{
-    return KeQueryInterruptTime() +
-           ((ULONGLONG)B2L_HSI2C_TIMEOUT_US * 10ULL);
 }
 
 static NTSTATUS
@@ -393,27 +392,6 @@ B2lMaxResetController(PB2L_MAX_CONTEXT Context)
     B2lMaxWriteRegister(Context, HSI2C_CONF, Timing.Conf | HSI2C_AUTO_MODE);
 }
 
-static NTSTATUS
-B2lMaxCheckTransferError(PB2L_MAX_CONTEXT Context)
-{
-    ULONG InterruptStatus = B2lMaxReadRegister(Context, HSI2C_INT_STATUS);
-    ULONG TransferStatus = B2lMaxReadRegister(Context, HSI2C_TRANS_STATUS);
-    ULONG MasterState = HSI2C_MASTER_STATE(TransferStatus);
-
-    // In polling mode Exynos enables only TRANSFER_DONE.  Bits 8..11 are a
-    // grouped transfer-state indication, not four independent enable bits.
-    // NODEV is the only individually defined status bit in Samsung's current
-    // Exynos9820 driver; detailed failures come from TRANS_STATUS.
-    if (((InterruptStatus & HSI2C_INT_NO_DEVICE) != 0UL) ||
-        (MasterState == HSI2C_MASTER_NO_ACK)) {
-        return STATUS_NO_SUCH_DEVICE;
-    }
-    if (MasterState == HSI2C_MASTER_LOST) {
-        return STATUS_DEVICE_PROTOCOL_ERROR;
-    }
-    return STATUS_SUCCESS;
-}
-
 VOID
 B2lMaxHsI2cQuiesce(PB2L_MAX_CONTEXT Context)
 {
@@ -488,6 +466,151 @@ B2lMaxHsI2cInitialize(PB2L_MAX_CONTEXT Context)
     return STATUS_SUCCESS;
 }
 
+// Called at DIRQL with the framework interrupt lock held. No waits, I2C
+// client commands, registry calls or completion of pageable work belong here.
+BOOLEAN
+B2lMaxHsI2cEvtInterruptIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
+{
+    PB2L_MAX_CONTEXT Context = B2lMaxGetContext(WdfInterruptGetDevice(Interrupt));
+    ULONG Pending;
+    ULONG Enabled;
+    ULONG Budget;
+    NTSTATUS Status = STATUS_PENDING;
+
+    UNREFERENCED_PARAMETER(MessageId);
+    if (!Context->HsI2cIrqEnabled || !Context->PlatformPrepared) {
+        return FALSE;
+    }
+    Pending = B2lMaxReadRegister(Context, HSI2C_INT_STATUS);
+    Enabled = B2lMaxReadRegister(Context, HSI2C_INT_ENABLE);
+    if ((Pending & Enabled) == 0UL) {
+        return FALSE;
+    }
+    ++Context->HsI2cInterruptCount;
+    Context->HsI2cLastInterruptStatus = Pending;
+    if (!Context->HsI2cMessageActive) {
+        B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
+        B2lMaxWriteRegister(Context, HSI2C_INT_STATUS, Pending);
+        return TRUE;
+    }
+
+    // Never move more than one FIFO's worth of data during this ISR.
+    if ((Pending & (HSI2C_INT_CHECK_STATE | HSI2C_INT_FIFO_ERROR)) != 0UL) {
+        // Decode errors below, including any newly latched while in the ISR.
+    } else if (Context->HsI2cMessageRead) {
+        Budget = 16UL;
+        while ((Budget-- != 0UL) &&
+               (Context->HsI2cMessagePosition < Context->HsI2cMessageLength) &&
+               ((B2lMaxReadRegister(Context, HSI2C_FIFO_STATUS) &
+                 HSI2C_RX_FIFO_EMPTY) == 0UL)) {
+            Context->HsI2cMessageBuffer[Context->HsI2cMessagePosition++] =
+                (UCHAR)B2lMaxReadRegister(Context, HSI2C_RX_DATA);
+        }
+    } else {
+        Budget = 16UL;
+        while ((Budget-- != 0UL) &&
+               (Context->HsI2cMessagePosition < Context->HsI2cMessageLength) &&
+               ((B2lMaxReadRegister(Context, HSI2C_FIFO_STATUS) &
+                 HSI2C_TX_FIFO_FULL) == 0UL)) {
+            B2lMaxWriteRegister(Context, HSI2C_TX_DATA,
+                Context->HsI2cMessageBuffer[Context->HsI2cMessagePosition++]);
+        }
+        if (Context->HsI2cMessagePosition == Context->HsI2cMessageLength) {
+            Enabled &= ~HSI2C_INT_TX_ALMOSTEMPTY;
+            B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, Enabled);
+        }
+    }
+    // Samsung samples transfer status after FIFO service. Capture errors
+    // latched during that service too, and give them priority over DONE.
+    Pending |= B2lMaxReadRegister(Context, HSI2C_INT_STATUS);
+    Context->HsI2cLastInterruptStatus = Pending;
+    if ((Pending & HSI2C_INT_NO_DEVICE) != 0UL) {
+        Status = STATUS_NO_SUCH_DEVICE;
+    } else if ((Pending & (HSI2C_INT_CHECK_STATE | HSI2C_INT_FIFO_ERROR)) != 0UL) {
+        Status = STATUS_DEVICE_PROTOCOL_ERROR;
+    } else if (Context->HsI2cMessagePosition == Context->HsI2cMessageLength) {
+        // Like exynos5_i2c_irq(), RX needs all bytes, not an extra DONE bit.
+        // TX needs real transfer completion as well as every queued byte.
+        if (Context->HsI2cMessageRead ||
+            (((Pending & HSI2C_INT_TRANSFER_DONE) != 0UL) &&
+             ((B2lMaxReadRegister(Context, HSI2C_FIFO_STATUS) &
+               HSI2C_TX_FIFO_EMPTY) != 0UL))) {
+            Status = STATUS_SUCCESS;
+        }
+    }
+    if (Status != STATUS_PENDING) {
+        B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
+        Context->HsI2cMessageStatus = Status;
+        Context->HsI2cMessageActive = FALSE;
+        ++Context->HsI2cCompletionCount;
+    }
+    // W1C only the captured status, never a read/modify/write ack.
+    B2lMaxWriteRegister(Context, HSI2C_INT_STATUS, Pending);
+    if (Status != STATUS_PENDING) {
+        (VOID)WdfInterruptQueueDpcForIsr(Interrupt);
+    }
+    return TRUE;
+}
+
+VOID
+B2lMaxHsI2cEvtInterruptDpc(WDFINTERRUPT Interrupt, WDFOBJECT AssociatedObject)
+{
+    PB2L_MAX_CONTEXT Context = B2lMaxGetContext(WdfInterruptGetDevice(Interrupt));
+
+    UNREFERENCED_PARAMETER(AssociatedObject);
+    // KeSetEvent is legal at DISPATCH_LEVEL, not at the hardware's DIRQL.
+    // A late DPC can only wake a waiter; it never marks a message successful.
+    (VOID)KeSetEvent(&Context->HsI2cCompletion, IO_NO_INCREMENT, FALSE);
+}
+
+NTSTATUS
+B2lMaxHsI2cEvtInterruptEnable(WDFINTERRUPT Interrupt, WDFDEVICE Device)
+{
+    PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
+
+    UNREFERENCED_PARAMETER(Interrupt);
+    // D0Entry has already prepared clocks/pins and quiesced the controller.
+    // Each transfer arms the peripheral only after publishing its buffer.
+    Context->HsI2cIrqEnabled = TRUE;
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
+B2lMaxHsI2cEvtInterruptDisable(WDFINTERRUPT Interrupt, WDFDEVICE Device)
+{
+    PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
+
+    UNREFERENCED_PARAMETER(Interrupt);
+    if (Context->PlatformPrepared) {
+        B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
+    }
+    Context->HsI2cIrqEnabled = FALSE;
+    // PreInterruptsDisabled has already stopped/joined the passive worker.
+    // Defensive cancellation cannot grant success or touch its buffer.
+    if (Context->HsI2cMessageActive) {
+        Context->HsI2cMessageStatus = STATUS_DEVICE_NOT_READY;
+        Context->HsI2cMessageActive = FALSE;
+    }
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+B2lMaxFinishClockStretch(PB2L_MAX_CONTEXT Context)
+{
+    ULONGLONG Deadline = KeQueryInterruptTime() + 1000000ULL;
+
+    // DT samsung,scl-clk-stretching: the Samsung IRQ branch checks INIT
+    // after completion, for at most 100 ms. This is not a pre-transfer gate
+    // on firmware's retained state and does not synthesize a completion.
+    do {
+        if (HSI2C_MASTER_STATE(B2lMaxReadRegister(Context, HSI2C_TRANS_STATUS)) == 0UL) {
+            return STATUS_SUCCESS;
+        }
+        B2lMaxSleepMicroseconds(1000UL);
+    } while (KeQueryInterruptTime() < Deadline);
+    return STATUS_IO_TIMEOUT;
+}
+
 static NTSTATUS
 B2lMaxTransferMessage(
     PB2L_MAX_CONTEXT Context,
@@ -500,42 +623,44 @@ B2lMaxTransferMessage(
 {
     ULONG AutoConfig;
     ULONG FifoControl;
-    ULONG FifoStatus;
-    ULONG Index;
     ULONG InterruptStatus;
+    ULONG InterruptEnable;
     ULONG TargetAddress;
     ULONG TriggerLevel;
     ULONGLONG Deadline;
+    ULONGLONG Now;
+    LARGE_INTEGER Remaining;
     NTSTATUS Status;
+    NTSTATUS WaitStatus = STATUS_SUCCESS;
 
     if ((Buffer == NULL) || (BufferLength == 0UL) ||
         (BufferLength > 0xFFFFUL) || (SlaveAddress > 0x7FU)) {
         return STATUS_INVALID_PARAMETER;
     }
-
+    if (Context->HsI2cInterrupt == NULL) {
+        return STATUS_DEVICE_NOT_READY;
+    }
+    KeClearEvent(&Context->HsI2cCompletion);
+    WdfInterruptAcquireLock(Context->HsI2cInterrupt);
+    if (!Context->HsI2cIrqEnabled || !Context->PlatformPrepared) {
+        WdfInterruptReleaseLock(Context->HsI2cInterrupt);
+        return STATUS_DEVICE_NOT_READY;
+    }
+    B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
     B2lMaxAndOrRegister(Context, HSI2C_TIMEOUT, ~HSI2C_TIMEOUT_EN, 0UL);
     TriggerLevel = (BufferLength >= 8UL) ? 8UL : BufferLength;
     FifoControl = HSI2C_RXFIFO_EN | HSI2C_TXFIFO_EN |
                   HSI2C_RXFIFO_LEVEL(TriggerLevel) |
                   HSI2C_TXFIFO_LEVEL(TriggerLevel);
     B2lMaxWriteRegister(Context, HSI2C_FIFO_CTRL, FifoControl);
-    B2lMaxAndOrRegister(
-        Context,
-        HSI2C_CTRL,
+    B2lMaxAndOrRegister(Context, HSI2C_CTRL,
         IsRead ? ~HSI2C_TXCHON : ~HSI2C_RXCHON,
-        IsRead ? HSI2C_RXCHON : HSI2C_TXCHON
-        );
-
+        IsRead ? HSI2C_RXCHON : HSI2C_TXCHON);
     TargetAddress = B2lMaxReadRegister(Context, HSI2C_ADDRESS);
     TargetAddress &= ~((0x3FFUL << 10) | 0x3FFUL | (0xFFUL << 24));
-    // Stock Exynos9820 fast-mode HSI2C writes master ID 7 in bits 31:24
-    // before the 7-bit target address.  Leaving it zero can stall the state
-    // machine before ADDR0 even though the bus and FIFO both look idle.
-    TargetAddress |= HSI2C_FAST_MASTER_ID |
-                     ((SlaveAddress & 0x7FUL) << 10);
+    TargetAddress |= HSI2C_FAST_MASTER_ID | ((SlaveAddress & 0x7FUL) << 10);
     B2lMaxWriteRegister(Context, HSI2C_ADDRESS, TargetAddress);
     Context->HsI2cAttemptedAddress = TargetAddress;
-
     AutoConfig = B2lMaxReadRegister(Context, HSI2C_AUTO_CONF);
     AutoConfig &= ~(HSI2C_READ_WRITE | HSI2C_STOP_AFTER_TRANS |
                     HSI2C_MASTER_RUN | 0xFFFFUL);
@@ -547,118 +672,59 @@ B2lMaxTransferMessage(
     }
     AutoConfig |= BufferLength;
     B2lMaxWriteRegister(Context, HSI2C_AUTO_CONF, AutoConfig);
-
     InterruptStatus = B2lMaxReadRegister(Context, HSI2C_INT_STATUS);
-    if (InterruptStatus != 0UL) {
-        B2lMaxWriteRegister(Context, HSI2C_INT_STATUS, InterruptStatus);
-    }
-    Index = 0UL;
-    // All register/opcode writes used by this driver fit in the 16-byte FIFO.
-    // Preload before MASTER_RUN, matching the working UEFI transport, so a
-    // polling Windows path cannot lose the first byte to TX underrun.
-    if (!IsRead) {
-        while ((Index < BufferLength) && (Index < 16UL)) {
-            B2lMaxWriteRegister(Context, HSI2C_TX_DATA, Buffer[Index++]);
-        }
-    }
-    // Stock HSI2C45 uses GSIV 114; MAX's separate GPA1-6 EINT uses GSIV 51.
-    // Neither interrupt is exposed by the current ACPI\BYN0004 contract.
-    // This existing transport still uses polling; FIFO repair below does
-    // not implement the stock interrupt completion/CC notification path.
-    // That branch enables only TRANSFER_DONE; the 0xF00 state group belongs
-    // to Samsung's interrupt-driven branch.
-    B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, HSI2C_INT_TRANSFER_DONE);
+    B2lMaxWriteRegister(Context, HSI2C_INT_STATUS, InterruptStatus);
+
+    Context->HsI2cMessageBuffer = Buffer;
+    Context->HsI2cMessageLength = BufferLength;
+    Context->HsI2cMessagePosition = 0UL;
+    Context->HsI2cMessageRead = IsRead;
+    Context->HsI2cMessageStatus = STATUS_PENDING;
+    Context->HsI2cMessageActive = TRUE;
+    InterruptEnable = HSI2C_INT_CHECK_STATE | HSI2C_INT_TRANSFER_DONE |
+        (IsRead ? (HSI2C_INT_RX_ALMOSTFULL | HSI2C_INT_TRAILING) :
+                  HSI2C_INT_TX_ALMOSTEMPTY);
+    B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, InterruptEnable);
+    Deadline = KeQueryInterruptTime() + B2L_HSI2C_IRQ_TIMEOUT_100NS;
     B2lMaxAndOrRegister(Context, HSI2C_AUTO_CONF, ~0UL, HSI2C_MASTER_RUN);
+    WdfInterruptReleaseLock(Context->HsI2cInterrupt);
 
-    Deadline = B2lMaxPollingDeadline();
-    if (IsRead) {
-        for (;;) {
-            Status = B2lMaxCheckTransferError(Context);
-            if (!NT_SUCCESS(Status)) {
-                goto Failed;
-            }
-            // Drain the available FIFO before yielding. A 1 ms Windows wait
-            // is not a 1 ms execution guarantee: sleeping per byte can time
-            // out an 8-byte status read although all bytes are already ready.
-            // The length bounds this loop; an empty FIFO returns to the
-            // deadline/sleep path instead of busy-waiting for the bus.
-            while ((Index < BufferLength) &&
-                   ((B2lMaxReadRegister(Context, HSI2C_FIFO_STATUS) &
-                     HSI2C_RX_FIFO_EMPTY) == 0UL)) {
-                Buffer[Index++] =
-                    (UCHAR)B2lMaxReadRegister(Context, HSI2C_RX_DATA);
-            }
-            if (Index >= BufferLength) {
-                Status = B2lMaxCheckTransferError(Context);
-                if (!NT_SUCCESS(Status)) {
-                    goto Failed;
-                }
-                InterruptStatus = B2lMaxReadRegister(Context, HSI2C_INT_STATUS);
-                if (InterruptStatus != 0UL) {
-                    B2lMaxWriteRegister(Context, HSI2C_INT_STATUS, InterruptStatus);
-                }
-                B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
-                // Samsung's polling branch completes a read when the
-                // requested bytes have left RX FIFO.  TRANSFER_DONE is not a
-                // second required condition and may already be clear.
-                return STATUS_SUCCESS;
-            }
-            if (KeQueryInterruptTime() >= Deadline) {
-                break;
-            }
-            B2lMaxSleepMicroseconds(B2L_HSI2C_POLL_DELAY_US);
+    for (;;) {
+        WdfInterruptAcquireLock(Context->HsI2cInterrupt);
+        if (!Context->HsI2cMessageActive) {
+            Status = Context->HsI2cMessageStatus;
+            break;
         }
-    } else {
-        while (Index < BufferLength) {
-            Status = B2lMaxCheckTransferError(Context);
-            if (!NT_SUCCESS(Status)) {
-                goto Failed;
-            }
-            // Refill available slots in one visit, as for RX above. All
-            // current opcodes fit the preload; keep longer writes correct.
-            while ((Index < BufferLength) &&
-                   (HSI2C_TX_FIFO_LEVEL(B2lMaxReadRegister(
-                       Context, HSI2C_FIFO_STATUS)) < 16UL)) {
-                B2lMaxWriteRegister(Context, HSI2C_TX_DATA, Buffer[Index++]);
-            }
-            if (Index == BufferLength) {
-                break;
-            }
-            if (KeQueryInterruptTime() >= Deadline) {
-                break;
-            }
-            B2lMaxSleepMicroseconds(B2L_HSI2C_POLL_DELAY_US);
+        Now = KeQueryInterruptTime();
+        if ((WaitStatus != STATUS_SUCCESS) || (Now >= Deadline)) {
+            Status = ((WaitStatus == STATUS_SUCCESS) || (WaitStatus == STATUS_TIMEOUT)) ?
+                STATUS_IO_TIMEOUT : WaitStatus;
+            Context->HsI2cMessageStatus = Status;
+            Context->HsI2cMessageActive = FALSE;
+            break;
         }
-        while (KeQueryInterruptTime() < Deadline) {
-            Status = B2lMaxCheckTransferError(Context);
-            if (!NT_SUCCESS(Status)) {
-                goto Failed;
-            }
-            InterruptStatus = B2lMaxReadRegister(Context, HSI2C_INT_STATUS);
-            FifoStatus = B2lMaxReadRegister(Context, HSI2C_FIFO_STATUS);
-            if (((InterruptStatus & HSI2C_INT_TRANSFER_DONE) != 0UL) &&
-                ((FifoStatus & HSI2C_TX_FIFO_EMPTY) != 0UL)) {
-                B2lMaxWriteRegister(Context, HSI2C_INT_STATUS, InterruptStatus);
-                B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
-                return STATUS_SUCCESS;
-            }
-            B2lMaxSleepMicroseconds(B2L_HSI2C_POLL_DELAY_US);
-        }
+        Remaining.QuadPart = -(LONGLONG)(Deadline - Now);
+        WdfInterruptReleaseLock(Context->HsI2cInterrupt);
+        WaitStatus = KeWaitForSingleObject(&Context->HsI2cCompletion,
+            Executive, KernelMode, FALSE, &Remaining);
+        // SynchronizationEvent consumes a stale/late wake. Only ISR state
+        // can complete this message, and retries never extend its deadline.
     }
-
-    Status = STATUS_IO_TIMEOUT;
-
-Failed:
-    if (IsRead) {
-        // Retain the last failed read across successful health/register
-        // reads. Otherwise a later 1-byte success hides an 8-byte timeout.
-        ++Context->HsI2cReadFailures;
-        Context->HsI2cLastReadFailureStatus = (ULONG)Status;
-        Context->HsI2cLastReadFailureLength = BufferLength;
-        Context->HsI2cLastReadFailureTransferred = Index;
-    }
-    B2lMaxCaptureControllerState(Context);
     B2lMaxWriteRegister(Context, HSI2C_INT_ENABLE, 0UL);
+    Context->HsI2cMessageBuffer = NULL;
+    WdfInterruptReleaseLock(Context->HsI2cInterrupt);
+    if (NT_SUCCESS(Status)) {
+        Status = B2lMaxFinishClockStretch(Context);
+    }
+    if (!NT_SUCCESS(Status)) {
+        if (IsRead) {
+            ++Context->HsI2cReadFailures;
+            Context->HsI2cLastReadFailureStatus = (ULONG)Status;
+            Context->HsI2cLastReadFailureLength = BufferLength;
+            Context->HsI2cLastReadFailureTransferred = Context->HsI2cMessagePosition;
+        }
+        B2lMaxCaptureControllerState(Context);
+    }
     return Status;
 }
 
@@ -724,6 +790,9 @@ B2lMaxHsI2cWriteRead(
         return STATUS_SUCCESS;
 
 RetryTransfer:
+        if (!Context->HsI2cIrqEnabled || (Status == STATUS_DEVICE_NOT_READY)) {
+            return Status;
+        }
         // hsi2c_45 does not carry samsung,reset-before-trans.  Preserve the
         // live controller on the normal path and recover exactly once only
         // after a real timeout/NACK/arbitration failure.

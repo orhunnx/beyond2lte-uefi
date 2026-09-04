@@ -153,7 +153,10 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxCcLastTransitionTimeHigh", L"B2LMaxCcOpenNormalized",
         L"B2LMaxControl3Before", L"B2LMaxControl3After",
         L"B2LMaxHsI2cReadFailures", L"B2LMaxHsI2cLastReadFailureStatus",
-        L"B2LMaxHsI2cLastReadFailureLength", L"B2LMaxHsI2cLastReadFailureTransferred"
+        L"B2LMaxHsI2cLastReadFailureLength", L"B2LMaxHsI2cLastReadFailureTransferred",
+        L"B2LMaxHsI2cRawIrq", L"B2LMaxHsI2cTranslatedIrq",
+        L"B2LMaxHsI2cInterruptCount", L"B2LMaxHsI2cCompletionCount",
+        L"B2LMaxHsI2cLastInterruptStatus"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -256,6 +259,11 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[87] = Context->HsI2cLastReadFailureStatus;
     Values[88] = Context->HsI2cLastReadFailureLength;
     Values[89] = Context->HsI2cLastReadFailureTransferred;
+    Values[90] = Context->HsI2cRawIrq;
+    Values[91] = Context->HsI2cTranslatedIrq;
+    Values[92] = Context->HsI2cInterruptCount;
+    Values[93] = Context->HsI2cCompletionCount;
+    Values[94] = Context->HsI2cLastInterruptStatus;
 
     RtlInitUnicodeString(&ServicePath, ServicePathBuffer);
     InitializeObjectAttributes(
@@ -1551,17 +1559,12 @@ B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
         return STATUS_DEVICE_NOT_READY;
     }
 
-    // Samsung brings MAX77705 up as an MFD and performs CC/charger work
-    // asynchronously.  Keep the same recovery boundary here: a transient
-    // bus/identity failure is retried by the passive timer instead of
-    // permanently failing the ACPI parent and all of its _DEP children.
+    // The HSI2C adapter's clocks/pins and IRQ are already owned. MAX MFD
+    // client probe/opcode retries run asynchronously after adapter startup;
+    // failed adapter initialization itself is reported by D0Entry.
     if (!Context->IdentityReady) {
-        Status = B2lMaxHsI2cInitialize(Context);
-        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_BUS, Status);
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-
+        // The adapter is initialized before KMDF enables GSIV 114. MFD
+        // probe here uses real interrupt-completed transfers only.
         Status = B2lMaxProbeIdentity(Context);
         B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_IDENTITY, Status);
         if (!NT_SUCCESS(Status)) {
@@ -1713,6 +1716,7 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     WDF_OBJECT_ATTRIBUTES Attributes;
     WDF_PNPPOWER_EVENT_CALLBACKS PowerCallbacks;
     WDF_TIMER_CONFIG TimerConfig;
+    WDF_INTERRUPT_CONFIG InterruptConfig;
     WDFDEVICE Device;
     PB2L_MAX_CONTEXT Context;
     NTSTATUS Status;
@@ -1722,7 +1726,8 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     PowerCallbacks.EvtDevicePrepareHardware = B2lMaxEvtPrepareHardware;
     PowerCallbacks.EvtDeviceReleaseHardware = B2lMaxEvtReleaseHardware;
     PowerCallbacks.EvtDeviceD0Entry = B2lMaxEvtD0Entry;
-    PowerCallbacks.EvtDeviceD0Exit = B2lMaxEvtD0Exit;
+    PowerCallbacks.EvtDeviceD0EntryPostInterruptsEnabled = B2lMaxEvtD0EntryPostInterruptsEnabled;
+    PowerCallbacks.EvtDeviceD0ExitPreInterruptsDisabled = B2lMaxEvtD0ExitPreInterruptsDisabled;
     WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &PowerCallbacks);
 
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attributes, B2L_MAX_CONTEXT);
@@ -1734,6 +1739,19 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Context = B2lMaxGetContext(Device);
     RtlZeroMemory(Context, sizeof(*Context));
     Context->Device = Device;
+    KeInitializeEvent(&Context->HsI2cCompletion, SynchronizationEvent, FALSE);
+    WDF_INTERRUPT_CONFIG_INIT(&InterruptConfig,
+        B2lMaxHsI2cEvtInterruptIsr, B2lMaxHsI2cEvtInterruptDpc);
+    InterruptConfig.AutomaticSerialization = FALSE;
+    InterruptConfig.ShareVector = WdfFalse;
+    InterruptConfig.ReportInactiveOnPowerDown = WdfFalse;
+    InterruptConfig.EvtInterruptEnable = B2lMaxHsI2cEvtInterruptEnable;
+    InterruptConfig.EvtInterruptDisable = B2lMaxHsI2cEvtInterruptDisable;
+    Status = WdfInterruptCreate(Device, &InterruptConfig,
+        WDF_NO_OBJECT_ATTRIBUTES, &Context->HsI2cInterrupt);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
     Context->CcStatus0 = 0xFFU;
     Context->OpcodeResponse = 0xFFU;
     Context->AutoIbusMode = 0xFFU;
@@ -1778,13 +1796,16 @@ B2lMaxEvtPrepareHardware(
 {
     PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
     PCM_PARTIAL_RESOURCE_DESCRIPTOR Resource;
+    PCM_PARTIAL_RESOURCE_DESCRIPTOR Raw;
     ULONG Count;
     ULONG Index;
     ULONG MemoryCount = 0UL;
+    ULONG InterruptCount = 0UL;
     ULONGLONG Start;
 
-    UNREFERENCED_PARAMETER(ResourcesRaw);
     B2lMaxUnmapResources(Context);
+    Context->HsI2cRawIrq = 0UL;
+    Context->HsI2cTranslatedIrq = 0UL;
     Count = WdfCmResourceListGetCount(ResourcesTranslated);
     for (Index = 0UL; Index < Count; ++Index) {
         Resource = WdfCmResourceListGetDescriptor(ResourcesTranslated, Index);
@@ -1796,6 +1817,23 @@ B2lMaxEvtPrepareHardware(
                 STATUS_DEVICE_CONFIGURATION_ERROR
                 );
             return STATUS_DEVICE_CONFIGURATION_ERROR;
+        }
+        if (Resource->Type == CmResourceTypeInterrupt) {
+            Raw = WdfCmResourceListGetDescriptor(ResourcesRaw, Index);
+            if ((Raw == NULL) || (Raw->Type != CmResourceTypeInterrupt) ||
+                (Raw->u.Interrupt.Vector != B2L_MAX_HSI2C_GSIV) ||
+                ((Resource->Flags & (CM_RESOURCE_INTERRUPT_LATCHED |
+                                    CM_RESOURCE_INTERRUPT_MESSAGE)) != 0) ||
+                (InterruptCount != 0UL)) {
+                B2lMaxUnmapResources(Context);
+                B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_RESOURCES,
+                    STATUS_DEVICE_CONFIGURATION_ERROR);
+                return STATUS_DEVICE_CONFIGURATION_ERROR;
+            }
+            ++InterruptCount;
+            Context->HsI2cRawIrq = Raw->u.Interrupt.Vector;
+            Context->HsI2cTranslatedIrq = Resource->u.Interrupt.Vector;
+            continue;
         }
         if (Resource->Type != CmResourceTypeMemory) {
             continue;
@@ -1850,7 +1888,7 @@ B2lMaxEvtPrepareHardware(
         }
         ++MemoryCount;
     }
-    if ((MemoryCount != 4UL) || (Context->HsI2cRegisters == NULL) ||
+    if ((MemoryCount != 4UL) || (InterruptCount != 1UL) || (Context->HsI2cRegisters == NULL) ||
         (Context->UsiRegisters == NULL) ||
         (Context->CmgpCmuRegisters == NULL) ||
         (Context->CmgpPinctrlRegisters == NULL)) {
@@ -1881,11 +1919,9 @@ B2lMaxEvtReleaseHardware(
     WdfWaitLockRelease(Context->BusLock);
     (VOID)WdfTimerStop(Context->PollTimer, TRUE);
     WdfWaitLockAcquire(Context->BusLock, NULL);
-    if (Context->HardwareReady) {
-        (VOID)B2lMaxDisableOtg(Context);
-        if (Context->IdentityReady) {
-            (VOID)B2lMaxSetMuicPath(Context, MAX77705_MUIC_COM_OPEN);
-        }
+    // Connector shutdown belongs to PreInterruptsDisabled. ReleaseHardware
+    // runs after interrupt disconnect and must not issue new I2C messages.
+    if (Context->HardwareReady && Context->PlatformPrepared) {
         B2lMaxHsI2cQuiesce(Context);
     }
     B2lMaxUnmapResources(Context);
@@ -1912,9 +1948,13 @@ NTSTATUS
 B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
 {
     PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
+    NTSTATUS Status;
 
     UNREFERENCED_PARAMETER(PreviousState);
     WdfWaitLockAcquire(Context->BusLock, NULL);
+    Context->HsI2cInterruptCount = 0UL;
+    Context->HsI2cCompletionCount = 0UL;
+    Context->HsI2cLastInterruptStatus = 0UL;
     Context->CcStatusValid = FALSE;
     RtlZeroMemory(&Context->EventLog, sizeof(Context->EventLog));
     Context->EventLog.Version = B2L_MAX_EVENT_VERSION;
@@ -1948,22 +1988,36 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     Context->DiagnosticPollCount = 0UL;
     Context->CcLastSampleTime = 0ULL;
     Context->CcLastTransitionTime = 0ULL;
+    Context->PollingEnabled = FALSE;
+    // Prepare clocks/pins and mask stale controller status BEFORE Windows
+    // enables the hardware IRQ. No MAX transaction is made here.
+    Status = B2lMaxHsI2cInitialize(Context);
+    B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_BUS, Status);
+    WdfWaitLockRelease(Context->BusLock);
+    return Status;
+}
+
+NTSTATUS
+B2lMaxEvtD0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
+{
+    PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
+
+    UNREFERENCED_PARAMETER(PreviousState);
+    WdfWaitLockAcquire(Context->BusLock, NULL);
     Context->PollingEnabled = TRUE;
     WdfWaitLockRelease(Context->BusLock);
-    // Samsung defers CC/charger work after probe.  Do the same on Windows:
-    // never hold the single active CPU or the PnP D0 path while a failed
-    // HSI2C transaction reaches its bounded timeout.
-    (VOID)WdfTimerStart(
-        Context->PollTimer,
-        WDF_REL_TIMEOUT_IN_MS(B2L_MAX_INITIAL_POLL_MS)
-        );
+    // MFD/opcode work may wait for GSIV 114 only after WDF enabled it.
+    (VOID)WdfTimerStart(Context->PollTimer,
+        WDF_REL_TIMEOUT_IN_MS(B2L_MAX_INITIAL_POLL_MS));
     return STATUS_SUCCESS;
 }
 
 NTSTATUS
-B2lMaxEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
+B2lMaxEvtD0ExitPreInterruptsDisabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
 {
     PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
+    NTSTATUS Status = STATUS_SUCCESS;
+    NTSTATUS MuicStatus;
 
     UNREFERENCED_PARAMETER(TargetState);
     WdfWaitLockAcquire(Context->BusLock, NULL);
@@ -1971,16 +2025,24 @@ B2lMaxEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
     WdfWaitLockRelease(Context->BusLock);
     (VOID)WdfTimerStop(Context->PollTimer, TRUE);
     WdfWaitLockAcquire(Context->BusLock, NULL);
-    if (Context->HardwareReady) {
-        (VOID)B2lMaxDisableOtg(Context);
+    if (Context->HardwareReady && Context->PlatformPrepared) {
+        Status = B2lMaxDisableOtg(Context);
+        if (!NT_SUCCESS(Status)) {
+            B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_OTG_OFF, Status);
+        }
         if (Context->IdentityReady) {
-            (VOID)B2lMaxSetMuicPath(Context, MAX77705_MUIC_COM_OPEN);
+            MuicStatus = B2lMaxSetMuicPath(Context, MAX77705_MUIC_COM_OPEN);
+            if (NT_SUCCESS(Status)) {
+                Status = MuicStatus;
+                if (!NT_SUCCESS(Status)) {
+                    B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_MUIC_OPEN, Status);
+                }
+            }
         }
         B2lMaxHsI2cQuiesce(Context);
     }
     Context->IdentityReady = FALSE;
     Context->BaselineValid = FALSE;
-    Context->OtgHardwareActive = FALSE;
     Context->ChargerUnlocked = FALSE;
     Context->AutoVbusDisabled = FALSE;
     Context->AutoIbusConfigured = FALSE;
@@ -1994,7 +2056,7 @@ B2lMaxEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
     Context->MuicPathRequested = 0xFFU;
     Context->MuicControl1 = 0xFFU;
     WdfWaitLockRelease(Context->BusLock);
-    return STATUS_SUCCESS;
+    return Status;
 }
 
 VOID

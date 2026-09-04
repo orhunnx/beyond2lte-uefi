@@ -1,5 +1,11 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
+**5 Eylül / MAX 0.1.0.30:** HSI2C45 transferi özgün GSIV114 üzerinden
+ISR/DPC ile yürür; pasif FIFO polling yolu kaldırıldı. ACPI ve SYS birlikte
+güncellenmeli. `MAX FOTO v3` I2C_GSIV/IRQ/DONE gösterir. Gerçek MAX GPIO
+kesmesi ve MAX -> DWC3 rol zinciri sıradaki eksik işlerdir; `.30` henüz WSL
+ve cihazda doğrulanmadı. Aşağıdaki `.29` notu tarihsel değişiklik kaydıdır.
+
 **5 Eylül / MAX 0.1.0.29:** HSI2C FIFO tüketimi ve Linux'taki
 `CC_SOURCE -> VBUS -> MUIC USB_AP` sırası düzeltildi. Yeni `MAX FOTO v2` ve
 `USB FOTO v2` sayfaları RX hatalarını, port bağlantısını ve USB/HID kimliklerini

@@ -9,6 +9,7 @@
 #define B2L_MAX_USI_PHYSICAL_BASE          0x15C22000ULL
 #define B2L_MAX_CMGP_PINCTRL_PHYSICAL_BASE 0x15C30000ULL
 #define B2L_MAX_HSI2C_PHYSICAL_BASE        0x15D60000ULL
+#define B2L_MAX_HSI2C_GSIV                 114UL
 #define B2L_MAX_CMGP_CMU_LENGTH            0x00008000UL
 #define B2L_MAX_DEVICE_PAGE_LENGTH         0x00001000UL
 
@@ -54,6 +55,21 @@ typedef struct _B2L_MAX_CONTEXT {
     WDFDEVICE Device;
     WDFTIMER PollTimer;
     WDFWAITLOCK BusLock;
+    WDFINTERRUPT HsI2cInterrupt;
+    KEVENT HsI2cCompletion;
+    // Protected by the interrupt lock; BusLock serializes message callers.
+    PUCHAR HsI2cMessageBuffer;
+    ULONG HsI2cMessageLength;
+    ULONG HsI2cMessagePosition;
+    NTSTATUS HsI2cMessageStatus;
+    BOOLEAN HsI2cMessageRead;
+    BOOLEAN HsI2cMessageActive;
+    BOOLEAN HsI2cIrqEnabled;
+    ULONG HsI2cRawIrq;
+    ULONG HsI2cTranslatedIrq;
+    volatile ULONG HsI2cInterruptCount;
+    volatile ULONG HsI2cCompletionCount;
+    volatile ULONG HsI2cLastInterruptStatus;
     PUCHAR HsI2cRegisters;
     PUCHAR UsiRegisters;
     PUCHAR CmgpCmuRegisters;
@@ -166,8 +182,13 @@ EVT_WDF_DRIVER_DEVICE_ADD B2lMaxEvtDeviceAdd;
 EVT_WDF_DEVICE_PREPARE_HARDWARE B2lMaxEvtPrepareHardware;
 EVT_WDF_DEVICE_RELEASE_HARDWARE B2lMaxEvtReleaseHardware;
 EVT_WDF_DEVICE_D0_ENTRY B2lMaxEvtD0Entry;
-EVT_WDF_DEVICE_D0_EXIT B2lMaxEvtD0Exit;
+EVT_WDF_DEVICE_D0_ENTRY_POST_INTERRUPTS_ENABLED B2lMaxEvtD0EntryPostInterruptsEnabled;
+EVT_WDF_DEVICE_D0_EXIT_PRE_INTERRUPTS_DISABLED B2lMaxEvtD0ExitPreInterruptsDisabled;
 EVT_WDF_TIMER B2lMaxEvtPollTimer;
+EVT_WDF_INTERRUPT_ISR B2lMaxHsI2cEvtInterruptIsr;
+EVT_WDF_INTERRUPT_DPC B2lMaxHsI2cEvtInterruptDpc;
+EVT_WDF_INTERRUPT_ENABLE B2lMaxHsI2cEvtInterruptEnable;
+EVT_WDF_INTERRUPT_DISABLE B2lMaxHsI2cEvtInterruptDisable;
 
 NTSTATUS B2lMaxHsI2cInitialize(PB2L_MAX_CONTEXT Context);
 VOID B2lMaxHsI2cQuiesce(PB2L_MAX_CONTEXT Context);

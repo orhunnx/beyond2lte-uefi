@@ -171,7 +171,7 @@ CC_STATUS_LINE="$(printf '%s\n' "$READ_STATUS_SECTION" | grep -n 'B2lMaxReadCcSt
 CHARGER_LINE="$(printf '%s\n' "$READ_STATUS_SECTION" | grep -n 'B2L_MAX_CHARGER_ADDRESS' | head -n1 | cut -d: -f1)"
 test "$IRQ_DRAIN_LINE" -lt "$CC_STATUS_LINE"
 test "$CC_STATUS_LINE" -lt "$CHARGER_LINE"
-grep -q 'DriverVer=09/05/2026,0.1.0.29' "$INF"
+grep -q 'DriverVer=09/05/2026,0.1.0.30' "$INF"
 SERVICE_SECTION="$(sed -n '/B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)/,/B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
 AUTOIBUS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureAutoIbus(Context)' | head -n1 | cut -d: -f1)"
 MASKS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureUsbcMasks(Context)' | head -n1 | cut -d: -f1)"
@@ -201,8 +201,18 @@ fi
 
 # HSI2C transfer path is bounded, serialized and uses repeated START for
 # one-byte register reads, matching Samsung's register transport.
-grep -q 'B2L_HSI2C_TIMEOUT_US    100000UL' "$HW"
-grep -q 'B2L_HSI2C_POLL_DELAY_US 1000UL' "$HW"
+grep -q 'B2L_HSI2C_IRQ_TIMEOUT_100NS 10000000ULL' "$HW"
+grep -q 'WdfInterruptCreate(Device, &InterruptConfig' "$MAIN"
+grep -q 'B2L_MAX_HSI2C_GSIV                 114UL' "$HDR"
+grep -q '0x00000072' "$DSDT"
+grep -q 'InterruptCount != 1UL' "$MAIN"
+grep -q 'Raw->u.Interrupt.Vector != B2L_MAX_HSI2C_GSIV' "$MAIN"
+grep -q 'KeWaitForSingleObject(&Context->HsI2cCompletion' "$HW"
+grep -q 'WdfInterruptQueueDpcForIsr(Interrupt)' "$HW"
+if rg -n 'B2lMaxPollingDeadline|B2L_HSI2C_POLL_DELAY_US' "$HW"; then
+  echo 'HATA: HSI2C aktarimi gercek IRQ yerine polling yoluna dondu' >&2
+  exit 1
+fi
 grep -q 'KeQueryInterruptTime()' "$HW"
 grep -q 'KeDelayExecutionThread(KernelMode, FALSE, &Interval)' "$HW"
 if grep -q 'KeStallExecutionProcessor' "$HW"; then
@@ -248,8 +258,13 @@ if grep -q 'Context->HsI2cClockControl == 0UL' "$HW"; then
   echo 'HATA: Exynos9820 HSI2C45 CLK_CTRL=0 durumu sahte hazirlik hatasi sayilamaz' >&2
   exit 1
 fi
-test "$(grep -n 'HSI2C_TX_DATA, Buffer\[Index++\]' "$HW" | head -n1 | cut -d: -f1)" \
-  -lt "$(grep -n 'HSI2C_AUTO_CONF, ~0UL, HSI2C_MASTER_RUN' "$HW" | head -n1 | cut -d: -f1)"
+# Stock IRQ mode fills TX from the FIFO interrupt; the passive message
+# function only configures the hardware and waits for completion.
+TRANSFER_SECTION="$(sed -n '/B2lMaxTransferMessage(/,/B2lMaxHsI2cWriteRead(/p' "$HW")"
+if printf '%s\n' "$TRANSFER_SECTION" | grep -Eq 'HSI2C_TX_DATA|HSI2C_RX_DATA'; then
+  echo 'HATA: HSI2C FIFO ISR disindan ilerletiliyor' >&2
+  exit 1
+fi
 test "$(grep -n 'HSI2C_ADDRESS, TargetAddress' "$HW" | head -n1 | cut -d: -f1)" \
   -lt "$(grep -n 'HSI2C_AUTO_CONF, ~0UL, HSI2C_MASTER_RUN' "$HW" | head -n1 | cut -d: -f1)"
 grep -q 'Context->HsI2cAttemptedAddress = TargetAddress' "$HW"
@@ -278,7 +293,7 @@ grep -q 'B2LMaxCcOpenNormalized' "$MAIN"
 grep -q 'B2LMaxControl3Before' "$MAIN"
 grep -q 'B2LMaxControl3After' "$MAIN"
 grep -q 'CCOPEN_OK B2LMaxCcOpenNormalized' "$ROOT/windows/startnet.cmd"
-if sed -n '/B2lMaxEvtD0Entry(WDFDEVICE Device/,/B2lMaxEvtD0Exit(WDFDEVICE Device/p' "$MAIN" | \
+if sed -n '/B2lMaxEvtD0Entry(WDFDEVICE Device/,/B2lMaxEvtD0EntryPostInterruptsEnabled(WDFDEVICE Device/p' "$MAIN" | \
    grep -q 'B2lMaxServiceConnection'; then
   echo 'HATA: tek cekirdekte MAX77705 transferi PnP D0Entry yolunu bloklayamaz' >&2
   exit 1
@@ -287,8 +302,19 @@ sed -n '/B2lMaxEvtPollTimer(WDFTIMER Timer)/,$p' "$MAIN" | \
   grep -q 'B2L_MAX_RETRY_POLL_MS'
 sed -n '/B2lMaxEvtPollTimer(WDFTIMER Timer)/,$p' "$MAIN" | \
   grep -q 'B2L_MAX_ATTACH_POLL_MS'
-if sed -n '/B2lMaxEvtD0Entry/,/B2lMaxEvtD0Exit/p' "$MAIN" | grep -q 'return Status'; then
-  echo 'HATA: gecici MAX77705 I2C hatasi ACPI parent D0 girisini dusurmemeli' >&2
+# Adapter MMIO/clock setup must precede IRQ enable; client transfers start
+# afterwards and shutdown finishes before KMDF disconnects the interrupt.
+grep -q 'EvtDeviceD0EntryPostInterruptsEnabled = B2lMaxEvtD0EntryPostInterruptsEnabled' "$MAIN"
+grep -q 'EvtDeviceD0ExitPreInterruptsDisabled = B2lMaxEvtD0ExitPreInterruptsDisabled' "$MAIN"
+D0_SECTION="$(sed -n '/B2lMaxEvtD0Entry(WDFDEVICE Device/,/B2lMaxEvtD0EntryPostInterruptsEnabled(WDFDEVICE Device/p' "$MAIN")"
+printf '%s\n' "$D0_SECTION" | grep -q 'Status = B2lMaxHsI2cInitialize(Context)'
+if printf '%s\n' "$D0_SECTION" | grep -q 'WdfTimerStart'; then
+  echo 'HATA: MAX istemci transferi IRQ acilmadan baslatiliyor' >&2
+  exit 1
+fi
+RELEASE_SECTION="$(sed -n '/B2lMaxEvtReleaseHardware(/,/B2lMaxEvtD0Entry(WDFDEVICE Device/p' "$MAIN")"
+if printf '%s\n' "$RELEASE_SECTION" | grep -Eq 'B2lMaxDisableOtg|B2lMaxSetMuicPath'; then
+  echo 'HATA: IRQ kapandiktan sonra ReleaseHardware I2C baslatiyor' >&2
   exit 1
 fi
 

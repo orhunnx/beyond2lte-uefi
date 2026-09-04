@@ -328,7 +328,7 @@ int main(void) {
     assert(invalid_rows==1 && output_lines<=33 && max_width<64);
     output_lines=max_width=0;
     B2lPrintMaxPhotoOverview(2);
-    assert(output_lines == 29 && max_width < 64);
+    assert(output_lines == 32 && max_width < 64);
     output_lines=max_width=0; registry_error=2;
     B2lPrintMaxPhotoOverview(3);
     assert(output_lines == 3 && max_width < 64);

@@ -254,8 +254,8 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000006)
         // MAX77705 Type-C/charger MFD on stock HSI2C45.  Samsung Linux
         // creates logical TOP, USBC and charger clients at 0x66/0x25/0x69
         // on this single controller.  b2lmax77705.sys follows that ownership
-        // model and polls CC state; an interrupt is deliberately not claimed
-        // until the GPA1-6 GPIO interrupt-controller contract exists in ACPI.
+        // model. HSI2C45 transfer completion uses its original SPI 82.
+        // The separate MAX GPA1-6 EINT/CC path still needs its own port.
         Device (USBC)
         {
             Name (_HID, "BYN0004")
@@ -277,6 +277,11 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000006)
                 Memory32Fixed (ReadWrite, 0x15D60000, 0x00001000)
                 Memory32Fixed (ReadWrite, 0x15C22000, 0x00001000)
                 Memory32Fixed (ReadWrite, 0x15C30000, 0x00001000)
+                // hsi2c@15D60000: DT SPI 82 -> GIC GSIV 114 (0x72).
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+                {
+                    0x00000072
+                }
             })
         }
 

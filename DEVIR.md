@@ -18,11 +18,11 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
-> **5 Eylül kaynak güncellemesi:** Son fotoğraflar `.28` olay tanısının
-> 8 baytlık okumalarının tamamında timeout olduğunu gösterdi. `.29` FIFO,
-> VBUS/MUIC sırası ve foto ekranı düzeltmeleri için bölüm **0.19** ve Linux
-> karşılaştırma dosyasının başı önceliklidir. USB henüz çalışır doğrulanmadı;
-> gerçek IRQ/rol bildirimi tamamlanmadan tam Linux eşdeğerliği iddia edilmez.
+> **5 Eylül / `.30` kaynak güncellemesi:** HSI2C45 aktarımı artık gerçek
+> GSIV114/ISR/DPC yolunda; eski FIFO polling yolu kaldırıldı. `.29` foto/FIFO
+> düzeltmelerinden sonraki bu değişiklik için **0.20** ve Linux karşılaştırma
+> dosyasının başı önceliklidir. WSL/telefon doğrulaması bekleniyor. MAX GPIO
+> kesmesi ve MAX -> DWC3 rol zinciri hâlâ eksik; hedef tamamlanmış değildir.
 
 ### 0.1 Altmış saniyelik özet
 
@@ -49,8 +49,8 @@ Bugün itibarıyla:
   Bu yüzden güvenlik gereği VBUS kapalı, MUIC analog yolu `OPEN=0x3f` ve xHCI
   portu `RxDetect/CCS=0` kalıyor. Fare/HID katmanına henüz gelinmedi.
 - En erken doğrulanmış hata artık **3. adım: sekiz baytlık I2C okuması**.
-  `.29` hazır FIFO'yu bayt başına uyumadan tüketir; cihaz sonucu bekleniyor.
-  Gerçek IRQ işleme ve MAX CC/PD -> DWC3 rol bildirimi de eksiktir.
+  `.30` HSI2C'nin gerçek GSIV114/ISR/DPC aktarımını uygular; cihaz sonucu
+  bekleniyor. MAX GPIO IRQ işleme ve MAX CC/PD -> DWC3 rol bildirimi eksiktir.
 - Yeni fotoğraflar aynı D0 oturumunda 13 -> 15 olayı gösteriyor; tamamının
   status snapshot'ı geçersiz. ForceError veya firmware reset gerektiği bu
   kayıtlardan çıkarılamaz. Eksik `findstr` ve seri registry sorguları tanı
@@ -81,11 +81,11 @@ kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikle
 
 ### 0.3 Güncel repo ve sürüm çıpası
 
-`.29` değişikliğinin taban commit'i:
+`.30` değişikliğinin taban commit'i:
 
 ```text
 dal:    codex/touch-from-8549bfa
-taban:  651c74c  feat: show MAX77705 diagnostics on automatic photo pages
+taban:  3c4f6ba  fix: drain MAX77705 FIFO and align source power sequencing
 ```
 
 Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
@@ -95,7 +95,7 @@ Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
 | `b2ltouch.sys` | `0.2.0.1` | `ACPI\BYN0001`, Samsung sec_ts -> KMDF/VHF touch |
 | `b2lusb.sys` parent | `0.1.0.18` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
 | inbox host | `0.1.0.18` INF | `ACPI\BYN0003`, `USBXHCI` + GSIV 273 |
-| `b2lmax77705.sys` | `0.1.0.29` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG |
+| `b2lmax77705.sys` | `0.1.0.30` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG |
 | `b2lufs.sys` | `0.0.4.5` kaynak sürümü | Deneysel Windows UFS miniport; güncel USB kapısı değil |
 
 Yalnız MAX77705 değiştiğinde parent/host sürümünün aynı kalması normaldir.
@@ -670,6 +670,51 @@ Yerel doğrulama: `tests/test_max77705_transport.py`,
 `tests/test_max77705_connection.py`, `tests/test_max77705_events.py`,
 `tests/test_b2lusb_log_filter.py`; mevcut Windows MAX/USB ve UEFI USB güvenlik
 testleri. Donanımsız C testleri WDK/WinPE ve telefon doğrulamasının yerine geçmez.
+
+### 0.20 5 Eylül: `.30` HSI2C45 gerçek IRQ portu
+
+Aktif hedef değişmedi: özgün USB akışı, özgün IRQ ve gerçek rol/güç olayları.
+Bu commit HSI2C45 aktarım kesmesini uygular; hedefin tamamlanması değildir.
+Son cihaz kanıtı `.28` fotoğrafları; `.29/.30` henüz WSL/cihazda doğrulanmadı.
+
+- ACPI BYN0004'e özgün SPI82 -> GSIV114 (`0x72`) eklendi. Kaynak yoksa,
+  farklıysa veya edge/MSI ise driver başlangıcı hata verir.
+- RX/TX polling ve TX preload kaldırıldı. Samsung'un RX almost-full/trailing,
+  TX almost-empty, TRANSFER_DONE ve 0xf00 state grubu kullanılır. FIFO'yu
+  gerçek ISR işler; DPC pasif bekleyiciyi uyandırır. Eski DPC veya hazır FIFO
+  gerçek kesme gelmeden başarı oluşturamaz.
+- IRQ bekleme sınırı Samsung kaynağındaki 1000 ms'dir. IRQ tamamlanınca DT'nin
+  scl-clk-stretching INIT kontrolü 100 ms uygulanır. IRQ'suz fallback yoktur.
+- Saat/pin/adapter hazırlığı D0Entry'de, istemci işlemleri IRQ açıldıktan
+  sonra başlar. OTG/MUIC kapanışı IRQ kapatılmadan önce tamamlanır; hatalar
+  döndürülür. ReleaseHardware'da I2C işlemi yapılmaz.
+- MAX `.30`, `MAX FOTO v3`, yeni I2C_GSIV/IRQ/DONE alanları; genel sayfa
+  32 satır. DONE sayacı hatalı tamamlanmaları da içerir; STATUS ile okunur.
+
+Gerçek C ISR/DPC/transfer ve PnP/power callback testleri; kayıp/yanlış kesme,
+partial RX, eksik DONE, geç DPC, NACK, clock-stretch ve kapanış hatalarını
+kapsar. CC/olay/foto/log testleri ile mevcut kaynak güvenlik kontrolleri de
+geçti. Mac'te Windows, UEFI veya WIM build yapılmadı.
+
+WSL'de normal yöntem değişmedi:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+ACPI ve SYS/EXE/startnet birlikte değişti: aynı turdan boot.img/system.img
+kullanılmalı. İlk cihaz kanıtı I2C_GSIV=72, artan gerçek I2C_IRQ, geçerli
+snapshot ve sıfır transfer hatasıdır. USB için ayrıca gerçek CC/PD attach,
+VBUS/MUIC, rol bildirimi, port, enumeration, veri aktarımı ve detach gerekir.
+
+Sıradaki kaynak işi MAX GPA1_6 EINT'dir. Özgün pinctrl'de bank offset 0x20,
+EINT offset 0x04, CON/MASK/PEND 0x704/0x904/0xa04; pin6 bitleri ve level-low
++ one-shot Linux isteği doğrulandı. Mevcut opcode bekleyicisi BusLock tutuyor;
+MAX IRQ'yu aynı kilide bağlamak deadlock oluşturur. EINT mask/ack ve gerçek
+MFD/opcode yanıt dispatch/kilit düzeni birlikte uygulanmalı. Ayrıntılı kaynak
+bağlantıları Linux karşılaştırmasının `.30` bölümündedir. Statik HOST ve MAX
+polling son durum olarak kabul edilmiyor; hedef aktif kalır.
 
 ## TARİHSEL ARŞİV
 
