@@ -5,13 +5,15 @@
 Bu belge, Logitech `046d:c52e` alıcısının Samsung Linux/Lineage altında fiziksel olarak takılmasından HID klavye ve farenin oluşmasına kadar çalışan akışı, mevcut Windows sürücüleriyle yan yana karşılaştırır.
 
 - Linux kanıtı: `out/B2LUSB-LINUX-HOST-MOUSE-RERUN.txt`
-- Son Windows cihaz kanıtı: ekrandaki `b2lmax77705` sürümü `0.1.0.23`
+- Son Windows cihaz kanıtı: ekrandaki `b2lmax77705` sürümü `0.1.0.24`
 - Mevcut kaynak: `windows/b2lusb/b2lmax77705.inf.in` sürümü `0.1.0.24`
-- Önemli ayrım: `0.1.0.23` flaşı, HSI2C'deki korunmuş/stale durum üzerinde transfer başlatan `44deb23` ile MAX işini tek boot CPU'sunun dışına alan `5608362` commitlerini içerir; bu turda eklenen platform hazırlığını içermez.
+- `.24` cihaz kanıtı: kullanıcının son flaştan sağladığı ekran görüntüleri; paket `423fd45` ile eklenen CMGP/pinctrl/HSI2C platform hazırlığını içerir.
 
 ## En kısa sonuç
 
-Windows kaynağında Linux'taki temel MAX77705 komutlarının çoğu artık vardır; fakat son cihaz çalıştırmasında bu komutlara ulaşılamamıştır. `.23` doğru `0x66` hedef adresiyle transferi başlatmış, fakat HSI2C `ADDR1` durumunda kalıp `STATUS_IO_TIMEOUT` ile bitmiştir. `0.1.0.24`, bu karşılaştırmada ilk eşleşmeyen basamak olan HSI2C platform hazırlığını kaynakta tamamlar; cihaz sonucu henüz yoktur. MAX77705 akışı ilk kimlik okumasının HSI2C taşıma katmanında dururken, Windows DWC3/xHCI yolunu bağımsız olarak HOST modunda başlatmıştır. Sonuç olarak xHCI çalışır görünür, fakat iki port da `CCS=0`, `PED=0`, `PLS=RxDetect` durumunda kalır ve USB aygıtı/HID oluşmaz.
+`.24` ile HSI2C platform hazırlığı ve MAX77705 iletişimi cihaz üzerinde doğrulanmıştır. Sürücü `STAGE=0x70`, `STATUS=0`, `PLATFORM_OK=1` durumuna ulaşır; PMIC/USBC kimlikleri okunur, firmware opcode yolu çalışır, charger kilidi açılır ve platform registerları geri okunarak doğrulanır. Bu nedenle ilk eşleşmeyen basamak artık HSI2C değildir.
+
+Yeni kırılma noktası Type-C attach/rol kararıdır. Son örnekte `CC0=0x40`: üst iki bit `CCPinStat=1` ile `CC1_ACTIVE` gösterirken alt üç bit `CCStat=0` ile `cc_No_Connection` gösterir. Windows güvenli ayrılma yolunu seçerek MUIC'i `OPEN=0x3f` durumunda tutar ve OTG/VBUS'u açmaz. xHCI buna rağmen HOST ve RUN durumundadır; fakat iki port da `CCS=0`, `PED=0`, `PLS=RxDetect` kalır, yaklaşık 7.884 gözlemde hiç PORTSC geçişi görülmez ve USB/HID enumeration başlamaz.
 
 Ana mimari fark şudur:
 
@@ -23,30 +25,31 @@ MAX IRQ -> CC=SOURCE -> VBUS/OTG + rol bildirimi -> MUIC USB_AP
 Mevcut Windows:
 ACPI _DEP yalnızca BYN0004 sürücüsünün başlamasını bekler
         +-> BYN0002 hemen PHY/DWC3 HOST yapar -> USBXHCI çalışır
-        `-> BYN0004 zamanlayıcısı HSI2C/MAX işlemlerini sonradan dener
-            -> son flaşta ilk MAX kimlik okumasından önce/okuma sırasında durdu
+        `-> BYN0004 zamanlayıcısı platform + HSI2C + MAX init'i tamamlar
+            -> CC1 pini görülür, fakat CCStat=No Connection kalır
+            -> güvenli yol: VBUS kapalı + MUIC OPEN -> xHCI attach göremez
 ```
 
 ## Adım adım yan yana karşılaştırma
 
 | Aşama | Çalışan Samsung Linux akışı | Mevcut Windows kaynağının hedefi | Son Windows flaşında gözlenen | Sonuç |
 |---|---|---|---|---|
-| 1. Donanım sahipliği | `15d60000.hsi2c -> i2c-14 -> 14-0066 -> max77705-usbc`; TOP/USBC/charger alt adresleri tek MFD altında | `BYN0004`, HSI2C `0x15D60000`, USI `0x15C22000`, CMGP CMU ve ilgili pinctrl sayfalarını tek başına eşler; `0x66/0x25/0x69` adreslerini kendisi yönetir | `.23`te `BYN0004` yüklü ve Started; yalnız eski iki MMIO kaynağı atanmış | `.24` kaynak modeli Samsung platform bağımlılıklarını da kapsıyor |
-| 2. HSI2C güç/saat hazırlığı | Linux pinctrl ile GPM12-0/GPM13-0'ı işlev 2 yapar; DT 200 MHz ister, clock framework mevcut hızı okur; QCH/gate hazırlanır ve 400 kHz timing hesaplanır | `.24`, aynı pinctrl ve CMGP3 alanlarını BYN0004'e verir; 200 MHz'i deterministik kurar, QCH'yi ve buna karşılık gelen FS timing alanlarını yazar, geri okur | `.23` ACPI'de yalnız HSI2C/USI sayfaları vardı; `PlatformPrepared`, CMGP ve GPM tanıları yoktu | İlk eşleşmeyen adım; `.24` kaynakta tamamladı, cihaz doğrulaması bekleniyor |
-| 3. HSI2C mesajı | Samsung `exynos5_i2c_xfer` adres, yön, uzunluk ve RUN sırasını kurar; interrupt ile tamamlanır | Windows FIFO'yu hazırlar, adres/AUTO_CONF yazar, küçük write'ı FIFO'ya yükler, `MASTER_RUN` verir ve bounded polling yapar | `.23`: `I2C_CTL=0x8`, `AUTO=0x80000001`, adres `0x07019800` (master-id 7 + `0x66`), `XFER=0xA0006` (`ADDR1`), `INT=ERR=0`, `STATUS=0xC00000B5`, phase `0x20` | Yazılım transferi doğru adresle başlatıyor; fiziksel pin/saat/timing hazırlığı olmadığı için adres fazı tamamlanmıyor |
-| 4. MAX kimlik doğrulama | Parent MFD TOP `0x66`, USBC `0x25`, charger `0x69` istemcilerini oluşturur | TOP ID/rev, USBC HW/FW ve charger registerları aynı sırayla okunur | PMIC ID/rev ve USBC rev alanları `0`; identity tamamlanmadı | Sonraki bütün MAX aşamaları fiilen çalışmadı |
-| 5. Olay mekanizması | GPIO parent IRQ 318; alt CC/MUIC/PD/APCMD IRQ'ları nested IRQ olarak işlenir | MAX GPIO IRQ ACPI'de yok; read-to-clear status registerları PASSIVE one-shot timer ile 200 ms'de bir taranır, hatada 2 s sonra yeniden denenir | Timer devrede, ancak HSI2C başarısızlığı yüzünden CC olayı okunamadı | İşlevsel olarak daha geç ve daha zayıf; Linux IRQ semantiğiyle eşdeğer değil |
-| 6. Probe/init opcodes | USBC/PD probe; interrupt maskeleri; CCCTRL; firmware komut kuyruğu | Charger unlock; `AUTOIBUS 57 01`; UIC/CC/PD/VDM maskeleri; `AUTO_VBUS 54 00`; `CCCTRL1 0c 1f` | `AutoIbusConfigured=0`, `UsbcMasksConfigured=0`, `CcControlConfigured=0` | Kod mevcut, son flaşta ulaşılmadı |
-| 7. Fiziksel takılma ve CC | IRQ'da `CC1_ACTIVE`, `PLUG_ATTACHED`, `cc_SOURCE`; veri rolü DFP, güç rolü SRC olur | Poll ile `CC_STATUS0 & 7`; yalnız `CC_SOURCE=2` HOST/OTG'yi açabilir | `CcStatus0=0xff` veya geçersiz başlangıç değeri | Windows MAX'tan kablo takılmasını öğrenemedi |
-| 8. VBUS/charger OTG | `vbus_turn_on_ctrl(1)`, CHGIN-OTG; charger mode `0x04 -> 0x0e`; VBUS HIGH bildirilir | Charger kilidi açılır, interrupt maskesi ayarlanır, `CNFG_00` mevcut moda göre `0x0e` benzeri OTG moda geçirilir ve read-back doğrulanır | `OtgHardwareActive=0`; charger alanları okunmamış | Port gücü `PP=1` olması konektörde gerçek VBUS üretildiğini kanıtlamaz |
-| 9. MUIC D+/D- yönlendirme | OTG algılanır, switch `0x09`; opcode `06 09` ile USB yolu AP'ye verilir | `CONTROL1_WRITE 06 09`, ardından ek güvenlik olarak `CONTROL1_READ 05` ile `0x09` doğrulanır | `MuicPathRequested=0xff`, `MuicControl1=0xff`, `MuicPathVerified=0` | D+/D- fiziksel olarak AP/xHCI yoluna yönlendirilmedi |
+| 1. Donanım sahipliği | `15d60000.hsi2c -> i2c-14 -> 14-0066 -> max77705-usbc`; TOP/USBC/charger alt adresleri tek MFD altında | `BYN0004`, HSI2C `0x15D60000`, USI `0x15C22000`, CMGP CMU ve ilgili pinctrl sayfalarını tek başına eşler; `0x66/0x25/0x69` adreslerini kendisi yönetir | `.24`te `BYN0004` Started; `0x15C00000`, `0x15D60000`, `0x15C22000` ve `0x15C30000` olmak üzere dört MMIO alanı atanmış | Eşleşen sahiplik modeli ve kaynak kapsamı cihazda doğrulandı |
+| 2. HSI2C güç/saat hazırlığı | Linux pinctrl ile GPM12-0/GPM13-0'ı işlev 2 yapar; DT 200 MHz ister, clock framework mevcut hızı okur; QCH/gate hazırlanır ve 400 kHz timing hesaplanır | `.24`, aynı pinctrl ve CMGP3 alanlarını BYN0004'e verir; 200 MHz'i deterministik kurar, QCH'yi ve buna karşılık gelen FS timing alanlarını yazar, geri okur | `PLATFORM_OK=1`, `CMGP_MUX3=1`, `CMGP_DIV3=1`, `CMGP_QCH3=0x3f0001`, `GPM12_CON=GPM13_CON=2` | Eşleşme cihazda doğrulandı; `.23`teki ilk engel giderildi |
+| 3. HSI2C mesajı | Samsung `exynos5_i2c_xfer` adres, yön, uzunluk ve RUN sırasını kurar; IRQ 114 ile tamamlanır | Windows aynı mesaj kurulumunu yapar, fakat IRQ 114 yerine bounded sleeping polling ile tamamlanmayı gözler | Son işlem `I2C_REGADDR=I2C_TRYADDR=0x0701a400` (`0x69` charger), `I2C_RETRY=0`, `I2C_PHASE=0`, `I2C_ERR=0`, genel `STATUS=0` | Taşıma katmanı çalışıyor; IRQ 114'ün yokluğu bu flaşın blokajı değil |
+| 4. MAX kimlik doğrulama | Parent MFD TOP `0x66`, USBC `0x25`, charger `0x69` istemcilerini oluşturur | TOP ID/rev, USBC HW/FW ve charger registerları aynı sırayla okunur | `PMIC_ID=0x15`, `PMIC_REV=0x2`, `USBC_HW=0x1a`, `USBC_FW=0x1a`, `USBC_MINOR=0x10` | MAX77705 fiziksel erişimi ve kimlik doğrulaması başarılı |
+| 5. Olay mekanizması | GPIO parent IRQ 318; alt CC/MUIC/PD/APCMD IRQ'ları nested IRQ olarak işlenir | MAX GPIO IRQ ACPI'de yok; read-to-clear status registerları PASSIVE one-shot timer ile 200 ms'de bir taranır, hatada 2 s sonra yeniden denenir | Timer MAX durumunu okuyup READY'e ulaşıyor; ancak attach olayı Linux'taki IRQ zinciriyle yürütülmüyor | Polling işlevsel, fakat Linux IRQ semantiği ve tepki süresiyle eşdeğer değil |
+| 6. Probe/init opcodes | USBC/PD probe; interrupt maskeleri; CCCTRL; firmware komut kuyruğu | Charger unlock; `AUTOIBUS 57 01`; UIC/CC/PD/VDM maskeleri; `AUTO_VBUS 54 00`; `CCCTRL1 0c 1f` | `STAGE=0x70`, `STATUS=0`; opcode yolu, maskeler, charger unlock ve CC control tamamlanmış | Init/komut katmanı artık çalışıyor; READY USB attach anlamına gelmiyor |
+| 7. Fiziksel takılma ve CC | IRQ'da `CC1_ACTIVE`, `PLUG_ATTACHED`, `cc_SOURCE`; veri rolü DFP, güç rolü SRC olur | Poll ile `CC_STATUS0 & 7`; yalnız `CC_SOURCE=2` HOST/OTG'yi açabilir | `CC0=0x40`: `CCPinStat=CC1_ACTIVE`, fakat `CCStat=cc_No_Connection`; source durumu görülmüyor | İlk canlı eşleşmeyen adım artık burasıdır |
+| 8. VBUS/charger OTG | `vbus_turn_on_ctrl(1)`, CHGIN-OTG; charger mode `0x04 -> 0x0e`; VBUS HIGH bildirilir | Charger kilidi açılır, interrupt maskesi ayarlanır, `CNFG_00` mevcut moda göre `0x0e` benzeri OTG moda geçirilir ve read-back doğrulanır | `CHG_UNLOCK=1`, `CHG_CFG06=0x0c`, `CHG_MODE=0x15`; `OTG_SW=OTG_HW=0` | Source görülmediği için VBUS güvenli biçimde kapalı tutuluyor; xHCI `PP=1` gerçek konektör VBUS'unu kanıtlamaz |
+| 9. MUIC D+/D- yönlendirme | OTG algılanır, switch `0x09`; opcode `06 09` ile USB yolu AP'ye verilir | Source durumunda `CONTROL1_WRITE 06 09`, ardından `CONTROL1_READ 05` ile `0x09` doğrulanır; detach'te `OPEN=0x3f` seçilir | `MUIC_REQ=0x3f`, `MUIC_CTL1=0x3f`, `MUIC_OK=1` | İletişim ve read-back başarılı, fakat CC kararı nedeniyle D+/D- kasıtlı olarak OPEN bırakıldı |
 | 10. Rol bildirimi ve DWC3 | `Turn On Host(DFP)` ve `USB_HOST_ATTACHED`; DWC3 role-switch work başlar | Windows'ta Linux notifier zinciri yok. `BYN0002` PrepareHardware içinde doğrudan sabit HOST seçer | BYN0002 ve BYN0003 Started | Windows bu aşamayı MAX sonucundan önce yaptı |
 | 11. PHY/runtime resume | PHY connect, LDO on, runtime resume, UTMI init, tune, reset release | PMU izolasyonu kaldırılır; q-channel, PHY reset, UTMI, tune ve DWC3 core reset uygulanır; USB3 gizli tutulur | PHY registerları beklenen host değerlerinde | Host tarafının bu bölümü büyük ölçüde çalışıyor |
 | 12. xHCI başlatma | DWC3 host olduktan sonra xHCI başlar, USB bus 1/2 kaydolur | `USBXHCI` inbox sürücüsü ACPI `BYN0003`'e bağlanır; parent önceden DWC3'ü HOST'a hazırlar | xHCI `RUN=1`, command ring/DCBAA/config kurulmuş | Controller çalışıyor; konektör yolu hazır değil |
-| 13. Port bağlantısı | Yaklaşık 357 ms sonra full-speed aygıt görülür | USBXHCI'nin PORTSC değişimi görmesi beklenir | Portlar `CCS=0`, `PED=0`, `PLS=5/RxDetect`, transition yok | Elektriksel bağlantı xHCI'ye ulaşmıyor |
+| 13. Port bağlantısı | Yaklaşık 357 ms sonra full-speed aygıt görülür | USBXHCI'nin PORTSC değişimi görmesi beklenir | Controller `RUN=1`, `DCBAA=1`, `CFG=1`; portlar `CCS=0`, `PED=0`, `PLS=5/RxDetect`; yaklaşık 7.884 örnekte transition yok | Elektriksel bağlantı xHCI'ye ulaşmıyor |
 | 14. Enumeration | `new full-speed device`, `046d:c52e`, descriptor/config/interface işlemleri | Inbox hub/USB stack aynı standart enumeration'ı yapar | Root hub altında alıcı yok | Enumeration başlamadı; sorun HID sınıf sürücüsünde değil |
 | 15. HID bind | Arayüz 1.0 `hid-generic` keyboard, 1.1 mouse | `USBHUB3 -> HIDUSB -> MOUHID/MOUCLASS` zinciri bağlanır | Hizmetler mevcut fakat “No devices were found” | Fare sorununun kökü HID değil, daha aşağıdaki Type-C/VBUS/MUIC yoludur |
-| 16. Detach | VBUS kapatılır, roller geri alınır, MUIC açılır, DWC3 device/idle yoluna döner | Windows CC source dışına çıkınca önce OTG kapatır, sonra MUIC `OPEN=0x3f` doğrular | Attach hiç kurulamadığından test edilmedi | Kod var, cihazda kanıt yok |
+| 16. Detach | VBUS kapatılır, roller geri alınır, MUIC açılır, DWC3 device/idle yoluna döner | Windows CC source dışına çıkınca önce OTG kapatır, sonra MUIC `OPEN=0x3f` doğrular | Gerçek attach/detach test edilmedi; güvenli ayrılma sonucu `OPEN=0x3f` ve OTG off doğrulandı | Güvenli başlangıç durumu kanıtlandı, olay geçişleri henüz kanıtlanmadı |
 
 ## Çalışan Linux zaman çizgisi
 
@@ -74,12 +77,12 @@ Bu süreler Windows için bir performans hedefi olmaktan önce bir sıralama kan
 
 | Amaç | Samsung Linux kanıtı | Windows uygulaması | Durum |
 |---|---|---|---|
-| USB D+/D- yolunu AP'ye ver | `CONTROL1_WRITE: 06 09` | `06 09`, sonra `05` read-back | Eşleşiyor; Windows daha sıkı doğruluyor |
-| Firmware AUTOIBUS | `57 01`, cevap `57` | `57 01`, APCMDRES ve cevap opcode kontrolü | Eşleşiyor |
-| Otomatik VBUS'u kapat | Samsung init davranışı | `54 00` | Kaynakta var, canlı kanıtta ulaşılmadı |
-| CC kontrolü | startup CC control | `0c 1f` | Kaynakta var, canlı kanıtta ulaşılmadı |
-| Charger OTG | `CNFG_00 0x04 -> 0x0e` | Mevcut moda göre `0x0e/0x0f/...`; read-back ve rollback | Temel davranış eşleşiyor |
-| Detach izolasyonu | VBUS off, switch open | OTG off, ardından MUIC `0x3f` | Tasarım olarak eşleşiyor |
+| USB D+/D- yolunu AP'ye ver | `CONTROL1_WRITE: 06 09` | Source görüldüğünde `06 09`, sonra `05` read-back | Uygulama var; `.24`te source görülmediği için bu dala girilmedi |
+| Firmware AUTOIBUS | `57 01`, cevap `57` | `57 01`, APCMDRES ve cevap opcode kontrolü | `.24` READY sonucu, opcode taşıma yolunun tamamlandığını doğruluyor |
+| Otomatik VBUS'u kapat | Samsung init davranışı | `54 00` | `.24` init zincirinde başarıyla tamamlandı |
+| CC kontrolü | startup CC control ve sonrasında IRQ tabanlı rol durumu | `0c 1f`, ardından polling ile `CC_STATUS0` | Komut tamamlanıyor; sonuç `CC1_ACTIVE + cc_No_Connection`, Linux'taki `cc_SOURCE` oluşmuyor |
+| Charger OTG | `CNFG_00 0x04 -> 0x0e` | Source görülürse mevcut moda göre `0x0e/0x0f/...`; read-back ve rollback | Source görülmediği için çalıştırılmadı; `CHG_MODE=0x15` OTG içermiyor |
+| Detach izolasyonu | VBUS off, switch open | OTG off, ardından MUIC `0x3f` | `.24`te `MUIC_OK=1`, `MUIC_CTL1=0x3f`, `OTG_SW/HW=0` ile cihazda doğrulandı |
 
 ## Kritik farklar ve önem sırası
 
@@ -101,15 +104,26 @@ MuicPathVerified == USB_AP
 OtgHardwareActive
 ```
 
-### 2. Son flaş MAX komut katmanına ulaşmadı
+`.24` bu ayrımı görünür hale getirmiştir: MAX tarafı READY'e ulaşsa bile `CC_STATUS == SOURCE`, `MuicPathVerified == USB_AP` ve `OtgHardwareActive` koşulları oluşmamıştır. BYN0002/BYN0003 yine HOST/RUN durumuna geçtiği için controller çalışır, fakat konektör zinciri hazır değildir.
 
-Son Windows kanıtında PMIC/USBC kimliği okunmamış, bütün opcode/mask/CC/MUIC/OTG bayrakları başlangıç değerlerinde kalmıştır. Dolayısıyla “hangi MAX77705 komutu eksik?” sorusunun o flaş için cevabı: önce komut değil, HSI2C transportu çalışmalıdır.
+### 2. `.24` HSI2C ve MAX komut katmanını tamamladı; kırılma CC kararına taşındı
 
-`0.1.0.23`, eski `BUS_IDLE` önkoşulunu kaldırıp retained/stale HSI2C state üzerinde adres/AUTO_CONF/RUN yazmıştır. Cihaz kanıtında `I2C_CTL=0x8`, `I2C_AUTO=0x80000001`, `I2C_REGADDR=I2C_TRYADDR=0x07019800` ve `I2C_XFER=0xA0006` görülür. `TRANS_STATUS` alt durum `6`, Samsung sürücüsündeki `HSI2C_MASTER_ST_ADDR1` durumudur. İki deneme de yazma fazında (`I2C_PHASE=0x20`) zaman aşımına uğramıştır; BUS_IDLE sorunu geride kalmış, kırılma pin/saat/timing sınırına taşınmıştır.
+Son Windows kanıtında platform, HSI2C, kimlik ve opcode katmanları başarıyla tamamlanmıştır:
 
-Tek aktif CPU açısından `.23` olumlu kanıt vermiştir: WinPE test sonuna ulaşmış, xHCI gözlemcisi yaklaşık 7.882 örnek toplamış ve controller `RUN=1` kalmıştır. Dolayısıyla artık görülen arıza CPU'nun busy-poll ile kilitlenmesi değil, HSI2C adres fazının fiziksel olarak tamamlanamamasıdır. `.24` platform hazırlığı yine PASSIVE timer işinde çalışır; CMU BUSY beklemeleri CPU'yu döndürmek yerine `KeDelayExecutionThread` ile bırakır ve her saat alanı için 10 ms ile sınırlıdır.
+```text
+STAGE=0x70                 STATUS=0x0
+PLATFORM_OK=0x1            I2C_RETRY=0x0
+PMIC_ID=0x15               PMIC_REV=0x2
+USBC_HW/FW/MINOR=1a/1a/10  CHG_UNLOCK=0x1
+MUIC_OK=0x1                CC0=0x40
+OTG_SW/HW=0/0
+```
 
-### 3. HSI2C platform hazırlığı `.24` ile kaynakta tamamlandı
+`CC0=0x40` aynı byte içinde iki ayrı bilgiyi taşır. `bits[7:6]=1`, stok Samsung tanımında `CC1_ACTIVE`; `bits[2:0]=0` ise `cc_No_Connection` değeridir. Windows'un yalnız source değeri `2` için VBUS ve USB_AP yolunu açması bu örnekte güvenli no-connection dalını seçtirir. Böylece `MUIC_REQ=MUIC_CTL1=0x3f` ve `OTG_SW=OTG_HW=0` sonucu bir I2C/opcode başarısızlığı değil, mevcut CC kararının kasıtlı çıktısıdır.
+
+Tek aktif CPU açısından da sonuç olumludur: WinPE test sonuna ve komut istemine ulaşmış, xHCI gözlemcisi yaklaşık 7.884 örnek toplamış ve controller `RUN=1` kalmıştır. PASSIVE timer ve bounded sleeping polling boot CPU'sunu kilitlememiştir. Görülen sorun artık performans veya HSI2C timeout'u değil, Linux'ta `cc_SOURCE` üreten rol/olay dizisinin Windows'ta oluşmamasıdır.
+
+### 3. HSI2C platform hazırlığı `.24` ile cihazda doğrulandı
 
 `BYN0004` artık HSI2C ve USI yanında CMGP CMU `0x15c00000..0x15c07fff` ile CMGP pinctrl `0x15c30000..0x15c30fff` kaynaklarını da tek sahip olarak alır. Başlatma sırası şöyledir:
 
@@ -120,17 +134,21 @@ Tek aktif CPU açısından `.23` olumlu kanıt vermiştir: WinPE test sonuna ula
 5. Linux'un `200 MHz / 400 kHz` hesabıyla FS1=`0x00f00000`, FS2=`0x000000e0`, FS3=`0x00210000` alanları controller resetinden sonra kurulur.
 6. Pin, clock ve timing alanları geri okunur; doğrulama başarısızsa HSI2C transferine geçilmez ve `HsI2cFailurePhase=0x08` yayımlanır.
 
-Linux'un gerçek IRQ 114 ile transfer tamamlaması hâlâ Windows'ta yoktur; bu, aşağıdaki olay/transfer mekanizması farkıdır ve ikinci basamağın platform hazırlığından ayrı tutulmuştur.
+Canlı `.24` değerleri bu sıranın tamamlandığını gösterir: `PLATFORM_OK=1`, mux/div değerleri `1`, QCH alt üç biti `1`, GPM12/GPM13 function alanları `2` ve ilk kimlik okumasından sonraki charger erişimleri de başarılıdır. `.23`teki `ADDR1` timeout'u artık yeniden üretilmemiştir.
+
+Linux'un gerçek IRQ 114 ile HSI2C transfer tamamlaması hâlâ Windows'ta yoktur; Windows tamamlanmayı PASSIVE bağlamda bounded polling ile gözler. `.24`ün hatasız kimlik/opcode/charger erişimleri IRQ114'ün önceki `ADDR1` arızasının sebebi olmadığını kanıtlar. IRQ114 nihai sürücüde ISR/DPC veya uygun passive completion zinciri için eklenmelidir, ancak mevcut `CCStat=No Connection` ve VBUS-off sonucunu tek başına değiştirmez. Ayrıca IRQ114, Linux'taki MAX77705 GPIO parent IRQ 318'den farklıdır.
 
 Samsung DT `default-clk=200000000` ister. Vendor CAL tablosunda USI_CMGP3 için yalnız 400 MHz normal seviye bulunduğundan Linux'taki `clk_set_rate(200 MHz)` çağrısı platform durumuna göre başarısız olabilir; sürücü yine `clk_get_rate()` ile etkin hızı okuyup timing hesaplar. Windows clock framework kullanmadığı için bu belirsizliği taşımıyor: 400 MHz parent + oran `1` ile DT'nin amaçladığı 200 MHz'i açıkça kuruyor ve timing'i bu hıza göre yazıyor.
 
-### 4. IRQ yerine polling kullanılıyor
+### 4. İki ayrı IRQ zinciri yerine polling kullanılıyor
 
-Linux'ta MAX parent IRQ 318 ve nested CC/MUIC/PD/APCMD interruptları olay sırasını taşır. Windows 200 ms polling yapar. Bu, hazır bir bus üzerinde attach'i sonunda yakalayabilir; fakat read-to-clear interruptlar, opcode yanıt sırası ve kısa geçişler Linux ile birebir değildir.
+Linux'ta HSI2C transfer completion IRQ114 ile; MAX77705 CC/MUIC/PD/APCMD olayları ise GPIO parent IRQ318 ve nested IRQ'larla yürür. Windows her iki alanda da polling kullanır: HSI2C transferi bounded sleeping polling, MAX olayları 200 ms timer taramasıyla izlenir. `.24` birincisinin çalıştığını kanıtladı; ancak ikinci fark kısa CC geçişlerini, olay sırasını veya rol oluşumunu etkileyebilir. BYN0003 üzerinde görülen IRQ273 yalnız USBXHCI kaynağıdır ve bu iki MAX/HSI2C IRQ'sının yerine geçmez.
 
-### 5. Windows attach sırası Linux ile tam aynı değil
+### 5. Windows attach sırası Linux ile tam aynı değil ve source kararı oluşmuyor
 
-Canlı Linux kaydında charger/VBUS ve host notifier çok erken çalışır; MUIC `06 09` hemen arkasından gelir. Windows güvenlik amacıyla önce MUIC `06 09` + `05` doğrulamasını, sonra charger OTG/VBUS açılmasını şart koşar. Bu sıra güvenli olabilir, fakat “Samsung ile birebir aynı” değildir ve donanımın VBUS olmadan MUIC read-back davranışı ayrıca doğrulanmalıdır.
+Canlı Linux kaydında `CC1_ACTIVE` ardından `PLUG_ATTACHED` ve `cc_SOURCE` oluşur; charger/VBUS ve host notifier çok erken çalışır, MUIC `06 09` hemen arkasından gelir. `.24`te Windows yalnız `CC1_ACTIVE` kısmını görmüş, aynı status byte'ında `cc_No_Connection` kalmıştır. Bu nedenle source dalına hiç girmez.
+
+Source oluştuğunda Windows güvenlik amacıyla önce MUIC `06 09` + `05` doğrulamasını, sonra charger OTG/VBUS açılmasını şart koşar. Bu sıra Samsung ile birebir değildir; ancak son kanıt daha erken bir sınırda durduğu için öncelik, stok Linux'taki CCCTRL/DRP rol kurulumu, yerleşme süresi ve event-driven status güncellemesini karşılaştırmaktır. CC source doğrulanmadan VBUS'u zorla açmak bu belgedeki güvenlik koşulunu ihlal eder.
 
 ### 6. Linux koordinasyon katmanları Windows'ta sadeleştirilmiş
 
@@ -140,14 +158,14 @@ Linux akışı charger, battery, MUIC, Type-C manager, USB notifier, runtime-PM 
 
 Son Windows flaşında fareyi engelleyen sıra şöyledir:
 
-1. BYN0004 sürücüsü PnP açısından Started olur.
-2. Arka plan MAX işi HSI2C/identity sınırında başarısız olur.
-3. Bu nedenle CC source görülmez, charger OTG açılmaz ve MUIC `USB_AP` yapılmaz.
-4. Buna rağmen `_DEP` karşılanmış sayıldığı için BYN0002 DWC3/PHY'yi HOST yapar ve USBXHCI başlar.
-5. xHCI elektriksel attach göremez; port `RxDetect`, `CCS=0` kalır.
-6. USB descriptor okunmadığı için USBHUB3/HIDUSB/MOUHID aşamalarına hiç gelinmez.
+1. BYN0004 dört MMIO kaynağıyla Started olur; CMGP/pinctrl/HSI2C hazırlığı doğrulanır.
+2. TOP, USBC ve charger erişimleri ile init opcode zinciri tamamlanır; sürücü `STAGE=READY`, `STATUS=SUCCESS` durumuna ulaşır.
+3. `CC_STATUS0=0x40`, CC1 pinini aktif gösterirken güç rolünü `cc_No_Connection` bırakır; Linux'taki `PLUG_ATTACHED -> cc_SOURCE` geçişi oluşmaz.
+4. Windows güvenli olarak VBUS/OTG'yi kapalı ve MUIC yolunu `OPEN=0x3f` tutar.
+5. Buna rağmen `_DEP` karşılanmış sayıldığı için BYN0002 DWC3/PHY'yi HOST yapar ve USBXHCI çalışır.
+6. xHCI elektriksel attach göremez; portlar `RxDetect`, `CCS=0` kalır ve USBHUB3/HIDUSB/MOUHID aşamalarına gelinmez.
 
-Bu nedenle mevcut durumda öncelik HID, xHCI ring veya ek bir MAX opcode değildir. Önce `.24` ile `PLATFORM_OK=1`, `GPM12_CON/GPM13_CON` alt nibble `2`, `CMGP_DIV3` alt nibble `1`, `CMGP_MUX3` bit 0 `1`, `CMGP_QCH3` alt üç bit `1` ve TOP `0x66` kimlik okuması cihazda doğrulanmalı; ardından MAX READY ile BYN0002 HOST başlangıcı arasında gerçek bir çalışma zamanı kapısı kurulmalıdır.
+Bu nedenle mevcut öncelik HID, xHCI ring, HSI2C platformu veya IRQ114 değildir. Bir sonraki karşılaştırma sınırı stok Linux'taki CCCTRL/DRP başlangıcı, CC status yerleşme zamanı ve MAX GPIO IRQ318 üzerinden ilerleyen attach/rol olay zinciridir. Windows'ta `cc_SOURCE` güvenilir biçimde doğrulandıktan sonra MUIC `USB_AP`, charger OTG/VBUS ve en son MAX READY ile BYN0002 HOST başlangıcı arasındaki çalışma zamanı kapısı tamamlanmalıdır.
 
 ## Kaynak konumları
 
