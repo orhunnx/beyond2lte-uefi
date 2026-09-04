@@ -103,6 +103,11 @@ grep -q 'MAX77705_OPCODE_CONTROL1_WRITE   0x06U' "$MAIN"
 grep -q 'MAX77705_OPCODE_CONTROL3_READ    0x1CU' "$MAIN"
 grep -q 'MAX77705_OPCODE_CONTROL3_WRITE   0x1DU' "$MAIN"
 grep -q 'MAX77705_CONTROL3_LOCK_ERROR_EN  (1U << 1)' "$MAIN"
+grep -q 'MAX77705_CONTROL3_LOCK_ERROR_EN_CLEAR_MASK 0xFDU' "$MAIN"
+if grep -q '~MAX77705_CONTROL3_LOCK_ERROR_EN' "$MAIN"; then
+  echo 'HATA: MSVC C4310 ureten promoted bitwise complement geri gelmemeli' >&2
+  exit 1
+fi
 grep -q 'MAX77705_MUIC_COM_USB_AP         0x09U' "$MAIN"
 grep -q 'MAX77705_MUIC_COM_OPEN           0x3FU' "$MAIN"
 grep -q 'MAX77705_CCCTRL1_SOURCE_SINK     (1U << 4)' "$MAIN"

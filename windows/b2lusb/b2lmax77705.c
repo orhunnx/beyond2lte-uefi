@@ -43,6 +43,7 @@
 #define MAX77705_MUIC_COM_USB_AP         0x09U
 #define MAX77705_MUIC_COM_OPEN           0x3FU
 #define MAX77705_CONTROL3_LOCK_ERROR_EN  (1U << 1)
+#define MAX77705_CONTROL3_LOCK_ERROR_EN_CLEAR_MASK 0xFDU
 #define MAX77705_CCCTRL1_SOURCE_SINK     (1U << 4)
 #define MAX77705_CCCTRL1_SINK_SOURCE     (1U << 3)
 #define MAX77705_CCCTRL1_DEBUG_ENABLE    (1U << 2)
@@ -932,8 +933,10 @@ B2lMaxNormalizeCcOpen(PB2L_MAX_CONTEXT Context)
         return Status;
     }
 
+    // Use an explicit 8-bit mask: MSVC /W4 diagnoses casting the promoted
+    // bitwise complement (~0x02 == 0xfffffffd) back to UCHAR as C4310.
     Wanted = (UCHAR)(Context->Control3Before &
-                     (UCHAR)~MAX77705_CONTROL3_LOCK_ERROR_EN);
+                     MAX77705_CONTROL3_LOCK_ERROR_EN_CLEAR_MASK);
     if (Wanted != Context->Control3Before) {
         Status = B2lMaxExchangeOpcode(
             Context,
