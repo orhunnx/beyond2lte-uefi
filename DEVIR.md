@@ -10,6 +10,557 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 
 ---
 
+## 0. GÜNCEL BAŞLANGIÇ NOKTASI — 4 Eylül 2026
+
+> **Bu bölüm güncel tek devir kaynağıdır.** Aşağıdaki 1–14. bölümler, projenin
+> önceki UEFI, Windows açılışı ve UFS araştırmalarını koruyan tarihsel günlüktür.
+> Eski bölümlerde geçen “şu an”, “sıradaki iş” ve eski sürüm numaraları güncel
+> talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
+> `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
+
+### 0.1 Altmış saniyelik özet
+
+Hedef, Samsung Galaxy S10+ `SM-G975F / beyond2lte / Exynos 9820` üzerinde
+Mu-Silicium tabanlı UEFI üzerinden Windows ARM64 WinPE çalıştırmak ve cihazın
+özgün donanımlarını Windows sürücüleriyle sırayla ayağa kaldırmaktır.
+
+Bugün itibarıyla:
+
+- UEFI, ekran, yan tuşlar, ACPI, UEFI UFS, Windows Boot Manager, Windows
+  çekirdeği ve WinPE erken kullanıcı modu çalışıyor.
+- Windows `b2ltouch.sys` + VHF yolu çalışıyor; on temaslı gerçek multi-touch ve
+  imleç hareketi cihazda doğrulandı.
+- Windows USB tarafında Exynos DWC3/xHCI sabit USB2 HOST denetleyicisi ve inbox
+  `USBXHCI -> USBHUB3` root-hub yolu çalışıyor.
+- MAX77705, Windows'tan HSI2C45 üzerinden erişiliyor; kimlik, charger kilidi,
+  opcode zinciri, kesme maskeleri, CCCTRL1 ve Linux probe-sonu CONTROL3 işlemi
+  başarıyla tamamlanıyor.
+- Fakat fiziksel Type-C attach kararı oluşmuyor. Takılı Logitech `046d:c52e`
+  alıcısıyla CC1 pini aktif görülmesine rağmen MAX77705 rolü `SOURCE` olmuyor.
+  Bu yüzden güvenlik gereği VBUS kapalı, MUIC analog yolu `OPEN=0x3f` ve xHCI
+  portu `RxDetect/CCS=0` kalıyor. Fare/HID katmanına henüz gelinmedi.
+- İlk işlevsel uyuşmazlık, Linux karşılaştırma tablosunun **7. adımıdır:
+  Type-C CC olay/FSM ve ForceError koordinasyonu**.
+- Son flaşın ilk ve son fotoğrafı arasında yaklaşık 17 dakika var. Son sayaçlar
+  agresif polling'in düzeldiğini gösteriyor; gecikmenin kesin aşaması henüz
+  ölçülmedi. En güçlü aday seri `PnP/SetupAPI/registry/ETW/konsol` tanı
+  orkestrasyonudur.
+
+Tam Windows masaüstü kurulumu henüz hedeflenen günlük test değildir. WinPE,
+Android `SYSTEM` bölümüne konan FAT32 ESP'deki `boot.wim`den RAM diske açılır.
+
+### 0.2 Kaynakların öncelik sırası
+
+Yeni bir inceleme çelişki görürse şu sırayı kullansın:
+
+1. Gerçek çalışan kaynak ve betikler: `yap.sh`, `cache_esp.sh`,
+   `tools_b2lusb.sh`, `windows/startnet.cmd`, `windows/b2lusb/` ve aktif
+   `mu-silicium-overlay/` ağacı.
+2. Güncel Linux/Windows USB karşılaştırması:
+   `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md`.
+3. Bu bölüm (`DEVIR.md`, bölüm 0).
+4. Alt sistem ayrıntıları için `windows/b2lusb/README.md`,
+   `windows/b2ltouch/README.md`, `windows/b2lufs/README.md` ve `BUILD.md`.
+5. `STATUS.md` ve bu dosyanın aşağıdaki eski bölümleri tarihsel kanıt
+   günlüğüdür; güncel komut veya öncelik için tek başlarına kullanılmamalıdır.
+
+Önemli kaynak tuzağı: aktif UEFI platformu
+`mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/` altındadır. Depo
+kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikler
+`yap.sh` tarafından derlenmez.
+
+### 0.3 Güncel repo ve sürüm çıpası
+
+Bu bölüm yazılırken:
+
+```text
+dal:    codex/touch-from-8549bfa
+HEAD:   24af2a4  docs: record .27 timing and CC results
+```
+
+Son cihaz ekranında beklenen paket sürümleri:
+
+| Bileşen | Sürüm | ACPI kimliği / işlev |
+|---|---:|---|
+| `b2ltouch.sys` | `0.2.0.1` | `ACPI\BYN0001`, Samsung sec_ts -> KMDF/VHF touch |
+| `b2lusb.sys` parent | `0.1.0.18` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
+| inbox host | `0.1.0.18` INF | `ACPI\BYN0003`, `USBXHCI` + GSIV 273 |
+| `b2lmax77705.sys` | `0.1.0.27` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG |
+| `b2lufs.sys` | `0.0.4.5` kaynak sürümü | Deneysel Windows UFS miniport; güncel USB kapısı değil |
+
+Yalnız MAX77705 değiştiğinde parent/host sürümünün aynı kalması normaldir.
+Paket manifesti üç sürümü ayrı ayrı INF dosyalarından türetir. Cihaz fotoğrafını
+hangi kaynakla eşleştirdiğimizi anlamak için özellikle
+`B2LUSB_MAX77705_DRIVER_VERSION` satırına bakılır.
+
+Çalışma ağacında `out/` derleme/ölçüm artıkları ve
+`specs/UEFI_beyond2lte_reverse_spec.md` kullanıcıya ait izlenmeyen dosya olarak
+bulunabilir. Kör `git add .` yapılmamalıdır; yalnız amaçlanan takipli dosyalar
+seçilmelidir.
+
+### 0.4 Açılış ve sürücü mimarisi
+
+```text
+Samsung S-Boot
+  -> BOOT bölümündeki Mu-Silicium UEFI boot.img
+  -> UEFI Shell / startup.nsh
+  -> SYSTEM bölümündeki FAT32 ESP
+  -> bootmgfw.efi -> boot.sdi + boot.wim
+  -> WinPE RAM disk
+  -> Windows/System32/startnet.cmd
+       +-> BYN0001 b2ltouch -> VHF -> HID Touch Screen
+       +-> BYN0004 b2lmax77705 -> HSI2C45 -> MAX77705
+       +-> BYN0002 b2lusb -> Exynos USB PHY/DWC3 HOST
+       `-> BYN0003 USBXHCI -> USBHUB3 -> HIDUSB/MOUHID/MOUCLASS
+```
+
+USB paketi **USB2-only sabit HOST** profilidir. SuperSpeed combo PCS/PMA
+sayfaları cihazda synchronous external abort verdiği için Windows ACPI'sine ve
+sürücü yazma yoluna alınmaz. `LINK_PORT.U3_DISABLE` açıktır. Rastgele combo-PHY
+okuması/yazması eklenmemelidir.
+
+Şu anda ACPI `_DEP`, BYN0002'nin BYN0004 sürücüsünün başlamasını beklemesini
+sağlar; ancak BYN0004 gerçek MAX probe/CC kararı bitmeden timer kurup D0Entry'den
+başarı döner. Sonuç olarak xHCI çalışabilirken konektör tarafı hazır olmayabilir.
+Bu yapısal ayrım, CC `SOURCE` güvenilir hale geldikten sonra ayrı bir READY
+kapısıyla düzeltilmelidir.
+
+### 0.5 Sıfırdan ortam hazırlama
+
+Desteklenen iş bölümü:
+
+- Kaynak, UEFI, ACPI, WIM ve Windows ARM64 sürücü paketleme: WSL2 Ubuntu.
+- MSVC/WDK ARM64 derlemesi: WSL içinden çağrılan Windows PowerShell.
+- Odin flaşı ve telefona USB erişimi: Windows.
+- macOS analiz için kullanılabilir; Windows sürücüsü üretmek için desteklenen
+  build ortamı değildir.
+
+Mu-Silicium WSL'nin Linux dosya sisteminde olmalı; `/mnt/c` üzerinde build
+etmek hem yavaş hem büyük/küçük harf bakımından risklidir:
+
+```bash
+cd ~
+git clone --recursive https://github.com/Project-Silicium/Mu-Silicium.git
+cd Mu-Silicium
+./setup_env.sh -p apt
+python3 -m pip install --upgrade -r pip-requirements.txt
+```
+
+Gerekli temel araçlar arasında Python 3, Clang/EDK2 bağımlılıkları, `iasl`,
+`wimlib-imagex`, `mtools`, `img2simg`, `openssl` ve `osslsigncode` bulunur.
+Windows tarafında ARM64 C/C++ bileşenli Visual Studio ve WDK gerekir. Son
+doğrulanan ortam WDK `10.0.28000.0` ve Visual Studio 18 Community'dir.
+
+`boot.wim` hiç yoksa ADK ARM64 WinPE medyasından bir kez oluşturulur:
+
+```bash
+bash tools_winpe_adk.sh "/mnt/c/Program Files (x86)/Windows Kits/10/Assessment and Deployment Kit/Windows Preinstallation Environment/arm64/Media"
+```
+
+Bu işlemden sonra ilgili özel paketler yeniden WIM'e enjekte edilmelidir.
+Güncel `--touch --usb-test` turu touch ve USB paketini birlikte ekler. Windows
+UFS paketi de yeni WIM'de isteniyorsa ayrıca `bash tools_b2lufs.sh` çalıştırılır.
+
+Betikler kendi proje konumlarını bulur. Eski dokümanlardaki kullanıcıya özel
+mutlak repo yolları kopyalanmamalıdır. Harici Mu yolu farklıysa:
+
+```bash
+MU_SILICIUM=/gercek/Mu-Silicium/yolu bash yap.sh --touch --usb-test --clean
+```
+
+### 0.6 Güncel tam derleme ve flaş üretim turu
+
+MAX77705/USB + Windows touch için kullanılan günlük tam sıra:
+
+```bash
+cd /bu/deponun/WSLdeki/yolu
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+Birinci komut tek turda:
+
+1. bellek yerleşimi ve Windows reserved-memory denetimlerini çalıştırır;
+2. ACPI tablolarını yeniden üretir;
+3. overlay'i harici Mu-Silicium ağacına kopyalar;
+4. UEFI'de `B2LTouchDxe` ve `B2LMax77705Dxe` profilini açar;
+5. UEFI `boot.img` ve `out/uefi-boot.tar` üretir;
+6. ARM64 `b2ltouch` ile `b2lusb/b2lusbmon/b2lmax77705/b2lusbctl` çıktısını
+   Windows MSVC/WDK ile derler ve test-imzalar;
+7. touch + USB paketlerini tek DISM mount/commit ve tek UAC istemiyle
+   `esp/sources/boot.wim` DriverStore'una offline ekler;
+8. manifest, hash, inbox USB/HID dosyaları ve yeni `startnet.cmd` içeriğini
+   geri okuyarak doğrular.
+
+İkinci komut büyük WIM'i taşıyan Windows SYSTEM ESP'sini üretir, WIM'i
+optimize/verify eder ve yerel sürücü hash'leriyle manifestin aynı olduğunu
+yeniden kontrol eder.
+
+Derleme sırasında Windows'ta UAC penceresi gelmesi normaldir; offline DISM
+servislemesi yönetici yetkisi ister. Kaynak değiştiği halde eski `.sys`
+kullanılmamalıdır.
+
+### 0.7 `yap.sh` bayrakları nasıl çalışır
+
+| Bayrak | Etki | Ne zaman kullanılır |
+|---|---|---|
+| bayraksız | DEBUG UEFI; mevcut Mu ACPI çıktısını kullanabilir | Güncel donanım deneyi için önerilmez |
+| `--acpi` | PPTT + bütün S5E9820 ACPI tablolarını yeniden derler ve etkinleştirir | ACPI/normal temiz UEFI turu |
+| `--touch` | `--acpi`yi zorlar; UEFI touch DXE'yi ve Windows VHF paketini açar | Windows touch korunacaksa |
+| `--touch-test` | `--touch`ü içerir; Windows öncesi kareli UEFI touch test uygulamasını ESP'ye koyar | Yalnız dokunmatik tanısı |
+| `--usb-test` | `--acpi`yi zorlar; MAX DXE ve `B2LUSB.EFI` üretir, Windows statik HOST paketini derler/stage eder | Güncel USB/MAX geliştirme turu |
+| `--psci-hvc` | ACPI FADT'yi HVC yapar ve EL2 köprüsünü açar | Ayrı, deneysel PSCI turu; USB günlük turuyla karıştırma |
+| `--clean` | Mu build'ini temiz yapar | Kaynak/INF/ACPI değiştiğinde kullan |
+| `-r RELEASE` veya `--release RELEASE` | RELEASE UEFI üretir | Tanı gerekmeyen boyut/hız turu |
+| `--tar` | Geriye uyumluluk için etkisiz | Tar zaten her başarılı build'de üretilir |
+
+`--touch` ve `--usb-test` birlikteyse touch paketi önce hazırlanır, offline
+DriverStore stage'i ertelenir ve USB aracı ikisini `UsbTouch` paketi olarak tek
+mount/commit işleminde birleştirir. Bu yüzden güncel tam turda ayrıca
+`tools_b2ltouch.sh` çağırmak gerekmez.
+
+Önemli ortam değişkenleri:
+
+| Değişken | Varsayılan | Anlam / risk |
+|---|---:|---|
+| `MU_SILICIUM` | `~/Mu-Silicium` | Harici Mu ağacının yolu |
+| `OUTDIR` | otomatik Windows masaüstü araması | Üretilen flaş dosyalarının ek kopya hedefi |
+| `B2L_WDT` | `1` | UEFI watchdog düzeltmesini uygular; `0` yalnız kontrollü karşılaştırma içindir |
+| `B2L_UFS_PWM` | `0` | `0` = HS Gear 3. `1` çok yavaş PWM G1 yamalarını açar; güncel USB turunda kullanma |
+| `B2L_USB_AUTO_HOST` | `yap.sh --usb-test` içinde `1` | WIM'e otomatik HOST test marker'ı koyar; `0` tanı akışını kapatır |
+| `B2L_SKIP_WINDOWS_TOUCH_BUILD` | `0` | `1` touch Windows build/stage'ini atlar; normal tam turda kullanma |
+| `B2L_SKIP_WINDOWS_USB_BUILD` | `0` | `1` yalnız UEFI USB uygulamasını bırakır; güncel Windows testi için kullanma |
+| `B2L_SKIP_MSVC_BUILD` | `0` | `1` mevcut ARM64 çıktıları yeniden paketler; yalnız kaynaklardan eski değillerse |
+| `B2L_ALLOW_STALE_SYS` | `0` | Eski `.sys` korumasını bilinçli aşar; normal testte kesinlikle kullanma |
+| `B2L_WINROOT`, `B2L_WDK_ROOT` | `/mnt/c`, otomatik WDK | Windows/WDK farklı diskteyse ileri düzey yol override'ı |
+| `B2L_WINDOWS_ARM64_SOURCE` | yok | Native OSK/runtime taşıma deneyleri için Windows ARM64 ISO/install.wim yolu; çekirdek USB turu için gerekmez |
+
+`B2L_STAGE_TOUCH_WITH_USB` ve `B2L_DEFER_OFFLINE_STAGE` dahili koordinasyon
+değişkenleridir; günlük komutta elle verilmemelidir.
+
+### 0.8 `cache_esp.sh` bayrakları ve gerçek çıktılar
+
+| Bayrak | Anlam |
+|---|---|
+| bayraksız | Linux ESP'yi `CACHE` için üretir; Windows dosyalarını dışlar |
+| `--win` | Windows bootmgfw/BCD/boot.sdi/boot.wim içeren ESP üretir |
+| `--system` | 600 MiB CACHE yerine büyük Android `SYSTEM` bölümünü hedefler; büyük WIM için gereklidir |
+| `--linux` | Linux'u bilerek SYSTEM'e yazacağını açık eder; güvenlik kilidini kaldırır |
+| `--baseline` | Yalnız Windows. `B2LGOSTR/B2LUSB/B2LTOUCH/EBSTEST.EFI` uygulamalarını dışlar, fakat Windows sürücülerini WIM'de tutar |
+| `--bos` | Yalnız `--win` ile, 600 MiB boş FAT32 CACHE üretir; `--system` ile birlikte kullanılamaz |
+| `--psci-hvc` | Yalnız Windows HVC deneyi; `--baseline` ile birlikte kullanılamaz |
+
+Kritik ayrımlar:
+
+- `--system` verip `--win` vermemek geçmişte SYSTEM'e Linux ESP yazılmasına
+  yol açtı. Betik artık bunu reddeder. Güncel Windows komutu tam olarak
+  `--win --system --baseline` olmalıdır.
+- `--baseline`, UEFI tanı **uygulamalarını** çıkarır; `b2lusb.sys`,
+  `b2lmax77705.sys` ve `b2ltouch.sys` WIM içinde kalır. Güncel WinPE sürücü
+  testi için doğru profildir.
+- Güncel betik `--baseline` turunda birleşik `beyond2lte-usb-diag.tar`
+  üretmez. Gerçek çıktılar `out/uefi-boot.tar` (`boot.img`) ve
+  `out/system-esp.tar` (`system.img`) olur. Eski `BUILD.md` içindeki
+  “baseline tek birleşik tar üretir” cümlesi bu bakımdan eskidir.
+- `out/beyond2lte-usb-diag.tar` yalnız baseline **kapalı**, `B2LUSB.EFI`
+  SYSTEM ESP'ye gerçekten konmuş aktif UEFI tanı turunda üretilir. İçinde
+  `boot.img + system.img` vardır.
+- `out/beyond2lte-touch-diag.tar` da yalnız baseline kapalı ve
+  `B2LTOUCH.EFI` mevcut UEFI test turu içindir. Eski dosyaya adına bakarak
+  güvenme; her zaman içeriğini listele.
+
+### 0.9 Odin flaş sözleşmesi
+
+Samsung Odin hedefi tar arşivinin içindeki dosya adına göre seçer:
+
+| Tar üyesi | Hedef bölüm |
+|---|---|
+| `boot.img` | `BOOT` — Mu-Silicium UEFI |
+| `system.img` | `SYSTEM` — Windows FAT32 ESP + WIM |
+| `cache.img` | `CACHE` — Linux/boş/yardımcı ESP |
+
+Flaş öncesi her arşivi doğrula:
+
+```bash
+tar -tf out/uefi-boot.tar
+tar -tf out/system-esp.tar
+```
+
+Güncel baseline turunda ilk arşiv yalnız `boot.img`, ikincisi yalnız
+`system.img` göstermelidir. Aynı kaynak turuna ait BOOT ve SYSTEM cihazda
+birlikte bulunmalıdır; farklı turlardan kalan arşivler karıştırılmamalıdır.
+Birleşik tanı profili kullanılıyorsa ilgili tar içinde hem `boot.img` hem
+`system.img` gözle doğrulanır.
+
+Odin'de arşiv AP alanından yüklenir ve **Re-Partition kesinlikle kapalı**
+kalır. Bu çalışma `sboot`u değil Android BOOT/SYSTEM/CACHE bölümlerini
+değiştirir. Yine de yanlış üye adlı veya yanlış tura ait tar ciddi risk
+oluşturur. Download Mode ve stock/Lineage geri dönüş paketi hazır olmadan
+flaş yapılmamalıdır.
+
+### 0.10 Cihazda beklenen güncel akış
+
+Başarılı paket/stage doğrulamasından sonra ilk ekranın paket kimliğinde şunlar
+görülmelidir:
+
+```text
+B2LUSB_PACKAGE=exynos9820-kmdf-static-usb2-host-bringup
+B2LUSB_DRIVER_VERSION=0.1.0.18
+B2LUSB_HOST_DRIVER_VERSION=0.1.0.18
+B2LUSB_MAX77705_DRIVER_VERSION=0.1.0.27
+B2LUSB_ACPI_ID=ACPI\BYN0002
+B2LUSB_HOST_ID=ACPI\BYN0003
+B2LUSB_MAX77705_ID=ACPI\BYN0004
+B2LUSB_SUPERSPEED=DISABLED_UNTIL_COMBO_PMA_SAFE
+B2LUSB_AUTO_HOST=1
+B2LUSB_OFFLINE_DRIVERSTORE=1
+```
+
+Sonra `pnputil` çıktısında BYN0002, BYN0003 ve BYN0004 `Started` olmalıdır.
+BYN0003 servisinin `USBXHCI` olması ve IRQ 273/MMIO `0x10c00000` kaynaklarını
+alması, xHCI katmanının çalıştığını gösterir. Bu tek başına kablonun veya
+alıcının numaralandırıldığı anlamına gelmez.
+
+Akış sonunda yazılımsal yeniden başlatma bu platformda kasıtlı yapılmaz; test
+ekranı burada bekler. Bu bir çökme değildir. Gerekirse donanım tuşuyla yeniden
+başlatılır. Dokunmatik test aracı `X:\Windows\B2LTOUCH\b2lmt.exe` sonunda
+çalışabilir.
+
+### 0.11 Son Linux incelemesi: dosyalar, konumlar ve ne kanıtlıyorlar
+
+Son karşılaştırma iki yerden oluşur:
+
+1. **Ham recovery/Linux kanıtı:**
+   `out/B2LUSB-LINUX-HOST-MOUSE-RERUN.txt`
+2. **Ham kanıttan çıkarılan, Windows ile adım adım güncel karşılaştırma:**
+   `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md`
+
+Ham dosya yaklaşık 82 KiB'dir ve `out/` altında build/log artığı olarak
+izlenmez. Yeni bir çalışma ağacına otomatik gelmeyebilir; mevcut makinede
+korunmalı veya güvenli bir özel kanala ayrıca yedeklenmelidir. Ham snapshot
+cihaz/boot ortamı ayrıntıları içerebildiği için herkese açık commit'e körlemesine
+eklenmemelidir. Takipli ve paylaşılabilir sonuç belgesi `specs/` altındaki
+karşılaştırmadır.
+
+Linux testi recovery/Linux 4.14 ortamında, Windows testindekiyle aynı fiziksel
+Logitech `046d:c52e` alıcı takılarak alındı. Dosyada özellikle:
+
+- `309–375`: Type-C sınıfı, power-role/data-role, HSI2C45/MAX77705 sahipliği;
+- `538–715`: attach anındaki `cc_SOURCE`, charger/VBUS, MUIC `06 09`, DWC3
+  host/PHY ve opcode sırası;
+- `747–789`: VBUS/OTG ve ilgili rol bildirimleri;
+- `842–925`: USB bus, `046d:c52e`, descriptor ve HID bağlanması;
+- `978–1016`: HSI2C IRQ114, MAX parent GPIO IRQ318 ve DWC3 IRQ273 ayrımı
+
+incelenmelidir. Satırlar kaynak büyürse kayabilir; zaman damgası ve olay
+adlarıyla da aranmalıdır.
+
+Linux'ta gözlenen temel zincir:
+
+```text
+MAX77705 parent IRQ318
+  -> CC1_ACTIVE / PLUG_ATTACHED / cc_SOURCE
+  -> data role DFP, power role SRC
+  -> charger OTG/VBUS
+  -> MUIC CONTROL1_WRITE 06 09 (USB_AP)
+  -> DWC3 role switch + PHY runtime resume
+  -> xHCI
+  -> yaklaşık 354 ms sonra Logitech 046d:c52e
+  -> HID keyboard yaklaşık 543 ms
+  -> HID mouse yaklaşık 610 ms
+```
+
+Linux'taki `IRQ114`, HSI2C45'in Linux sanal/GIC numarası; `IRQ318` MAX77705
+GPA1_6 parent GPIO olayı; `IRQ273` DWC3/xHCI'dir. Windows ekranındaki IRQ 273,
+MAX GPIO kesmesi değildir. ACPI'de doğrulanmış GPA1_6 kaynağı olmadan 114 veya
+318 sayısını Windows'a kopyalayıp sahte ISR kurulmaz.
+
+Karşılaştırma belgesi 16 aşamayı yan yana tutar. Çalışmaya devam etmeden önce
+özellikle “En kısa sonuç”, 7. satır, “Kritik farklar” ve “Son teşhis ve bir
+sonraki değişiklik sınırı” bölümleri okunmalıdır.
+
+### 0.12 Son `.27` cihaz kanıtının kesin yorumu
+
+Son flaşta aynı Logitech alıcı takılıyken ölçülen kritik değerler:
+
+```text
+STAGE=0x70                 STATUS=0x0
+PLATFORM_OK=0x1            I2C_RETRY=0x0
+PMIC_ID=0x15               PMIC_REV=0x2
+USBC_HW/FW/MINOR=1a/1a/10  CHG_UNLOCK=0x1
+UIC/CC/PD/VDM=00/20/00/f0  MASKS_OK=0x1
+CCCTRL1=0x1f               CC0/CC1=0x40/0x00
+CCOPEN_OK=0x1              CTRL3_BEFORE/AFTER=0x64/0x64
+TOP_SEEN=0x9               CC_SEEN=0x6d
+PD_SEEN=0xc0               CC_IRQS=0x4
+CC_SAMPLES=0x71f           CC_TRANS=0x0
+CC_STATE/PREV=0x0/0x0      CC_SRC_EV=0x0
+MUIC_OK=0x1                MUIC_CTL1=0x3f
+OTG_SW/HW=0/0
+```
+
+Bunların anlamı:
+
+- HSI2C platform/saat/pin hazırlığı, TOP/USBC/charger erişimi ve init opcode
+  zinciri çalışıyor.
+- Linux çalışma maskeleri ile CCCTRL1 gerçekten yazılıp geri okunmuş.
+- `.27`de eklenen probe-sonu CONTROL3 normalizasyonu çalışmış:
+  `CCOPEN_OK=1`. `0x64` içinde bit 1 zaten sıfır olduğu için
+  `LockErrorEn` baştan kapalıymış; `0x64 -> 0x64` beklenen no-op read-back'tir.
+  Böylece “LockErrorEn attach'i engelliyor” hipotezi yanlışlandı.
+- TOP/CC/PD olay registerları canlı; dört CC olayı görülmüş. Fakat fiziksel
+  `CC1_ACTIVE` rol durum makinesinde `cc_SOURCE` üretmemiş.
+- Sürücü güvenli davranıyor: source kanıtlanmadan VBUS veya USB_AP yolu
+  zorlanmıyor. Bu yüzden `MUIC=0x3f`, OTG kapalı ve xHCI portu bağlantısız.
+- xHCI `RUN=1`, command ring/DCBAA/CONFIG kurulmuş olsa da portlarda
+  `CCS=0`, `PED=0`, `PLS=RxDetect`; USB/HID/Mouse için “No devices were
+  found” bu sınırda beklenen sonuçtur.
+
+Dolayısıyla HID sürücüsü, root hub, xHCI ring, HSI2C transferi, kesme maskesi
+ve CONTROL3 şu an ilk hata noktası değildir.
+
+### 0.13 On yedi dakikalık yavaşlığın güncel değerlendirmesi
+
+Polling düzeltmesi işe yaradı:
+
+- Eski xHCI gözleminde yaklaşık `7.887` örnek vardı.
+- `.27`de 20 ms aralıklı 5 saniyelik sınırlı gözlem yalnız `160` örnek verdi;
+  yaklaşık `%98` azalma.
+- Konsoldaki “xHCI observer 12 saniye” metni eskimiş sabit mesajdır; gerçek
+  sürücü davranışı 5 saniyedir.
+- MAX `CC_SAMPLES=0x71f = 1.823`. İlk fotoğraftan önce başlayan sayaçla
+  17 dakikaya bölündüğünde toplam hız en fazla yaklaşık `1,79 örnek/s`;
+  ilk 50 hızlı örnek çıkarıldığında geç dönem en fazla `1,74 örnek/s`, yani
+  örnek başına en az yaklaşık `575 ms` görünür.
+
+Bu nedenle kalıcı 50 Hz MAX polling veya 1 ms xHCI polling, 17 dakikanın baskın
+nedenleri değildir. Kesin suçlu hâlâ ölçülmemiştir; `startnet.cmd` aşama zaman
+damgası basmıyor.
+
+Mevcut en güçlü adaylar:
+
+- `B2LUsbCollectMax77705State`, bir çağrıda 86 doğrudan ve 55 özet olmak üzere
+  141 ayrı `reg.exe` işlemi açar; akışta iki kez çağrıldığı için en az 282
+  registry süreci üretir.
+- Birden fazla seri `pnputil /scan-devices` ve ayrıntılı
+  `/enum-devices /services /stack /drivers /resources` çağrısı vardır.
+- ACPI Enum altında özyinelemeli registry araması ve tam
+  `setupapi.dev.log` taraması yapılır.
+- `logman` ETW başlat/durdur işlemleri ve senkron `tracerpt` CSV dönüşümü
+  yapılır.
+- Büyük PnP/registry raporları dar ve yavaş WinPE konsoluna `type` ile basılır.
+- Sürücü geniş tanı kümesini her on başarılı geç örnekte registry'ye yeniden
+  yazar; bu ek yük olabilir ama tek başına 17 dakikayı kanıtlamaz.
+
+Performans değişikliği önce her pahalı `startnet.cmd` fazının başına/sonuna
+zaman damgası koymalıdır. Ölçmeden ikinci MAX dökümünü, ETW'yi veya PnP
+sorgularını topluca silmek kanıt kalitesini düşürür ve hangi adımın yavaş
+olduğunu yine bilinmez bırakır.
+
+### 0.14 Sıradaki işlevsel değişiklik ve başarı ölçütü
+
+İlk işlevsel uyuşmazlık **karşılaştırma adımı 7**dir. Sıradaki kaynak incelemesi
+Samsung Linux MAX77705 CC interrupt/FSM yolunda şu sıralamayı birebir
+çıkarmalıdır:
+
+1. `CC1_ACTIVE` sonrasında hangi CC interrupt/status alanları okunuyor?
+2. `PLUG_ATTACHED` ve `cc_SOURCE` hangi koşullarla üretiliyor?
+3. `ForceError` veya firmware hata-kurtarma durumu bu karardan önce/sonra nasıl
+   temizleniyor ya da koordine ediliyor?
+4. Windows yolunda eksik ara durumları ayırmak için hangi read-back/sayaçlar
+   eklenmeli?
+
+Güvenli değişiklik sınırı:
+
+- Gerçek `CC_SOURCE=2` kanıtlanmadan MUIC `USB_AP=0x09`, charger OTG veya VBUS
+  zorlanmamalıdır.
+- Başarı sırası önce `CC_STATE=2`, `CC_TRANS>0`, `CC_SRC_EV>0`; sonra MUIC
+  read-back `0x09`, OTG/VBUS aktif; en son xHCI portunda `CCS=1` ve
+  `046d:c52e` enumeration olmalıdır.
+- Linux koordinasyon katmanının sonucu modellenmeli; ham Linux IRQ sayılarını
+  Windows'a kopyalamak çözüm değildir.
+- CC source güvenilir hale geldikten sonra ayrı değişiklikle MAX READY/source
+  koşulları BYN0002 HOST başlangıcına kapı yapılmalıdır.
+
+Performans enstrümantasyonu ile CC/FSM işlev değişikliği aynı committe
+karıştırılmamalıdır; biri zamanlama/ölçüm, diğeri elektriksel rol davranışıdır.
+
+### 0.15 Güvenlik kuralları ve kapanmış yollar
+
+- CC source doğrulanmadan VBUS verme. Yanlış source/sink kararı porta veya
+  karşı cihaza zarar verebilir.
+- Combo PCS/PMA adreslerine kör MMIO erişme; cihazda abort kanıtı var.
+- Linux IRQ114/IRQ318'i ACPI/GIC kaynağı doğrulamadan Windows ISR'sine sabitleme.
+- `B2L_UFS_PWM=1` kullanma; WinPE WIM okumasını dakikalara çıkaran yaklaşık
+  3 MB/s PWM G1 yoludur ve güncel USB sorununu çözmez.
+- Eski `.sys`i `B2L_ALLOW_STALE_SYS=1` ile paketleyip yeni kaynakmış gibi test
+  etme.
+- `--system`i `--win` olmadan kullanma.
+- `Re-Partition` açma; yanlış tar üyesine veya partition'a güvenme.
+- `No devices were found` sonucunu HID hatası sayma; önce xHCI portunda
+  `CCS=1` görülmeli.
+- CONTROL3/LockErrorEn, `.27` kanıtıyla kapanmıştır. Aynı hipotezi yeni bir
+  karşı kanıt olmadan tekrar açma.
+
+### 0.16 Hızlı doğrulama ve sık sorunlar
+
+Kaynak değişikliğinden sonra en az şu kontroller yapılmalıdır:
+
+```bash
+bash -n yap.sh cache_esp.sh tools_b2lusb.sh tools_b2ltouch.sh
+git diff --check
+git status --short
+```
+
+Flaş dosyası üretildikten sonra:
+
+```bash
+tar -tf out/uefi-boot.tar
+tar -tf out/system-esp.tar
+```
+
+Sık karşılaşılan durumlar:
+
+- `C2220` ile beraber `C4310`: uyarılar hata sayılıyor. CONTROL3 sabit maske
+  truncation düzeltmesi `2e48112` commitindedir; doğru HEAD ve temiz build
+  kullanıldığını doğrula.
+- `Silicium-ACPI` boş: Mu-Silicium recursive alınmamış; submodule'leri başlat.
+- `powershell.exe`/MSVC/WDK bulunmuyor: WSL-Windows köprüsü veya ARM64 VS/WDK
+  bileşenleri eksik.
+- WIM stage uzun süre görünürde duruyor: Windows UAC penceresini kontrol et.
+- `boot.wim` hash/manifest hatası: yerel `.sys` ile WIM farklı turdan; yeniden
+  `tools_b2lusb.sh` veya tam `yap.sh --touch --usb-test --clean` çalıştır.
+- `CACHE`e WIM sığmıyor: güncel Windows yolu `--system` kullanır.
+- Ekranda eski sürüm: yanlış BOOT/SYSTEM tar'ı flaşlanmış veya eski WIM
+  paketlenmiş; tar üyeleri ile cihaz manifestini birlikte karşılaştır.
+
+### 0.17 İlgili son commit zinciri
+
+Güncel sınırı oluşturan son değişiklikler, eskiden yeniye özetle:
+
+```text
+44deb23  stale HSI2C durumundan transfer başlatma düzeltmesi
+5608362  MAX polling'i tek boot CPU'sundan ayırma
+423fd45  MAX77705 HSI2C platform/saat/pin hazırlığı
+04ca231  Linux ile MAX77705 kesme-init düzeni eşleştirmesi
+f295fe2  CC event teslim/örnek sırası eşleştirmesi
+6bbf2d5  probe-sonu CC-open CONTROL3 eşleştirmesi
+2e48112  MSVC C4310/C2220 sabit maske düzeltmesi
+24af2a4  .27 cihaz, zamanlama ve CC sonuçlarının belgelenmesi
+```
+
+Bir sonraki çalışma, `24af2a4` üzerindeki kanıtı başlangıç kabul etmeli;
+önceki başarısız hipotezleri yeniden denemeden Linux karşılaştırmasının 7.
+adımına ilerlemelidir.
+
+---
+
+## TARİHSEL ARŞİV
+
+Aşağıdaki bölümler projenin UEFI/Windows/UFS araştırma geçmişini korur. Ölçüm
+kanıtları değerlidir; ancak “güncel durum” ve komutlar için yukarıdaki bölüm 0
+esas alınmalıdır.
+
 ## 1. Hedef ve donanım
 
 Samsung Galaxy S10+ (SM-G975F) üzerinde **Windows on ARM** çalıştırmak.
