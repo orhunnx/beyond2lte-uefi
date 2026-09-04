@@ -2,6 +2,8 @@
 
 #define MAX77705_TOP_PMIC_ID1      0x00U
 #define MAX77705_TOP_PMIC_REV      0x01U
+#define MAX77705_TOP_INTSRC        0x22U
+#define MAX77705_TOP_INTSRC_MASK   0x23U
 
 #define MAX77705_USBC_HW_REV       0x00U
 #define MAX77705_USBC_FW_REV       0x01U
@@ -22,6 +24,12 @@
 #define MAX77705_USBC_OPCODE_READ  0x51U
 
 #define MAX77705_USBC_INT_APCMDRES       (1U << 7)
+#define MAX77705_CC_INT_STATE            (1U << 0)
+#define MAX77705_CC_INT_CURRENT          (1U << 2)
+#define MAX77705_CC_INT_PIN_STATE        (1U << 3)
+#define MAX77705_CC_INT_ATTACH_MASK      \
+    (MAX77705_CC_INT_STATE | MAX77705_CC_INT_CURRENT | \
+     MAX77705_CC_INT_PIN_STATE)
 #define MAX77705_OPCODE_FACTORY_TEST     0x54U
 #define MAX77705_FACTORY_AUTO_VBUS_OFF   0x00U
 #define MAX77705_OPCODE_FW_AUTOIBUS      0x57U
@@ -125,7 +133,17 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxCmgpDivUsi3", L"B2LMaxCmgpQchUsi3",
         L"B2LMaxGpm12Con", L"B2LMaxGpm13Con",
         L"B2LMaxUicInterruptMask", L"B2LMaxCcInterruptMask",
-        L"B2LMaxUsbcRuntimeMasksConfigured", L"B2LMaxCcControlReadBack"
+        L"B2LMaxUsbcRuntimeMasksConfigured", L"B2LMaxCcControlReadBack",
+        L"B2LMaxTopInterruptSource", L"B2LMaxTopInterruptSourceSeen",
+        L"B2LMaxTopInterruptSourceMask", L"B2LMaxUicInterruptSeen",
+        L"B2LMaxCcInterruptSeen", L"B2LMaxPdInterruptSeen",
+        L"B2LMaxVdmInterruptSeen", L"B2LMaxCcState",
+        L"B2LMaxPreviousCcState", L"B2LMaxCcStatusValid",
+        L"B2LMaxCcStateChanged", L"B2LMaxCcSampleCount",
+        L"B2LMaxCcTransitionCount", L"B2LMaxCcInterruptCount",
+        L"B2LMaxCcSourceEventCount", L"B2LMaxCcLastSampleTimeLow",
+        L"B2LMaxCcLastSampleTimeHigh", L"B2LMaxCcLastTransitionTimeLow",
+        L"B2LMaxCcLastTransitionTimeHigh"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -202,6 +220,25 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[61] = Context->CcInterruptMask;
     Values[62] = Context->UsbcRuntimeMasksConfigured ? 1UL : 0UL;
     Values[63] = Context->CcControlReadBack;
+    Values[64] = Context->TopInterruptSource;
+    Values[65] = Context->TopInterruptSourceSeen;
+    Values[66] = Context->TopInterruptSourceMask;
+    Values[67] = Context->UicInterruptSeen;
+    Values[68] = Context->CcInterruptSeen;
+    Values[69] = Context->PdInterruptSeen;
+    Values[70] = Context->VdmInterruptSeen;
+    Values[71] = Context->CcState;
+    Values[72] = Context->PreviousCcState;
+    Values[73] = Context->CcStatusValid ? 1UL : 0UL;
+    Values[74] = Context->CcStateChanged ? 1UL : 0UL;
+    Values[75] = Context->CcSampleCount;
+    Values[76] = Context->CcTransitionCount;
+    Values[77] = Context->CcInterruptCount;
+    Values[78] = Context->CcSourceEventCount;
+    Values[79] = (ULONG)(Context->CcLastSampleTime & 0xFFFFFFFFULL);
+    Values[80] = (ULONG)(Context->CcLastSampleTime >> 32);
+    Values[81] = (ULONG)(Context->CcLastTransitionTime & 0xFFFFFFFFULL);
+    Values[82] = (ULONG)(Context->CcLastTransitionTime >> 32);
 
     RtlInitUnicodeString(&ServicePath, ServicePathBuffer);
     InitializeObjectAttributes(
@@ -227,6 +264,8 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
             );
     }
     ZwClose(Key);
+    Context->DiagnosticDirty = FALSE;
+    Context->DiagnosticPollCount = 0UL;
 }
 
 static NTSTATUS
@@ -616,45 +655,107 @@ B2lMaxUnlockCharger(PB2L_MAX_CONTEXT Context)
 static NTSTATUS
 B2lMaxReadAndClearUsbcInterrupts(PB2L_MAX_CONTEXT Context)
 {
+    UCHAR Interrupts[4];
     NTSTATUS Status;
 
-    // These four status registers are read-to-clear in the Samsung MFD.
-    // ACPI currently has no MAX77705 GPIO IRQ, so the passive timer performs
-    // the same drain operation and keeps the physical interrupt from staying
-    // asserted while preserving every sample for the diagnostic snapshot.
+    // Match the Samsung parent IRQ thread ordering: sample TOP INTSRC first,
+    // then fetch the four contiguous, read-to-clear USBC interrupt bytes in
+    // one transaction.  ACPI currently has no verified MAX77705 GPIO IRQ, so
+    // the passive timer is the delivery mechanism; sticky copies preserve
+    // short events after the live register sample has been cleared.
     Status = B2lMaxReadByte(
+        Context,
+        B2L_MAX_TOP_ADDRESS,
+        MAX77705_TOP_INTSRC,
+        &Context->TopInterruptSource
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Context->TopInterruptSourceSeen |= Context->TopInterruptSource;
+    Status = B2lMaxReadBlock(
         Context,
         B2L_MAX_USBC_ADDRESS,
         MAX77705_USBC_UIC_INT,
-        &Context->UicInterrupt
+        Interrupts,
+        RTL_NUMBER_OF(Interrupts)
         );
     if (!NT_SUCCESS(Status)) {
         return Status;
     }
-    Status = B2lMaxReadByte(
+    Context->UicInterrupt = Interrupts[0];
+    Context->CcInterrupt = Interrupts[1];
+    Context->PdInterrupt = Interrupts[2];
+    Context->VdmInterrupt = Interrupts[3];
+    Context->UicInterruptSeen |= Context->UicInterrupt;
+    Context->CcInterruptSeen |= Context->CcInterrupt;
+    Context->PdInterruptSeen |= Context->PdInterrupt;
+    Context->VdmInterruptSeen |= Context->VdmInterrupt;
+    if (Context->CcInterrupt != 0U) {
+        ++Context->CcInterruptCount;
+    }
+    if ((Context->TopInterruptSource != 0U) ||
+        (Context->UicInterrupt != 0U) ||
+        (Context->CcInterrupt != 0U) ||
+        (Context->PdInterrupt != 0U) ||
+        (Context->VdmInterrupt != 0U)) {
+        Context->DiagnosticDirty = TRUE;
+    }
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+B2lMaxReadCcStatus(PB2L_MAX_CONTEXT Context)
+{
+    UCHAR StatusBytes[2];
+    UCHAR NewState;
+    ULONGLONG SampleTime;
+    NTSTATUS Status;
+
+    // Linux's CCStat nested handler reads CC_STATUS0 immediately after the
+    // parent has drained CC_INT.  Keep that ordering so a transient role is
+    // not delayed behind unrelated charger-register traffic.
+    Status = B2lMaxReadBlock(
         Context,
         B2L_MAX_USBC_ADDRESS,
-        MAX77705_USBC_CC_INT,
-        &Context->CcInterrupt
+        MAX77705_USBC_CC_STATUS0,
+        StatusBytes,
+        RTL_NUMBER_OF(StatusBytes)
         );
     if (!NT_SUCCESS(Status)) {
         return Status;
     }
-    Status = B2lMaxReadByte(
-        Context,
-        B2L_MAX_USBC_ADDRESS,
-        MAX77705_USBC_PD_INT,
-        &Context->PdInterrupt
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
+    SampleTime = KeQueryInterruptTime();
+    Context->CcStatus0 = StatusBytes[0];
+    Context->CcStatus1 = StatusBytes[1];
+    Context->CcLastSampleTime = SampleTime;
+    ++Context->CcSampleCount;
+    Context->CcStateChanged = FALSE;
+    NewState = (UCHAR)(Context->CcStatus0 & B2L_MAX_CC_STATUS_MASK);
+    if (!Context->CcStatusValid) {
+        Context->PreviousCcState = NewState;
+        Context->CcState = NewState;
+        Context->CcStatusValid = TRUE;
+        Context->DiagnosticDirty = TRUE;
+        if (NewState == B2L_MAX_CC_SOURCE) {
+            ++Context->CcSourceEventCount;
+        }
+    } else if (NewState != Context->CcState) {
+        Context->PreviousCcState = Context->CcState;
+        Context->CcState = NewState;
+        Context->CcStateChanged = TRUE;
+        Context->CcLastTransitionTime = SampleTime;
+        ++Context->CcTransitionCount;
+        Context->DiagnosticDirty = TRUE;
+        if (NewState == B2L_MAX_CC_SOURCE) {
+            ++Context->CcSourceEventCount;
+        }
+    } else if ((Context->CcInterrupt & MAX77705_CC_INT_ATTACH_MASK) != 0U) {
+        // Preserve an interrupt whose status already settled back to the same
+        // state.  Sticky interrupt bytes and the counter make it diagnosable.
+        Context->DiagnosticDirty = TRUE;
     }
-    return B2lMaxReadByte(
-        Context,
-        B2L_MAX_USBC_ADDRESS,
-        MAX77705_USBC_VDM_INT,
-        &Context->VdmInterrupt
-        );
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS
@@ -718,6 +819,15 @@ B2lMaxConfigureUsbcMasks(PB2L_MAX_CONTEXT Context)
 
     Context->UsbcMasksConfigured = FALSE;
     Context->UsbcRuntimeMasksConfigured = FALSE;
+    Status = B2lMaxReadByte(
+        Context,
+        B2L_MAX_TOP_ADDRESS,
+        MAX77705_TOP_INTSRC_MASK,
+        &Context->TopInterruptSourceMask
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
     Status = B2lMaxReadAndClearUsbcInterrupts(Context);
     if (!NT_SUCCESS(Status)) {
         return Status;
@@ -891,11 +1001,29 @@ B2lMaxProbeIdentity(PB2L_MAX_CONTEXT Context)
 static NTSTATUS
 B2lMaxReadStatus(PB2L_MAX_CONTEXT Context)
 {
+    BOOLEAN NeedDetails;
     NTSTATUS Status;
 
+    NeedDetails = (BOOLEAN)!Context->CcStatusValid;
     Status = B2lMaxReadAndClearUsbcInterrupts(Context);
     if (!NT_SUCCESS(Status)) {
         return Status;
+    }
+    Status = B2lMaxReadCcStatus(Context);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    NeedDetails = (BOOLEAN)(NeedDetails || Context->CcStateChanged ||
+        (Context->TopInterruptSource != 0U) ||
+        (Context->UicInterrupt != 0U) ||
+        (Context->CcInterrupt != 0U) ||
+        (Context->PdInterrupt != 0U) ||
+        (Context->VdmInterrupt != 0U) ||
+        (Context->CcState != B2L_MAX_CC_NO_CONNECTION) ||
+        (Context->DiagnosticPollCount >=
+         (B2L_MAX_IDLE_DIAGNOSTIC_POLLS - 1UL)));
+    if (!NeedDetails) {
+        return STATUS_SUCCESS;
     }
     Status = B2lMaxReadByte(
         Context,
@@ -913,24 +1041,6 @@ B2lMaxReadStatus(PB2L_MAX_CONTEXT Context)
           MAX77705_MODE_BUCK_OTG) ||
          ((Context->ChargerMode & MAX77705_CHG_MODE_MASK) ==
           MAX77705_MODE_BUCK_CHG_OTG));
-    Status = B2lMaxReadByte(
-        Context,
-        B2L_MAX_USBC_ADDRESS,
-        MAX77705_USBC_CC_STATUS0,
-        &Context->CcStatus0
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-    Status = B2lMaxReadByte(
-        Context,
-        B2L_MAX_USBC_ADDRESS,
-        MAX77705_USBC_CC_STATUS1,
-        &Context->CcStatus1
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
     Status = B2lMaxReadByte(
         Context,
         B2L_MAX_USBC_ADDRESS,
@@ -1184,7 +1294,7 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)
         B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_CC, Status);
         return Status;
     }
-    CcState = (UCHAR)(Context->CcStatus0 & B2L_MAX_CC_STATUS_MASK);
+    CcState = Context->CcState;
     if (CcState == B2L_MAX_CC_SOURCE) {
         // Samsung's OTG/RpRd attach path routes D+/D- to the AP with
         // CONTROL1_WRITE(COM_USB) before the USB host path is useful.  VBUS
@@ -1315,6 +1425,13 @@ B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
 
     Status = B2lMaxEvaluateConnection(Context);
     if (NT_SUCCESS(Status)) {
+        ++Context->DiagnosticPollCount;
+    }
+    if (NT_SUCCESS(Status) &&
+        (Context->DiagnosticDirty ||
+         (Context->DiagnosticStage != B2L_MAX_STAGE_READY) ||
+         (Context->CcState != B2L_MAX_CC_NO_CONNECTION) ||
+         (Context->DiagnosticPollCount >= B2L_MAX_IDLE_DIAGNOSTIC_POLLS))) {
         B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_READY, Status);
     }
     return Status;
@@ -1581,6 +1698,28 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
 
     UNREFERENCED_PARAMETER(PreviousState);
     WdfWaitLockAcquire(Context->BusLock, NULL);
+    Context->CcStatusValid = FALSE;
+    Context->CcStateChanged = FALSE;
+    Context->DiagnosticDirty = TRUE;
+    Context->UicInterrupt = 0U;
+    Context->CcInterrupt = 0U;
+    Context->PdInterrupt = 0U;
+    Context->VdmInterrupt = 0U;
+    Context->UicInterruptSeen = 0U;
+    Context->CcInterruptSeen = 0U;
+    Context->PdInterruptSeen = 0U;
+    Context->VdmInterruptSeen = 0U;
+    Context->TopInterruptSource = 0U;
+    Context->TopInterruptSourceSeen = 0U;
+    Context->CcState = B2L_MAX_CC_NO_CONNECTION;
+    Context->PreviousCcState = B2L_MAX_CC_NO_CONNECTION;
+    Context->CcSampleCount = 0UL;
+    Context->CcTransitionCount = 0UL;
+    Context->CcInterruptCount = 0UL;
+    Context->CcSourceEventCount = 0UL;
+    Context->DiagnosticPollCount = 0UL;
+    Context->CcLastSampleTime = 0ULL;
+    Context->CcLastTransitionTime = 0ULL;
     Context->PollingEnabled = TRUE;
     WdfWaitLockRelease(Context->BusLock);
     // Samsung defers CC/charger work after probe.  Do the same on Windows:
@@ -1643,8 +1782,17 @@ B2lMaxEvtPollTimer(WDFTIMER Timer)
     // ServiceConnection publishes the precise failed stage (BUS, IDENTITY,
     // CC or OTG).  Do not overwrite a retry failure with a generic CC stage.
     Status = B2lMaxServiceConnection(Context);
-    NextPollMs = NT_SUCCESS(Status) ?
-        B2L_MAX_POLL_MS : B2L_MAX_RETRY_POLL_MS;
+    if (!NT_SUCCESS(Status)) {
+        NextPollMs = B2L_MAX_RETRY_POLL_MS;
+    } else if (Context->CcStatusValid &&
+               (Context->CcState == B2L_MAX_CC_NO_CONNECTION)) {
+        // With no verified GPA1_6 ACPI interrupt resource, approximate the
+        // Linux CCStat wakeup only while waiting for attach.  Once a stable
+        // role exists, return to the lower-rate status/health cadence.
+        NextPollMs = B2L_MAX_ATTACH_POLL_MS;
+    } else {
+        NextPollMs = B2L_MAX_POLL_MS;
+    }
     if (Context->PollingEnabled && Context->HardwareReady) {
         (VOID)WdfTimerStart(
             Timer,

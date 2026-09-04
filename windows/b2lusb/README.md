@@ -350,6 +350,17 @@ PASSIVE_LEVEL tek-atımlı timer'a bırakılır. HSI2C polling döngüsü CPU'yu
 2 saniye backoff uygular; başarılı CC takibi yine 200 ms'dir. Böylece MAX77705
 cevap vermese bile PnP/USBXHCI/WinPE boot yolu ilerleyebilir.
 
+`0.1.0.26`, `.25` cihaz kanıtındaki ilk canlı fark olan Type-C olay teslimini
+Linux parent/nested IRQ sırasına yaklaştırır. Her örnekte önce TOP `INTSRC`
+okunur, ardından `UIC/CC/PD/VDM` read-to-clear baytları tek blok transferle
+alınır ve CC durum registerları başka charger erişimi araya girmeden toplu
+okunur. Canlı kesme baytlarının OR-birikimi, önceki/geçerli CC rolü, örnek ve
+geçiş sayaçları ile 100 ns zaman damgaları tanıya eklenmiştir. Doğrulanmış
+GPA1_6 ACPI kesme kaynağı hâlâ bulunmadığından gerçek ISR uydurulmaz: bağlantı
+beklerken pasif örnek aralığı 20 ms, rol yerleşince 200 ms olur; ayrık durumda
+ayrıntılı charger/registry tanısı yine 200 ms temposunda tutulur. `CC=SOURCE`
+kanıtı olmadan MUIC USB_AP veya VBUS/OTG açılmaz.
+
 `0.1.0.25`, Linux karşılaştırmasında eksik olduğu kesinleşen MAX77705 probe
 kesme düzenini tamamlar. Dört mantıksal kesme grubu için önce opcode-probe
 vektörü `UIC/CC/PD/VDM = 00/20/1c/ff`, init opcodes tamamlandıktan sonra

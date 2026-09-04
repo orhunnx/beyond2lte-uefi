@@ -16,8 +16,10 @@
 #define B2L_MAX_CHARGER_ADDRESS      0x69U
 
 #define B2L_MAX_INITIAL_POLL_MS      1UL
+#define B2L_MAX_ATTACH_POLL_MS       20UL
 #define B2L_MAX_POLL_MS              200UL
 #define B2L_MAX_RETRY_POLL_MS        2000UL
+#define B2L_MAX_IDLE_DIAGNOSTIC_POLLS 10UL
 #define B2L_MAX_CC_STATUS_MASK       0x07U
 #define B2L_MAX_CC_NO_CONNECTION     0x00U
 #define B2L_MAX_CC_SINK              0x01U
@@ -71,6 +73,9 @@ typedef struct _B2L_MAX_CONTEXT {
     BOOLEAN CcControlConfigured;
     BOOLEAN MuicPathVerified;
     BOOLEAN BaselineValid;
+    BOOLEAN CcStatusValid;
+    BOOLEAN CcStateChanged;
+    BOOLEAN DiagnosticDirty;
     UCHAR PmicId;
     UCHAR PmicRev;
     UCHAR UsbcHwRev;
@@ -92,6 +97,15 @@ typedef struct _B2L_MAX_CONTEXT {
     UCHAR CcInterrupt;
     UCHAR PdInterrupt;
     UCHAR VdmInterrupt;
+    UCHAR UicInterruptSeen;
+    UCHAR CcInterruptSeen;
+    UCHAR PdInterruptSeen;
+    UCHAR VdmInterruptSeen;
+    UCHAR TopInterruptSource;
+    UCHAR TopInterruptSourceSeen;
+    UCHAR TopInterruptSourceMask;
+    UCHAR CcState;
+    UCHAR PreviousCcState;
     UCHAR UicInterruptMask;
     UCHAR CcInterruptMask;
     UCHAR PdInterruptMask;
@@ -120,6 +134,13 @@ typedef struct _B2L_MAX_CONTEXT {
     ULONG Gpm12Con;
     ULONG Gpm13Con;
     ULONG ChargerUnlockAttempts;
+    ULONG CcSampleCount;
+    ULONG CcTransitionCount;
+    ULONG CcInterruptCount;
+    ULONG CcSourceEventCount;
+    ULONG DiagnosticPollCount;
+    ULONGLONG CcLastSampleTime;
+    ULONGLONG CcLastTransitionTime;
     ULONG DiagnosticStage;
     NTSTATUS DiagnosticStatus;
 } B2L_MAX_CONTEXT, *PB2L_MAX_CONTEXT;

@@ -39,6 +39,8 @@ if rg -n 'B2L_MAX_FUEL|0x36U' "$MAIN" "$HW" "$HDR"; then
 fi
 grep -q 'MAX77705_TOP_PMIC_ID1      0x00U' "$MAIN"
 grep -q 'MAX77705_TOP_PMIC_REV      0x01U' "$MAIN"
+grep -q 'MAX77705_TOP_INTSRC        0x22U' "$MAIN"
+grep -q 'MAX77705_TOP_INTSRC_MASK   0x23U' "$MAIN"
 grep -q 'Context->PmicId == 0x05U' "$MAIN"
 grep -q 'Context->PmicId == 0x15U' "$MAIN"
 
@@ -141,7 +143,23 @@ grep -q 'Context->MuicPathVerified = TRUE' "$MAIN"
 grep -q 'B2L_MAX_STAGE_MUIC_USB' "$MAIN"
 grep -q 'B2L_MAX_STAGE_MUIC_OPEN' "$MAIN"
 grep -q 'B2lMaxReadAndClearUsbcInterrupts' "$MAIN"
-grep -q 'DriverVer=09/04/2026,0.1.0.25' "$INF"
+grep -q 'B2lMaxReadCcStatus' "$MAIN"
+grep -q 'MAX77705_CC_INT_STATE            (1U << 0)' "$MAIN"
+grep -q 'MAX77705_CC_INT_CURRENT          (1U << 2)' "$MAIN"
+grep -q 'MAX77705_CC_INT_PIN_STATE        (1U << 3)' "$MAIN"
+grep -q 'Context->TopInterruptSourceSeen |= Context->TopInterruptSource' "$MAIN"
+grep -q 'Context->CcInterruptSeen |= Context->CcInterrupt' "$MAIN"
+grep -q 'Context->CcStateChanged = TRUE' "$MAIN"
+grep -q 'Context->CcLastTransitionTime = SampleTime' "$MAIN"
+grep -q 'SampleTime = KeQueryInterruptTime()' "$MAIN"
+test "$(rg -c 'MAX77705_TOP_INTSRC_MASK' "$MAIN")" -eq 2
+READ_STATUS_SECTION="$(sed -n '/B2lMaxReadStatus(PB2L_MAX_CONTEXT Context)/,/B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
+IRQ_DRAIN_LINE="$(printf '%s\n' "$READ_STATUS_SECTION" | grep -n 'B2lMaxReadAndClearUsbcInterrupts(Context)' | head -n1 | cut -d: -f1)"
+CC_STATUS_LINE="$(printf '%s\n' "$READ_STATUS_SECTION" | grep -n 'B2lMaxReadCcStatus(Context)' | head -n1 | cut -d: -f1)"
+CHARGER_LINE="$(printf '%s\n' "$READ_STATUS_SECTION" | grep -n 'B2L_MAX_CHARGER_ADDRESS' | head -n1 | cut -d: -f1)"
+test "$IRQ_DRAIN_LINE" -lt "$CC_STATUS_LINE"
+test "$CC_STATUS_LINE" -lt "$CHARGER_LINE"
+grep -q 'DriverVer=09/04/2026,0.1.0.26' "$INF"
 SERVICE_SECTION="$(sed -n '/B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)/,/B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
 AUTOIBUS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureAutoIbus(Context)' | head -n1 | cut -d: -f1)"
 MASKS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureUsbcMasks(Context)' | head -n1 | cut -d: -f1)"
@@ -226,8 +244,10 @@ grep -q 'B2lMaxTransferMessage' "$HW"
 grep -q 'FALSE,' "$HW"
 grep -q '(BOOLEAN)(ReadLength == 0UL)' "$HW"
 grep -q 'B2L_MAX_INITIAL_POLL_MS      1UL' "$HDR"
+grep -q 'B2L_MAX_ATTACH_POLL_MS       20UL' "$HDR"
 grep -q 'B2L_MAX_POLL_MS              200UL' "$HDR"
 grep -q 'B2L_MAX_RETRY_POLL_MS        2000UL' "$HDR"
+grep -q 'B2L_MAX_IDLE_DIAGNOSTIC_POLLS 10UL' "$HDR"
 grep -q 'WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lMaxEvtPollTimer)' "$MAIN"
 if grep -q 'WDF_TIMER_CONFIG_INIT_PERIODIC' "$MAIN"; then
   echo 'HATA: pasif MAX77705 timer periyodik WDF timer olarak olusturulamaz' >&2
@@ -245,6 +265,8 @@ if sed -n '/B2lMaxEvtD0Entry(WDFDEVICE Device/,/B2lMaxEvtD0Exit(WDFDEVICE Device
 fi
 sed -n '/B2lMaxEvtPollTimer(WDFTIMER Timer)/,$p' "$MAIN" | \
   grep -q 'B2L_MAX_RETRY_POLL_MS'
+sed -n '/B2lMaxEvtPollTimer(WDFTIMER Timer)/,$p' "$MAIN" | \
+  grep -q 'B2L_MAX_ATTACH_POLL_MS'
 if sed -n '/B2lMaxEvtD0Entry/,/B2lMaxEvtD0Exit/p' "$MAIN" | grep -q 'return Status'; then
   echo 'HATA: gecici MAX77705 I2C hatasi ACPI parent D0 girisini dusurmemeli' >&2
   exit 1

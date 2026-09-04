@@ -339,6 +339,25 @@ reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUicI
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPdInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxVdmInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxTopInterruptSource >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxTopInterruptSourceSeen >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxTopInterruptSourceMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUicInterruptSeen >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcInterruptSeen >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPdInterruptSeen >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxVdmInterruptSeen >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcState >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPreviousCcState >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcStatusValid >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcStateChanged >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcSampleCount >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcTransitionCount >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcInterruptCount >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcSourceEventCount >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcLastSampleTimeLow >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcLastSampleTimeHigh >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcLastTransitionTimeLow >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcLastTransitionTimeHigh >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUicInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPdInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
@@ -379,6 +398,19 @@ call :B2LUsbAppendMax77705Summary USBC_FW B2LMaxUsbcFwRev
 call :B2LUsbAppendMax77705Summary USBC_MINOR B2LMaxUsbcFwMinor
 call :B2LUsbAppendMax77705Summary CC0 B2LMaxCcStatus0
 call :B2LUsbAppendMax77705Summary CC1 B2LMaxCcStatus1
+call :B2LUsbAppendMax77705Summary TOP_INT B2LMaxTopInterruptSource
+call :B2LUsbAppendMax77705Summary TOP_SEEN B2LMaxTopInterruptSourceSeen
+call :B2LUsbAppendMax77705Summary TOP_MASK B2LMaxTopInterruptSourceMask
+call :B2LUsbAppendMax77705Summary UIC_SEEN B2LMaxUicInterruptSeen
+call :B2LUsbAppendMax77705Summary CC_SEEN B2LMaxCcInterruptSeen
+call :B2LUsbAppendMax77705Summary PD_SEEN B2LMaxPdInterruptSeen
+call :B2LUsbAppendMax77705Summary VDM_SEEN B2LMaxVdmInterruptSeen
+call :B2LUsbAppendMax77705Summary CC_STATE B2LMaxCcState
+call :B2LUsbAppendMax77705Summary CC_PREV B2LMaxPreviousCcState
+call :B2LUsbAppendMax77705Summary CC_SAMPLES B2LMaxCcSampleCount
+call :B2LUsbAppendMax77705Summary CC_TRANS B2LMaxCcTransitionCount
+call :B2LUsbAppendMax77705Summary CC_IRQS B2LMaxCcInterruptCount
+call :B2LUsbAppendMax77705Summary CC_SRC_EV B2LMaxCcSourceEventCount
 call :B2LUsbAppendMax77705Summary UIC_M B2LMaxUicInterruptMask
 call :B2LUsbAppendMax77705Summary CC_M B2LMaxCcInterruptMask
 call :B2LUsbAppendMax77705Summary PD_M B2LMaxPdInterruptMask
