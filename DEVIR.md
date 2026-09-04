@@ -81,10 +81,11 @@ kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikle
 
 ### 0.3 Güncel repo ve sürüm çıpası
 
-`.30` değişikliğinin taban commit'i:
+`.30` kaynak değişikliğinin commit'i ve tabanı:
 
 ```text
 dal:    codex/touch-from-8549bfa
+commit: 74e43fe  feat: drive MAX77705 HSI2C transfers from the original IRQ
 taban:  3c4f6ba  fix: drain MAX77705 FIFO and align source power sequencing
 ```
 

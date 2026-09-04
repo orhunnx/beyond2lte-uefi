@@ -93,6 +93,58 @@ işleyicisine aynı kilidi aldırıp bekleyiciyi değiştirmemek, yanıtın gelm
 engeller. Gerçek IRQ portu bu kilit/yanıt düzenini de değiştirmelidir.
 HSI2C IRQ'sının çalışması tek başına bu MAX olay portunu sağlamaz.
 
+### MAX portundan önce doğrulanan kuyruk/probe bağımlılığı
+
+`max77705-irq.c:400–476` ve `max77705_usbc.c:3510–3585` birlikte
+okunduğunda, mevcut Windows senkron init zincirini aynen koruyup yanına
+bir GPIO ISR eklemenin Linux sırasını sağlamadığı görülüyor:
+
+1. MFD, nested kaynakları başlangıçta maskeler. TOP INTSRC_MASK alt dört
+   biti maskelenir; gerçek GPIO threaded IRQ kaydedilir. MFD init sonunda
+   CHG üst kaynağı açılır, USBC üst kaynağı maskeli kalır.
+2. USBC probe; APCMD/SYSMSG/VDM, MUIC, CC ve PD handler'larını kaydeder.
+   PD init AUTOIBUS isteğini gönderme/yanıt kuyruğuna alır; probe maskeleri
+   `PD=1c / VDM=ff` ve init opcode'ları bundan sonra hazırlanır.
+3. `max77705_usbc_opcode_write()` senkron APCMDRES polling yapmaz.
+   Gönderme ve beklenen yanıt düğümlerini `op_lock` altında kuyruğa koyar.
+   İlk komut gerçekten yazılabilir; kilit yanıtı bekleyerek tutulmaz.
+4. Probe sonunda `cc_booting_complete=1` yapılır ve TOP maskesinin yalnız
+   USBC biti (bit3) temizlenir. O ana kadar bekleyen donanım olayı böylece
+   gerçek GPIO/MFD dispatch yoluna girebilir.
+5. `max77705_apcmd_irq()` yanıt düğümünü işler. Kuyrukta kayıtlı uzunlukla
+   okunan yanıtın opcode'u beklenen değerle karşılaştırılır ve yanıt türüne
+   göre işlenir; ardından sıradaki komut gönderilir. CC/PD olayları
+   aynı MFD handler'ında grup maskeleri uygulandıktan sonra dağıtılır.
+   Probe-sonu CC-open isteği de bu kuyruğu kullanır.
+
+Kaynakta opcode uyuşmazlığı her durumda sert hata değildir: genel durumda
+loglanır ve alınan response türüne göre dispatch sürer; FW_OPCODE_CLEAR için
+ayrı dönüş vardır. Bunu “Linux bütün uyumsuz yanıtları reddediyor” şeklinde
+özetlemek yanlış olur. Windows portunun komut/yanıt sahipliği bu ayrıntıyı da
+açıkça ele almalıdır; eski bir cevabı yeni isteğin başarısı sayamaz.
+
+Windows'taki `.30` `B2lMaxExchangeOpcode()` hâlâ 300 kez 10 ms bekleyen
+eski polling yoludur; bunun Linux IRQ kuyruk portu olduğu söylenemez.
+Samsung genel opcode kuyruğundaki `MAX77705_MAX_APDCMD_TIME` **10*HZ**'dir;
+bu, mevcut 3 saniyelik polling sınırıyla veya HSI2C adapterinin 1 saniyelik
+mesaj sınırıyla aynı mekanizma değildir. Kuyruk temizleme, gecikmiş yanıt,
+SYSMSG kurtarma ve yeni komut eşleşmesi de birlikte port edilmelidir.
+
+Dolayısıyla sıradaki uygulama sınırı yalnız ACPI'ye GSIV51 eklemek değildir:
+pin/EINT sahipliği + MFD dispatch + opcode gönderme/yanıt kuyruğu + probe
+maskeleri aynı değişiklikte tutarlı olmalıdır. Başlangıç sırasını değiştiren
+erken TOP unmask veya kayıp IRQ yerine timer ile register temizleme, bu
+bağımlılığın çözümü olarak kabul edilmiyor. Windows'ta pasif IRQ işleyicisi
+I2C bekleyebilir; ancak yanıtı bekleyen politika işiyle aynı kilidi tutamaz.
+HSI2C aktarım kilidi yalnız tek I2C işlem çiftini korumalı, CC/PD politika
+kilidi ve opcode kuyruğu kilidi ayrı sahiplikler olmalıdır.
+
+Kaynaklar: [MFD IRQ init](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/mfd/max77705-irq.c#L400),
+[opcode kuyruk yürütücüsü](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_usbc.c#L2131),
+[APCMD handler](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_usbc.c#L2802),
+[probe-sonu USBC unmask](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_usbc.c#L3576),
+[Windows pasif IRQ sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/wdf/supporting-passive-level-interrupts).
+
 ### Tanı ve doğrulama
 
 MAX sürümü `0.1.0.30`, foto arayüzü `MAX FOTO v3`; USB foto sayfası v2 ve
