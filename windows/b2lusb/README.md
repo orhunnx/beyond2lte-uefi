@@ -350,6 +350,17 @@ PASSIVE_LEVEL tek-atımlı timer'a bırakılır. HSI2C polling döngüsü CPU'yu
 2 saniye backoff uygular; başarılı CC takibi yine 200 ms'dir. Böylece MAX77705
 cevap vermese bile PnP/USBXHCI/WinPE boot yolu ilerleyebilir.
 
+`0.1.0.25`, Linux karşılaştırmasında eksik olduğu kesinleşen MAX77705 probe
+kesme düzenini tamamlar. Dört mantıksal kesme grubu için önce opcode-probe
+vektörü `UIC/CC/PD/VDM = 00/20/1c/ff`, init opcodes tamamlandıktan sonra
+çalışan Linux örneğinde görülen vektör `00/20/00/f0` yazılır; dört register da
+readback ile doğrulanır. `CCCTRL1_W(0x0c,0x1f)` artık yalnız APCMD cevabıyla
+başarılı sayılmaz: `CCCTRL1_R(0x0b)` sonucu gerçekten `0x1f` olmalıdır. Böylece
+6. probe/init adımı ile daha sonraki fiziksel CC attach kararı birbirinden
+ayrılır. HSI2C tamamlanması, doğrulanmış ACPI/GIC kesme kaynağı olmadığı için
+tek CPU'yu meşgul etmeyen bounded polling ile kalır; Linux'taki `IRQ 114`
+sanal numarası Windows'a sabitlenmez.
+
 `0.1.0.22`, güncel cihaz çıktısında kesinleşen son HSI2C transport farkını
 kaldırır. Stock `hsi2c_45` düğümünde `samsung,reset-before-trans` yoktur ve
 `exynos5_i2c_xfer()` eski `TRANS_STATUS.MASTER_BUSY` değerini mesaj öncesi
@@ -404,8 +415,10 @@ Başarı sırası:
 2. `ACPI\BYN0004` için `B2LMaxAutoVbusDisabled=1`,
    `B2LMaxAutoIbusConfigured=1`, `B2LMaxAutoIbusMode=1`,
    `B2LMaxChargerUnlocked=1`, `B2LMaxUsbcMasksConfigured=1`,
-   `B2LMaxPdInterruptMask=0x1c`, `B2LMaxVdmInterruptMask=0xff`,
-   `B2LMaxCcControlConfigured=1`,
+   `B2LMaxUsbcRuntimeMasksConfigured=1`,
+   `B2LMaxUicInterruptMask=0`, `B2LMaxCcInterruptMask=0x20`,
+   `B2LMaxPdInterruptMask=0`, `B2LMaxVdmInterruptMask=0xf0`,
+   `B2LMaxCcControlConfigured=1`, `B2LMaxCcControlReadBack=0x1f`,
    `B2LMaxCcStatus0 & 7 = 2`,
    `B2LMaxOtgEnabled=1`, `B2LMaxOtgHardwareActive=1` ve charger mode `A/E/F`;
 3. `ACPI\BYN0003` için `USBXHCI` servisinin başlaması;

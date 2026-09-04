@@ -13,6 +13,8 @@
 #define MAX77705_USBC_CC_INT       0x03U
 #define MAX77705_USBC_PD_INT       0x04U
 #define MAX77705_USBC_VDM_INT      0x05U
+#define MAX77705_USBC_UIC_INT_MASK 0x0EU
+#define MAX77705_USBC_CC_INT_MASK  0x0FU
 #define MAX77705_USBC_PD_INT_MASK  0x10U
 #define MAX77705_USBC_VDM_INT_MASK 0x11U
 #define MAX77705_USBC_OPCODE_WRITE 0x21U
@@ -24,6 +26,7 @@
 #define MAX77705_FACTORY_AUTO_VBUS_OFF   0x00U
 #define MAX77705_OPCODE_FW_AUTOIBUS      0x57U
 #define MAX77705_AUTOIBUS_AT_OFF         0x01U
+#define MAX77705_OPCODE_CCCTRL1_READ     0x0BU
 #define MAX77705_OPCODE_CCCTRL1_WRITE    0x0CU
 #define MAX77705_OPCODE_CONTROL1_READ    0x05U
 #define MAX77705_OPCODE_CONTROL1_WRITE   0x06U
@@ -38,8 +41,12 @@
     (MAX77705_CCCTRL1_SOURCE_SINK | MAX77705_CCCTRL1_SINK_SOURCE | \
      MAX77705_CCCTRL1_DEBUG_ENABLE | MAX77705_CCCTRL1_AUDIO_ENABLE | \
      MAX77705_CCCTRL1_DETECT_ENABLE)
-#define MAX77705_PD_INT_MASK_STOCK       0x1CU
-#define MAX77705_VDM_INT_MASK_STOCK      0xFFU
+#define MAX77705_UIC_INT_MASK_LINUX      0x00U
+#define MAX77705_CC_INT_MASK_LINUX       0x20U
+#define MAX77705_PD_INT_MASK_PROBE       0x1CU
+#define MAX77705_VDM_INT_MASK_PROBE      0xFFU
+#define MAX77705_PD_INT_MASK_RUNTIME     0x00U
+#define MAX77705_VDM_INT_MASK_RUNTIME    0xF0U
 #define MAX77705_OPCODE_RESPONSE_LENGTH  2UL
 #define MAX77705_OPCODE_POLL_COUNT       300UL
 #define MAX77705_OPCODE_POLL_US          10000UL
@@ -116,7 +123,9 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxMuicPathVerified", L"B2LMaxMuicUsbPath",
         L"B2LMaxPlatformPrepared", L"B2LMaxCmgpMuxUsi3",
         L"B2LMaxCmgpDivUsi3", L"B2LMaxCmgpQchUsi3",
-        L"B2LMaxGpm12Con", L"B2LMaxGpm13Con"
+        L"B2LMaxGpm12Con", L"B2LMaxGpm13Con",
+        L"B2LMaxUicInterruptMask", L"B2LMaxCcInterruptMask",
+        L"B2LMaxUsbcRuntimeMasksConfigured", L"B2LMaxCcControlReadBack"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -189,6 +198,10 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[57] = Context->CmgpQchUsi3;
     Values[58] = Context->Gpm12Con;
     Values[59] = Context->Gpm13Con;
+    Values[60] = Context->UicInterruptMask;
+    Values[61] = Context->CcInterruptMask;
+    Values[62] = Context->UsbcRuntimeMasksConfigured ? 1UL : 0UL;
+    Values[63] = Context->CcControlReadBack;
 
     RtlInitUnicodeString(&ServicePath, ServicePathBuffer);
     InitializeObjectAttributes(
@@ -645,12 +658,35 @@ B2lMaxReadAndClearUsbcInterrupts(PB2L_MAX_CONTEXT Context)
 }
 
 static NTSTATUS
-B2lMaxConfigureUsbcMasks(PB2L_MAX_CONTEXT Context)
+B2lMaxWriteUsbcMasks(
+    PB2L_MAX_CONTEXT Context,
+    UCHAR UicMask,
+    UCHAR CcMask,
+    UCHAR PdMask,
+    UCHAR VdmMask
+    )
 {
     NTSTATUS Status;
 
-    Context->UsbcMasksConfigured = FALSE;
-    Status = B2lMaxReadAndClearUsbcInterrupts(Context);
+    Status = B2lMaxUpdateByte(
+        Context,
+        B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_UIC_INT_MASK,
+        UicMask,
+        0xFFU,
+        &Context->UicInterruptMask
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Status = B2lMaxUpdateByte(
+        Context,
+        B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_CC_INT_MASK,
+        CcMask,
+        0xFFU,
+        &Context->CcInterruptMask
+        );
     if (!NT_SUCCESS(Status)) {
         return Status;
     }
@@ -658,23 +694,62 @@ B2lMaxConfigureUsbcMasks(PB2L_MAX_CONTEXT Context)
         Context,
         B2L_MAX_USBC_ADDRESS,
         MAX77705_USBC_PD_INT_MASK,
-        MAX77705_PD_INT_MASK_STOCK,
+        PdMask,
         0xFFU,
         &Context->PdInterruptMask
         );
     if (!NT_SUCCESS(Status)) {
         return Status;
     }
-    Status = B2lMaxUpdateByte(
+    return B2lMaxUpdateByte(
         Context,
         B2L_MAX_USBC_ADDRESS,
         MAX77705_USBC_VDM_INT_MASK,
-        MAX77705_VDM_INT_MASK_STOCK,
+        VdmMask,
         0xFFU,
         &Context->VdmInterruptMask
         );
+}
+
+static NTSTATUS
+B2lMaxConfigureUsbcMasks(PB2L_MAX_CONTEXT Context)
+{
+    NTSTATUS Status;
+
+    Context->UsbcMasksConfigured = FALSE;
+    Context->UsbcRuntimeMasksConfigured = FALSE;
+    Status = B2lMaxReadAndClearUsbcInterrupts(Context);
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    Status = B2lMaxWriteUsbcMasks(
+        Context,
+        MAX77705_UIC_INT_MASK_LINUX,
+        MAX77705_CC_INT_MASK_LINUX,
+        MAX77705_PD_INT_MASK_PROBE,
+        MAX77705_VDM_INT_MASK_PROBE
+        );
     if (NT_SUCCESS(Status)) {
         Context->UsbcMasksConfigured = TRUE;
+    }
+    return Status;
+}
+
+static NTSTATUS
+B2lMaxConfigureRuntimeUsbcMasks(PB2L_MAX_CONTEXT Context)
+{
+    NTSTATUS Status;
+
+    Context->UsbcRuntimeMasksConfigured = FALSE;
+    Status = B2lMaxWriteUsbcMasks(
+        Context,
+        MAX77705_UIC_INT_MASK_LINUX,
+        MAX77705_CC_INT_MASK_LINUX,
+        MAX77705_PD_INT_MASK_RUNTIME,
+        MAX77705_VDM_INT_MASK_RUNTIME
+        );
+    if (NT_SUCCESS(Status)) {
+        Context->UsbcRuntimeMasksConfigured = TRUE;
     }
     return Status;
 }
@@ -686,6 +761,7 @@ B2lMaxConfigureCcControl(PB2L_MAX_CONTEXT Context)
 
     Context->CcControlConfigured = FALSE;
     Context->CcControlResponse = 0xFFU;
+    Context->CcControlReadBack = 0xFFU;
     Status = B2lMaxSendOpcode(
         Context,
         MAX77705_OPCODE_CCCTRL1_WRITE,
@@ -693,10 +769,25 @@ B2lMaxConfigureCcControl(PB2L_MAX_CONTEXT Context)
         1UL,
         &Context->CcControlResponse
         );
-    if (NT_SUCCESS(Status)) {
-        Context->CcControlConfigured = TRUE;
+    if (!NT_SUCCESS(Status)) {
+        return Status;
     }
-    return Status;
+    Status = B2lMaxExchangeOpcode(
+        Context,
+        MAX77705_OPCODE_CCCTRL1_READ,
+        NULL,
+        0UL,
+        1UL,
+        &Context->CcControlReadBack
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    if (Context->CcControlReadBack != MAX77705_CCCTRL1_BEYOND2LTE) {
+        return STATUS_DEVICE_DATA_ERROR;
+    }
+    Context->CcControlConfigured = TRUE;
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS
@@ -1180,8 +1271,8 @@ B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
         }
     }
 
-    // Preserve Samsung's probe order: PD initializes AUTOIBUS first, then
-    // the final PD/VDM masks are installed, followed by init opcodes.
+    // Preserve Samsung's probe order: PD initializes AUTOIBUS, the probe
+    // masks cover opcode setup, then the runtime mask vector is installed.
     if (!Context->AutoIbusConfigured) {
         Status = B2lMaxConfigureAutoIbus(Context);
         B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_AUTO_IBUS, Status);
@@ -1209,6 +1300,14 @@ B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
     if (!Context->CcControlConfigured) {
         Status = B2lMaxConfigureCcControl(Context);
         B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_CC_CONTROL, Status);
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+    }
+
+    if (!Context->UsbcRuntimeMasksConfigured) {
+        Status = B2lMaxConfigureRuntimeUsbcMasks(Context);
+        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_RUNTIME_MASKS, Status);
         if (!NT_SUCCESS(Status)) {
             return Status;
         }
@@ -1255,6 +1354,7 @@ B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)
     Context->AutoVbusDisabled = FALSE;
     Context->AutoIbusConfigured = FALSE;
     Context->UsbcMasksConfigured = FALSE;
+    Context->UsbcRuntimeMasksConfigured = FALSE;
     Context->CcControlConfigured = FALSE;
     Context->MuicPathVerified = FALSE;
     Context->MuicPathRequested = 0xFFU;
@@ -1309,6 +1409,11 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Context->OpcodeResponse = 0xFFU;
     Context->AutoIbusMode = 0xFFU;
     Context->CcControlResponse = 0xFFU;
+    Context->CcControlReadBack = 0xFFU;
+    Context->UicInterruptMask = 0xFFU;
+    Context->CcInterruptMask = 0xFFU;
+    Context->PdInterruptMask = 0xFFU;
+    Context->VdmInterruptMask = 0xFFU;
     Context->MuicPathRequested = 0xFFU;
     Context->MuicControl1 = 0xFFU;
 
@@ -1460,6 +1565,7 @@ B2lMaxEvtReleaseHardware(
     Context->AutoVbusDisabled = FALSE;
     Context->AutoIbusConfigured = FALSE;
     Context->UsbcMasksConfigured = FALSE;
+    Context->UsbcRuntimeMasksConfigured = FALSE;
     Context->CcControlConfigured = FALSE;
     Context->MuicPathVerified = FALSE;
     Context->MuicPathRequested = 0xFFU;
@@ -1512,6 +1618,7 @@ B2lMaxEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
     Context->AutoVbusDisabled = FALSE;
     Context->AutoIbusConfigured = FALSE;
     Context->UsbcMasksConfigured = FALSE;
+    Context->UsbcRuntimeMasksConfigured = FALSE;
     Context->CcControlConfigured = FALSE;
     Context->MuicPathVerified = FALSE;
     Context->MuicPathRequested = 0xFFU;

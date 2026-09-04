@@ -339,11 +339,15 @@ reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUicI
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPdInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxVdmInterrupt >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUicInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxPdInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxVdmInterruptMask >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUsbcMasksConfigured >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxUsbcRuntimeMasksConfigured >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcControlConfigured >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcControlResponse >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxCcControlReadBack >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxOtgHardwareActive >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicPathRequested >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
 reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" /v B2LMaxMuicControl1 >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1
@@ -375,6 +379,12 @@ call :B2LUsbAppendMax77705Summary USBC_FW B2LMaxUsbcFwRev
 call :B2LUsbAppendMax77705Summary USBC_MINOR B2LMaxUsbcFwMinor
 call :B2LUsbAppendMax77705Summary CC0 B2LMaxCcStatus0
 call :B2LUsbAppendMax77705Summary CC1 B2LMaxCcStatus1
+call :B2LUsbAppendMax77705Summary UIC_M B2LMaxUicInterruptMask
+call :B2LUsbAppendMax77705Summary CC_M B2LMaxCcInterruptMask
+call :B2LUsbAppendMax77705Summary PD_M B2LMaxPdInterruptMask
+call :B2LUsbAppendMax77705Summary VDM_M B2LMaxVdmInterruptMask
+call :B2LUsbAppendMax77705Summary MASKS_OK B2LMaxUsbcRuntimeMasksConfigured
+call :B2LUsbAppendMax77705Summary CCCTRL1 B2LMaxCcControlReadBack
 call :B2LUsbAppendMax77705Summary MUIC_REQ B2LMaxMuicPathRequested
 call :B2LUsbAppendMax77705Summary MUIC_CTL1 B2LMaxMuicControl1
 call :B2LUsbAppendMax77705Summary MUIC_OK B2LMaxMuicPathVerified

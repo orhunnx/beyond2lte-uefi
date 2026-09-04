@@ -6,14 +6,14 @@ Bu belge, Logitech `046d:c52e` alıcısının Samsung Linux/Lineage altında fiz
 
 - Linux kanıtı: `out/B2LUSB-LINUX-HOST-MOUSE-RERUN.txt`
 - Son Windows cihaz kanıtı: ekrandaki `b2lmax77705` sürümü `0.1.0.24`
-- Mevcut kaynak: `windows/b2lusb/b2lmax77705.inf.in` sürümü `0.1.0.24`
+- Mevcut, henüz cihazda doğrulanmamış kaynak: `windows/b2lusb/b2lmax77705.inf.in` sürümü `0.1.0.25`
 - `.24` cihaz kanıtı: kullanıcının son flaştan sağladığı ekran görüntüleri; paket `423fd45` ile eklenen CMGP/pinctrl/HSI2C platform hazırlığını içerir.
 
 ## En kısa sonuç
 
-`.24` ile HSI2C platform hazırlığı ve MAX77705 iletişimi cihaz üzerinde doğrulanmıştır. Sürücü `STAGE=0x70`, `STATUS=0`, `PLATFORM_OK=1` durumuna ulaşır; PMIC/USBC kimlikleri okunur, firmware opcode yolu çalışır, charger kilidi açılır ve platform registerları geri okunarak doğrulanır. Bu nedenle ilk eşleşmeyen basamak artık HSI2C değildir.
+`.24` ile HSI2C platform hazırlığı ve MAX77705 iletişimi cihaz üzerinde doğrulanmıştır. Sürücü `STAGE=0x70`, `STATUS=0`, `PLATFORM_OK=1` durumuna ulaşır; PMIC/USBC kimlikleri okunur, firmware opcode yolu çalışır, charger kilidi açılır ve platform registerları geri okunarak doğrulanır. Ancak bu başarı 6. probe/init adımını Linux ile tam eşdeğer kılmıyordu: yalnız `PD_INT_M=0x1c` ve `VDM_INT_M=0xff` kuruluyor, `UIC_INT_M/CC_INT_M` eksik kalıyor, Linux'un çalışma maskesi `00/20/00/f0` durumuna geçilmiyor ve `CCCTRL1=0x1f` gerçek geri okumayla doğrulanmıyordu. Bu nedenle ilk eşleşmeyen basamak 6'dır.
 
-Yeni kırılma noktası Type-C attach/rol kararıdır. Son örnekte `CC0=0x40`: üst iki bit `CCPinStat=1` ile `CC1_ACTIVE` gösterirken alt üç bit `CCStat=0` ile `cc_No_Connection` gösterir. Windows güvenli ayrılma yolunu seçerek MUIC'i `OPEN=0x3f` durumunda tutar ve OTG/VBUS'u açmaz. xHCI buna rağmen HOST ve RUN durumundadır; fakat iki port da `CCS=0`, `PED=0`, `PLS=RxDetect` kalır, yaklaşık 7.884 gözlemde hiç PORTSC geçişi görülmez ve USB/HID enumeration başlamaz.
+`.25` kaynağı 6. adımı kod düzeyinde eşler: opcode öncesi `UIC/CC/PD/VDM=00/20/1c/ff`, opcode sonrası `00/20/00/f0` maskelerini yazıp geri okur; `CCCTRL1_W 0c 1f` ardından `CCCTRL1_R 0b` sonucunun `0x1f` olmasını şart koşar. Bu sürüm henüz cihazda doğrulanmadığı için 7. Type-C attach/rol aşamasına geçildiği varsayılamaz. `.25` maskeleri ve CCCTRL1 geri okumasını doğrular fakat `CCStat` yine `cc_No_Connection` kalırsa sonraki ilk uyuşmazlık 7 olacaktır.
 
 Ana mimari fark şudur:
 
@@ -39,8 +39,8 @@ ACPI _DEP yalnızca BYN0004 sürücüsünün başlamasını bekler
 | 3. HSI2C mesajı | Samsung `exynos5_i2c_xfer` adres, yön, uzunluk ve RUN sırasını kurar; IRQ 114 ile tamamlanır | Windows aynı mesaj kurulumunu yapar, fakat IRQ 114 yerine bounded sleeping polling ile tamamlanmayı gözler | Son işlem `I2C_REGADDR=I2C_TRYADDR=0x0701a400` (`0x69` charger), `I2C_RETRY=0`, `I2C_PHASE=0`, `I2C_ERR=0`, genel `STATUS=0` | Taşıma katmanı çalışıyor; IRQ 114'ün yokluğu bu flaşın blokajı değil |
 | 4. MAX kimlik doğrulama | Parent MFD TOP `0x66`, USBC `0x25`, charger `0x69` istemcilerini oluşturur | TOP ID/rev, USBC HW/FW ve charger registerları aynı sırayla okunur | `PMIC_ID=0x15`, `PMIC_REV=0x2`, `USBC_HW=0x1a`, `USBC_FW=0x1a`, `USBC_MINOR=0x10` | MAX77705 fiziksel erişimi ve kimlik doğrulaması başarılı |
 | 5. Olay mekanizması | GPIO parent IRQ 318; alt CC/MUIC/PD/APCMD IRQ'ları nested IRQ olarak işlenir | MAX GPIO IRQ ACPI'de yok; read-to-clear status registerları PASSIVE one-shot timer ile 200 ms'de bir taranır, hatada 2 s sonra yeniden denenir | Timer MAX durumunu okuyup READY'e ulaşıyor; ancak attach olayı Linux'taki IRQ zinciriyle yürütülmüyor | Polling işlevsel, fakat Linux IRQ semantiği ve tepki süresiyle eşdeğer değil |
-| 6. Probe/init opcodes | USBC/PD probe; interrupt maskeleri; CCCTRL; firmware komut kuyruğu | Charger unlock; `AUTOIBUS 57 01`; UIC/CC/PD/VDM maskeleri; `AUTO_VBUS 54 00`; `CCCTRL1 0c 1f` | `STAGE=0x70`, `STATUS=0`; opcode yolu, maskeler, charger unlock ve CC control tamamlanmış | Init/komut katmanı artık çalışıyor; READY USB attach anlamına gelmiyor |
-| 7. Fiziksel takılma ve CC | IRQ'da `CC1_ACTIVE`, `PLUG_ATTACHED`, `cc_SOURCE`; veri rolü DFP, güç rolü SRC olur | Poll ile `CC_STATUS0 & 7`; yalnız `CC_SOURCE=2` HOST/OTG'yi açabilir | `CC0=0x40`: `CCPinStat=CC1_ACTIVE`, fakat `CCStat=cc_No_Connection`; source durumu görülmüyor | İlk canlı eşleşmeyen adım artık burasıdır |
+| 6. Probe/init opcodes ve kesme düzeni | USBC/PD probe; `UIC/CC/PD/VDM` maskeleri önce probe, sonra çalışma vektörüne geçer; CCCTRL ve firmware komut kuyruğu tamamlanır | `.25`: charger unlock; `AUTOIBUS 57 01`; `00/20/1c/ff` probe maskeleri; `AUTO_VBUS 54 00`; `CCCTRL1_W 0c 1f` + `CCCTRL1_R 0b`; `00/20/00/f0` çalışma maskeleri | `.24`: `STAGE=0x70`, `STATUS=0`, fakat yalnız `PD=1c/VDM=ff` kurulmuştu; UIC/CC, çalışma maskesi ve CCCTRL1 readback kanıtı yoktu | İlk cihazda kanıtlanmış uyumsuzluk; `.25` kodu eşliyor, yeni flaş doğrulaması gerekli |
+| 7. Fiziksel takılma ve CC | IRQ'da `CC1_ACTIVE`, `PLUG_ATTACHED`, `cc_SOURCE`; veri rolü DFP, güç rolü SRC olur | Poll ile `CC_STATUS0 & 7`; yalnız `CC_SOURCE=2` HOST/OTG'yi açabilir | `.24`: `CC0=0x40`, yani `CCPinStat=CC1_ACTIVE` fakat `CCStat=cc_No_Connection`; source görülmedi | `.25`te 6. adım doğrulanırsa incelenecek sonraki sınır |
 | 8. VBUS/charger OTG | `vbus_turn_on_ctrl(1)`, CHGIN-OTG; charger mode `0x04 -> 0x0e`; VBUS HIGH bildirilir | Charger kilidi açılır, interrupt maskesi ayarlanır, `CNFG_00` mevcut moda göre `0x0e` benzeri OTG moda geçirilir ve read-back doğrulanır | `CHG_UNLOCK=1`, `CHG_CFG06=0x0c`, `CHG_MODE=0x15`; `OTG_SW=OTG_HW=0` | Source görülmediği için VBUS güvenli biçimde kapalı tutuluyor; xHCI `PP=1` gerçek konektör VBUS'unu kanıtlamaz |
 | 9. MUIC D+/D- yönlendirme | OTG algılanır, switch `0x09`; opcode `06 09` ile USB yolu AP'ye verilir | Source durumunda `CONTROL1_WRITE 06 09`, ardından `CONTROL1_READ 05` ile `0x09` doğrulanır; detach'te `OPEN=0x3f` seçilir | `MUIC_REQ=0x3f`, `MUIC_CTL1=0x3f`, `MUIC_OK=1` | İletişim ve read-back başarılı, fakat CC kararı nedeniyle D+/D- kasıtlı olarak OPEN bırakıldı |
 | 10. Rol bildirimi ve DWC3 | `Turn On Host(DFP)` ve `USB_HOST_ATTACHED`; DWC3 role-switch work başlar | Windows'ta Linux notifier zinciri yok. `BYN0002` PrepareHardware içinde doğrudan sabit HOST seçer | BYN0002 ve BYN0003 Started | Windows bu aşamayı MAX sonucundan önce yaptı |
@@ -80,7 +80,8 @@ Bu süreler Windows için bir performans hedefi olmaktan önce bir sıralama kan
 | USB D+/D- yolunu AP'ye ver | `CONTROL1_WRITE: 06 09` | Source görüldüğünde `06 09`, sonra `05` read-back | Uygulama var; `.24`te source görülmediği için bu dala girilmedi |
 | Firmware AUTOIBUS | `57 01`, cevap `57` | `57 01`, APCMDRES ve cevap opcode kontrolü | `.24` READY sonucu, opcode taşıma yolunun tamamlandığını doğruluyor |
 | Otomatik VBUS'u kapat | Samsung init davranışı | `54 00` | `.24` init zincirinde başarıyla tamamlandı |
-| CC kontrolü | startup CC control ve sonrasında IRQ tabanlı rol durumu | `0c 1f`, ardından polling ile `CC_STATUS0` | Komut tamamlanıyor; sonuç `CC1_ACTIVE + cc_No_Connection`, Linux'taki `cc_SOURCE` oluşmuyor |
+| Kesme maskeleri | Çalışan log: `UIC/CC/PD/VDM=00/20/00/f0`; probe sırasında `PD/VDM=1c/ff` ara durumu | `.25`: `00/20/1c/ff`, init sonrası `00/20/00/f0`; her register readback ile doğrulanır | Kod eşlendi; cihaz kanıtı bekleniyor |
+| CC kontrolü | `CCCTRL1_W 0c 1f`; sonrasında IRQ tabanlı rol durumu | `.25`: `0c 1f`, `0b` readback=`1f`, ardından polling ile `CC_STATUS0` | `.24`te yalnız yazma cevabı vardı; `.25` cihaz kanıtı bekleniyor |
 | Charger OTG | `CNFG_00 0x04 -> 0x0e` | Source görülürse mevcut moda göre `0x0e/0x0f/...`; read-back ve rollback | Source görülmediği için çalıştırılmadı; `CHG_MODE=0x15` OTG içermiyor |
 | Detach izolasyonu | VBUS off, switch open | OTG off, ardından MUIC `0x3f` | `.24`te `MUIC_OK=1`, `MUIC_CTL1=0x3f`, `OTG_SW/HW=0` ile cihazda doğrulandı |
 
@@ -97,6 +98,7 @@ IdentityReady
 ChargerUnlocked
 AutoIbusConfigured
 UsbcMasksConfigured
+UsbcRuntimeMasksConfigured
 AutoVbusDisabled
 CcControlConfigured
 CC_STATUS == SOURCE
@@ -106,7 +108,7 @@ OtgHardwareActive
 
 `.24` bu ayrımı görünür hale getirmiştir: MAX tarafı READY'e ulaşsa bile `CC_STATUS == SOURCE`, `MuicPathVerified == USB_AP` ve `OtgHardwareActive` koşulları oluşmamıştır. BYN0002/BYN0003 yine HOST/RUN durumuna geçtiği için controller çalışır, fakat konektör zinciri hazır değildir.
 
-### 2. `.24` HSI2C ve MAX komut katmanını tamamladı; kırılma CC kararına taşındı
+### 2. `.24` transportu tamamladı, fakat probe/init eşdeğerliği eksik kaldı
 
 Son Windows kanıtında platform, HSI2C, kimlik ve opcode katmanları başarıyla tamamlanmıştır:
 
@@ -119,9 +121,9 @@ MUIC_OK=0x1                CC0=0x40
 OTG_SW/HW=0/0
 ```
 
-`CC0=0x40` aynı byte içinde iki ayrı bilgiyi taşır. `bits[7:6]=1`, stok Samsung tanımında `CC1_ACTIVE`; `bits[2:0]=0` ise `cc_No_Connection` değeridir. Windows'un yalnız source değeri `2` için VBUS ve USB_AP yolunu açması bu örnekte güvenli no-connection dalını seçtirir. Böylece `MUIC_REQ=MUIC_CTL1=0x3f` ve `OTG_SW=OTG_HW=0` sonucu bir I2C/opcode başarısızlığı değil, mevcut CC kararının kasıtlı çıktısıdır.
+Bu çıktı I2C/opcode taşımasının çalıştığını kanıtlar; ancak `.24` UIC/CC maskelerini kurmadığı, çalışma maskesine geçmediği ve CCCTRL1'i geri okumadığı için `CC0=0x40` sonucunu artık tam Linux init'inden sonraki attach kararı olarak kabul etmiyoruz. `bits[7:6]=1` stok Samsung tanımında `CC1_ACTIVE`, `bits[2:0]=0` ise `cc_No_Connection` değeridir; fakat 7. adımın gerçek blokaj olup olmadığı `.25`te 6. adım doğrulandıktan sonra yeniden değerlendirilecektir.
 
-Tek aktif CPU açısından da sonuç olumludur: WinPE test sonuna ve komut istemine ulaşmış, xHCI gözlemcisi yaklaşık 7.884 örnek toplamış ve controller `RUN=1` kalmıştır. PASSIVE timer ve bounded sleeping polling boot CPU'sunu kilitlememiştir. Görülen sorun artık performans veya HSI2C timeout'u değil, Linux'ta `cc_SOURCE` üreten rol/olay dizisinin Windows'ta oluşmamasıdır.
+Tek aktif CPU açısından sonuç olumludur: WinPE test sonuna ve komut istemine ulaşmış, xHCI gözlemcisi yaklaşık 7.884 örnek toplamış ve controller `RUN=1` kalmıştır. PASSIVE timer ve bounded sleeping polling boot CPU'sunu kilitlememiştir. `.25` bu çalışan taşıma modelini koruyarak yalnız eksik MAX77705 init/kesme sözleşmesini tamamlar.
 
 ### 3. HSI2C platform hazırlığı `.24` ile cihazda doğrulandı
 
