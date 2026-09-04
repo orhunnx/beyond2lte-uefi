@@ -17,6 +17,7 @@
 
 #define B2L_MAX_INITIAL_POLL_MS      1UL
 #define B2L_MAX_ATTACH_POLL_MS       20UL
+#define B2L_MAX_ATTACH_FAST_POLLS    50UL
 #define B2L_MAX_POLL_MS              200UL
 #define B2L_MAX_RETRY_POLL_MS        2000UL
 #define B2L_MAX_IDLE_DIAGNOSTIC_POLLS 10UL
@@ -35,6 +36,7 @@
 #define B2L_MAX_STAGE_CC_CONTROL     0x4CUL
 #define B2L_MAX_STAGE_RUNTIME_MASKS  0x4DUL
 #define B2L_MAX_STAGE_MUIC_USB       0x4EUL
+#define B2L_MAX_STAGE_CC_OPEN        0x4FUL
 #define B2L_MAX_STAGE_OTG_ON         0x50UL
 #define B2L_MAX_STAGE_OTG_OFF        0x60UL
 #define B2L_MAX_STAGE_MUIC_OPEN      0x64UL
@@ -71,6 +73,7 @@ typedef struct _B2L_MAX_CONTEXT {
     BOOLEAN UsbcMasksConfigured;
     BOOLEAN UsbcRuntimeMasksConfigured;
     BOOLEAN CcControlConfigured;
+    BOOLEAN CcOpenNormalized;
     BOOLEAN MuicPathVerified;
     BOOLEAN BaselineValid;
     BOOLEAN CcStatusValid;
@@ -112,6 +115,8 @@ typedef struct _B2L_MAX_CONTEXT {
     UCHAR VdmInterruptMask;
     UCHAR CcControlResponse;
     UCHAR CcControlReadBack;
+    UCHAR Control3Before;
+    UCHAR Control3After;
     UCHAR MuicPathRequested;
     UCHAR MuicControl1;
     ULONG HsI2cControl;

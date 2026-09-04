@@ -48,7 +48,7 @@ grep -Fq 'ACPI\BYN0003' "$HOST_INF"
 grep -q 'DriverVer=09/03/2026,0.1.0.18' "$PARENT_INF"
 grep -q 'DriverVer=09/03/2026,0.1.0.18' "$HOST_INF"
 grep -Fq 'ACPI\BYN0004' "$MAX_INF"
-grep -q 'DriverVer=09/04/2026,0.1.0.26' "$MAX_INF"
+grep -q 'DriverVer=09/04/2026,0.1.0.27' "$MAX_INF"
 grep -q 'KmdfLibraryVersion=1.15' "$MAX_INF"
 grep -qi 'Include=usbxhci.inf' "$HOST_INF"
 grep -q 'Needs=Generic.Install.NT' "$HOST_INF"
@@ -137,7 +137,7 @@ if grep -q 'WDF_TIMER_CONFIG_INIT_PERIODIC' "$WIN/b2lusb.c"; then
   echo 'HATA: observer kendi callbackinden durdurulan periodic timer kullanmamali' >&2
   exit 1
 fi
-grep -q 'UseHighResolutionTimer = WdfTrue' "$WIN/b2lusb.c"
+grep -q 'UseHighResolutionTimer = WdfFalse' "$WIN/b2lusb.c"
 grep -q 'TimerConfig.AutomaticSerialization = FALSE' "$WIN/b2lusb.c"
 grep -q 'Attributes.ExecutionLevel = WdfExecutionLevelDispatch' "$WIN/b2lusb.c"
 grep -q 'WdfSpinLockAcquire(Context->XhciObserveLock)' "$WIN/b2lusb.c"
@@ -147,7 +147,8 @@ if printf '%s\n' "$TIMER_BLOCK" | grep -q 'WdfTimerStop'; then
   echo 'HATA: observer callbacki ayni timer icin concurrent stop yarismamali' >&2
   exit 1
 fi
-grep -q 'B2L_XHCI_OBSERVE_PERIOD_MS 1UL' "$WIN/b2lusb.h"
+grep -q 'B2L_XHCI_OBSERVE_PERIOD_MS 20UL' "$WIN/b2lusb.h"
+grep -Fq 'B2L_XHCI_OBSERVE_WINDOW_100NS (5ULL * 1000ULL * 10000ULL)' "$WIN/b2lusb.h"
 OBSERVE_BLOCK="$(sed -n '/^B2lUsbHardwareObserveXhci(/,/^}/p' "$WIN/b2lusb_hw.c")"
 printf '%s\n' "$OBSERVE_BLOCK" | grep -q 'B2lRead32'
 if printf '%s\n' "$OBSERVE_BLOCK" | rg -n 'B2lWrite32|WRITE_REGISTER'; then

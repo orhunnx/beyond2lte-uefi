@@ -336,7 +336,7 @@ USBC tarafında stock sıra `AUTOIBUS(0x57,0x01)`, `PD_INT_M=0x1C`,
 `VDM_INT_M=0xFF`, `AUTO_VBUS_OFF(0x54,0x00)` ve beyond2lte'nin
 `support-audio` profiline ait `CCCTRL1_W(0x0C,0x1F)` olarak uygulanır.
 Fiziksel MAX77705 kesmesi ACPI'de bulunmadığından UIC/CC/PD/VDM read-to-clear
-registerları 200 ms pasif döngüde boşaltılır. Kilit, maskeler, CCCTRL1 cevabı,
+registerları sınırlı hızlı pencere ve 200 ms pasif sağlık döngüsüyle boşaltılır. Kilit, maskeler, CCCTRL1 cevabı,
 dört kesme örneği, gerçek `CNFG_00` OTG donanım durumu ve başarısız HSI2C fazı
 `B2LUSB-MAX77705.TXT` dosyasına yazılır. Bootloader'dan A/E/F modu devralınsa
 bile CC değeri SOURCE değilse OTG kapatılır; böylece tek flash sonucu bus,
@@ -349,6 +349,15 @@ PASSIVE_LEVEL tek-atımlı timer'a bırakılır. HSI2C polling döngüsü CPU'yu
 100 ms içinde tamamlanır. Başarısız probe 200 ms'de yeniden saldırmak yerine
 2 saniye backoff uygular; başarılı CC takibi yine 200 ms'dir. Böylece MAX77705
 cevap vermese bile PnP/USBXHCI/WinPE boot yolu ilerleyebilir.
+
+`0.1.0.27`, Linux MAX77705 probe sonundaki tek-seferlik manual CC-open bırakma
+adımını tamamlar. Çalışma maskeleri kurulduktan sonra `CONTROL3_R(0x1c)` okunur;
+`LockErrorEn` biti açıksa diğer bitler korunarak `CONTROL3_W(0x1d)` ile yalnız
+bit 1 temizlenir ve ikinci `CONTROL3_R` ile doğrulanır. Bu işlem rol veya VBUS
+zorlamaz. `CCOPEN_OK`, `CTRL3_BEFORE` ve `CTRL3_AFTER` tanı alanları bu hipotezi
+tek flaşta sınar. Kalıcı agresif polling de kaldırılmıştır: MAX ayrık durumunda
+20 ms aralık yalnız ilk 50 örnek, sonrasında 200 ms'dir; xHCI gözlemcisi ise
+yüksek çözünürlüklü 1 ms/12 s yerine normal 20 ms/5 s pencere kullanır.
 
 `0.1.0.26`, `.25` cihaz kanıtındaki ilk canlı fark olan Type-C olay teslimini
 Linux parent/nested IRQ sırasına yaklaştırır. Her örnekte önce TOP `INTSRC`

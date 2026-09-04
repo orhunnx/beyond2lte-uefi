@@ -38,8 +38,11 @@
 #define MAX77705_OPCODE_CCCTRL1_WRITE    0x0CU
 #define MAX77705_OPCODE_CONTROL1_READ    0x05U
 #define MAX77705_OPCODE_CONTROL1_WRITE   0x06U
+#define MAX77705_OPCODE_CONTROL3_READ    0x1CU
+#define MAX77705_OPCODE_CONTROL3_WRITE   0x1DU
 #define MAX77705_MUIC_COM_USB_AP         0x09U
 #define MAX77705_MUIC_COM_OPEN           0x3FU
+#define MAX77705_CONTROL3_LOCK_ERROR_EN  (1U << 1)
 #define MAX77705_CCCTRL1_SOURCE_SINK     (1U << 4)
 #define MAX77705_CCCTRL1_SINK_SOURCE     (1U << 3)
 #define MAX77705_CCCTRL1_DEBUG_ENABLE    (1U << 2)
@@ -143,7 +146,8 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxCcTransitionCount", L"B2LMaxCcInterruptCount",
         L"B2LMaxCcSourceEventCount", L"B2LMaxCcLastSampleTimeLow",
         L"B2LMaxCcLastSampleTimeHigh", L"B2LMaxCcLastTransitionTimeLow",
-        L"B2LMaxCcLastTransitionTimeHigh"
+        L"B2LMaxCcLastTransitionTimeHigh", L"B2LMaxCcOpenNormalized",
+        L"B2LMaxControl3Before", L"B2LMaxControl3After"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -239,6 +243,9 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[80] = (ULONG)(Context->CcLastSampleTime >> 32);
     Values[81] = (ULONG)(Context->CcLastTransitionTime & 0xFFFFFFFFULL);
     Values[82] = (ULONG)(Context->CcLastTransitionTime >> 32);
+    Values[83] = Context->CcOpenNormalized ? 1UL : 0UL;
+    Values[84] = Context->Control3Before;
+    Values[85] = Context->Control3After;
 
     RtlInitUnicodeString(&ServicePath, ServicePathBuffer);
     InitializeObjectAttributes(
@@ -901,6 +908,66 @@ B2lMaxConfigureCcControl(PB2L_MAX_CONTEXT Context)
 }
 
 static NTSTATUS
+B2lMaxNormalizeCcOpen(PB2L_MAX_CONTEXT Context)
+{
+    UCHAR Wanted;
+    NTSTATUS Status;
+
+    Context->CcOpenNormalized = FALSE;
+    Context->Control3Before = 0xFFU;
+    Context->Control3After = 0xFFU;
+
+    // Samsung finishes max77705_usbc_probe() by issuing the manual CC-open
+    // release request.  Its off path reads CONTROL3 and clears only
+    // LockErrorEn; it does not force VBUS or synthesize a SOURCE role.
+    Status = B2lMaxExchangeOpcode(
+        Context,
+        MAX77705_OPCODE_CONTROL3_READ,
+        NULL,
+        0UL,
+        1UL,
+        &Context->Control3Before
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+
+    Wanted = (UCHAR)(Context->Control3Before &
+                     (UCHAR)~MAX77705_CONTROL3_LOCK_ERROR_EN);
+    if (Wanted != Context->Control3Before) {
+        Status = B2lMaxExchangeOpcode(
+            Context,
+            MAX77705_OPCODE_CONTROL3_WRITE,
+            &Wanted,
+            1UL,
+            0UL,
+            NULL
+            );
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+    }
+
+    Status = B2lMaxExchangeOpcode(
+        Context,
+        MAX77705_OPCODE_CONTROL3_READ,
+        NULL,
+        0UL,
+        1UL,
+        &Context->Control3After
+        );
+    if (!NT_SUCCESS(Status)) {
+        return Status;
+    }
+    if ((Context->Control3After & MAX77705_CONTROL3_LOCK_ERROR_EN) != 0U) {
+        return STATUS_DEVICE_DATA_ERROR;
+    }
+
+    Context->CcOpenNormalized = TRUE;
+    return STATUS_SUCCESS;
+}
+
+static NTSTATUS
 B2lMaxProbeIdentity(PB2L_MAX_CONTEXT Context)
 {
     NTSTATUS Status;
@@ -1423,6 +1490,14 @@ B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
         }
     }
 
+    if (!Context->CcOpenNormalized) {
+        Status = B2lMaxNormalizeCcOpen(Context);
+        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_CC_OPEN, Status);
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+    }
+
     Status = B2lMaxEvaluateConnection(Context);
     if (NT_SUCCESS(Status)) {
         ++Context->DiagnosticPollCount;
@@ -1473,6 +1548,9 @@ B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)
     Context->UsbcMasksConfigured = FALSE;
     Context->UsbcRuntimeMasksConfigured = FALSE;
     Context->CcControlConfigured = FALSE;
+    Context->CcOpenNormalized = FALSE;
+    Context->Control3Before = 0xFFU;
+    Context->Control3After = 0xFFU;
     Context->MuicPathVerified = FALSE;
     Context->MuicPathRequested = 0xFFU;
     Context->MuicControl1 = 0xFFU;
@@ -1527,6 +1605,8 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Context->AutoIbusMode = 0xFFU;
     Context->CcControlResponse = 0xFFU;
     Context->CcControlReadBack = 0xFFU;
+    Context->Control3Before = 0xFFU;
+    Context->Control3After = 0xFFU;
     Context->UicInterruptMask = 0xFFU;
     Context->CcInterruptMask = 0xFFU;
     Context->PdInterruptMask = 0xFFU;
@@ -1684,6 +1764,9 @@ B2lMaxEvtReleaseHardware(
     Context->UsbcMasksConfigured = FALSE;
     Context->UsbcRuntimeMasksConfigured = FALSE;
     Context->CcControlConfigured = FALSE;
+    Context->CcOpenNormalized = FALSE;
+    Context->Control3Before = 0xFFU;
+    Context->Control3After = 0xFFU;
     Context->MuicPathVerified = FALSE;
     Context->MuicPathRequested = 0xFFU;
     Context->MuicControl1 = 0xFFU;
@@ -1759,6 +1842,9 @@ B2lMaxEvtD0Exit(WDFDEVICE Device, WDF_POWER_DEVICE_STATE TargetState)
     Context->UsbcMasksConfigured = FALSE;
     Context->UsbcRuntimeMasksConfigured = FALSE;
     Context->CcControlConfigured = FALSE;
+    Context->CcOpenNormalized = FALSE;
+    Context->Control3Before = 0xFFU;
+    Context->Control3After = 0xFFU;
     Context->MuicPathVerified = FALSE;
     Context->MuicPathRequested = 0xFFU;
     Context->MuicControl1 = 0xFFU;
@@ -1785,10 +1871,13 @@ B2lMaxEvtPollTimer(WDFTIMER Timer)
     if (!NT_SUCCESS(Status)) {
         NextPollMs = B2L_MAX_RETRY_POLL_MS;
     } else if (Context->CcStatusValid &&
-               (Context->CcState == B2L_MAX_CC_NO_CONNECTION)) {
+               (Context->CcState == B2L_MAX_CC_NO_CONNECTION) &&
+               (Context->CcSampleCount <= B2L_MAX_ATTACH_FAST_POLLS)) {
         // With no verified GPA1_6 ACPI interrupt resource, approximate the
-        // Linux CCStat wakeup only while waiting for attach.  Once a stable
-        // role exists, return to the lower-rate status/health cadence.
+        // Linux CCStat wakeup only for a bounded post-init attach window.
+        // A stable role or an expired window returns to the 200 ms health
+        // cadence; late physical attach remains observable without a
+        // permanent 50 Hz polling load.
         NextPollMs = B2L_MAX_ATTACH_POLL_MS;
     } else {
         NextPollMs = B2L_MAX_POLL_MS;

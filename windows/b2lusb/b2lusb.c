@@ -187,7 +187,7 @@ B2lUsbEvtDeviceAdd(
 
     WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lUsbEvtXhciObserveTimer);
     TimerConfig.AutomaticSerialization = FALSE;
-    TimerConfig.UseHighResolutionTimer = WdfTrue;
+    TimerConfig.UseHighResolutionTimer = WdfFalse;
     WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
     Attributes.ParentObject = Device;
     Attributes.ExecutionLevel = WdfExecutionLevelDispatch;
