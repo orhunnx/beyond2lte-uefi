@@ -199,7 +199,10 @@ abort ürettiği için onları açan bir paket güvenli değildir.
 
 **Güncel tercih: kullanıcı onaylı karma UFX denemesi.** Aynı-build kapısı
 projenin varsayılan politikasıdır; farklı build'in yüklenemeyeceği ölçülmedi.
-28000 çekirdek/UCM/URS korunarak gerçek 25H2 UFX/Synopsys çiftini eklemek için:
+Son WSL çıktısı URS'nin zaten 26100, Synopsys'in 28000 ve UFX'in eksik
+olduğunu gösterdi. v2, çekirdek/UCM'yi koruyup gerçek 25H2
+URS/UFX/Synopsys grubunu birlikte ekler; mevcut Synopsys dosyası ve servis
+ağacı kaynak sürümüyle değiştirilir. Çalıştırmak için:
 
 ```bash
 cd ~/beyond2lte-uefi-8549
@@ -212,7 +215,7 @@ bash cache_esp.sh --win --system --baseline
 
 İlk build başarılı olmadan ESP komutuna geçme. WSL'de `hivexget`,
 `hivexregedit`, `7z` eksikse `sudo apt-get install libhivex-bin libwin-hivex-perl p7zip-full`.
-Kaynak SYS/INF, DriverStore dosyaları ve gerçek iki servis ağacı kullanılır;
+Kaynak SYS/INF, DriverStore dosyaları ve gerçek üç servis ağacı kullanılır;
 Microsoft dosyaları değiştirilmez veya yeniden imzalanmaz. Bu tam CBS paket
 kurulumu değildir; Windows imza/ABI/WDF bağlama ve cihaz testi henüz yapılmadı.
 PnP platform paketi sonraki mevcut DISM aşamasında kurulur. Rol/IRQ akışı aynıdır.
@@ -220,8 +223,11 @@ PnP platform paketi sonraki mevcut DISM aşamasında kurulur. Rol/IRQ akışı a
 WIM önce geçici kopyada hazırlanıp geri okunur; önceki WIM
 `esp/sources/boot.wim.before-experimental-ufx` olarak korunur. Kaynak ve
 payload hash'leri `out/b2lusb/experimental-ufx.json` içindedir. Yalnız bu kayda
-bağlı UFX çiftinin farklı build olmasına izin verilir; mimari veya UCM/URS
-hataları kabul edilmez. Aynı kaynakla tekrar çalıştırma ISO'yu yeniden çıkarmaz.
+bağlı URS/UFX/Synopsys grubunun farklı build olmasına izin verilir; grup
+kendi içinde aynı build olmalıdır. Mimari veya çekirdek/UCM farkı kabul
+edilmez. Eski dosya hash'leri ve servis REG'leri de saklanır. Aynı kaynakla
+v2 profili tekrar çalıştırma ISO'yu yeniden çıkarmaz. Yeni günlükte
+`USB runtime hazirlayici v2 / profil: experimental-ufx` görülmelidir.
 Varsayılan `strict` profili aynı-build koşulunu korur; aşağıdaki salt okunur
 kaynak/target karşılaştırması da sürüm farkında başarısız sonuç verir.
 Deneme ve geri dönüş ayrıntıları [Linux karşılaştırmasının başında](../../specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md).

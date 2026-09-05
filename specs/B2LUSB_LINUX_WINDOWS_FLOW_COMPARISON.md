@@ -1,5 +1,74 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: gerçek hedef WIM envanteri ve deneysel runtime v2 düzeltmesi
+
+Son WSL raporu, önceki v1 profilini hazırlarken kullandığımız hedef
+varsayımını geçersiz kıldı:
+
+| Bileşen | Hedefte ölçülen durum | v2 deneme sonrası planlanan durum |
+|---|---|---|
+| ntoskrnl.exe | ARM64 10.0.28000 | Aynı dosya korunur |
+| UcmCx.sys | ARM64 10.0.28000 | Aynı dosya korunur |
+| Urscx01000.sys | ARM64 10.0.26100 | Seçilen ISO'daki gerçek URS |
+| Ufx01000.sys | Yok, wimlib kod 49 | Seçilen ISO'daki gerçek UFX |
+| ufxsynopsys.sys | ARM64 10.0.28000 | Seçilen ISO'daki gerçek Synopsys |
+| ufxsynopsys.inf | Var; SHA256 aşağıda | Seçilen ISO'daki eşleşen INF |
+
+Hedef INF SHA256:
+`16782eaffb378057648f3530003e44681ffb2861ec51ce2d3149e855974d3dc1`.
+WinSxS envanterinde 28000 isimli URS dizini de var, ancak buradaki dosyanın
+PE sürümü ve servis kurulumu bu raporda doğrulanmadı. Kurulu dosyanın
+26100 olduğu ise doğrudan PE okumasıdır. Önceki URS aktarımı bunun olası
+kaynağıdır; bu çıktı tek başına aktarım geçmişini kanıtlamaz.
+
+**v1 hatası:** Çekirdek/UCM/URS aynı build varsayımı yanlıştı. URS kontrolü
+atlatılsa bile mevcut 28000 Synopsys dosyasını değiştirmeyen v1 kapısı bu
+WIM'i reddederdi. Sadece ortam değişkenini yeniden vermek yeterli düzeltme
+değildi. v2 profili URS + UFX + Synopsys'i aynı kaynak grubuna alır.
+Kaynak kendi runtime/INF kontrolünden geçer; grup aynı ARM64 build olmalıdır.
+Çekirdek ve UCM hedefte kalır ve birbirleriyle aynı build olması gerekir.
+Eski v1 manifestleri okunabilir; aynı kaynaktan v2'ye hazırlama yapılabilir.
+
+`prepare-experimental-ufx.py` bu üç servisin gerçek kaynak ağaçlarını alır.
+Önceki hedef servis REG'si saklanır, yalnız ilgili servis anahtarı geçici
+hive'dan kaldırılır ve kaynağın gerçek ağacı eklenir. Böylece eski runtime'ın
+fazladan parametreleri merge sonrasında kalmaz. Diğer servisler değiştirilmez;
+kaynak `Enum` aygıt listesi kopyalanmaz. Önceki dosyaların hash'leri,
+eksik dosya bilgisi ve önceki servis REG hash'leri manifestte `replaced`
+alanına yazılır. UFX eksikliği hiçbir aşamada başarılı kurulum sayılmaz.
+Geri okuma ve yedek WIM kapıları korunur. Bu, tam CBS kurulumu değildir;
+imza/katalog güveni, ABI/WDF bağlama ve gerçek Windows çalışma sonucu açıktır.
+
+Yeni günlükte `USB runtime hazirlayici v2 / profil: experimental-ufx` ve
+`USB runtime denetleyici v2` görülmelidir. Paylaşılan çıktı yeni `GENEL SONUC`
+satırını içermediğinden eski betik veya eski çıktı olasılığı vardır; WSL'deki
+commit bu rapordan belirlenemez. Varsayılan strict modu otomatik denemeye
+dönüştürülmez. Güncel kod WSL'ye aktarıldıktan sonra, profil ve kaynak komuta
+doğrudan verilerek normal build yapılır:
+
+```bash
+cd ~/beyond2lte-uefi-8549
+B2L_USB_RUNTIME_PROFILE=experimental-ufx \
+B2L_WINDOWS_ARM64_SOURCE=/mnt/c/Users/orhun/Downloads/Windows11_25H2_ARM64.iso \
+B2L_WINDOWS_ARM64_SOURCE_INDEX=1 \
+bash yap.sh --touch --usb-test --clean &&
+bash cache_esp.sh --win --system --baseline
+```
+
+İlk çalışmada hivex araçları eksikse önce
+`sudo apt-get install libhivex-bin libwin-hivex-perl p7zip-full`.
+Telefon flaşı bu düzeltmeyi yapmak için beklenmedi. Yeni testler gerçek
+eksik/kısmi WIM bileşimini, 28000 Synopsys'in kaynak dosyayla değiştirilmesini,
+eski servis parametrelerinin kaldırılmasını, diğer servislerin korunmasını,
+v2 grup/build/mimari/hash hatalarını ve başarısız geri okumada rollback'i
+kapsar. Host testleri geçti; gerçek WSL paketleme veya cihaz testi yapılmadı.
+Linux/Android donanım akışı ve parent `.21` / MAX `.42` sürümleri değişmedi.
+
+Servis alt ağacı değiştirme sözleşmesi:
+[libguestfs registry anahtarı silme biçimi](https://libguestfs.org/virt-win-reg.1.html#deleting-registry-keys-and-values).
+
+## Önceki v1 tasarımı — aşağıdaki URS-koruma varsayımı v2 ile değişti
+
 ## 5 Eylül 2026: kullanıcı onaylı 26100 UFX / 28000 WinPE deneme profili
 
 Son kullanıcı çıktısında altı kaynak dosyası bulundu, aynı INF SHA256'sı

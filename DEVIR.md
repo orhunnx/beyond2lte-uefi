@@ -18,7 +18,19 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
-> **5 Eylül / kullanıcı onaylı karma UFX denemesi:** Aynı-build şartı
+> **5 Eylül / gerçek hedef WIM ve profil v2:** Yeni WSL çıktısı çekirdek/UCM
+> 28000, kurulu URS 26100, Synopsys 28000 ve eksik UFX gösterdi. Önceki
+> profilin URS'yi 28000 sanması ve Synopsys değişimini reddetmesi yanlıştı.
+> `experimental-ufx` artık aynı ISO'dan URS/UFX/Synopsys grubunu, gerçek
+> üç servis ağacını ve Synopsys INF'sini birlikte alır. Çekirdek/UCM korunur.
+> Eski dosya hash'leri ve servis REG'leri kaydedilir; değişim yalnız geçici
+> WIM/hive kopyasında gerçekleşir. Kayıt biçimi `experimental-ufx-overlay-v2`.
+> Kaynak, mimari, grup sürümü ve hash kapıları korunur; host testleri geçti.
+> WSL çıktısı yeni denetleyicinin son özetini içermiyor; eski kod veya eski
+> çıktı olasılığı var. Yeni başlangıç satırı hazırlayıcı sürümünü ve profili
+> gösterir. WSL/cihaz doğrulaması bekleniyor; komutlar karşılaştırmanın başında.
+
+> **5 Eylül / önceki v1 kullanıcı onaylı karma UFX denemesi:** Aynı-build şartı
 > projenin temkinli politikasıydı; 26100 UFX'in 28000'de yüklenemeyeceğinin
 > ölçümü değildi. `B2L_USB_RUNTIME_PROFILE=experimental-ufx` profili eklendi.
 > Gerçek 25H2 ISO'sundan UFX/Synopsys SYS, INF/DriverStore dosyaları ve iki

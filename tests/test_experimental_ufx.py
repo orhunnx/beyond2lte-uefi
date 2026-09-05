@@ -72,15 +72,19 @@ for fail_readback in (True, False):
         backup = target.with_name(target.name + '.before-experimental-ufx')
         backup.write_bytes(b'previous-rollback')
         store_path = '/Windows/System32/DriverStore/FileRepository/ufxsynopsys.inf_arm64_test'
-        files = {p: ('target-' + p).encode() for p in m['REQUIRED'][:3]}
-        src_files = {p: ('source-' + p).encode() for p in m['REQUIRED'][3:]}
+        files = {p: ('target-' + p).encode() for p in m['REQUIRED'] if p != m['REQUIRED'][3]}
+        src_files = {p: ('source-' + p).encode() for p in m['REQUIRED'][2:]}
         payload = {}
-        service_data = {}
+        service_data = {s.lower(): (f'Windows Registry Editor Version 5.00\n\n'
+                        f'[{prefix}\\ControlSet001\\Services\\{s}]\n"OldParameter"=dword:00000002\n')
+                        for s in ('UrsCx01000', 'ufxsynopsys')}
+        service_data['unrelated'] = 'preserved'
+        deleted = []
 
         def fake_extract(image, index, path, work, optional=False):
             if path == m['MARKER'] and Path(image) == target:
                 return None
-            if Path(image) == target and path in src_files:
+            if Path(image) == target and path == m['REQUIRED'][3]:
                 return None
             if Path(image) == target and path.startswith(store_path):
                 return None
@@ -121,10 +125,20 @@ for fail_readback in (True, False):
                 return args[2].split('\\')[-1] + '.sys' if args[3] == 'ImagePath' else '1'
             if args[0] == 'hivexregedit':
                 if '--merge' in args:
-                    service_data[Path(args[-1]).stem.lower()] = Path(args[-1]).read_text()
+                    data = Path(args[-1]).read_text()
+                    if Path(args[-1]).stem.endswith('-delete'):
+                        service = Path(args[-1]).stem[:-7].lower()
+                        assert service in ('urscx01000', 'ufxsynopsys')
+                        assert f'\\Services\\{Path(args[-1]).stem[:-7]}]' in data
+                        assert '[-HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\' in data
+                        del service_data[service]
+                        deleted.append(service)
+                    else:
+                        service_data[Path(args[-1]).stem.lower()] = data
                     return ''
                 if args[-1].endswith('\\Services'):
-                    return ''
+                    return '\n'.join(f'[{prefix}\\ControlSet001\\Services\\{s}]'
+                                     for s in service_data)
                 service = args[-1].split('\\')[-1]
                 is_source = Path(args[-2]).read_bytes() == b'source-hive'
                 return service_reg(service, 'ControlSet002') if is_source else service_data[service.lower()]
@@ -147,4 +161,14 @@ for fail_readback in (True, False):
         assert backup.read_bytes() == b'previous-rollback'
         assert source.read_bytes() == b'source-image'
         assert (root/'manifest.json').exists() == (not fail_readback)
+        assert set(deleted) == {'urscx01000', 'ufxsynopsys'}
+        assert service_data['unrelated'] == 'preserved'
+        assert all('OldParameter' not in service_data[s.lower()] for s in m['SERVICES'])
+        if not fail_readback:
+            import json
+            record = json.loads((root/'manifest.json').read_text())
+            assert record['profile'] == 'experimental-ufx-overlay-v2'
+            assert record['replaced'][m['REQUIRED'][3]] is None
+            assert record['replaced'][m['REQUIRED'][4]]  # existing native Synopsys was replaced
+            assert set(record['services']) == set(m['SERVICES'])
 print('UFX WIM staging: publish after read-back; failed read-back preserves original and rollback: PASS')

@@ -66,15 +66,17 @@ def compare_kernels(source, index, target, emit, run=subprocess.run):
 
 
 def validate_experimental_ufx(files, manifest):
-    """An opt-in exception for exactly the recorded UFX pair, not UCM/URS/kernel."""
+    """Accept only the recorded runtime cohort; kernel and UCM stay native."""
     record = json.loads(Path(manifest).read_text(encoding='utf-8'))
-    if record.get('profile') != 'experimental-ufx-overlay-v1':
+    profile = record.get('profile')
+    if profile not in ('experimental-ufx-overlay-v1', 'experimental-ufx-overlay-v2'):
         raise ValueError('Bilinmeyen UFX deneme profili')
     versions = [VALIDATOR['arm64_build'](p.read_bytes()) for p in files[:-1]]
-    if not versions[0] == versions[1] == versions[2]:
-        raise ValueError('Deneme profili cekirdek/UCM/URS farkina izin vermez')
-    if versions[3] != versions[4] or versions[3][:2] != versions[0][:2]:
-        raise ValueError('UFX cifti ayni major/minor/build olmali')
+    split = 3 if profile.endswith('-v1') else 2
+    if any(version != versions[0] for version in versions[1:split]):
+        raise ValueError('Deneme profili yerli runtime/cekirdek farkina izin vermez')
+    if any(version != versions[3] for version in versions[split:]) or versions[3][:2] != versions[0][:2]:
+        raise ValueError('Kaynak runtime grubu ayni major/minor/build olmali')
     if list(versions[0]) != record['target_build'] or list(versions[3]) != record['source_build']:
         raise ValueError('UFX manifest build bilgisi dosyalarla eslesmiyor')
     for path, file in zip(REQUIRED, files):
@@ -153,7 +155,7 @@ def check(wim, index, emit, out_inf=None, run=subprocess.run, evidence_inf=None,
                 VALIDATOR['check_runtimes'](files[:-1])
             else:
                 validate_experimental_ufx(files, experimental_ufx_manifest)
-                emit('DENEYSEL UFX: kayitli kaynak cifti kabul edildi; yukleyici/ABI uyumu kanitlanmadi.')
+                emit('DENEYSEL UFX: kayitli kaynak runtime grubu kabul edildi; yukleyici/ABI uyumu kanitlanmadi.')
         except (ValueError, OSError, KeyError, TypeError) as error:
             emit(f'HATA: ARM64/build dogrulamasi: {error}')
             failed = True
@@ -203,6 +205,7 @@ def main():
         print(line)
 
     try:
+        emit('USB runtime denetleyici v2')
         evidence_inf = None
         if args.report is not None:
             args.report.parent.mkdir(parents=True, exist_ok=True)

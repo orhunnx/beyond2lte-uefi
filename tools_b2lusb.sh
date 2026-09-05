@@ -28,16 +28,17 @@ done
 [ -d "$KITS/Include" ] || die "WDK Include yok: $KITS/Include"
 case "$AUTO_HOST" in 0|1) ;; *) die "B2L_USB_AUTO_HOST yalniz 0 veya 1 olabilir" ;; esac
 
-# Validate the actual target image before MSVC, signing or WIM changes.
+# Prepare an explicitly selected experiment, then validate before MSVC/signing.
 # Keep all missing files and the image inventory in one WSL-side report.
 mkdir -p "$OUT"
 RUNTIME_PROFILE="${B2L_USB_RUNTIME_PROFILE:-strict}"
+say "USB runtime hazirlayici v2 / profil: $RUNTIME_PROFILE"
 RUNTIME_ARGS=()
 case "$RUNTIME_PROFILE" in
   strict) ;;
   experimental-ufx)
     [ -n "${B2L_WINDOWS_ARM64_SOURCE:-}" ] || die "Deneme profili icin B2L_WINDOWS_ARM64_SOURCE gerekli"
-    say "Acikca secilen UFX deneme profili: kaynak UFX + hedef cekirdek/UCM/URS"
+    say "Acikca secilen deneme: kaynak URS/UFX/Synopsys + hedef cekirdek/UCM"
     python3 "$SRC/prepare-experimental-ufx.py" \
       --allow-mixed-ufx --source "$B2L_WINDOWS_ARM64_SOURCE" \
       --index "${B2L_WINDOWS_ARM64_SOURCE_INDEX:-1}" --target-wim "$WIM" \

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Explicit WSL-only UFX overlay experiment; not a CBS package installation.
 
-Keep the target kernel/UCM/URS. Copy an unmodified source UFX pair, its
+Keep the target kernel/UCM. Copy an unmodified source URS/UFX/Synopsys cohort, its
 original INF/DriverStore directory and service subtrees. Work on a WIM copy;
 retain a rollback image and publish only after read-back verification.
 """
@@ -21,7 +21,8 @@ AUDIT = runpy.run_path(str(Path(__file__).with_name('check-winpe-runtime.py')))
 REQUIRED = AUDIT['REQUIRED']
 SYSTEM = '/Windows/System32/config/SYSTEM'
 MARKER = '/Windows/B2LUSB/experimental-ufx.json'
-SERVICES = ('Ufx01000', 'ufxsynopsys')
+SERVICES = ('UrsCx01000', 'Ufx01000', 'ufxsynopsys')
+PROFILE = 'experimental-ufx-overlay-v2'
 PREFIX = 'HKEY_LOCAL_MACHINE\\SYSTEM'
 
 
@@ -153,20 +154,23 @@ def prepare(source, index, target, manifest, emit=print):
     for tool in ('wimlib-imagex', 'hivexget', 'hivexregedit'):
         if not shutil.which(tool):
             raise ValueError(f'{tool} yok; WSL icin libhivex-bin/libwin-hivex-perl gerekli')
-    record = {'profile': 'experimental-ufx-overlay-v1', 'source': str(source),
+    record = {'profile': PROFILE, 'source': str(source),
               'source_index': index, 'source_sha256': sha(source), 'files': {},
-              'overlay': {}, 'services': {}, 'import_files': {}}
+              'overlay': {}, 'services': {}, 'import_files': {}, 'replaced': {}}
     # Same directory permits atomic publication; a failed experiment never edits target.
     with tempfile.TemporaryDirectory(prefix='.b2l-ufx-', dir=target.parent) as temp:
         work = Path(temp)
         installed_record = extract(target, 1, MARKER, work, optional=True)
         if installed_record is not None:
             installed = json.loads(installed_record.read_text(encoding='utf-8'))
+            if installed.get('profile') not in (PROFILE, 'experimental-ufx-overlay-v1'):
+                raise ValueError('Bilinmeyen mevcut runtime profili')
             if (installed.get('source_sha256') != record['source_sha256'] or
                     installed.get('source_index') != index):
                 raise ValueError('Mevcut UFX denemesi baska kaynaga ait; once yedek WIM geri yuklenmeli')
             if AUDIT['check'](target, 1, emit, experimental_ufx_manifest=installed_record):
                 raise ValueError('Mevcut UFX deneme dosyalari degismis')
+        if installed_record is not None and installed['profile'] == PROFILE:
             hive = extract(target, 1, SYSTEM, work)
             cs = control_set(hive)
             for service in SERVICES:
@@ -184,19 +188,20 @@ def prepare(source, index, target, manifest, emit=print):
         image = AUDIT['resolve_image'](source, work, emit)
         if AUDIT['check'](image, index, emit):
             raise ValueError('Kaynak imajin kendi runtime/INF dogrulamasi basarisiz')
-        target_files = [extract(target, 1, p, work) for p in REQUIRED[:3]]
+        target_files = [extract(target, 1, p, work) for p in REQUIRED[:2]]
         AUDIT['VALIDATOR']['check_runtimes'](target_files)
-        source_files = [extract(image, index, p, work) for p in REQUIRED[3:]]
-        overlay = dict(zip(REQUIRED[3:], source_files))
+        source_files = [extract(image, index, p, work) for p in REQUIRED[2:]]
+        overlay = dict(zip(REQUIRED[2:], source_files))
         record['target_build'] = list(AUDIT['VALIDATOR']['arm64_build'](target_files[0].read_bytes()))
         record['source_build'] = list(AUDIT['VALIDATOR']['arm64_build'](source_files[0].read_bytes()))
         if record['target_build'][:2] != record['source_build'][:2]:
             raise ValueError('Major/minor Windows surumu farkli')
-        # Preserve installed UFX instead of silently downgrading/replacing it.
+        # The explicit experiment replaces the whole source cohort, including
+        # native Synopsys on partially populated WinPE. Record all previous bytes.
         for path, file in overlay.items():
             existing = extract(target, 1, path, work, optional=True)
-            if existing is not None and sha(existing) != sha(file):
-                raise ValueError(f'Hedefte farkli {path} var; temiz WinPE tabani gerekli')
+            record['replaced'][path] = sha(existing) if existing is not None else None
+            emit(f'RUNTIME: {path}: {record["replaced"][path] or "YOK"} -> {sha(file)}')
         for path, file in zip(REQUIRED, target_files + source_files):
             record['files'][path] = sha(file)
 
@@ -209,14 +214,14 @@ def prepare(source, index, target, manifest, emit=print):
             line.strip(), re.I)]
         matching_stores = []
         for path in stores:
-            if sha(extract(image, index, path, work)) == sha(source_files[2]):
+            if sha(extract(image, index, path, work)) == sha(source_files[3]):
                 matching_stores.append(str(Path(path).parent))
         if len(matching_stores) != 1:
             raise ValueError('Kurulu INF ile eslesen tek kaynak ARM64 Synopsys DriverStore paketi bulunamadi')
         store_path = matching_stores[0]
         store = extract(image, index, store_path, work)
         store_files = {p.name.lower(): p for p in store.rglob('*') if p.is_file()}
-        for path, file in ((REQUIRED[4], source_files[1]), (REQUIRED[5], source_files[2])):
+        for path, file in ((REQUIRED[4], source_files[2]), (REQUIRED[5], source_files[3])):
             if Path(path).name.lower() not in store_files or sha(store_files[Path(path).name.lower()]) != sha(file):
                 raise ValueError(f'Kaynak DriverStore/kurulu dosya farkli: {path}')
         for file in store.rglob('*'):
@@ -228,7 +233,7 @@ def prepare(source, index, target, manifest, emit=print):
                 overlay[path] = file
 
         modules = {p.name.lower(): p for p in target_files + source_files[:-1]}
-        for driver in source_files[:2]:
+        for driver in source_files[:3]:
             for module in sorted(imports(driver.read_bytes())):
                 if module not in modules:
                     candidates = []
@@ -274,14 +279,20 @@ def prepare(source, index, target, manifest, emit=print):
             relocated = remap_service(raw, src_cs, dst_cs, service)
             reg = work / f'{service}.reg'
             reg.write_text(relocated, encoding='utf-8')
-            # Refuse a different existing service subtree (including stray old
-            # values that a registry merge would otherwise leave behind).
+            # Replace only this named service subtree in the temporary hive.
+            # A plain merge would leave parameters belonging to the old runtime.
             if f'{PREFIX}\\{dst_cs}\\Services\\{service}'.lower() in target_keys:
                 existing = command(['hivexregedit', '--export', '--prefix', PREFIX,
                                     target_hive, f'{dst_cs}\\Services\\{service}'])
-                current = remap_service(existing, dst_cs, dst_cs, service)
-                if current != relocated:
-                    raise ValueError(f'Hedefte farkli {service} servisi var; temiz WinPE tabani gerekli')
+                previous = work / f'{service}-before.reg'
+                previous.write_text(existing, encoding='utf-8')
+                overlay[f'/Windows/B2LUSB/runtime-source/{service}-before.reg'] = previous
+                record['replaced'][f'Services/{service}'] = sha(previous)
+                deletion = work / f'{service}-delete.reg'
+                deletion.write_text(f'Windows Registry Editor Version 5.00\n\n'
+                                    f'[-{PREFIX}\\{dst_cs}\\Services\\{service}]\n\n', encoding='utf-8')
+                command(['hivexregedit', '--merge', '--prefix', PREFIX, target_hive, deletion])
+                emit(f'SERVIS: {service} kaynak agaciyla degistiriliyor; onceki kayit saklandi.')
             command(['hivexregedit', '--merge', '--prefix', PREFIX, target_hive, reg])
             verified = command(['hivexregedit', '--export', '--prefix', PREFIX, target_hive,
                                 f'{dst_cs}\\Services\\{service}'])

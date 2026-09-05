@@ -208,3 +208,35 @@ with tempfile.TemporaryDirectory() as temp:
         if bad is None:
             assert m['check']('mixed.wim', 1, lambda _: None, run=wim.run) == 1
 print('Explicit UFX exception: exact hashes, pair, target UCM/URS and architecture: PASS')
+
+# Observed WSL: native kernel/UCM/Synopsys=28000, URS=26100, UFX absent.
+# v2 takes the entire URS/UFX/Synopsys cohort from one recorded source.
+with tempfile.TemporaryDirectory() as temp:
+    manifest = Path(temp)/'v2.json'
+    wim = Wim()
+    wim.files[REQUIRED[2]] = pe(26100)
+    del wim.files[REQUIRED[3]]
+    logs = []
+    assert m['check']('observed.wim', 1, logs.append, run=wim.run) == 1
+    assert any('YOK:' in line and 'Ufx01000.sys' in line for line in logs)
+    for bad in (None, 'native-synopsys', 'urs', 'ucm', 'hash', 'machine'):
+        wim = Wim()
+        for path in REQUIRED[2:5]:
+            wim.files[path] = pe(26100)
+        if bad == 'native-synopsys':
+            wim.files[REQUIRED[4]] = pe(28000)
+        elif bad == 'urs':
+            wim.files[REQUIRED[2]] = pe(22631)
+        elif bad == 'ucm':
+            wim.files[REQUIRED[1]] = pe(26100)
+        elif bad == 'machine':
+            wim.files[REQUIRED[2]] = pe(26100, 0x8664)
+        record = {'profile': 'experimental-ufx-overlay-v2', 'target_build': [10, 0, 28000],
+                  'source_build': [10, 0, 26100],
+                  'files': {p: hashlib.sha256(b).hexdigest() for p, b in wim.files.items()}}
+        if bad == 'hash':
+            record['files'][REQUIRED[2]] = '0'*64
+        manifest.write_text(json.dumps(record))
+        assert m['check']('v2.wim', 1, lambda _: None, run=wim.run,
+                          experimental_ufx_manifest=manifest) == (1 if bad else 0), bad
+print('Observed partial WIM and v2 source URS/UFX/Synopsys cohort: PASS')
