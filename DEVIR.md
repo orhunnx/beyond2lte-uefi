@@ -24,6 +24,8 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > raporlar: `out/b2lusb/winpe-usb-runtime-check.txt`. Kullanıcının mevcut ISO'su
 > 22631 ailesi; önceki WinPE 28000.1 ile aynı build değil. Dosya aktarılmadı.
 > Kaynak/servisleme işi açık; ayrıntılar Linux karşılaştırmasının başındadır.
+> İkinci aday `C:\Users\orhun\Downloads\Windows11_25H2_ARM64.iso`;
+> ISO/çekirdek karşılaştırma komutu Linux karşılaştırmasında. Henüz okunmadı.
 
 > **5 Eylül / UCM C4013/C4312 düzeltmesi:** Geçersiz genel WDF parent
 > çağrısı kaldırıldı. Connector kendi türlendirilmiş WDF bağlamında gerçek

@@ -25,8 +25,9 @@ Bu ad `22631` ailesini gösterir; önceki cihaz WinPE ölçümü `28000.1` idi.
 WDK sürümü tek başına hedef işletim sistemi sürümünün kanıtı değildir.
 Kaynağın içeriği bu Mac'te erişilebilir değil ve okunmadı. Eski ISO'dan
 mevcut hedefe dosya aktarılmadı; aynı-build ARM64 runtime koşulu korunuyor.
-Kullanıcı ayrıca Windows İndirilenler klasöründe 25H2 ISO olabileceğini
-belirtti. Tam yol, mimari, çekirdek build ve paket içeriği henüz doğrulanmadı;
+İkinci kaynak yolu kullanıcı tarafından verildi:
+`C:\Users\orhun\Downloads\Windows11_25H2_ARM64.iso`.
+Dosyanın içindeki mimari, çekirdek build ve paketler henüz okunmadı;
 25H2 etiketi tek başına hedefle uyumluluk kanıtı sayılmıyor.
 
 ### Yapılan araç düzeltmesi
@@ -47,6 +48,26 @@ rapor `out/b2lusb/winpe-usb-runtime-check.txt` dosyasında tutulur. Ayrı
 ```bash
 python3 windows/b2lusb/check-winpe-runtime.py esp/sources/boot.wim
 ```
+
+### Verilen 25H2 ISO'yu WSL'de inceleme
+
+Araç ISO içindeki tek `sources/install.wim` veya `install.esd` dosyasını
+`7z` ile geçici dizine çıkarabilir; ISO/WIM dosyalarını değiştirmez.
+Çalışma sırasında kurulum imajı için birkaç GB geçici alan gerekir.
+`--reference-wim`, iki gerçek ARM64 `ntoskrnl.exe` dosyasının sürümlerini
+karşılaştırır. Farklı build'de hata döner; UFX envanteri yine raporlanır.
+Kaynak incelemesi sırasında `--out-inf` yasaktır: özel function INF sadece
+hedef imajın gerçek inbox kurulumundan üretilebilir.
+
+```bash
+python3 windows/b2lusb/check-winpe-runtime.py \
+  /mnt/c/Users/orhun/Downloads/Windows11_25H2_ARM64.iso \
+  --reference-wim esp/sources/boot.wim \
+  --report out/b2lusb/25h2-usb-runtime-check.txt
+```
+
+ISO dosya seçimi ve kaynak/hedef kernel karşılaştırması host fixture'ında
+sınandı. Gerçek ISO bu Mac'ten erişilemiyor; WSL çıktısı henüz yok.
 
 Bu değişiklik eksik Microsoft paketini yüklemez ve başarılı USB işlevi
 iddiası taşımaz. Gerçek UFX paket kaynağı/servisleme adımı hâlâ açık.

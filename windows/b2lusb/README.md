@@ -207,6 +207,18 @@ kontrolü ayrıca çalıştırabilirsin:
 python3 windows/b2lusb/check-winpe-runtime.py esp/sources/boot.wim
 ```
 
+Kaynak ISO'yu hedefle karşılaştırmak için (`7z` ve geçici disk alanı gerekir):
+
+```bash
+python3 windows/b2lusb/check-winpe-runtime.py \
+  /mnt/c/Users/orhun/Downloads/Windows11_25H2_ARM64.iso \
+  --reference-wim esp/sources/boot.wim \
+  --report out/b2lusb/25h2-usb-runtime-check.txt
+```
+
+Bu komut ISO'yu/WIM'i değiştirmez; içerik ve gerçek çekirdek build'lerini
+inceler. Aynı build bulunması tek başına paketin servislenmesini doğrulamaz.
+
 Kontrol paket yüklemez. Aynı hedef build'in ARM64 UFX paketi, bağımlılıkları
 ve servislenmesi hâlâ gereklidir; 22631 ISO'su 28000 WinPE için doğrulanmış
 runtime kaynağı değildir. Bu eksik çözülmeden normal tur ön kontrolde durur.

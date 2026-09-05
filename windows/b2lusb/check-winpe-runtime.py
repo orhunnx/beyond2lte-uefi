@@ -3,6 +3,7 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import runpy
 import subprocess
 import tempfile
@@ -16,6 +17,50 @@ REQUIRED = (
     '/Windows/System32/drivers/ufxsynopsys.sys',
     '/Windows/INF/ufxsynopsys.inf',
 )
+
+
+def resolve_image(source, work, emit, run=subprocess.run):
+    if source.suffix.lower() != '.iso':
+        return source
+    listing = run(['7z', 'l', '-slt', str(source)], capture_output=True, text=True)
+    if listing.returncode:
+        raise ValueError(f'ISO listelenemedi: {listing.stderr.strip()}')
+    paths = [line[7:] for line in listing.stdout.splitlines() if line.startswith('Path = ')]
+    installs = [path for path in paths
+                if re.fullmatch(r'sources[/\\]install\.(wim|esd)', path, re.I)]
+    if len(installs) != 1:
+        raise ValueError('ISO icinde tek sources/install.wim veya install.esd bulunamadi')
+    emit('ISO kurulum imaji gecici dizine cikariliyor; birkac GB bos alan gerekebilir.')
+    extraction = run(['7z', 'e', f'-o{work}', str(source), installs[0]],
+                     capture_output=True, text=True)
+    image = work / installs[0].replace('\\', '/').split('/')[-1]
+    if extraction.returncode or not image.is_file():
+        raise ValueError(f'ISO kurulum imaji cikarilamadi: {extraction.stderr.strip()}')
+    return image
+
+
+def compare_kernels(source, index, target, emit, run=subprocess.run):
+    versions = []
+    with tempfile.TemporaryDirectory(prefix='b2l-kernel-compare-') as work:
+        for number, (image, image_index) in enumerate(((source, index), (target, 1))):
+            dest = Path(work) / str(number)
+            dest.mkdir()
+            result = run(['wimlib-imagex', 'extract', str(image), str(image_index),
+                          REQUIRED[0], f'--dest-dir={dest}', '--no-acls'],
+                         env=dict(os.environ, WIMLIB_IMAGEX_IGNORE_CASE='1', LC_ALL='C'),
+                         capture_output=True, text=True)
+            files = [p for p in dest.rglob('*') if p.is_file() and p.name.lower() == 'ntoskrnl.exe']
+            if result.returncode or len(files) != 1:
+                raise ValueError(f'Karsilastirma cekirdegi okunamadi: {image}: {result.stderr.strip()}')
+            version = VALIDATOR['arm64_build'](files[0].read_bytes())
+            versions.append(version)
+            emit(('KAYNAK' if number == 0 else 'HEDEF') + ' PE: ARM64 ' +
+                 '.'.join(str(part) for part in version))
+    if versions[0] != versions[1]:
+        emit('UYUMSUZ: kaynak ve hedef major/minor/build farkli; runtime aktarimi yapilmaz.')
+        return 1
+    emit('Kaynak/hedef ARM64 build eslesiyor; paket/servisleme uygunlugu ayrica dogrulanmali.')
+    return 0
 
 
 def check(wim, index, emit, out_inf=None, run=subprocess.run):
@@ -95,9 +140,15 @@ def main():
     parser.add_argument('--index', type=int, default=1)
     parser.add_argument('--out-inf', type=Path)
     parser.add_argument('--report', type=Path)
+    parser.add_argument('--reference-wim', type=Path,
+                        help='Kaynak ISO/WIM cekirdegini hedef boot.wim indeks 1 ile karsilastir')
     args = parser.parse_args()
     if args.index < 1:
         parser.error('--index en az 1 olmali')
+    if args.reference_wim is not None and args.out_inf is not None:
+        parser.error('Kaynak incelemesinde --out-inf kullanilamaz; INF hedef WIM\'den uretilir')
+    if args.wim.suffix.lower() == '.iso' and args.out_inf is not None:
+        parser.error('ISO incelemesinde --out-inf kullanilamaz; INF hedef WIM\'den uretilir')
     lines = []
 
     def emit(line):
@@ -105,8 +156,15 @@ def main():
         print(line)
 
     try:
-        result = check(args.wim, args.index, emit, args.out_inf)
-    except OSError as error:
+        with tempfile.TemporaryDirectory(prefix='b2l-iso-audit-') as work:
+            emit(f'Girdi: {args.wim}')
+            image = resolve_image(args.wim, Path(work), emit)
+            comparison = 0
+            if args.reference_wim is not None:
+                comparison = compare_kernels(image, args.index, args.reference_wim, emit)
+            result = check(image, args.index, emit, args.out_inf)
+            result = max(result, comparison)
+    except (OSError, ValueError) as error:
         emit(f'HATA: {error}')
         result = 1
     if args.report is not None:

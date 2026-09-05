@@ -96,3 +96,30 @@ script = (ROOT / 'tools_b2lusb.sh').read_text()
 assert script.index('check-winpe-runtime.py') < script.index('powershell.exe -NoProfile')
 assert script.index('check-winpe-runtime.py') < script.index('osslsigncode sign')
 print('WinPE runtime preflight: missing files, I/O errors, ARM64/build/INF gates: PASS')
+
+with tempfile.TemporaryDirectory() as temp:
+    work = Path(temp)
+
+    def iso_run(args, **kwargs):
+        assert args[:2] in (['7z', 'l'], ['7z', 'e'])
+        if args[1] == 'l':
+            return subprocess.CompletedProcess(args, 0, 'Path = sources\\install.esd\n', '')
+        assert args[4] == 'sources\\install.esd'
+        (Path(args[2][2:]) / 'install.esd').write_bytes(b'fixture')
+        return subprocess.CompletedProcess(args, 0, '', '')
+
+    image = m['resolve_image'](Path('Windows 25H2 ARM64.iso'), work, lambda _: None, iso_run)
+    assert image == work / 'install.esd'
+    assert m['resolve_image'](Path('install.wim'), work, lambda _: None) == Path('install.wim')
+
+    def compare_run(args, **kwargs):
+        assert args[1] == 'extract' and args[4] == REQUIRED[0]
+        dest = Path(args[5].split('=', 1)[1])
+        (dest / 'ntoskrnl.exe').write_bytes(pe(22631 if args[2] == 'old.wim' else 28000))
+        return subprocess.CompletedProcess(args, 0, '', '')
+
+    logs = []
+    assert m['compare_kernels']('old.wim', 1, 'boot.wim', logs.append, compare_run) == 1
+    assert any('UYUMSUZ' in line for line in logs)
+    assert m['compare_kernels']('matching.wim', 1, 'boot.wim', logs.append, compare_run) == 0
+print('ISO input and source/target kernel comparison: PASS')
