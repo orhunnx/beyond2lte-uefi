@@ -1,5 +1,11 @@
 #include "b2lmax77705.h"
 
+typedef struct _B2L_MAX_UCM_CONTEXT {
+    WDFDEVICE Device;
+} B2L_MAX_UCM_CONTEXT, *PB2L_MAX_UCM_CONTEXT;
+
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(B2L_MAX_UCM_CONTEXT, B2lMaxGetUcmContext);
+
 // Only the notification worker calls UCM. MfdLock protects producers and
 // diagnostic state, never an OS callback. A physical detach is a queue entry,
 // not a boolean that a later attach can overwrite.
@@ -55,11 +61,15 @@ B2lMaxConnectorPathChangedLocked(PB2L_MAX_CONTEXT Context)
 NTSTATUS
 B2lMaxEvtSetDataRole(UCMCONNECTOR Connector, UCM_DATA_ROLE DataRole)
 {
-    PB2L_MAX_CONTEXT Context = B2lMaxGetContext(
-        (WDFDEVICE)WdfObjectGetParentObject((WDFOBJECT)Connector));
+    WDFDEVICE Device = B2lMaxGetUcmContext(Connector)->Device;
+    PB2L_MAX_CONTEXT Context;
     UCM_DATA_ROLE Current = UcmDataRoleInvalid;
     NTSTATUS Status = STATUS_NOT_SUPPORTED;
 
+    // The connector owns a typed context; its parent device outlives it.
+    // A callback before creation has finished cannot use an unset owner.
+    if (Device == NULL) return STATUS_DEVICE_NOT_READY;
+    Context = B2lMaxGetContext(Device);
     WdfWaitLockAcquire(Context->MfdLock, NULL);
     if (!Context->ConnectorRunning || !Context->UsbRoleAttached ||
         !NT_SUCCESS(Context->MfdFault) || !Context->DataRoleValid ||
@@ -95,9 +105,12 @@ B2lMaxCreateConnector(PB2L_MAX_CONTEXT Context)
     UCM_CONNECTOR_CONFIG_INIT(&Config, 0ULL); // one physical connector
     Config.TypeCConfig = &TypeC;
     // PdConfig stays NULL: PD contracts/capabilities are not implemented yet.
-    WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
+    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&Attributes, B2L_MAX_UCM_CONTEXT);
     Attributes.ParentObject = Context->Device;
     Status = UcmConnectorCreate(Context->Device, &Config, &Attributes, &Context->Connector);
+    if (NT_SUCCESS(Status)) {
+        B2lMaxGetUcmContext(Context->Connector)->Device = Context->Device;
+    }
     Context->ConnectorStatus = Status;
     return Status;
 }

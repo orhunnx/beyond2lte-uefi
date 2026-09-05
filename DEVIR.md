@@ -18,6 +18,12 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / UCM C4013/C4312 düzeltmesi:** Geçersiz genel WDF parent
+> çağrısı kaldırıldı. Connector kendi türlendirilmiş WDF bağlamında gerçek
+> cihaz handle'ını tutuyor. Hatalı API'yi gizleyen host test yardımcısı da
+> kaldırıldı; ayrı connector/cihaz ve create hata testleri geçti. Gerçek
+> Windows build sonucu henüz yok; Linux akışı ve sürümler değişmedi.
+
 > **5 Eylül / MSVC C4701 düzeltmesi:** IRQ VBUSDet yolunda BC ve CC
 > okumalarının her biri artık ayrı erken hata çıkışıyla korunuyor. Sahte
 > başlangıç CC değeri atanmadı; `/WX` açık. İki okumanın ayrı başarısızlık

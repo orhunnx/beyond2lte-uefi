@@ -11,6 +11,7 @@ h=r'''
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 typedef uint8_t UCHAR; typedef uint32_t ULONG; typedef int32_t NTSTATUS; typedef uint64_t ULONGLONG;
 typedef int BOOLEAN; typedef void VOID;
 typedef void *WDFDEVICE,*WDFOBJECT,*WDFWORKITEM,*WDFWAITLOCK,*UCMCONNECTOR;
@@ -62,13 +63,17 @@ typedef struct {
 } B2L_MAX_CONTEXT,*PB2L_MAX_CONTEXT;
 typedef struct { int SupportedOperatingModes,SupportedPowerSourcingCapabilities; NTSTATUS (*EvtSetDataRole)(UCMCONNECTOR,UCM_DATA_ROLE); } UCM_CONNECTOR_TYPEC_CONFIG;
 typedef struct { uint64_t ConnectorId; UCM_CONNECTOR_TYPEC_CONFIG *TypeCConfig; void *PdConfig; } UCM_CONNECTOR_CONFIG;
-typedef struct { WDFDEVICE ParentObject; } WDF_OBJECT_ATTRIBUTES;
+typedef struct { WDFDEVICE ParentObject; size_t ContextSize; } WDF_OBJECT_ATTRIBUTES;
 typedef struct { int Partner; UCM_TYPEC_CURRENT CurrentAdvertisement; int ChargingState; } UCM_CONNECTOR_TYPEC_ATTACH_PARAMS;
 #define UCM_CONNECTOR_TYPEC_CONFIG_INIT(c,m,p) (memset(c,0,sizeof(*(c))),(c)->SupportedOperatingModes=(m),(c)->SupportedPowerSourcingCapabilities=(p))
 #define UCM_CONNECTOR_CONFIG_INIT(c,i) (memset(c,0,sizeof(*(c))),(c)->ConnectorId=(i))
-#define WDF_OBJECT_ATTRIBUTES_INIT(a) memset(a,0,sizeof(*(a)))
+#define WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(a,t) (memset(a,0,sizeof(*(a))),(a)->ContextSize=sizeof(t))
+#define WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(t,n) static t *n(WDFOBJECT o) { return (t *)TestConnectorContext(o); }
 #define UCM_CONNECTOR_TYPEC_ATTACH_PARAMS_INIT(p,t) (memset(p,0,sizeof(*(p))),(p)->Partner=(t))
 static B2L_MAX_CONTEXT c; static int held, enqueues, flushes;
+static struct { void *Context; } connector;
+static int context_accesses;
+static NTSTATUS create_failure;
 static char calls[1024]; static int n, partners[512],currents[512],role;
 static NTSTATUS attach_failure,detach_failure,current_failure;
 static int detach_during_attach;
@@ -78,16 +83,21 @@ static void WdfWaitLockAcquire(WDFWAITLOCK l,void *t) { assert(l==&c && !held &&
 static void WdfWaitLockRelease(WDFWAITLOCK l) { assert(l==&c && held);held=0; }
 static void WdfWorkItemEnqueue(WDFWORKITEM w) { assert(w==&c);++enqueues; }
 static void WdfWorkItemFlush(WDFWORKITEM w) { assert(w==&c && !held);++flushes; }
-static WDFOBJECT WdfObjectGetParentObject(WDFOBJECT o) { assert(o==&c);return &c; }
-static WDFOBJECT WdfWorkItemGetParentObject(WDFWORKITEM o) { return WdfObjectGetParentObject(o); }
+static void *TestConnectorContext(WDFOBJECT o) {
+ assert(o==&connector && connector.Context);++context_accesses;return connector.Context;
+}
+static WDFOBJECT WdfWorkItemGetParentObject(WDFWORKITEM o) { assert(o==&c);return &c; }
 static PB2L_MAX_CONTEXT B2lMaxGetContext(WDFDEVICE d) { assert(d==&c); return &c; }
 static void record(char v) { assert(!held && n<1024);calls[n++]=v; }
 static NTSTATUS UcmConnectorCreate(WDFDEVICE d,UCM_CONNECTOR_CONFIG *cfg,WDF_OBJECT_ATTRIBUTES *a,UCMCONNECTOR *out) {
  assert(d==&c && cfg->ConnectorId==0 && cfg->TypeCConfig->EvtSetDataRole && !cfg->PdConfig && a->ParentObject==d);
- *out=d;return 0;
+ assert(a->ContextSize==sizeof(WDFDEVICE));
+ if(create_failure) return create_failure;
+ assert(!connector.Context);connector.Context=calloc(1,a->ContextSize);assert(connector.Context);
+ *out=&connector;return 0;
 }
 static NTSTATUS UcmConnectorTypeCAttach(UCMCONNECTOR o,UCM_CONNECTOR_TYPEC_ATTACH_PARAMS *p) {
- assert(o==&c && p->ChargingState==0); partners[n]=p->Partner;currents[n]=p->CurrentAdvertisement;record('A');
+ assert(o==&connector && p->ChargingState==0); partners[n]=p->Partner;currents[n]=p->CurrentAdvertisement;record('A');
  if(detach_during_attach) {
   detach_during_attach=0;c.UsbRoleAttached=c.PowerRoleValid=c.DataRoleValid=FALSE;
   WdfWaitLockAcquire(c.MfdLock,NULL);B2lMaxQueueConnectorLocked(&c);WdfWaitLockRelease(c.MfdLock);
@@ -96,23 +106,24 @@ static NTSTATUS UcmConnectorTypeCAttach(UCMCONNECTOR o,UCM_CONNECTOR_TYPEC_ATTAC
  }
  return attach_failure;
 }
-static NTSTATUS UcmConnectorTypeCDetach(UCMCONNECTOR o) { assert(o==&c);record('D');return detach_failure; }
+static NTSTATUS UcmConnectorTypeCDetach(UCMCONNECTOR o) { assert(o==&connector);record('D');return detach_failure; }
 static void UcmConnectorDataDirectionChanged(UCMCONNECTOR o,BOOLEAN success,UCM_DATA_ROLE r) {
- assert(o==&c && success);role=r;record('R');
+ assert(o==&connector && success);role=r;record('R');
 }
 static void UcmConnectorPowerDirectionChanged(UCMCONNECTOR o,BOOLEAN success,UCM_POWER_ROLE r) {
- assert(o==&c && success);assert(r==c.ConnectorEvents[0].PowerRole || r==1 || r==2);record('P');
+ assert(o==&connector && success);assert(r==c.ConnectorEvents[0].PowerRole || r==1 || r==2);record('P');
 }
 static NTSTATUS UcmConnectorTypeCCurrentAdChanged(UCMCONNECTOR o,UCM_TYPEC_CURRENT cur) {
- assert(o==&c); currents[n]=cur;record('C');return current_failure;
+ assert(o==&connector); currents[n]=cur;record('C');return current_failure;
 }
 '''
 h+=s
 h+=r'''
 static void reset(void) {
+ free(connector.Context);connector.Context=NULL;context_accesses=0;create_failure=0;
  memset(&c,0,sizeof(c));memset(calls,0,sizeof(calls));n=held=enqueues=flushes=0;
  attach_failure=detach_failure=current_failure=0;detach_during_attach=0;
- c.Device=c.Connector=c.MfdLock=c.ConnectorWork=&c;c.ConnectorRunning=1;
+ c.Device=c.MfdLock=c.ConnectorWork=&c;c.ConnectorRunning=1;
  c.MuicPathVerified=TRUE;c.MuicPathRequested=c.MuicControl1=9;
  assert(B2lMaxCreateConnector(&c)==0);
 }
@@ -124,12 +135,21 @@ static void wake_path(void) {
  WdfWaitLockAcquire(c.MfdLock,NULL);B2lMaxConnectorPathChangedLocked(&c);WdfWaitLockRelease(c.MfdLock);
 }
 int main(void) {
+ // Connector callbacks recover the actual owner from a distinct WDF object.
+ reset();assert(c.Connector!=c.Device && B2lMaxGetUcmContext(c.Connector)->Device==c.Device);
+ B2lMaxGetUcmContext(c.Connector)->Device=NULL;
+ assert(B2lMaxEvtSetDataRole(c.Connector,UcmDataRoleDfp)==STATUS_DEVICE_NOT_READY && !held && !n);
+ // A failed create must not dereference a missing connector context.
+ free(connector.Context);connector.Context=NULL;c.Connector=NULL;create_failure=-44;
+ {int before=context_accesses;assert(B2lMaxCreateConnector(&c)==-44);
+  assert(c.ConnectorStatus==-44 && context_accesses==before && !c.Connector);}
+
  // An attach is pending until the current MUIC transaction truly completes.
  reset();c.MuicStatus=STATUS_PENDING;c.MuicPathVerified=FALSE;
  queue(1,1,2,2);{int before=enqueues;B2lMaxEvtConnectorWork(&c);assert(enqueues==before);}
  assert(!n && c.ConnectorCount==1 && !c.ConnectorAttempts && c.ConnectorPathWaiting);
  assert(c.ConnectorPathStatus==STATUS_PENDING && c.ConnectorPathWaits==1);
- assert(B2lMaxEvtSetDataRole(&c,UcmDataRoleDfp)==STATUS_DEVICE_NOT_READY && !n);
+ assert(B2lMaxEvtSetDataRole(c.Connector,UcmDataRoleDfp)==STATUS_DEVICE_NOT_READY && !n);
  wake_path();B2lMaxEvtConnectorWork(&c);assert(!n && c.ConnectorCount==1 && c.ConnectorPathWaits==1);
  c.MuicStatus=-40;wake_path();B2lMaxEvtConnectorWork(&c);
  assert(!n && c.ConnectorPathWaiting && c.ConnectorPathStatus==-40 && c.ConnectorPathWaits==2);
@@ -188,9 +208,9 @@ int main(void) {
  assert(c.ConnectorQueued==3 && c.ConnectorAttempts==3 && c.ConnectorAttached);
  queue(1,0,2,2);B2lMaxEvtConnectorWork(&c);assert(calls[n-1]=='R' && role==UcmDataRoleUfp);
  queue(1,0,1,0x31);B2lMaxEvtConnectorWork(&c);assert(calls[n-2]=='C' && calls[n-1]=='P');
- assert(B2lMaxEvtSetDataRole(&c,UcmDataRoleUfp)==0 && calls[n-1]=='R');
- {int before=n;assert(B2lMaxEvtSetDataRole(&c,UcmDataRoleDfp)==STATUS_NOT_SUPPORTED && n==before);}
- c.WaterDetected=1;assert(B2lMaxEvtSetDataRole(&c,UcmDataRoleUfp)==STATUS_DEVICE_NOT_READY);
+ assert(B2lMaxEvtSetDataRole(c.Connector,UcmDataRoleUfp)==0 && calls[n-1]=='R');
+ {int before=n;assert(B2lMaxEvtSetDataRole(c.Connector,UcmDataRoleDfp)==STATUS_NOT_SUPPORTED && n==before);}
+ c.WaterDetected=1;assert(B2lMaxEvtSetDataRole(c.Connector,UcmDataRoleUfp)==STATUS_DEVICE_NOT_READY);
  reset();queue(1,1,2,2);B2lMaxEvtConnectorWork(&c);current_failure=-44;
  queue(1,0,1,0x31);B2lMaxEvtConnectorWork(&c);
  assert(c.ConnectorStatus==-44 && c.ConnectorReported.DataRole==0 && c.ConnectorReported.PowerRole==1);
@@ -198,7 +218,7 @@ int main(void) {
  // RID detach closes the USB consumer without falsifying still-valid CC/DR.
  reset();queue(1,1,2,2);B2lMaxEvtConnectorWork(&c);c.UsbRoleAttached=FALSE;
  WdfWaitLockAcquire(c.MfdLock,NULL);B2lMaxQueueConnectorLocked(&c);WdfWaitLockRelease(c.MfdLock);
- assert(B2lMaxEvtSetDataRole(&c,UcmDataRoleDfp)==STATUS_DEVICE_NOT_READY);
+ assert(B2lMaxEvtSetDataRole(c.Connector,UcmDataRoleDfp)==STATUS_DEVICE_NOT_READY);
  B2lMaxEvtConnectorWork(&c);
  assert(strcmp(calls,"APD")==0 && !c.ConnectorAttached && c.PowerRoleValid && c.DataRoleValid);
  // CC/CCI updates alone cannot reopen the RID-detached USB connection.
@@ -209,7 +229,7 @@ int main(void) {
  reset();queue(1,1,2,2);B2lMaxEvtConnectorWork(&c);c.UsbRoleAttached=FALSE;
  WdfWaitLockAcquire(c.MfdLock,NULL);B2lMaxQueueConnectorLocked(&c);WdfWaitLockRelease(c.MfdLock);
  queue(1,0,1,0x11);B2lMaxEvtConnectorWork(&c);assert(strcmp(calls,"APDAP")==0);
- c.MfdFault=-99;{int before=n;assert(B2lMaxEvtSetDataRole(&c,UcmDataRoleUfp)==STATUS_DEVICE_NOT_READY && n==before);}
+ c.MfdFault=-99;{int before=n;assert(B2lMaxEvtSetDataRole(c.Connector,UcmDataRoleUfp)==STATUS_DEVICE_NOT_READY && n==before);}
  reset();attach_failure=-42;queue(1,0,1,0x11);B2lMaxEvtConnectorWork(&c);
  assert(!c.ConnectorAttached && c.ConnectorStatus==-42 && strcmp(calls,"A")==0);
  reset();queue(1,1,2,2);B2lMaxEvtConnectorWork(&c);detach_failure=-43;
@@ -222,6 +242,7 @@ int main(void) {
  reset();queue(1,1,2,2);B2lMaxEvtConnectorWork(&c);B2lMaxStopConnector(&c);
  assert(!c.ConnectorRunning && !c.ConnectorAttached && flushes==1 && calls[n-1]=='D');
  queue(1,0,1,0x11);assert(!c.ConnectorCount);
+ free(connector.Context);connector.Context=NULL;
  puts("MAX77705 UCM ordering, detach barriers, errors and honest swap results: PASS");
 }
 '''

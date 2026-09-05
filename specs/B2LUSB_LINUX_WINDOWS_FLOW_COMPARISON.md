@@ -1,5 +1,32 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: MSVC C4013/C4312 — UCM connector cihaz bağlamı
+
+WSL derlemesi IRQ kaynağını geçti; UCM kaynağında
+`WdfObjectGetParentObject` çağrısı C4013 verdi. Bu geçerli bir KMDF API'si
+değildi; ardından gelen C4312, derleyicinin varsaydığı `int` sonucunun
+ARM64 cihaz handle'ına çevrilmesinden kaynaklanıyordu. Uyarı kapatılmadı
+ve geçersiz fonksiyona elle prototip eklenmedi.
+
+Connector artık `WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE` ile kendi
+`B2L_MAX_UCM_CONTEXT` alanını oluşturur. Başarılı `UcmConnectorCreate`
+sonrasında gerçek parent `WDFDEVICE` bu alana kaydedilir; veri rolü callback'i
+cihaz bağlamına bu handle ile erişir. Bağlantı henüz kurulmamışsa callback
+`STATUS_DEVICE_NOT_READY` döner. Connector, cihazın WDF child nesnesi olarak
+kalır; ayrıca global cihaz işaretçisi veya USB olayı eklenmez.
+Microsoft'un [UcmConnectorCreate sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ucmmanager/nf-ucmmanager-ucmconnectorcreate)
+nesne bağlamını ve parent cihaz ömrünü destekler. Linux CC/PD/MUIC akışı
+ve tamamlanmamış rol değişikliğinin reddedilmesi aynen korunur.
+
+Önceki host testinde geçersiz API'yi taklit eden bir yardımcı vardı ve cihaz
+ile connector aynı adresi kullanıyordu; bu nedenle test API hatasını
+yakalamıyordu. Yardımcı kaldırıldı. Test artık ayrı connector nesnesi ve
+ayrı ayrılan bağlam kullanıyor; gerçek cihaz erişimi, boş owner, başarısız
+create ve mevcut UCM bildirim sıraları sınanıyor. UCM host testi ve MAX
+kaynak kontrolleri geçti. Host testi WDK API doğrulamasının yerine geçmez;
+gerçek MSVC link ve telefon sonucu henüz yok. Parent `.21`, MAX `.42`,
+ABI ve WSL komutları değişmedi.
+
 ## 5 Eylül 2026: MSVC C4701 — VBUSDet durum okumalarının kontrol akışı
 
 Yeni WSL çıktısında MAX ana kaynak ve HSI2C kaynağı derlendi; IRQ kaynağı
