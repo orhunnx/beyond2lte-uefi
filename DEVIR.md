@@ -18,6 +18,13 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / güncel paketleme engeli:** MSVC aşaması geçti; hedef WIM'de
+> `Ufx01000.sys` yok. Windows USB Function runtime kurulumu henüz tamamlanmadı.
+> Ön kontrol artık build/imzalamadan önce tüm eksikleri ve gerçek PE sürümlerini
+> raporlar: `out/b2lusb/winpe-usb-runtime-check.txt`. Kullanıcının mevcut ISO'su
+> 22631 ailesi; önceki WinPE 28000.1 ile aynı build değil. Dosya aktarılmadı.
+> Kaynak/servisleme işi açık; ayrıntılar Linux karşılaştırmasının başındadır.
+
 > **5 Eylül / UCM C4013/C4312 düzeltmesi:** Geçersiz genel WDF parent
 > çağrısı kaldırıldı. Connector kendi türlendirilmiş WDF bağlamında gerçek
 > cihaz handle'ını tutuyor. Hatalı API'yi gizleyen host test yardımcısı da

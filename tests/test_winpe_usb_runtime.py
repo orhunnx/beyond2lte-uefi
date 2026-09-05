@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Exercise runtime preflight with scripted WIM reads, never an actual WIM edit."""
+from pathlib import Path
+import runpy
+import struct
+import subprocess
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+m = runpy.run_path(str(ROOT / 'windows/b2lusb/check-winpe-runtime.py'))
+REQUIRED = m['REQUIRED']
+INF = b'''[Version]
+Class=USBFunctionController
+ClassGuid={88BAE032-5A81-49F0-BC3D-A4FF138216D6}
+[Manufacturer]
+%ms%=Models,NTarm64
+[Models.NTarm64]
+%dev%=Synopsys,ACPI\\TEST0001
+[Synopsys.NT]
+CopyFiles=Core
+[Synopsys.NT.Services]
+AddService=ufxsynopsys,2,Service
+'''
+
+
+def pe(build=28000, machine=0xaa64):
+    raw = bytearray(512)
+    raw[:2] = b'MZ'
+    struct.pack_into('<I', raw, 0x3c, 64)
+    raw[64:68] = b'PE\0\0'
+    struct.pack_into('<HH', raw, 68, machine, 1)
+    raw[88:96] = b'.rsrc\0\0\0'
+    struct.pack_into('<II', raw, 104, 128, 256)
+    struct.pack_into('<IIII', raw, 256, 0xfeef04bd, 0x10000, 10 << 16, build << 16)
+    return bytes(raw)
+
+
+class Wim:
+    def __init__(self):
+        self.files = {path: pe() for path in REQUIRED[:-1]}
+        self.files[REQUIRED[-1]] = INF
+        self.attempts = []
+        self.error = 0
+
+    def run(self, args, **kwargs):
+        assert kwargs['env']['WIMLIB_IMAGEX_IGNORE_CASE'] == '1'
+        op = args[1]
+        assert op in ('info', 'extract', 'dir')  # no servicing/mutation command
+        if op == 'info':
+            return subprocess.CompletedProcess(args, 0, 'Build: 28000\nArchitecture: ARM64', '')
+        if op == 'dir':
+            return subprocess.CompletedProcess(args, 0,
+                '/Windows/WinSxS/arm64_usbfunction_22631/ufx01000.sys', '')
+        path = args[4]
+        self.attempts.append(path)
+        if self.error or path not in self.files:
+            return subprocess.CompletedProcess(args, self.error or 49, '', 'extract failed')
+        dest = Path(args[5].split('=', 1)[1])
+        (dest / Path(path).name.lower()).write_bytes(self.files[path])
+        return subprocess.CompletedProcess(args, 0, '', '')
+
+
+with tempfile.TemporaryDirectory() as temp:
+    output = Path(temp) / 'function.inf'
+    wim = Wim()
+    logs = []
+    assert m['check']('test.wim', 1, logs.append, output, wim.run) == 0
+    assert 'Needs=synopsys.nt.services' in output.read_text()
+    assert wim.attempts == list(REQUIRED)
+    for kind in ('missing', 'io', 'foreign-build', 'x64', 'bad-inf'):
+        wim = Wim()
+        output.unlink(missing_ok=True)
+        logs = []
+        if kind == 'missing':
+            for path in REQUIRED[3:]:
+                del wim.files[path]
+        elif kind == 'io':
+            wim.error = 2
+        elif kind == 'foreign-build':
+            wim.files[REQUIRED[3]] = pe(22631)
+        elif kind == 'x64':
+            wim.files[REQUIRED[3]] = pe(machine=0x8664)
+        else:
+            wim.files[REQUIRED[-1]] = INF.replace(b'NTarm64', b'NTamd64')
+        assert m['check']('test.wim', 1, logs.append, output, wim.run) == 1, kind
+        assert not output.exists() and wim.attempts == list(REQUIRED)
+        if kind == 'missing':
+            assert sum(line.startswith('YOK:') for line in logs) == 3
+            assert any('PE: ARM64 10.0.28000' in line for line in logs)
+            assert any('WinSxS' in line for line in logs)  # inventory is not accepted as installed
+        if kind == 'io':
+            assert not any(line.startswith('YOK:') for line in logs)
+            assert sum(line.startswith('OKUMA HATASI:') for line in logs) == 6
+
+script = (ROOT / 'tools_b2lusb.sh').read_text()
+assert script.index('check-winpe-runtime.py') < script.index('powershell.exe -NoProfile')
+assert script.index('check-winpe-runtime.py') < script.index('osslsigncode sign')
+print('WinPE runtime preflight: missing files, I/O errors, ARM64/build/INF gates: PASS')

@@ -1,5 +1,61 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: WDK build geçti, WinPE USB Function runtime eksik
+
+Kullanıcının son WSL çıktısı MSVC aşamasını geçerek SYS/EXE imzalama
+adımına ulaştı. Sonraki hata wimlib `49`: hedef
+`/Windows/System32/drivers/Ufx01000.sys` yok. Bu derleyici/linker hatası
+değildir. Önceki betik ilk eksikte durduğu için bu çıktı `ufxsynopsys.sys`
+ve `ufxsynopsys.inf` dosyalarının varlığını veya yokluğunu henüz kanıtlamaz.
+
+**Önceki varsayımın düzeltmesi:** Hedef WinPE'de UFX'in zaten servislenmiş
+olduğunu kabul etmek yeterli değildi. USB function yolunun Windows runtime
+paketleme adımı açık kalmıştır. UFX kontrolünü kaldırmak, `--nullglob`
+kullanmak, stub library'yi runtime saymak veya function rolünü gizlemek
+bu eksikliği tamamlamaz. Microsoft'un
+[USB Function paket listesi](https://learn.microsoft.com/en-us/windows/iot/iot-enterprise/optimize/removable-packages/microsoft-onecore-connectivity-usbfunction)
+`ufx01000.sys`, `ufxsynopsys.sys` ve DriverStore INF'lerini listeler;
+bu IoT paket belgesi aynı paketin ADK WinPE için hazır/uygulanabilir bir
+CAB olarak bulunduğunu kanıtlamaz. Kaynak paket, katalog, bağımlılıklar
+ve hedef imajda servislenme yöntemi ayrıca doğrulanmalıdır.
+
+Kullanıcının mevcut kaynağı:
+`C:\Users\orhun\OneDrive\Masaüstü\uup\22631.7376.260711-2116.23H2_NI_RELEASE_SVC_PROD1_CLIENTMULTI_A64FRE_EN-US.ISO`.
+Bu ad `22631` ailesini gösterir; önceki cihaz WinPE ölçümü `28000.1` idi.
+WDK sürümü tek başına hedef işletim sistemi sürümünün kanıtı değildir.
+Kaynağın içeriği bu Mac'te erişilebilir değil ve okunmadı. Eski ISO'dan
+mevcut hedefe dosya aktarılmadı; aynı-build ARM64 runtime koşulu korunuyor.
+Kullanıcı ayrıca Windows İndirilenler klasöründe 25H2 ISO olabileceğini
+belirtti. Tam yol, mimari, çekirdek build ve paket içeriği henüz doğrulanmadı;
+25H2 etiketi tek başına hedefle uyumluluk kanıtı sayılmıyor.
+
+### Yapılan araç düzeltmesi
+
+Yeni `windows/b2lusb/check-winpe-runtime.py`, hedef WIM'i salt okunur
+inceler. Altı gerekli yolu ilk eksikte durmadan kontrol eder; bulunan
+PE'lerin ARM64 major/minor/build bilgisini raporlar. WIM hata 49'u eksik
+yol, diğer hataları okuma hatası olarak ayırır. Başarısızlıkta ilgili
+UFX/USBFunction/UCM/URS WIM yollarını envanter olarak gösterir. WinSxS veya
+DriverStore'da dosya görmek kurulmuş runtime yerine kabul edilmez.
+Tüm dosyalar varsa önceki aynı-build ve gerçek ARM64 INF doğrulamaları
+çalışır; function INF ancak bu kontroller geçince üretilir.
+
+`tools_b2lusb.sh` bu kontrolü **MSVC ve imzalamadan önce** çağırır;
+rapor `out/b2lusb/winpe-usb-runtime-check.txt` dosyasında tutulur. Ayrı
+çalıştırma, yeniden build veya flaş gerektirmez:
+
+```bash
+python3 windows/b2lusb/check-winpe-runtime.py esp/sources/boot.wim
+```
+
+Bu değişiklik eksik Microsoft paketini yüklemez ve başarılı USB işlevi
+iddiası taşımaz. Gerçek UFX paket kaynağı/servisleme adımı hâlâ açık.
+Ön kontrol fixture'ında tüm eksikleri birlikte raporlama, hatalı okuma,
+x64 PE, 22631/28000 uyumsuzluğu, geçersiz INF ve başarılı üretim sınandı.
+Yeni test, mevcut URS/INF/runtime testleri, USB kaynak kontrolleri ve shell
+sözdizimi kontrolü geçti. Bu Mac'te gerçek WIM/WDK işlemi yapılmadı.
+Parent `.21`, MAX `.42`, ABI ve normal WSL build komutları değişmedi.
+
 ## 5 Eylül 2026: MSVC C4013/C4312 — UCM connector cihaz bağlamı
 
 WSL derlemesi IRQ kaynağını geçti; UCM kaynağında

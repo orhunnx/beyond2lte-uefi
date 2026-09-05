@@ -28,6 +28,15 @@ done
 [ -d "$KITS/Include" ] || die "WDK Include yok: $KITS/Include"
 case "$AUTO_HOST" in 0|1) ;; *) die "B2L_USB_AUTO_HOST yalniz 0 veya 1 olabilir" ;; esac
 
+# Validate the actual target image before MSVC, signing or WIM changes.
+# Keep all missing files and the image inventory in one WSL-side report.
+mkdir -p "$OUT"
+say "Hedef WinPE USB runtime on kontrolu"
+python3 "$SRC/check-winpe-runtime.py" "$WIM" \
+  --out-inf "$OUT/b2lusb-function.inf" \
+  --report "$OUT/winpe-usb-runtime-check.txt" || \
+  die "WinPE USB runtime hazir degil; rapor: $OUT/winpe-usb-runtime-check.txt"
+
 WDK_VERSION=""
 while IFS= read -r Candidate; do
   if [ -f "$KITS/Include/$Candidate/km/ntddk.h" ] && \
@@ -139,31 +148,6 @@ osslsigncode sign -certs "$CERT" -key "$KEY" \
   -n "beyond2lte USB host control" -h sha256 \
   -in "$OUT/b2lusbctl.exe" -out "$OUT/b2lusbctl-signed.exe" >/dev/null
 mv -f "$OUT/b2lusbctl-signed.exe" "$OUT/b2lusbctl.exe"
-# Use only the runtime/components already serviced into the target image.
-# In particular never import an old Windows Mobile Urscx into this WinPE.
-ROLE_CHECK="$(mktemp -d)"
-for RolePath in /Windows/System32/ntoskrnl.exe /Windows/System32/drivers/UcmCx.sys /Windows/System32/drivers/Urscx01000.sys \
-  /Windows/System32/drivers/Ufx01000.sys /Windows/System32/drivers/ufxsynopsys.sys \
-  /Windows/INF/ufxsynopsys.inf; do
-  wimlib-imagex extract "$WIM" 1 "$RolePath" --dest-dir="$ROLE_CHECK" --no-acls >/dev/null || {
-    rm -rf "$ROLE_CHECK"
-    die "Hedef WinPE UCM/URS/function bileseni eksik: $RolePath; ayni Windows build'inin paketi gerekli"
-  }
-done
-ROLE_BINARIES=()
-for RoleFile in ntoskrnl.exe UcmCx.sys Urscx01000.sys Ufx01000.sys ufxsynopsys.sys; do
-  ROLE_BINARIES+=("$(find "$ROLE_CHECK" -iname "$RoleFile" -type f -print -quit)")
-done
-python3 "$SRC/make-function-inf.py" --runtimes "${ROLE_BINARIES[@]}" || {
-  rm -rf "$ROLE_CHECK"
-  die "UCM/URS/UFX ARM64 surumleri hedef Windows build'iyle eslesmiyor"
-}
-UFX_INF="$(find "$ROLE_CHECK" -iname ufxsynopsys.inf -type f -print -quit)"
-python3 "$SRC/make-function-inf.py" "$UFX_INF" "$OUT/b2lusb-function.inf" || {
-  rm -rf "$ROLE_CHECK"
-  die "Hedef ARM64 UFX INF bolumleri dogrulanamadi"
-}
-rm -rf "$ROLE_CHECK"
 
 cp "$SRC/b2lusb.inf.in" "$OUT/b2lusb.inf"
 cp "$SRC/b2lusb-host.inf.in" "$OUT/b2lusb-host.inf"

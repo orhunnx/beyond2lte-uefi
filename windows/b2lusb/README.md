@@ -197,6 +197,20 @@ abort ürettiği için onları açan bir paket güvenli değildir.
 
 ## WSL derleme ve paketleme
 
+Güncel paketleme engeli: hedef WinPE'de `Ufx01000.sys` bulunamadı.
+MSVC aşaması geçti, fakat USB Function runtime kurulumu tamamlanmadı.
+Yeni ön kontrol MSVC/imzalamadan önce bütün eksikleri raporlar;
+`out/b2lusb/winpe-usb-runtime-check.txt` dosyasını üretir. Salt okunur
+kontrolü ayrıca çalıştırabilirsin:
+
+```bash
+python3 windows/b2lusb/check-winpe-runtime.py esp/sources/boot.wim
+```
+
+Kontrol paket yüklemez. Aynı hedef build'in ARM64 UFX paketi, bağımlılıkları
+ve servislenmesi hâlâ gereklidir; 22631 ISO'su 28000 WinPE için doğrulanmış
+runtime kaynağı değildir. Bu eksik çözülmeden normal tur ön kontrolde durur.
+
 WDK UCM/URS kütüphaneleri seçilen `Lib/<WDK>/km/arm64` altında
 `ucm/1.0/UcmCxStub.lib` ve `urs/1.0/UrsCxStub.lib` yollarından çözülür;
 aynı ARM64 kökündeki düz yerleşim de desteklenir. Bulunan tam yollar build
