@@ -27,10 +27,15 @@ def make_inf(raw: bytes) -> str:
         for arch in parts[1:]:
             if arch.lower().startswith('ntarm64'):
                 models += sections.get((parts[0] + '.' + arch).lower(), [])
-    installs = {line.split('=', 1)[1].split(',', 1)[0].strip()
+    installs = {line.split('=', 1)[1].split(',', 1)[0].strip().lower()
                 for line in models if '=' in line}
-    if len(installs) != 1:
-        raise ValueError('ufxsynopsys.inf: unique ARM64 DDInstall required')
+    if not installs:
+        raise ValueError('ufxsynopsys.inf: no ARM64 DDInstall resolved; '
+                         f'Manufacturer={sections.get("manufacturer", [])!r}; '
+                         f'sections={list(sections)!r}')
+    if len(installs) > 1:
+        raise ValueError('ufxsynopsys.inf: multiple ARM64 DDInstall targets: '
+                         + ', '.join(sorted(installs)))
     install = installs.pop()
     choices = [name for name in sections if name == install.lower() + '.nt'
                or name == install.lower() + '.ntarm64']

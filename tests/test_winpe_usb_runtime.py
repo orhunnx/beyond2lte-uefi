@@ -123,3 +123,18 @@ with tempfile.TemporaryDirectory() as temp:
     assert any('UYUMSUZ' in line for line in logs)
     assert m['compare_kernels']('matching.wim', 1, 'boot.wim', logs.append, compare_run) == 0
 print('ISO input and source/target kernel comparison: PASS')
+
+# Keep the exact inbox bytes when INF parsing fails, and print readable evidence.
+with tempfile.TemporaryDirectory() as temp:
+    wim = Wim()
+    raw = INF.decode().replace('NTarm64', 'NTamd64').encode('utf-16')
+    wim.files[REQUIRED[-1]] = raw
+    evidence = Path(temp) / 'inbox.inf'
+    output = Path(temp) / 'generated.inf'
+    logs = []
+    assert m['check']('test.wim', 1, logs.append, output, wim.run, evidence) == 1
+    assert evidence.read_bytes() == raw and not output.exists()
+    assert any('INF SHA256:' in line for line in logs)
+    assert any('no ARM64 DDInstall' in line for line in logs)
+    assert any('0001: [Version]' in line for line in logs)
+print('Raw inbox INF evidence and precise model errors: PASS')

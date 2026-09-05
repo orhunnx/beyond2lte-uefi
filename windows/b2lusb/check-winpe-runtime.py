@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only WIM preflight; never substitute DriverStore files for installed ones."""
 import argparse
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -63,7 +64,7 @@ def compare_kernels(source, index, target, emit, run=subprocess.run):
     return 0
 
 
-def check(wim, index, emit, out_inf=None, run=subprocess.run):
+def check(wim, index, emit, out_inf=None, run=subprocess.run, evidence_inf=None):
     env = dict(os.environ, WIMLIB_IMAGEX_IGNORE_CASE='1', LC_ALL='C')
 
     def command(*args):
@@ -98,6 +99,11 @@ def check(wim, index, emit, out_inf=None, run=subprocess.run):
                 continue
             files.append(matches[0])
             emit(f'VAR: {path}')
+            if i == len(REQUIRED) - 1 and evidence_inf is not None:
+                raw_inf = matches[0].read_bytes()
+                Path(evidence_inf).write_bytes(raw_inf)
+                emit(f'Ham inbox INF kaydedildi: {evidence_inf}')
+                emit('INF SHA256: ' + hashlib.sha256(raw_inf).hexdigest())
             if i < len(REQUIRED) - 1:
                 try:
                     version = VALIDATOR['arm64_build'](matches[0].read_bytes())
@@ -122,11 +128,24 @@ def check(wim, index, emit, out_inf=None, run=subprocess.run):
             emit('Ayni hedef Windows build\'inin ARM64 USB Function paketi ve bagimliliklari gerekli.')
             emit('SYS dosyasini tek basina kopyalamak veya WDK stub kullanmak runtime kurulumu degildir.')
             return 1
+        failed = False
         try:
             VALIDATOR['check_runtimes'](files[:-1])
+        except (ValueError, OSError) as error:
+            emit(f'HATA: ARM64/build dogrulamasi: {error}')
+            failed = True
+        try:
             generated = VALIDATOR['make_inf'](files[-1].read_bytes())
         except (ValueError, UnicodeError, OSError) as error:
-            emit(f'HATA: ARM64/build/INF dogrulamasi: {error}')
+            emit(f'HATA: INF dogrulamasi: {error}')
+            emit('--- Ham ufxsynopsys.inf (yalniz inceleme; kurulum yapilmaz) ---')
+            raw_inf = files[-1].read_bytes()
+            encoding = 'utf-16' if raw_inf.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'
+            for number, line in enumerate(raw_inf.decode(encoding, errors='replace').splitlines(), 1):
+                emit(f'{number:04d}: {line}')
+            emit('--- INF sonu ---')
+            failed = True
+        if failed:
             return 1
         if out_inf is not None:
             Path(out_inf).write_text(generated, encoding='ascii')
@@ -156,13 +175,19 @@ def main():
         print(line)
 
     try:
+        evidence_inf = None
+        if args.report is not None:
+            args.report.parent.mkdir(parents=True, exist_ok=True)
+            evidence_inf = args.report.with_suffix('.ufxsynopsys.inf')
+            # A missing INF in this run must not leave last run's evidence.
+            evidence_inf.unlink(missing_ok=True)
         with tempfile.TemporaryDirectory(prefix='b2l-iso-audit-') as work:
             emit(f'Girdi: {args.wim}')
             image = resolve_image(args.wim, Path(work), emit)
             comparison = 0
             if args.reference_wim is not None:
                 comparison = compare_kernels(image, args.index, args.reference_wim, emit)
-            result = check(image, args.index, emit, args.out_inf)
+            result = check(image, args.index, emit, args.out_inf, evidence_inf=evidence_inf)
             result = max(result, comparison)
     except (OSError, ValueError) as error:
         emit(f'HATA: {error}')

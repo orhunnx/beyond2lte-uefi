@@ -122,6 +122,14 @@ AddReg=Hw
 '''
 for raw in [inf.encode(),inf.encode('utf-16')]:
  out=m.make_inf(raw);assert 'Needs=synopsys.nt.services' in out and 'URS\\BYN0002&FUNCTION' in out
+# Windows section references are case-insensitive; aliases are one install.
+case_alias = inf + '\n[Models.NTarm64]\n%alias%=SYNOPSYS,ACPI\\TEST0002\n'
+assert 'Needs=synopsys.nt.services' in m.make_inf(case_alias.encode())
+for bad, message in [(inf.replace('NTarm64','NTamd64'), 'no ARM64 DDInstall'),
+                     (inf+'\n[Models.NTarm64]\n%other%=Other,ACPI\\TEST0002', 'multiple ARM64 DDInstall')]:
+ try:m.make_inf(bad.encode())
+ except ValueError as error:assert message in str(error)
+ else:raise AssertionError('invalid models accepted')
 for bad in [inf.replace('NTarm64','NTamd64'),inf.replace('[Synopsys.NT.Services]','[Missing]'),inf+'\n[Models.NTarm64]\n%other%=Other,ACPI\\TEST0002']:
  try:m.make_inf(bad.encode())
  except ValueError:pass

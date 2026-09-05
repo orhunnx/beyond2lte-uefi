@@ -219,6 +219,11 @@ python3 windows/b2lusb/check-winpe-runtime.py \
 Bu komut ISO'yu/WIM'i değiştirmez; içerik ve gerçek çekirdek build'lerini
 inceler. Aynı build bulunması tek başına paketin servislenmesini doğrulamaz.
 
+Son ölçümde bu ISO'nun UFX dosyaları bulundu: imaj 26200.8037, dosya PE'leri
+26100, hedef PE 28000. Kaynak henüz aktarılmadı. `--report`, ham inbox INF'yi
+rapor yanında `.ufxsynopsys.inf` son ekiyle saklar. Ayrıştırma hatasında INF
+metni de rapora eklenir; gerçek bölüm seçimi için bu kanıt kullanılmalıdır.
+
 Kontrol paket yüklemez. Aynı hedef build'in ARM64 UFX paketi, bağımlılıkları
 ve servislenmesi hâlâ gereklidir; 22631 ISO'su 28000 WinPE için doğrulanmış
 runtime kaynağı değildir. Bu eksik çözülmeden normal tur ön kontrolde durur.

@@ -1,5 +1,45 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: 25H2 ISO ölçümü — UFX var, hedef build farklı, INF çözümü açık
+
+Kullanıcının WSL incelemesi artık gerçek kaynak verisi sağladı:
+`Windows11_25H2_ARM64.iso`, indeks 1, Windows 11 Home/Core, imaj bilgisi
+`26200.8037`. Kaynak `ntoskrnl`, UCM, URS, UFX ve ufxsynopsys PE sürümleri
+hep ARM64 `10.0.26100`; hedef boot.wim çekirdeği ARM64 `10.0.28000`.
+Altı gerekli dosyanın tamamı kaynakta var; `ufxsynopsys.inf` de çıkarılmış.
+
+İmajın 26200, dosyaların 26100 olması kendi başına bozuk ISO kanıtı değildir.
+Microsoft [KB5054156](https://support.microsoft.com/en-au/topic/kb5054156-feature-update-to-windows-11-version-25h2-by-using-an-enablement-package-4d307e2d-3028-4323-bb46-552cff491643)
+24H2 ve 25H2'nin ortak sistem dosyalarını kullandığını açıklar. Bunun 28000
+WinPE ile runtime uyumluluğunu doğruladığı sonucu çıkarılamaz. Araç mevcut
+aynı-PE-build proje koşulu nedeniyle aktarımı reddetti; bu ölçüm tek başına
+26100 sürücüsünün 28000'de kesinlikle yüklenemeyeceğini ispatlamaz. Aktarım
+ve servisleme yapılmadı, hedefteki eksik UFX kurulumu hâlâ açık.
+
+INF hatası ayrı: `unique ARM64 DDInstall required`, okuyucunun sıfır veya
+birden fazla kurulum hedefi çözdüğünde verdiği ortak mesajdı. Çıktı gerçek
+INF içeriğini göstermediğinden sebep henüz kesin değil. Kaynak reader'ında
+Windows'un büyük/küçük harf duyarsız bölüm adı kuralı düzeltildi; yalnız
+harf farkı taşıyan DDInstall referansları artık aynı hedef sayılır.
+Bu düzeltmenin kullanıcının gerçek INF hatasını çözdüğü henüz doğrulanmadı.
+Sıfır modelde Manufacturer/bölüm listesi, birden fazla modelde gerçek hedef
+adları raporlanır; belirsiz hedeflerden keyfi seçim yapılmaz.
+
+Ön kontrol, `--report` verildiğinde çıkarılan INF'nin ham baytlarını raporun
+yanında `.ufxsynopsys.inf` son ekiyle saklar ve SHA256 yazar. Parse hatasında
+satır numaralı INF metni de rapora girer; geçici ISO temizliği artık eldeki
+INF kanıtını kaybettirmez. Bunlar sadece inceleme dosyalarıdır, WIM/DriverStore
+kurulumu yapılmaz. Runtime sürüm ve INF hataları ayrı raporlanır.
+
+Verilen komut tekrar çalıştırıldığında ham dosya:
+`out/b2lusb/25h2-usb-runtime-check.ufxsynopsys.inf`.
+Bu dosyanın içeriği sonraki gerçek INF düzeltmesi için gereklidir. Testlerde
+case-insensitive alias, sıfır/çoklu hedef ayrımı, UTF-16 ham kanıt korunması,
+hatalı INF'den çıktı üretilmemesi ve mevcut runtime kapıları doğrulandı.
+URS/INF testleri, runtime ön kontrol testleri ve USB kaynak kontrolleri geçti.
+Windows build, kaynak aktarımı veya yeni telefon testi yapılmadı; sürümler
+ve normal WSL build yöntemi değişmedi.
+
 ## 5 Eylül 2026: WDK build geçti, WinPE USB Function runtime eksik
 
 Kullanıcının son WSL çıktısı MSVC aşamasını geçerek SYS/EXE imzalama
