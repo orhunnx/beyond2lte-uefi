@@ -469,7 +469,7 @@ B2lPrintMaxPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v9 / tur %lu / GENEL DURUM\n", Cycle);
+    wprintf(L"MAX FOTO v10 / tur %lu / GENEL DURUM\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -519,7 +519,7 @@ B2lPrintConnectorPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v9 / tur %lu / WINDOWS ROL BILDIRIMI\n", Cycle);
+    wprintf(L"MAX FOTO v10 / tur %lu / WINDOWS ROL BILDIRIMI\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -624,7 +624,7 @@ B2lPrintPdPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v9 / tur %lu / PD OLAYLARI VE PDO\n", Cycle);
+    wprintf(L"MAX FOTO v10 / tur %lu / PD OLAYLARI VE PDO\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -657,6 +657,86 @@ B2lPrintPdPhotoOverview(ULONG Cycle)
 }
 
 static VOID
+B2lPrintSysmsgPhotoOverview(ULONG Cycle)
+{
+    static const WCHAR *Names[] = {
+        L"B2LMaxSysmsgValue",
+        L"B2LMaxSysmsgStatus",
+        L"B2LMaxSysmsgValid",
+        L"B2LMaxSysmsgSample0",
+        L"B2LMaxSysmsgSample1",
+        L"B2LMaxSysmsgSample2",
+        L"B2LMaxSysmsgSampleCount",
+        L"B2LMaxSysmsgEvents",
+        L"B2LMaxSysmsgMismatches",
+        L"B2LMaxSysmsgUnhandled",
+        L"B2LMaxSysmsgRetryOpcode",
+        L"B2LMaxSysmsgRetryStatus",
+        L"B2LMaxSysmsgRetries",
+        L"B2LMaxAfcClockAttempts",
+        L"B2LMaxAfcClockStatus",
+        L"B2LMaxAfcRelockStatus"
+    };
+    static const WCHAR *Labels[] = {
+        L"SYSMSG",
+        L"SYS_NT",
+        L"SYS_VALID",
+        L"READ0",
+        L"READ1",
+        L"READ2",
+        L"READ_N",
+        L"SYS_EVENTS",
+        L"MISMATCHES",
+        L"UNHANDLED",
+        L"RETRY_OP",
+        L"RETRY_NT",
+        L"RETRY_TRIES",
+        L"AFC_TRIES",
+        L"AFC_NT",
+        L"RELOCK_NT"
+    };
+    HKEY Key;
+    LSTATUS Error;
+    DWORD Value;
+    DWORD Size;
+    DWORD Type;
+    ULONG Index;
+
+    C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
+    wprintf(L"MAX FOTO v10 / tur %lu / SYSMSG / OPCODE HATASI\n", Cycle);
+    wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
+    Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+        L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
+    if (Error != ERROR_SUCCESS) {
+        wprintf(L"MAX_OVERVIEW_READ_ERROR=%ld\n", Error);
+        return;
+    }
+    // One key, no reg.exe processes. Fields are sequential reads, not one
+    // atomic policy snapshot; event pages carry their own snapshot identity.
+    for (Index = 0UL; Index < ARRAYSIZE(Names); ++Index) {
+        Size = (DWORD)sizeof(Value);
+        Type = 0;
+        Value = 0;
+        Error = RegQueryValueExW(Key, Names[Index], NULL, &Type,
+            (LPBYTE)&Value, &Size);
+        if ((Error == ERROR_SUCCESS) && (Type == REG_DWORD) &&
+            (Size == (DWORD)sizeof(Value))) {
+            wprintf(L"%-14ls = %08lX\n", Labels[Index], Value);
+        } else {
+            wprintf(L"%-14ls = YOK / hata=%ld tip=%lu boyut=%lu\n",
+                Labels[Index], Error, Type, Size);
+        }
+    }
+    RegCloseKey(Key);
+    wprintf(L"SYS_VALID=1: uc canli SYSMSG okumasi ayni.\n");
+    wprintf(L"RETRY_NT=0: tekrar gonderildi; APCMD beklenir.\n");
+    wprintf(L"RETRY/AFC alanlari son islemin sonucudur.\n");
+    wprintf(L"SYS_NT=C00000BB: ilgili isleyici henuz eksik.\n");
+    wprintf(L"RELOCK_NT: AFC TKEY kilidini geri kapatma sonucu.\n");
+    wprintf(L"Sonraki sayfa: 20 sn. Q/Esc: cikis.\n");
+}
+
+static VOID
 B2lPrintMuicPhotoOverview(ULONG Cycle)
 {
     static const WCHAR *Names[] = {
@@ -684,7 +764,7 @@ B2lPrintMuicPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v9 / tur %lu / MUIC / RID\n", Cycle);
+    wprintf(L"MAX FOTO v10 / tur %lu / MUIC / RID\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -731,7 +811,7 @@ B2lPrintMaxEventPage(const B2L_MAX_EVENT_LOG *Log, ULONG Page, ULONG Cycle)
     }
     // At most 33 lines on the WinPE 64x41 console. One immutable registry
     // snapshot for the whole cycle: new events cannot reorder later pages.
-    wprintf(L"MAX FOTO v9 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
+    wprintf(L"MAX FOTO v10 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
     wprintf(L"Bu ekrani fotograflayin. Sonraki sayfa: 20 sn\n");
     wprintf(L"D0=%llu count=%lu total=%llu\n", Log->StartTime, Log->Count, Log->Total);
     wprintf(L"kayip=%llu UIC=%02lX SYS=%lu ERR=%lu FAIL=%lu\n",
@@ -895,9 +975,9 @@ B2lShowMaxPhotoScreen(VOID)
         if (Pages == 0UL) {
             Pages = 1UL;
         }
-        // Policy, USB/PnP, MUIC, UCM, PD, then frozen event pages.
+        // Policy, USB/PnP, MUIC, UCM, PD, SYSMSG, then frozen event pages.
         // Repeat indefinitely so photos never require a keyboard.
-        for (Page = 0UL; Page <= Pages + 4UL; ++Page) {
+        for (Page = 0UL; Page <= Pages + 5UL; ++Page) {
             if ((Page != 0UL) && !B2lClearPhotoConsole(Output)) {
                 return 1;
             }
@@ -911,8 +991,10 @@ B2lShowMaxPhotoScreen(VOID)
                 B2lPrintConnectorPhotoOverview(Cycle);
             } else if (Page == 4UL) {
                 B2lPrintPdPhotoOverview(Cycle);
+            } else if (Page == 5UL) {
+                B2lPrintSysmsgPhotoOverview(Cycle);
             } else if (Result == 0) {
-                B2lPrintMaxEventPage(&Log, Page - 5UL, Cycle);
+                B2lPrintMaxEventPage(&Log, Page - 6UL, Cycle);
             } else {
                 // Read errors were initially printed before the overview;
                 // repeat the actual error on this page after clearing it.

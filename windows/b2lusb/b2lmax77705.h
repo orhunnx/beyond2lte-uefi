@@ -19,6 +19,7 @@
 #define B2L_MAX_TOP_ADDRESS          0x66U
 #define B2L_MAX_USBC_ADDRESS         0x25U
 #define B2L_MAX_CHARGER_ADDRESS      0x69U
+#define B2L_MAX_DEBUG_ADDRESS        0x62U
 
 #define B2L_MAX_IRQ_FRAMES 64UL
 #define B2L_MAX_OPCODE_TIMEOUT_100NS 100000000ULL // Samsung 10*HZ queue deadline
@@ -51,6 +52,7 @@
 #define B2L_MAX_STAGE_RID            0x6CUL
 #define B2L_MAX_STAGE_PD_MESSAGE     0x6DUL
 #define B2L_MAX_STAGE_PD_CAPS        0x6EUL
+#define B2L_MAX_STAGE_SYSMSG         0x6FUL
 #define B2L_MAX_STAGE_READY          0x70UL
 #define B2L_MAX_STAGE_GPIO_IRQ       0x24UL
 #define B2L_MAX_STAGE_MFD_IRQ        0x34UL
@@ -140,6 +142,11 @@ typedef struct _B2L_MAX_CONTEXT {
     UCHAR PdMessage, PsRdyRaw, PdPrSwap, PdCapsHeader, PdPdoCount, PdCurrentPdo;
     BOOLEAN PsRdyReceived, PdSupported, PdCapsValid, PdRecoveryPending;
     NTSTATUS PdMessageStatus, PsRdyStatus, PdCapsStatus, PdRecoveryStatus;
+    UCHAR SysmsgValue, SysmsgSamples[3], SysmsgSampleCount, SysmsgRetryOpcode;
+    BOOLEAN SysmsgValid;
+    ULONG SysmsgEvents, SysmsgMismatches, SysmsgUnhandled, SysmsgRetries;
+    ULONG AfcClockAttempts;
+    NTSTATUS SysmsgStatus, SysmsgRetryStatus, AfcClockStatus, AfcRelockStatus;
     WDFTIMER OpcodeDeadline;
     B2L_MAX_MUIC_PAIR MuicPairs[B2L_MAX_MUIC_SLOTS];
     ULONGLONG MuicGeneration;
@@ -349,5 +356,7 @@ VOID B2lMaxRetirePdRequestLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_PD_REQUEST R
 VOID B2lMaxResetPdConnectionLocked(PB2L_MAX_CONTEXT Context);
 VOID B2lMaxCancelPdRecoveryLocked(PB2L_MAX_CONTEXT Context, NTSTATUS Status);
 EVT_WDF_TIMER B2lMaxEvtPdRecoveryTimer;
+NTSTATUS B2lMaxRetryOpcodeLocked(PB2L_MAX_CONTEXT Context);
+VOID B2lMaxHandleSysmsgLocked(PB2L_MAX_CONTEXT Context);
 
 #endif

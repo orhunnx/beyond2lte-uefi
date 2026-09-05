@@ -1,8 +1,8 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
-## Güncel kaynak: `.36` / PD olayları ve PDO okuması
+## Güncel kaynak: `.37` / SYSMSG ve APCMD_FAIL
 
-MAX `0.1.0.36`, parent/host/function `0.1.0.19`, IOCTL ABI 7.
+MAX `0.1.0.37`, parent/host/function `0.1.0.19`, IOCTL ABI 7.
 Koşulsuz HOST kaldırıldı. Gerçek MAX CC/PD değişiklikleri ayrı pasif UCM
 kuyruğuna, oradan URS host/function yaşam döngüsüne gider. ACPI rol çocukları
 `_ADR=0/1`, PnP kimlikleri `URS\BYN0002&HOST/FUNCTION`; özgün GSIV273.
@@ -15,18 +15,30 @@ APCMD ile tamamlanan `CURRENT_SRCCAP=0x30` / 31 bayt okumasını kuyruğa alır.
 Bağlantı nesli eski PDO yanıtının yeni kabloya aitmiş gibi yayımlanmasını
 engeller; hatalı başlık ve başarısız istek görünür kalır.
 
-`MAX FOTO v9` genel/USB/MUIC/UCM sayfalarına 35 satırlık PD/PDO sayfası ekler.
+Gerçek SYSMSG IRQ'si üç canlı okuma ile doğrulanır. `APCMD_FAIL=33`
+bekleyen aynı opcode'u tekrar gönderir; tamamlanma için gerçek APCMD gerekir.
+Ardından stok AFC clock düzeltmesinin dört I2C yazısı uygulanır. Her yazının
+hatası ve TKEY relock sonucu korunur. Eski bir bekleme süresinin dolması,
+gerçek retry'nin uzattığı deadline'ı yanlışlıkla bitirmez.
+
+HWC1 stok kernelinin gömülü IKCONFIG'i doğrulandı: GRL/AFC açık, PDIC_PD30
+kapalı. GRL dalındaki `70`, genel firmware queue-clear olarak kullanılamaz.
+Reset ve OS swap portu cihazın bu kaynak dalını izlemelidir.
+
+`MAX FOTO v10` genel/USB/MUIC/UCM, 35 satırlık PD/PDO ve 24 satırlık
+SYSMSG sayfasını gösterir. SYS_VALID/READ_N, retry sonucu ve AFC relock
+alanları farklı kanıt katmanlarıdır.
 `CAPS_VALID` ham PDO okuması ve sayı/seçim başlığının geçerliliğidir; RDO,
 PDO güç semantiği veya OS PD sözleşmesi doğrulaması değildir. UCM kabulü de
 enumeration kanıtı değildir. Source Rp, OS PD swap/sözleşmeleri,
-SYSMSG recovery, battery/CHGINSEL, function sınıfı ve USB3 hâlâ açık.
+POR/WDT/GRL recovery, battery/CHGINSEL, function sınıfı ve USB3 hâlâ açık.
 Bu sürüm USB çalıştı iddiası taşımaz; kaynak işi flaş beklemeden devam eder.
 
 Build yalnız WSL: `bash yap.sh --touch --usb-test --clean`, ardından
 `bash cache_esp.sh --win --system --baseline`. Hedef WIM'de aynı Windows
 build'inin ARM64 UCM/URS/UFX bileşenleri gerekir. Function INF gerçek inbox
 bölümlerinden üretilir; eski Mobile runtime veya tahmini INF adı kullanılmaz.
-Ayrıntı ve test kapsamı: `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md`, `.36`.
+Ayrıntı ve test kapsamı: `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md`, `.37`.
 
 **Aşağıdaki `.34` ve statik `.18` bölümleri önceki ölçüm/tasarım günlüğüdür;
 statik HOST komutları ve BYN0003 kimliği güncel build için kullanılmaz.**

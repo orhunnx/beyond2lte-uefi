@@ -14,6 +14,7 @@ header=(DIR/'b2lmax77705.h').read_text()
 main=(DIR/'b2lmax77705.c').read_text()
 irq=(DIR/'b2lmax77705_irq.c').read_text().replace('#include "b2lmax77705.h"','')
 pd=(DIR/'b2lmax77705_pd.c').read_text().replace('#include "b2lmax77705.h"','')
+sysmsg=(DIR/'b2lmax77705_sysmsg.c').read_text().replace('#include "b2lmax77705.h"','')
 def function(name):
     pos=main.index(name+'(');start=main.rfind('\n\n',0,pos)+2
     brace=main.index('{',pos);end=brace+1;depth=1
@@ -85,8 +86,11 @@ static NTSTATUS otg_error;
 static UCHAR muic_actual;
 static int muic_bad_read, trace_count;
 static char trace[1024];
-static NTSTATUS read_error, write_error, snap_error, normalize_status;
+static NTSTATUS read_error, write_error, opcode_write_error, snap_error, normalize_status;
 static int drop_irq, wrong_reply, stale_wakes, probe_test;
+static UCHAR sys_reads[8];
+static int sys_read_count, sys_read_length, sys_read_fail, afc_step, afc_fail, trace_sysmsg;
+static int retry_while_waiting;
 static BOOLEAN B2lMaxEvtMaxInterruptIsr(WDFINTERRUPT,ULONG);
 static void WdfWaitLockAcquire(WDFWAITLOCK l,void *timeout) {
     assert(l==current->MfdLock && !held && timeout==NULL); held=1;
@@ -107,6 +111,7 @@ NTSTATUS B2lMaxHandlePsRdyLocked(PB2L_MAX_CONTEXT);
 VOID B2lMaxResetPdConnectionLocked(PB2L_MAX_CONTEXT);
 VOID B2lMaxCancelPdRecoveryLocked(PB2L_MAX_CONTEXT,NTSTATUS);
 VOID B2lMaxRetirePdRequestLocked(PB2L_MAX_CONTEXT,PB2L_MAX_PD_REQUEST,NTSTATUS);
+VOID B2lMaxHandleSysmsgLocked(PB2L_MAX_CONTEXT);
 static NTSTATUS B2lMaxReapplyMuicLocked(PB2L_MAX_CONTEXT,UCHAR);
 static PB2L_MAX_CONTEXT B2lMaxGetContext(WDFDEVICE d) { assert(d==current); return current; }
 static WDFDEVICE WdfInterruptGetDevice(WDFINTERRUPT i) { assert(i==current); return current; }
@@ -126,7 +131,12 @@ static NTSTATUS B2lMaxReadByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v) {
     if(a==0x25 && r==0x0d) trace[trace_count++]='P';
     if(a==0x25 && r==0x0c) trace[trace_count++]='S';
     if(a==0x66 && r==0x22) *v=top;
-    else if(a==0x25 && r==0x07) *v=0;
+    else if(a==0x25 && r==0x07) {
+        if(trace_sysmsg)trace[trace_count++]='Y';
+        ++sys_read_count;
+        if(sys_read_count==sys_read_fail)return STATUS_IO_TIMEOUT;
+        *v=sys_read_count<=sys_read_length ? sys_reads[sys_read_count-1] : reg_values[a][r];
+    }
     else if(a==0x69 && r==0xb0) *v=1;
     else *v=reg_values[a][r];
     return 0;
@@ -153,13 +163,21 @@ static NTSTATUS B2lMaxReadBlock(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v,ULON
 static NTSTATUS B2lMaxWriteBlock(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,const UCHAR *v,ULONG n) {
     assert(c==current && held && a==0x25 && r==0x21 && n>=1 && n<=2);
     if(write_error) return write_error;
+    if(opcode_write_error) return opcode_write_error;
     assert(commands<64); written_op[commands]=last_opcode=v[0];
     written_data[commands]=last_payload=(n==2 ? v[1] : 0); ++commands;
     if(v[0]==0x06) muic_actual=v[1];
     return 0;
 }
 static NTSTATUS B2lMaxWriteByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR v) {
-    assert(c==current && held); if(write_error) return write_error;
+    assert(c==current && held);
+    if((a==0x66 && r==0xfe) || (a==0x62 && r==0x0f)) {
+        ++afc_step;
+        if(a==0x66) { assert(v==0xc5 || v==0);trace[trace_count++]=v ? 'T' : 'L'; }
+        else { assert(v==4 || v==0);trace[trace_count++]=v ? '+' : '-'; }
+        if(afc_step==afc_fail)return STATUS_IO_TIMEOUT;
+    }
+    if(write_error) return write_error;
     reg_values[a][r]=v;
     if(a==0x25 && r==0x41) { assert(v==0); raw[0]|=0x80; top|=8; }
     return 0;
@@ -185,6 +203,15 @@ static NTSTATUS B2lMaxNormalizeCcOpen(PB2L_MAX_CONTEXT c) {
 static NTSTATUS KeWaitForSingleObject(KEVENT *event,int r,int m,int alert,LARGE_INTEGER *t) {
     assert(!held && r==0 && m==0 && !alert && t->QuadPart<0);
     if(event->signaled) { event->signaled=0;return 0; }
+    if(retry_while_waiting) {
+        ULONGLONG old_end=ticks+(ULONGLONG)-t->QuadPart;
+        retry_while_waiting=0;ticks+=1000000;
+        reg_values[0x25][7]=0x33;raw[0]=0x40;regs[0xa04/4]|=1U<<6;
+        WdfWaitLockAcquire(current->MfdLock,NULL);
+        assert(B2lMaxEvtMaxInterruptIsr(current,0));
+        WdfWaitLockRelease(current->MfdLock);
+        ticks=old_end;return STATUS_TIMEOUT; // old wait expired, new send has not
+    }
     if(stale_wakes) { --stale_wakes;ticks+=1000;return 0; }
     if(drop_irq) { ticks+=(ULONGLONG)-t->QuadPart;return STATUS_TIMEOUT; }
     // While a caller sleeps, other queued opcodes can complete first. Only
@@ -206,14 +233,17 @@ for name in ('B2lMaxSetDiagnosticLocked','B2lMaxReadCcStatus','B2lMaxEvaluateCon
 # Match the forward prototype linkage of the real callback in this TU.
 h+=irq.replace('BOOLEAN\nB2lMaxEvtMaxInterruptIsr','static BOOLEAN\nB2lMaxEvtMaxInterruptIsr')
 h+='\n'+pd
+h+='\n'+sysmsg
 h+='\n'+function('B2lMaxWriteUsbcMasks')+'\n'+function('B2lMaxInitializeUsbc')
 h+='\n'+function('B2lMaxRecordIrqFrame')
 h+=r'''
 static void reset(PB2L_MAX_CONTEXT c) {
     memset(c,0,sizeof(*c)); memset(regs,0xa5,sizeof(regs)); memset(reg_values,0,sizeof(reg_values));
     memset(raw,0,4); current=c; ticks=1234; held=queued=r2c_reads=responses=commands=cancels=0;
-    mmio_ack=0; read_error=write_error=snap_error=normalize_status=0;
+    mmio_ack=0; read_error=write_error=opcode_write_error=snap_error=normalize_status=0;
     drop_irq=wrong_reply=stale_wakes=probe_test=0; last_opcode=last_payload=reply_opcode=0;
+    sys_read_count=sys_read_length=sys_read_fail=afc_step=afc_fail=trace_sysmsg=retry_while_waiting=0;
+    memset(sys_reads,0,sizeof(sys_reads));
     c->Device=c->MaxInterrupt=c->PolicyWork=c->OpcodeDeadline=c;
     timer_due=pd_due=0;otg_on=otg_off=0;otg_error=0;memset(pd_response,0,sizeof(pd_response));c->PdRecoveryTimer=(void *)2;muic_actual=0;muic_bad_read=trace_count=0;connector_notifications=0;memset(trace,0,sizeof(trace)); c->MfdLock=(void *)1;
     c->AliveRegisters=(PUCHAR)regs; c->AliveLength=0x1000; c->MaxTranslatedIrq=0xa02;
@@ -553,7 +583,74 @@ int main(void) {
     reg_values[0x25][0x0b]=2;raw[1]=0x10;assert(deliver() && !c.PdRecoveryPending && !pd_due);
     reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=2;reg_values[0x25][0x0c]=6;raw[2]=0x80;assert(deliver());
     top=9;reg_values[0x69][0xb5]=1;assert(deliver() && !c.PdRecoveryPending && !pd_due);
-    puts("MAX77705 IRQ/queue/MUIC/PD power, PDO lifetime and probe order: PASS (hardware delivery unverified)");
+    // SYSMSG uses three reads on its own IRQ. Retry does not complete APCMD.
+    reset(&c);B2lMaxInitOpcodeRequest(&a,0x0c,1,0x1f,1);
+    WdfWaitLockAcquire(c.MfdLock,NULL);assert(B2lMaxQueueOpcodeLocked(&c,&a)==0);WdfWaitLockRelease(c.MfdLock);
+    queue(&c,&b,0x05);
+    raw[0]=0x40;reg_values[0x25][7]=0x33;trace_sysmsg=1;
+    ticks+=1000000;assert(deliver());
+    assert(strcmp(trace,"YYYT+-L")==0 && sys_read_count==3 && commands==2 && responses==0);
+    assert(written_op[0]==0x0c && written_op[1]==0x0c && !a.Complete && !b.Complete);
+    assert(written_data[0]==0x1f && written_data[1]==0x1f);
+    assert(c.OpcodeHead==&a && a.Next==&b && c.SysmsgValid && c.SysmsgValue==0x33);
+    assert(c.SysmsgRetries==1 && c.SysmsgRetryOpcode==0x0c && !c.SysmsgRetryStatus && !c.SysmsgStatus);
+    assert(c.AfcClockAttempts==1 && !c.AfcClockStatus && !c.AfcRelockStatus);
+    assert(a.SentAt==ticks && timer_due==ticks+B2L_MAX_OPCODE_TIMEOUT_100NS);
+    assert(deliver() && a.Complete && !b.Complete && commands==3);
+    assert(deliver() && b.Complete && !c.OpcodeHead);
+    // APCMD's status read alone does not generate a SYSMSG retry/workaround.
+    reset(&c);queue(&c,&a,0x1c);reg_values[0x25][7]=0x33;
+    assert(deliver() && a.Complete && !c.SysmsgEvents && !c.SysmsgRetries && !afc_step);
+    // If both bits are real, APCMD retires A before SYSMSG retries current B.
+    reset(&c);queue(&c,&a,0x1c);queue(&c,&b,0x05);raw[0]=0xc0;reg_values[0x25][7]=0x33;
+    assert(deliver() && a.Complete && !b.Complete && commands==3 && responses==1);
+    assert(written_op[1]==0x05 && written_op[2]==0x05 && c.SysmsgRetryOpcode==0x05 && sys_read_count==4);
+    // Unstable reads are invalid evidence, not a manufactured 0x6d message.
+    reset(&c);queue(&c,&a,0x1c);raw[0]=0x40;
+    sys_read_length=3;sys_reads[0]=sys_reads[2]=0x33;sys_reads[1]=5;
+    assert(deliver() && !c.SysmsgValid && c.SysmsgValue==0xff && c.SysmsgSampleCount==3);
+    assert(c.SysmsgSamples[1]==5 && c.SysmsgMismatches==1 && c.SysmsgStatus==STATUS_DEVICE_DATA_ERROR);
+    assert(commands==1 && !afc_step && !a.Complete && !c.MfdFault);
+    // Partial transport failure cancels the outstanding request and keeps evidence.
+    reset(&c);queue(&c,&a,0x1c);raw[0]=0x40;reg_values[0x25][7]=0x33;sys_read_fail=2;
+    assert(deliver() && !c.SysmsgValid && c.SysmsgSampleCount==1 && c.SysmsgSamples[0]==0x33);
+    assert(c.MfdFault==STATUS_IO_TIMEOUT && a.Complete && a.Status==STATUS_IO_TIMEOUT && !afc_step);
+    // The AFC workaround is required even with an empty opcode queue.
+    reset(&c);raw[0]=0x40;reg_values[0x25][7]=0x33;
+    assert(deliver() && afc_step==4 && !commands && !c.SysmsgStatus);
+    assert(c.SysmsgRetryStatus==STATUS_DEVICE_NOT_READY && c.SysmsgRetryOpcode==0xff && !c.SysmsgRetries);
+    // Every write failure attempts TKEY relock; ON failure still attempts OFF.
+    for(i=1;i<=4;++i) {
+        reset(&c);raw[0]=0x40;reg_values[0x25][7]=0x33;afc_fail=(int)i;
+        assert(deliver() && c.SysmsgStatus==STATUS_IO_TIMEOUT && c.MfdFault==STATUS_IO_TIMEOUT);
+        assert(afc_step==(i==1 ? 2 : 4) && trace[trace_count-1]=='L');
+        assert(c.AfcClockStatus==STATUS_IO_TIMEOUT);
+        assert(c.AfcRelockStatus==(i==4 ? STATUS_IO_TIMEOUT : 0));
+    }
+    // A retry send failure is not disguised by successful AFC cleanup.
+    reset(&c);queue(&c,&a,0x1c);raw[0]=0x40;reg_values[0x25][7]=0x33;opcode_write_error=STATUS_NO_SUCH_DEVICE;
+    assert(deliver() && a.Complete && a.Status==STATUS_NO_SUCH_DEVICE && !c.OpcodeHead);
+    assert(c.SysmsgRetryStatus==STATUS_NO_SUCH_DEVICE && c.SysmsgStatus==STATUS_NO_SUCH_DEVICE);
+    assert(afc_step==4 && !c.AfcClockStatus && !c.AfcRelockStatus);
+    // Shutdown ignores SYSMSG, while the independent APCMD path remains usable.
+    reset(&c);queue(&c,&a,0x1c);c.PolicyEnabled=FALSE;raw[0]=0x40;reg_values[0x25][7]=0x33;
+    assert(deliver() && !c.SysmsgEvents && !afc_step && commands==1 && !a.Complete);
+    raw[0]=0x80;assert(deliver() && a.Complete && !c.SysmsgEvents && !afc_step);
+    // Original GRL/VDM exceptions must never be blindly retransmitted.
+    for(i=0;i<2;++i) {
+        reset(&c);queue(&c,&a,i ? 0x70 : 0x48);raw[0]=0x40;reg_values[0x25][7]=0x33;
+        assert(deliver() && commands==1 && !a.Complete && c.SysmsgStatus==STATUS_NOT_SUPPORTED);
+        assert(c.SysmsgUnhandled==1 && !c.SysmsgRetries && afc_step==4);
+    }
+    // A real SYSMSG retry during a sleep moves the deadline, not its completion.
+    reset(&c);queue(&c,&a,0x1c);retry_while_waiting=1;
+    assert(B2lMaxWaitOpcode(&c,&a)==0 && c.SysmsgRetries==1 && c.OpcodeCompletions==1);
+    assert(commands==2 && responses==1 && !c.MfdFault);
+    // Unsupported reset/GRL events remain visible; this is not a reset substitute.
+    reset(&c);raw[0]=0x40;reg_values[0x25][7]=3;
+    assert(deliver() && c.SysmsgValid && c.SysmsgValue==3 && c.SysmsgStatus==STATUS_NOT_SUPPORTED);
+    assert(c.SysmsgUnhandled==1 && !commands && !afc_step);
+    puts("MAX77705 IRQ/queue/MUIC/PD/SYSMSG retry and AFC cleanup: PASS (hardware delivery unverified)");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='b2l-max-irq-test-') as directory:

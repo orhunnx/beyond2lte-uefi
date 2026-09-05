@@ -167,6 +167,23 @@ B2lMaxStartOpcodeLocked(PB2L_MAX_CONTEXT Context)
 }
 
 NTSTATUS
+B2lMaxRetryOpcodeLocked(PB2L_MAX_CONTEXT Context)
+{
+    PB2L_MAX_OPCODE_REQUEST Request = Context->OpcodeHead;
+    Context->SysmsgRetryOpcode = Request != NULL ? Request->Opcode : 0xFFU;
+    if (Request == NULL || Request->SentAt == 0ULL || Request->Complete)
+        return STATUS_DEVICE_NOT_READY;
+    // Stock GRL (0x70) and VDM request (0x48) have a dequeue path, not retry.
+    // Those command consumers are not implemented; never resend them here.
+    if (Request->Opcode == 0x70U || Request->Opcode == 0x48U)
+        return STATUS_NOT_SUPPORTED;
+    ++Context->SysmsgRetries;
+    // Head owns the sent bytes until APCMD retires it. Resend that same
+    // request, keeping all waiters/slots and the subsequent queue in place.
+    return B2lMaxStartOpcodeLocked(Context);
+}
+
+NTSTATUS
 B2lMaxQueueOpcodeLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_OPCODE_REQUEST Request)
 {
     if (!NT_SUCCESS(Context->MfdFault) || !Context->MfdReady) {
@@ -297,12 +314,14 @@ B2lMaxWaitOpcode(PB2L_MAX_CONTEXT Context, PB2L_MAX_OPCODE_REQUEST Request)
         if (Request->SentAt != 0ULL) {
             Deadline = Request->SentAt + B2L_MAX_OPCODE_TIMEOUT_100NS;
         }
-        if ((Now >= Deadline) || (WaitStatus != STATUS_SUCCESS)) {
+        if ((Now >= Deadline) || ((WaitStatus != STATUS_SUCCESS) &&
+            (WaitStatus != STATUS_TIMEOUT))) {
             Status = ((WaitStatus == STATUS_SUCCESS) || (WaitStatus == STATUS_TIMEOUT)) ?
                 STATUS_IO_TIMEOUT : WaitStatus;
             // A mailbox without a verified response cannot be reused as if
             // the command succeeded. Cancel every linked caller before return.
-            // SYSMSG/firmware-queue recovery is a separate, not yet ported path.
+            // SYSMSG retries can move SentAt while this wait is asleep. A
+            // timeout of the previous wait is not expiry of the new deadline.
             B2lMaxCancelOpcodesLocked(Context, Status);
             WdfWaitLockRelease(Context->MfdLock);
             return Status;
@@ -466,7 +485,10 @@ B2lMaxEvtMaxInterruptIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
                 goto Failed;
             }
         }
-
+        // Original nested order: APCMD, SYSMSG, then MUIC/CC/PD. A status
+        // read made for APCMD alone never fabricates a SYSMSG interrupt.
+        if (Context->PolicyEnabled && ((Frame.Active[0] & 0x40U) != 0U))
+            B2lMaxHandleSysmsgLocked(Context);
     }
     if (Context->PolicyEnabled) {
         if (!BypassDispatched && ((Frame.Charger & 0x01U) != 0U)) {

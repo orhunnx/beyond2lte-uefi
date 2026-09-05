@@ -18,6 +18,15 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / `.37` kaynak güncellemesi:** Ayrı SYSMSG IRQ'sinde üç canlı
+> okuma doğrulaması, `APCMD_FAIL=33` aynı komut retry'si ve stok AFC clock
+> düzeltmesi eklendi. `MAX FOTO v10` ayrı 24 satırlık SYSMSG sayfası içerir.
+> **HWC1 stok boot imajının IKCONFIG'i çıkarıldı: GRL/AFC açık, PDIC_PD30
+> kapalı.** `70` bu kaynak dalında genel firmware queue-clear değildir.
+> Reset/GRL ve OS swap işleri bu ayrımla devam eder. MAX `.37`, parent/host
+> `.19`; WSL/telefon sonucu yok. Ayrıntı Linux karşılaştırmasının `.37`
+> bölümündedir; kaynak çalışması flaş beklemeden sürer.
+
 > **5 Eylül / `.36` kaynak güncellemesi:** Gerçek PDMSG/PS_RDY tüketicileri,
 > stok 760/800 ms gecikmeli VBUS işi ve APCMD ile tamamlanan `0x30` PDO
 > okuması eklendi. `MAX FOTO v9` ayrı 35 satırlık PD/PDO sayfası içerir.
@@ -102,6 +111,8 @@ Bugün itibarıyla:
   cihaz sonucu yoktur. `.35` UCM/URS tüketicisini ekler; akım/PD ve gerçek
   Windows doğrulaması hâlâ eksiktir. `.36` gerçek PDMSG/PS_RDY ve ham PDO
   yanıtı ile stok gecikmeli VBUS işlemini ekler; tam OS PD sözleşmesi değildir.
+  `.37` gerçek SYSMSG/APCMD_FAIL ve AFC hata yolunu ekler. Reset/GRL ve
+  OS rol takası halen kaynakta tamamlanması gereken işlerdir.
 - Yeni fotoğraflar aynı D0 oturumunda 13 -> 15 olayı gösteriyor; tamamının
   status snapshot'ı geçersiz. ForceError veya firmware reset gerektiği bu
   kayıtlardan çıkarılamaz. Eksik `findstr` ve seri registry sorguları tanı
@@ -132,12 +143,12 @@ kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikle
 
 ### 0.3 Güncel repo ve sürüm çıpası
 
-`.36` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
+`.37` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
 
 ```text
 dal:    codex/touch-from-8549bfa
-taban:  f9a001d  feat: connect MAX77705 Type-C roles to UCM and URS
-önceki: 5e288eb  feat: classify MAX77705 MUIC cables from BC and RID events
+taban:  a945151  feat: handle MAX77705 PD power events and current PDO replies
+önceki: f9a001d  feat: connect MAX77705 Type-C roles to UCM and URS
 ```
 
 Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
@@ -147,7 +158,7 @@ Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
 | `b2ltouch.sys` | `0.2.0.1` | `ACPI\BYN0001`, Samsung sec_ts -> KMDF/VHF touch |
 | `b2lusb.sys` parent | `0.1.0.19` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
 | inbox host | `0.1.0.19` INF | `URS\BYN0002&HOST`, `USBXHCI` + GSIV 273 |
-| `b2lmax77705.sys` | `0.1.0.36` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG/PD |
+| `b2lmax77705.sys` | `0.1.0.37` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG/PD |
 | `b2lufs.sys` | `0.0.4.5` kaynak sürümü | Deneysel Windows UFS miniport; güncel USB kapısı değil |
 
 Yalnız MAX77705 değiştiğinde parent/host sürümünün aynı kalması normaldir.

@@ -1,5 +1,130 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.37` — stok kernel yapılandırması, SYSMSG ve APCMD_FAIL
+
+MAX `0.1.0.37`, parent/host/function `0.1.0.19`, ABI `7`. Ayrı SYSMSG
+kesmesi ve mevcut opcode tüketicilerinin yeniden gönderme yolu eklendi.
+Bu kaynak ilerlemesidir; WSL build/telefon/USB transfer sonucu değildir.
+
+### Cihazın gerçek stok kernelinden çıkarılan yapılandırma
+
+Sadece benzer d2s ağacının derleme seçeneklerine güvenilmedi. Depodaki
+`stockfirmware/AP_G975FXXSGHWC1_CL25257816_QB62768724_REV01_user_low_ship_meta_OS12.tar.md5`
+arşivinden **yalnız** `boot.img.lz4` okundu. LZ4 açıldıktan sonra Android
+boot başlığının page size `2048`, kernel size `45053964` alanları kullanıldı.
+Kernel içindeki `IKCFG_ST`/`IKCFG_ED` aralığı
+`17552624..17591585` bulunup gömülü gzip yapılandırması açıldı.
+
+```text
+boot.img SHA256:
+cc4a55cdb00278226a610d7dc129a9383376a545c1191e31f258cec59cbcbc45
+açılmış IKCONFIG SHA256:
+5d541b85c458ed2e77564faecb909d47afa8ebe697d383927460c44488cd5e0a
+
+CONFIG_HV_MUIC_MAX77705_AFC=y
+CONFIG_MAX77705_GRL_ENABLE=y
+CONFIG_TYPEC=y
+CONFIG_MUIC_MAX77705_CCIC=y
+CONFIG_USB_TYPEC_MANAGER_NOTIFIER=y
+# CONFIG_BATTERY_SAMSUNG_MHS is not set
+# CONFIG_CCIC_ALTERNATE_MODE is not set
+# CONFIG_PDIC_PD30 is not set
+```
+
+Bu değerler adı verilen **HWC1 stok kernelinin** kanıtıdır; fotoğraftaki
+MAX firmware `1a.10` ile kernel sürümü aynı şey değildir. Aynı GRL/AFC
+seçimi `corsicanu/android_kernel_samsung_universal9820` sabit
+`55f042627bb7030c93550faafa117674d32b21d1` commit'indeki
+[beyond2lte defconfig](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/arch/arm64/configs/exynos9820-beyond2lte_defconfig)
+ve [beyond-stock defconfig](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/arch/arm64/configs/beyond-stock_defconfig)
+dosyalarında da vardır. D2s ortak register/handler kaynağı olmaya devam
+eder; koşullu kod dallarında bu gerçek cihaz yapılandırması önceliklidir.
+
+**Önceki “swap öncesinde firmware queue clear” genellemesi düzeltilmiştir:**
+bu GRL dalında `0x70` bir GRL komutudur. `max77705_usbc_clear_queue` yazılım
+kuyruğunu temizler ve recover opcode listesini kurar; `!GRL` dalının
+`0x70/write_length=0` firmware-clear komutunu göndermez.
+[Cihaza ait USBC kaynağı](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/ccic/max77705_usbc.c)
+`SYSMSG_SET_GRL=64` için ayrı `70 01 / read_length=2` yolu ve gerçek `70`
+yanıtından sonra debug `62:1f=04`, 100 ms işlemini içerir. Bu dalın
+tüketicisi henüz tamamlanmadığından `.37` o yazıları veya reseti üretmez.
+UCM swap/reset portu bu ayrımı koruyarak devam etmelidir; non-GRL kuyruk
+temizleme komutu varsayılan çözüm değildir. `.36`daki ham PDO okuması da
+`PDIC_PD30`/APDO desteği ilan edildiği anlamına gelmez.
+
+### Uygulanan gerçek SYSMSG akışı
+
+Özgün nested sıra **BYP → APCMD → SYSMSG → MUIC → CC → PD** korunur.
+SYSMSG, UIC interrupt bit6'dır. APCMD sırasında `0x07` okumak tek başına
+SYSMSG işleyicisini çağırmaz. Yeni `b2lmax77705_sysmsg.c`, gerçek SYSMSG
+kesmesi üzerinde `max77705_sysmsg_irq` gibi `USBC_STATUS2=07` adresini
+üç kez okur. Üçü aynıysa mesaj geçerlidir. Uyuşmazlıkta alınan baytlar
+korunur, `SYS_VALID=0`, `SYS_NT=C000009C` (`STATUS_DEVICE_DATA_ERROR`)
+yayımlanır. Linux'un hata dalındaki yazılımsal `6d` sentinel'i donanımdan
+okunmuş mesaj gibi yayımlanmaz. Kısmi I2C hatasında başarılı örnek sayısı
+saklanır, gerçek hata ile bekleyen istekler iptal edilir.
+
+Geçerli `SYSMSG=33` (`SYSERROR_APCMD_FAIL`) mevcut sıranın başındaki
+**aynı** opcode ve payload'ı tekrar gönderir. İstek, event, MUIC/PD slotu
+ve sonraki kuyruk korunur. `RETRY_NT=0` yalnız gönderimin sonucudur;
+tamamlama sayacı artırılmaz ve yanıt ancak sonraki gerçek APCMD'de okunur.
+APCMD ve SYSMSG aynı frame'deyse önce eski komut tamamlanır; sonra SYSMSG,
+Linux'taki `last_opcode/next_opcode` sırası gibi o anda bekleyen komutu
+ele alır. Timer SYSMSG veya opcode yanıtı üretmez.
+
+Gönderme zamanı gerçek yeniden gönderimle güncellenir. Senkron bir çağrı
+eski deadline'a kadar uyumuşsa, o beklemenin timeout'u yeni gönderimin
+deadline'ı sanılmaz; kilit altında güncel zaman yeniden değerlendirilir.
+Güncel deadline gerçekten dolarsa hata/iptal davranışı korunur.
+
+GRL `70` ve VDM `48` komutlarının stokta özel dequeue yolu vardır.
+Bu komutların üretici/yanıt tüketicileri henüz yoktur; yeniden gönderme
+yardımcısı onları genel retry dalına sokmaz ve `NOT_SUPPORTED` gösterir.
+Bu özel dequeue/recovery kolları tamamlanmış sayılmamalıdır.
+
+### AFC saat düzeltmesi: gerçek tüketici ve hata ömrü
+
+Gerçek kernelde AFC derleme seçeneği açık olduğu için
+[max77705_muic_disable_afc_protocol](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/muic/max77705-muic.c)
+çağrısı da port edildi. Yalnız `SYSMSG=33` yolunda, kuyruk boş olsa bile,
+stok sıralamayla `TOP 66:fe=c5` → `DEBUG 62:0f=04` → `62:0f=00` →
+`66:fe=00` uygulanır. Bu kaynakta belgelenen D- yüksek/AFC clock
+düzeltmesidir; Type-C attach, VBUS veya opcode tamamlaması üretmez.
+
+Windows hata sonuçlarını da korur: unlock başarısızsa gizli register'a
+devam edilmez; unlock sonucu belirsiz olsa da relock denenir. Clock-on
+yazısı hatalıysa clock-off ve relock yine denenir. İlk hata korunur,
+relock sonucu ayrıca gösterilir. Başarısız aktarım sonrası normal IRQ
+yeniden açılmış veya komut başarılı olmuş sayılmaz. Aynı MfdLock bu dört
+yazı sırasında diğer MAX işlemlerinin araya girmesini engeller.
+
+### Tanı ve doğrulama
+
+`MAX FOTO v10` yeni **24 satırlık SYSMSG** sayfasını PD/PDO ile olay
+sayfalarının arasına koyar. READ0/1/2, READ_N, SYS_VALID, SYS_NT,
+RETRY_OP/NT/TRIES, AFC_TRIES/NT ve RELOCK_NT ayrı alanlardır. Retry/AFC
+alanları son ilgili işlemi gösterir; başka SYSMSG'nin başarılı sayılması
+önceki retry'nin APCMD yanıtı aldığı anlamına gelmez. Genel alanlar ardışık
+registry okumalarıdır, atomik olay fotoğrafı değildir. Startnet özetine de
+bu alanlar eklendi; foto genişliği 64 sütunun altındadır.
+
+Gerçek C koduyla host testleri: üç okuma uyumu/uyuşmazlığı, kısmi read
+hatası, aynı komut/payload retry, APCMD+SYSMSG sırası, boş kuyrukta AFC,
+dört yazının her birinde hata, relock, retry gönderim hatası ve eski
+bekleme süresinin dolması. CC/PD, PnP lifecycle, UCM, foto ve Windows
+USB/MAX kaynak kontrolleri de geçti. WDK/UEFI/WIM build bu Mac'te yapılmadı;
+build listesine yeni SYSMSG modülü eklendi. WSL girişleri değişmedi:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+**Açık işler:** gerçek POR/WDT reseti + GRL uyumlu queue/recover ömrü,
+SYSMSG short/battery/VDM tüketicileri, source Rp, OS swap ve PD sözleşmesi,
+USB3 ve uçtan uca transfer. `.37` bunları başarılı no-op olarak kapatmaz.
+Kaynak çalışması flaş beklemeden devam eder.
+
 ## 5 Eylül 2026: `.36` — gerçek PDMSG/PS_RDY, VBUS sıralaması ve PDO yanıtı
 
 MAX sürümü `0.1.0.36`; parent/host/function `0.1.0.19`, IOCTL ABI `7`

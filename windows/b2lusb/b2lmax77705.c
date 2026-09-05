@@ -192,7 +192,13 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxPdRecoveryAttempts", L"B2LMaxPdPrSwap",
         L"B2LMaxPdPdo1", L"B2LMaxPdPdo2", L"B2LMaxPdPdo3", L"B2LMaxPdPdo4",
         L"B2LMaxPdPdo5", L"B2LMaxPdPdo6", L"B2LMaxPdPdo7",
-        L"B2LMaxPdCapsHeader"
+        L"B2LMaxPdCapsHeader",
+        L"B2LMaxSysmsgValue", L"B2LMaxSysmsgStatus", L"B2LMaxSysmsgValid",
+        L"B2LMaxSysmsgSample0", L"B2LMaxSysmsgSample1", L"B2LMaxSysmsgSample2",
+        L"B2LMaxSysmsgSampleCount", L"B2LMaxSysmsgEvents", L"B2LMaxSysmsgMismatches",
+        L"B2LMaxSysmsgUnhandled", L"B2LMaxSysmsgRetryOpcode", L"B2LMaxSysmsgRetryStatus",
+        L"B2LMaxSysmsgRetries", L"B2LMaxAfcClockAttempts", L"B2LMaxAfcClockStatus",
+        L"B2LMaxAfcRelockStatus"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -376,6 +382,22 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[160] = Context->PdPrSwap;
     for (Index = 0UL; Index < 7UL; ++Index) Values[161UL + Index] = Context->PdPdos[Index];
     Values[168] = Context->PdCapsHeader;
+    Values[169] = Context->SysmsgValue;
+    Values[170] = (ULONG)Context->SysmsgStatus;
+    Values[171] = Context->SysmsgValid ? 1UL : 0UL;
+    Values[172] = Context->SysmsgSamples[0];
+    Values[173] = Context->SysmsgSamples[1];
+    Values[174] = Context->SysmsgSamples[2];
+    Values[175] = Context->SysmsgSampleCount;
+    Values[176] = Context->SysmsgEvents;
+    Values[177] = Context->SysmsgMismatches;
+    Values[178] = Context->SysmsgUnhandled;
+    Values[179] = Context->SysmsgRetryOpcode;
+    Values[180] = (ULONG)Context->SysmsgRetryStatus;
+    Values[181] = Context->SysmsgRetries;
+    Values[182] = Context->AfcClockAttempts;
+    Values[183] = (ULONG)Context->AfcClockStatus;
+    Values[184] = (ULONG)Context->AfcRelockStatus;
     Context->DiagnosticDirty = FALSE;
     WdfWaitLockRelease(Context->MfdLock);
 
@@ -2136,6 +2158,14 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     Context->PdReadsQueued = Context->PdReadsPending = Context->PdReadCompletions = Context->PdStaleResponses = 0UL;
     Context->PdRecoveryAttempts = 0UL;
     Context->PdMessageStatus = Context->PsRdyStatus = Context->PdRecoveryStatus = STATUS_DEVICE_NOT_READY;
+    Context->SysmsgValue = Context->SysmsgRetryOpcode = 0xFFU;
+    RtlZeroMemory(Context->SysmsgSamples, sizeof(Context->SysmsgSamples));
+    Context->SysmsgSampleCount = 0U;
+    Context->SysmsgValid = FALSE;
+    Context->SysmsgEvents = Context->SysmsgMismatches = Context->SysmsgUnhandled = 0UL;
+    Context->SysmsgRetries = Context->AfcClockAttempts = 0UL;
+    Context->SysmsgStatus = Context->SysmsgRetryStatus = STATUS_DEVICE_NOT_READY;
+    Context->AfcClockStatus = Context->AfcRelockStatus = STATUS_DEVICE_NOT_READY;
     RtlZeroMemory(Context->MuicPairs, sizeof(Context->MuicPairs));
     Context->MuicOutstanding = 0UL;
     Context->MuicGeneration = 0ULL;

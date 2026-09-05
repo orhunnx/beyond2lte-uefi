@@ -46,7 +46,8 @@ B2lMaxEvtSetDataRole(UCMCONNECTOR Connector, UCM_DATA_ROLE DataRole)
     Context->DiagnosticDirty = TRUE;
     WdfWaitLockRelease(Context->MfdLock);
     // 0x37/APCMD acknowledges a swap request, not the completed DR transition.
-    // Until PDMSG/PS_RDY/swap rejection are ported, reject a different role.
+    // Until swap issuance, rejection and timeout lifetime are ported, reject
+    // a different role. Receiving PDMSG/PS_RDY alone does not issue a swap.
     // Never manufacture DATAROLE or return success for an unperformed swap.
     if (NT_SUCCESS(Status)) UcmConnectorDataDirectionChanged(Connector, TRUE, Current);
     return Status;
