@@ -141,7 +141,7 @@ grep -Fq 'Context->MuicControl1 != Path' "$MAIN"
 grep -Fq 'Context->CcControlConfigured = (BOOLEAN)(Data == 0x1FU)' "$WIN/b2lmax77705_control.c"
 grep -Fq 'InitialDetect && (CcState != B2L_MAX_CC_SINK)' "$MAIN"
 grep -Fq 'Frame->Active[1] & MAX77705_CC_INT_STATE' "$MAIN"
-grep -q 'DriverVer=09/05/2026,0.1.0.42' "$INF"
+grep -q 'DriverVer=09/05/2026,0.1.0.43' "$INF"
 # Probe ordering, response ownership, cancellation and masks execute in C
 # fixtures (test_max77705_irq.py), rather than line-order approximations.
 if rg -n 'B2lMaxReadAndClearUsbcInterrupts|B2lMaxConfigureRuntimeUsbcMasks|B2lMaxSendOpcode' "$MAIN"; then

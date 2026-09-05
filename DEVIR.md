@@ -18,6 +18,17 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / yeni flaş: MAX `.42` Code 31, düzeltme `.43`:**
+> Fotoğraf BYN0004 için `C0200211 / STATUS_WDF_EXECUTION_LEVEL_INVALID`
+> gösteriyor. DeviceAdd, timer'ın açık Passive ExecutionLevel attributes'ını
+> work item'lara taşıyordu. Work item öncesi attributes yeniden başlatılıp
+> device parent atanıyor; callback zaten PASSIVE_LEVEL'da çalışır.
+> Yeni host testinde eski kod aynı hatayı üretir; düzeltme ve bütün create
+> hata çıkışları geçer. IRQ/UCM/lifecycle/connection ve safety testleri geçti.
+> Parent/host `.21`, deneysel function `.22`, foto v15/v4 ve Linux akışı aynı.
+> Sonraki WSL build/flaşta MAX `.43` / Started beklenir; gerçek cihaz sonucu yok.
+> Commit sonrası kullanıcı push yapar; bundle üretilmez.
+
 > **5 Eylül / DISM sonrası Synopsys sürümü ve function paket sahipliği:**
 > Son hata `B2LUSB hazir` sonrasında ESP kontrolündedir: kernel/UCM 28000,
 > URS/UFX 26100, Synopsys 28000. Önceki deneysel wrapper INF native Synopsys

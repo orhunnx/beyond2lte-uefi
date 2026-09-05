@@ -1,6 +1,65 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
 
+## 5 Eylül 2026: `.42` cihaz fotoğrafı — MAX DeviceAdd Code 31 / C0200211
+
+Yeni kullanıcı fotoğrafı Windows'un açıldığını ve deneysel UFX paket
+manifestinin okunduğunu gösteriyor. Parent/host `.21`, MAX `.42`,
+`B2LUSB_OFFLINE_DRIVERSTORE=1`, `experimental-ufx` görülüyor. Bunlar çalışma
+başarısı değildir. `ACPI\BYN0004\0` için gerçek sonuç:
+
+- Description: Beyond2LTE MAX77705 Type-C and OTG Controller.
+- Status: Problem; Code 31 (`CM_PROB_FAILED_ADD`).
+- Problem Status: `0xC0200211` (`STATUS_WDF_EXECUTION_LEVEL_INVALID`).
+- `b2lmax77705.inf` seçilmiş/kurulu; stack yalnız ACPI gösteriyor.
+- Kaynak listesinde IRQ `0x72 (114)` / `0x33 (51)` ve beş MMIO aralığı var.
+  Kaynakların listelenmesi ISR, I2C veya CC işlemlerinin çalıştığını kanıtlamaz.
+
+Dolayısıyla bu görüntüden CC attach, VBUS veya xHCI başarısı çıkarılamaz.
+`B2LUSB_AUTO_HOST=1` yalnız eski isimli test/foto modu göstergesidir; gerçek
+MAX/UCM/URS rol otoritesini atlayan bir HOST komutu değildir. UFX ABI
+uyumsuzluğu veya kablo sorunu da bu WDF hata koduyla kanıtlanmış değildir.
+
+Kaynak incelemesinde `B2lMaxEvtDeviceAdd` içinde somut hata bulundu:
+`Attributes.ExecutionLevel = WdfExecutionLevelPassive` iki timer için
+ayarlanıyor; ardından aynı attributes sıfırlanmadan `WdfWorkItemCreate`
+çağrılarına geçiriliyordu. [Microsoft ExecutionLevel sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdfobject/ne-wdfobject-_wdf_execution_level)
+açık ExecutionLevel ayarına izin verilen nesneleri belirtir; work item
+bunlardan değildir. [Framework object creation hatası](https://learn.microsoft.com/en-us/windows-hardware/drivers/wdf/framework-object-creation-errors)
+bu nesne türüne geçersiz ExecutionLevel verilmesini açıklar.
+[EvtWorkItem callback](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdfworkitem/nc-wdfworkitem-evt_wdf_workitem)
+zaten sistem worker thread'inde PASSIVE_LEVEL'da çalışır.
+
+`.43` düzeltmesi: work item'lara geçerken `WDF_OBJECT_ATTRIBUTES_INIT`
+yeniden çağrılır, `ParentObject=Device` yeniden atanır. Timer ve device'ın
+Passive seviyesi korunur. Work item'da varsayılan execution/synchronization
+attributes kullanılır; mevcut `AutomaticSerialization=FALSE` ve sürücünün
+kendi kilitleri korunur. Linux IRQ, mailbox, CC/PD, MUIC, VBUS ve rol sırası
+bu düzeltmeden etkilenmez. Hata kodu bastırılmaz ve sahte çalışma durumu yoktur.
+
+Yeni `test_max77705_device_add.py`, gerçek DeviceAdd fonksiyonunu host C'de
+nesne türünü denetleyen WDF test yardımcılarıyla çalıştırır. Negatif kontrol,
+attributes yenilemesini kaldırınca ilk work item'da `C0200211` döndürür.
+Düzeltilmiş fonksiyonda iki passive timer ve iki work item oluşur. Her bir
+oluşturma adımına ayrı hata enjekte edildiğinde gerçek hata aynen döner,
+sonraki oluşturmalara devam edilmez. Önceki lifecycle testleri DeviceAdd
+fonksiyonunu çalıştırmadığından bu sözleşme hatasını yakalamıyordu.
+Bu test KMDF'nin gerçek cihazdaki çalışması değildir; fotoğrafta tek tek
+create çağrılarının sonuçları bulunmadığı için ilk work item'ın cihazdaki
+hata kaynağı olduğu ayrıca ölçülmüş sayılmaz. Kod hatası ve gözlenen hata
+birbiriyle örtüşmektedir.
+
+DeviceAdd, lifecycle, UCM, IRQ ve connection host testleri ile iki Bash
+USB/MAX safety kontrolü geçti. Build yalnız WSL'de, DEVIR'deki aynı
+`experimental-ufx` / `yap.sh --touch --usb-test --clean` ve
+`cache_esp.sh --win --system --baseline` yöntemiyle yapılır. MAX `.43`,
+parent/host `.21`, deneysel function `.22`, MAX FOTO v15 / USB FOTO v4 kalır.
+
+Sonraki flaşta ilk ölçüt MAX'ın `.43` ile `Started` olması ve Code 31'in
+kalkmasıdır. Tanı sayfalarının okunması ardından gerçek attach/UCM/URS/USB
+zinciri ölçülür. Başka bir başlangıç hatası çıkması veya USB'nin hâlâ
+çalışmaması mümkündür; bu düzeltme tüm USB akışının kanıtı değildir.
+
 ## 5 Eylül 2026: DISM sonrasında Synopsys 28000 — kaynak function paketinin sahipliği
 
 **Yeni kanıt:** Kullanıcı tam aşama sırasını paylaştı. MSVC/imzalama/DriverStore

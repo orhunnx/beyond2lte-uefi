@@ -1,5 +1,15 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
+## MAX `.43`: Code 31 / C0200211 düzeltmesi
+
+`.42` flaşında MAX aygıtı DeviceAdd aşamasında başarısız oldu. Timer için
+ayarlanan açık Passive ExecutionLevel, work item oluştururken kullanılamaz.
+Attributes work item öncesinde yeniden başlatılıyor; device parent korunuyor.
+Work item callback'leri zaten PASSIVE_LEVEL'dadır. Gerçek DeviceAdd host testi
+eski hatayı yeniden üretir ve düzeltme ile hata çıkışlarını denetler.
+Linux/Android donanım akışı değişmedi. Sonraki cihaz ölçütü `.43` / Started;
+USB attach/transfer ayrıca doğrulanmalı. Build yalnız WSL'de.
+
 ## DISM sonrası runtime koruması (5 Eylül 2026)
 
 `experimental-ufx` function paketi kaynak Synopsys genel kurulumunu ve
@@ -17,9 +27,9 @@ tekrar hazırlanabilir; diğer değişiklikler reddedilir. Son WIM doğrulanmada
 [Linux karşılaştırmasının başında](../../specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md).
 Host testleri geçti; gerçek Windows servisleme ve cihaz sonucu bekleniyor.
 
-## Güncel kaynak: parent `.21` / MAX `.42`
+## Güncel kaynak: parent `.21` / MAX `.43`
 
-MAX `0.1.0.42`, parent/host `0.1.0.21`, strict function `.21`,
+MAX `0.1.0.43`, parent/host `0.1.0.21`, strict function `.21`,
 deneysel kaynak function `.22`, USB IOCTL ABI 8.
 USB FOTO v4, MAX FOTO v15; MAX olay ABI'si değişmedi.
 Parent artık Samsung OTG LINK reseti → SUSPHY temizliği → ana PHY hazırlığı

@@ -1979,6 +1979,10 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     TimerConfig.AutomaticSerialization = FALSE;
     Status = WdfTimerCreate(&TimerConfig, &Attributes, &Context->PdRecoveryTimer);
     if (!NT_SUCCESS(Status)) return Status;
+    // Work items already run at PASSIVE_LEVEL. Explicit ExecutionLevel is
+    // unsupported for this object type; do not reuse the timer attributes.
+    WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
+    Attributes.ParentObject = Device;
     WDF_WORKITEM_CONFIG_INIT(&WorkConfig, B2lMaxEvtPolicyWork);
     WorkConfig.AutomaticSerialization = FALSE;
     Status = WdfWorkItemCreate(&WorkConfig, &Attributes, &Context->PolicyWork);
