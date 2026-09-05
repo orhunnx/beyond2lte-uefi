@@ -197,6 +197,14 @@ abort ürettiği için onları açan bir paket güvenli değildir.
 
 ## WSL derleme ve paketleme
 
+Inf2Cat artık `out/b2lusb` ağacını doğrudan taramaz. `build-catalog.sh`,
+yalnız dört B2LUSB INF'sini ve üç imzalı SYS'i temiz geçici dizinde paketler.
+`*.ufxsynopsys.inf` tanı kopyaları rapor yanında korunur; Microsoft INF'sine
+CatalogFile eklemek veya bu kanıt dosyalarını silmek gerekmez. Katalog
+aşamasında `Inf2Cat: yalniz B2LUSB paketi (4 INF, 3 SYS)` satırı görünür.
+Bu düzeltme kullanıcıdaki tanı INF'lerine ait `22.9.1/22.9.4` hatalarını
+hedefler; gerçek WSL sonucu henüz doğrulanmadı.
+
 **Güncel tercih: kullanıcı onaylı karma UFX denemesi.** Aynı-build kapısı
 projenin varsayılan politikasıdır; farklı build'in yüklenemeyeceği ölçülmedi.
 Son WSL çıktısı URS'nin zaten 26100, Synopsys'in 28000 ve UFX'in eksik

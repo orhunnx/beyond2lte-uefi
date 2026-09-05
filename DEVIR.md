@@ -18,6 +18,14 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / Inf2Cat 22.9.1–22.9.4 düzeltmesi:** Katalog aşaması tüm
+> `out/b2lusb` dizinini taradığı için tanı amaçlı ham Microsoft INF'leri
+> paket sanıyordu. `build-catalog.sh` yalnız dört dağıtım INF'si ve üç imzalı
+> SYS'i yeni geçici dizine kopyalar; Inf2Cat bu dizinde çalışır. Ham INF'ler
+> korunur, Microsoft INF'sine CatalogFile/kimlik eklenmez. Eksik dosya veya
+> araç hatasında katalog yayımlanmaz; eski katalog kaldırılır. Host regresyon
+> testi geçti; gerçek WSL Inf2Cat sonucu bekleniyor. Sürücü/rol akışı aynı.
+
 > **5 Eylül / gerçek hedef WIM ve profil v2:** Yeni WSL çıktısı çekirdek/UCM
 > 28000, kurulu URS 26100, Synopsys 28000 ve eksik UFX gösterdi. Önceki
 > profilin URS'yi 28000 sanması ve Synopsys değişimini reddetmesi yanlıştı.

@@ -1,5 +1,45 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: Inf2Cat ham tanı INF'lerini paket sanıyor — katalog girdileri ayrıldı
+
+Son WSL çıktısı katalog aşamasında `Signability test failed` verdi. Hatalarda
+adı geçen dosyalar platformun `b2lusb-function.inf` dosyası değil,
+`25h2-usb-runtime-check.ufxsynopsys.inf` ve
+`winpe-usb-runtime-check.ufxsynopsys.inf` tanı kopyalarıdır. Bunlar kaynak ve
+hedef inbox INF'lerinin değişmemiş kanıtları olarak rapor yanında tutuluyordu.
+
+Kök neden: `tools_b2lusb.sh`, Inf2Cat `/driver` parametresine bütün `out/b2lusb`
+dizinini veriyordu. [Microsoft Inf2Cat sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/inf2cat)
+bu dizindeki birden fazla paket INF'sinin işleme alındığını belirtir.
+Ham inbox INF'leri bu nedenle yeniden dağıtılacak paket sayıldı. `22.9.1`
+tanı dizininde `ufxsynopsys.sys` aradı; `22.9.4` bu inbox INF'lerinde olmayan
+CatalogFile kaydını istedi. `22.9.3` uyarısı da genel inbox compatible-ID
+satırından geldi. Bu mesajlar hedef WIM'deki runtime'ın eksik olduğuna dair
+yeni ölçüm değildir; tanı kopyasının yanlış katalog girdisi seçilmesidir.
+
+Yeni `windows/b2lusb/build-catalog.sh` her çalıştırmada temiz bir geçici
+dizin oluşturur ve yalnız şu dağıtım girdilerini kopyalar:
+
+- `b2lusb.inf`, `b2lusb-host.inf`, `b2lusb-function.inf`, `b2lmax77705.inf`.
+- İmzalanmış `b2lusb.sys`, `b2lusbmon.sys`, `b2lmax77705.sys`.
+
+Inf2Cat bu dizinde gerçek `/os:10_GE_ARM64` kontrolünü yapar. Başarılı,
+boş olmayan `b2lusb.cat` çıktısı asıl çıktı dizinine alınır; mevcut SignTool
+imza ve SYS/katalog eşleşme kontrolleri devam eder. `b2lusbctl.exe` önceki
+gibi ayrı imzalanır. Tanı kopyaları taşınmaz/silinmez/değiştirilmez; Microsoft
+INF'sine CatalogFile veya sahte hardware ID eklenmez. `*.inf` glob'u veya
+çıktı ağacının toplu kopyası kullanılmaz. Eksik dağıtım girdisi, Inf2Cat
+hatası veya katalog üretmeden başarı dönmesi build'i durdurur; eski katalog
+bu turun çıktısı sanılmasın diye başlangıçta kaldırılır. Geçici dizin hata
+durumunda da temizlenir.
+
+Regresyon testi gerçek staging betiğini Inf2Cat yerine girdilerini inceleyen
+bir test aracıyla çalıştırır: kullanıcıdaki iki tanı adı, iç içe başka INF,
+boşluk içeren yollar, birebir payload, korunmuş tanı hash içeriği, eksik SYS,
+araç hatası ve eksik katalog durumları doğrulandı. Bu gerçek Windows Inf2Cat
+çalıştırması değildir; WSL sonucu bekleniyor. Linux/Android USB akışı, runtime
+v2 seçimi ve parent `.21` / MAX `.42` sürümleri değişmedi. Build komutları aynı.
+
 ## 5 Eylül 2026: gerçek hedef WIM envanteri ve deneysel runtime v2 düzeltmesi
 
 Son WSL raporu, önceki v1 profilini hazırlarken kullandığımız hedef

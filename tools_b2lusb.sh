@@ -181,8 +181,7 @@ inf_driver_version() {
 PARENT_DRIVER_VERSION="$(inf_driver_version "$OUT/b2lusb.inf")"
 HOST_DRIVER_VERSION="$(inf_driver_version "$OUT/b2lusb-host.inf")"
 MAX77705_DRIVER_VERSION="$(inf_driver_version "$OUT/b2lmax77705.inf")"
-rm -f "$OUT/b2lusb.cat"
-"$INF2CAT" /driver:"$(wslpath -w "$OUT")" /os:10_GE_ARM64
+bash "$SRC/build-catalog.sh" "$OUT" "$INF2CAT"
 [ -s "$OUT/b2lusb.cat" ] || die "Inf2Cat b2lusb.cat uretmedi"
 
 PFX="$OUT/b2l-test.pfx"
