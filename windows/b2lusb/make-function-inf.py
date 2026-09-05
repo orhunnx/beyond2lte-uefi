@@ -6,6 +6,10 @@ import re
 import struct
 from pathlib import Path
 
+# The inbox model identifies its generic Synopsys URS function installation.
+# This is a lookup key, not a new hardware/compatible ID for our child PDO.
+GENERIC_URS_FUNCTION = r'URS\PNP0CA1&FUNCTION'
+
 
 def make_inf(raw: bytes) -> str:
     text = raw.decode('utf-16' if raw.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig')
@@ -27,14 +31,25 @@ def make_inf(raw: bytes) -> str:
         for arch in parts[1:]:
             if arch.lower().startswith('ntarm64'):
                 models += sections.get((parts[0] + '.' + arch).lower(), [])
-    installs = {line.split('=', 1)[1].split(',', 1)[0].strip().lower()
-                for line in models if '=' in line}
+    installs = set()
+    all_installs = set()
+    for line in models:
+        _, sep, rhs = line.partition('=')
+        if not sep:
+            continue
+        parts = [part.strip().strip('"') for part in rhs.split(',')]
+        all_installs.add(parts[0].lower())
+        # Models syntax permits an empty hardware ID followed by compatible
+        # IDs. Inspect all ID fields, retaining that distinction in the INF.
+        if GENERIC_URS_FUNCTION.lower() in [part.lower() for part in parts[1:]]:
+            installs.add(parts[0].lower())
     if not installs:
-        raise ValueError('ufxsynopsys.inf: no ARM64 DDInstall resolved; '
+        raise ValueError(f'ufxsynopsys.inf: no ARM64 DDInstall for {GENERIC_URS_FUNCTION}; '
+                         f'other targets={sorted(all_installs)!r}; '
                          f'Manufacturer={sections.get("manufacturer", [])!r}; '
                          f'sections={list(sections)!r}')
     if len(installs) > 1:
-        raise ValueError('ufxsynopsys.inf: multiple ARM64 DDInstall targets: '
+        raise ValueError(f'ufxsynopsys.inf: multiple ARM64 DDInstall targets for {GENERIC_URS_FUNCTION}: '
                          + ', '.join(sorted(installs)))
     install = installs.pop()
     choices = [name for name in sections if name == install.lower() + '.nt'

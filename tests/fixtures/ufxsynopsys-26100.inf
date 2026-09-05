@@ -1,0 +1,105 @@
+;/*++
+;
+;Copyright (c) Microsoft Corporation. All rights reserved.
+;
+;INF Name:
+;    ufxsynopsys.inf
+;
+;Abstract:
+;    INF for installing the USB function driver for Synopsys controllers.
+;
+;--*/
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = USBFunctionController
+ClassGuid   = {bbbe8734-08fa-4966-b6a6-4e5ad010cdd7}
+Provider    = %MSFT%
+PnpLockdown = 1
+DriverVer = 06/21/2006,10.0.26100.1
+
+[SourceDisksNames]
+3426 = windows cd
+
+[SourceDisksFiles]
+ufxsynopsys.sys = 3426
+
+[DestinationDirs]
+ufxsynopsys.CopyFiles = 12
+
+[Manufacturer]
+%ufxsynopsys.Mfg% = ufxsynopsys, NTarm64
+
+[ufxsynopsys.NTarm64]
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_0F37
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_22B7
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_0AAA
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_1AAA
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_9D30
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_A130
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_9D30
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_A2B0
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_98EE
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_9DEE
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_9DEE&SUBSYS_72708086&REV_00
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_9DEE&SUBSYS_72708086
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_9DEE&CC_0C03FE
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_9DEE&CC_0C03
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_31AA
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_A0EE
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_51EE
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_460E
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_7AE1
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_4DEE
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_9A15
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&DEV_A36E
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, PCI\VEN_8086&CC_0C03FE
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install, ACPI\INT3445
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install,, URS\PNP0CA1&FUNCTION
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install_Qualcomm, ACPI\QCOM2484
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install_Qualcomm, URS\QCOM24B6&FUNCTION
+
+[ufxsynopsys.Install.NT]
+CopyFiles = ufxsynopsys.CopyFiles
+
+[ufxsynopsys.Install_Qualcomm.NT]
+CopyFiles = ufxsynopsys.CopyFiles
+
+[ufxsynopsys.CopyFiles]
+ufxsynopsys.sys
+
+[ufxsynopsys.Install.NT.HW]
+AddReg=ufxsynopsys.SecurityAddReg
+Include=pci.inf
+Needs=PciD3ColdSupported.HW
+
+[ufxsynopsys.Install_Qualcomm.NT.HW]
+AddReg=ufxsynopsys.QcUsbFnSSFilter.AddReg
+AddReg=ufxsynopsys.SecurityAddReg
+
+[ufxsynopsys.QcUsbFnSSFilter.AddReg]
+HKR,,"LowerFilters",0x00010000,"QcUsbFnSSFilter"
+
+[ufxsynopsys.SecurityAddReg]
+HKR,,DeviceCharacteristics,0x10001,0x100 ;FILE_DEVICE_SECURE_OPEN
+
+[ufxsynopsys.Install.NT.Services]
+AddService = ufxsynopsys, 2, ufxsynopsys.AddService
+
+[ufxsynopsys.Install_Qualcomm.NT.Services]
+AddService = ufxsynopsys, 2, ufxsynopsys.AddService
+
+[ufxsynopsys.AddService]
+DisplayName     = %ufxsynopsys.ServiceName%
+ServiceType     = 1     ; SERVICE_KERNEL_DRIVER
+StartType       = 3     ; SERVICE_DEMAND_START
+ErrorControl    = 1     ; SERVICE_ERROR_NORMAL
+ServiceBinary   = %12%\ufxsynopsys.sys
+LoadOrderGroup  = Base
+Dependencies    = ufx01000
+
+[Strings]
+MSFT = "Microsoft"
+ufxsynopsys.Mfg = "USB Synopsys Controller"
+ufxsynopsys.DeviceDesc = "USB Synopsys Controller"
+ufxsynopsys.ServiceName = "USB Synopsys Controller"

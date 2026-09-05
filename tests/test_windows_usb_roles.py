@@ -112,7 +112,7 @@ ClassGuid={88BAE032-5A81-49f0-BC3D-A4FF138216D6}
 [Manufacturer]
 %ms%=Models,NTarm64
 [Models.NTarm64]
-%dev%=Synopsys,ACPI\\TEST0001
+%dev%=Synopsys,,URS\\PNP0CA1&FUNCTION
 [Synopsys.NT]
 CopyFiles=Core
 [Synopsys.NT.Services]
@@ -123,17 +123,39 @@ AddReg=Hw
 for raw in [inf.encode(),inf.encode('utf-16')]:
  out=m.make_inf(raw);assert 'Needs=synopsys.nt.services' in out and 'URS\\BYN0002&FUNCTION' in out
 # Windows section references are case-insensitive; aliases are one install.
-case_alias = inf + '\n[Models.NTarm64]\n%alias%=SYNOPSYS,ACPI\\TEST0002\n'
+case_alias = inf + '\n[Models.NTarm64]\n%alias%=SYNOPSYS,,URS\\PNP0CA1&FUNCTION\n'
 assert 'Needs=synopsys.nt.services' in m.make_inf(case_alias.encode())
 for bad, message in [(inf.replace('NTarm64','NTamd64'), 'no ARM64 DDInstall'),
-                     (inf+'\n[Models.NTarm64]\n%other%=Other,ACPI\\TEST0002', 'multiple ARM64 DDInstall')]:
+                     (inf+'\n[Models.NTarm64]\n%other%=Other,,URS\\PNP0CA1&FUNCTION', 'multiple ARM64 DDInstall')]:
  try:m.make_inf(bad.encode())
  except ValueError as error:assert message in str(error)
  else:raise AssertionError('invalid models accepted')
-for bad in [inf.replace('NTarm64','NTamd64'),inf.replace('[Synopsys.NT.Services]','[Missing]'),inf+'\n[Models.NTarm64]\n%other%=Other,ACPI\\TEST0002']:
+for bad in [inf.replace('NTarm64','NTamd64'),inf.replace('[Synopsys.NT.Services]','[Missing]'),inf+'\n[Models.NTarm64]\n%other%=Other,,URS\\PNP0CA1&FUNCTION']:
  try:m.make_inf(bad.encode())
  except ValueError:pass
  else:raise AssertionError('accepted unsupported inbox layout')
+# Real 26100 inbox INF supplied in the WSL report (105 numbered lines).
+# The normalized fixture reproduces the reported original UTF-16/CRLF hash.
+import hashlib
+real_inf=(ROOT/'tests/fixtures/ufxsynopsys-26100.inf').read_text()
+original=real_inf.replace('\n','\r\n').encode('utf-16le')
+original=b'\xff\xfe'+original
+assert hashlib.sha256(original).hexdigest()=='62c0c7745af49f0b65dfdc705820da15c68cda18b43b2f0eca83e395b259dddf'
+for raw in (real_inf.encode(),original):
+ out=m.make_inf(raw)
+ assert 'ClassGuid={bbbe8734-08fa-4966-b6a6-4e5ad010cdd7}' in out
+ for suffix in ('', '.services', '.hw'):
+  assert 'Needs=ufxsynopsys.install.nt'+suffix+'\n' in out
+ assert 'qualcomm' not in out.lower() and 'QcUsbFnSSFilter' not in out
+ assert 'URS\\BYN0002&FUNCTION' in out and 'URS\\PNP0CA1' not in out
+# Selection follows the exact compatible-ID field, not a section name or order.
+renamed=real_inf.replace('ufxsynopsys.Install', 'NewInstall')
+assert 'Needs=newinstall.nt.services' in m.make_inf(renamed.encode())
+for bad in (real_inf.replace('URS\\PNP0CA1&FUNCTION','URS\\OTHER&FUNCTION'),
+            real_inf.replace('URS\\QCOM24B6&FUNCTION','URS\\PNP0CA1&FUNCTION')):
+ try:m.make_inf(bad.encode())
+ except ValueError:pass
+ else:raise AssertionError('missing/ambiguous generic URS model accepted')
 def pe(build=28000,machine=0xaa64):
  raw=bytearray(512);raw[:2]=b'MZ';struct.pack_into('<I',raw,0x3c,64);raw[64:68]=b'PE\0\0'
  struct.pack_into('<HH',raw,68,machine,1);raw[88:96]=b'.rsrc\0\0\0';struct.pack_into('<II',raw,104,128,256)

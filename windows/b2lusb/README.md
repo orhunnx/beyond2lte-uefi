@@ -197,6 +197,13 @@ abort ürettiği için onları açan bir paket güvenli değildir.
 
 ## WSL derleme ve paketleme
 
+Gerçek 26100 inbox INF'deki genel Synopsys/Qualcomm model ayrımı düzeltildi.
+Function INF üreticisi ARM64 `URS\PNP0CA1&FUNCTION` satırının DDInstall
+referansını kullanır; kendi `URS\BYN0002&FUNCTION` kimliğini korur.
+Qualcomm kurulumu/filtresi seçilmez. Genel model eksik veya belirsizse
+hata verilir. Kullanıcının gerçek INF içeriği ve SHA256'sı ile test edildi.
+Bu düzeltme aşağıdaki hedef UFX runtime eksiğini çözmez.
+
 Güncel paketleme engeli: hedef WinPE'de `Ufx01000.sys` bulunamadı.
 MSVC aşaması geçti, fakat USB Function runtime kurulumu tamamlanmadı.
 Yeni ön kontrol MSVC/imzalamadan önce bütün eksikleri raporlar;

@@ -18,6 +18,13 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / gerçek INF düzeltmesi:** Genel Synopsys ve Qualcomm
+> modellerinin birlikte bulunması parser hatasının gerçek nedeniydi.
+> Genel `URS\PNP0CA1&FUNCTION` modelinin DDInstall referansı seçiliyor;
+> platform `URS\BYN0002&FUNCTION` kimliği korunuyor. Gerçek INF'nin hash'i
+> raporla eşleşti, testler geçti. 26100/28000 runtime ve UFX servisleme
+> engeli devam ediyor; aynı ISO'yu yeniden çıkarmak gerekmiyor.
+
 > **5 Eylül / 25H2 kaynak sonucu:** ISO imajı 26200.8037, kaynak PE'ler
 > ARM64 26100; hedef çekirdek 28000. UFX dosyaları kaynakta var. INF okuyucu
 > hatasının gerçek nedeni henüz açık; araç artık ham INF'yi ve ayrıntılı

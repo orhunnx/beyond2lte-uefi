@@ -15,7 +15,7 @@ ClassGuid={88BAE032-5A81-49F0-BC3D-A4FF138216D6}
 [Manufacturer]
 %ms%=Models,NTarm64
 [Models.NTarm64]
-%dev%=Synopsys,ACPI\\TEST0001
+%dev%=Synopsys,,URS\\PNP0CA1&FUNCTION
 [Synopsys.NT]
 CopyFiles=Core
 [Synopsys.NT.Services]
@@ -138,3 +138,21 @@ with tempfile.TemporaryDirectory() as temp:
     assert any('no ARM64 DDInstall' in line for line in logs)
     assert any('0001: [Version]' in line for line in logs)
 print('Raw inbox INF evidence and precise model errors: PASS')
+
+# Full preflight accepts the observed generic+Qualcomm source INF without
+# removing the separate 26100/28000 runtime build check.
+with tempfile.TemporaryDirectory() as temp:
+    wim = Wim()
+    for path in REQUIRED[:-1]:
+        wim.files[path] = pe(26100)
+    wim.files[REQUIRED[-1]] = (ROOT/'tests/fixtures/ufxsynopsys-26100.inf').read_bytes()
+    output = Path(temp)/'generated.inf'
+    logs = []
+    assert m['check']('source.wim', 1, logs.append, output, wim.run) == 0
+    assert 'Needs=ufxsynopsys.install.nt.services' in output.read_text()
+    assert 'qualcomm' not in output.read_text().lower()
+    output.unlink()
+    wim.files[REQUIRED[0]] = pe(28000)
+    assert m['check']('mixed.wim', 1, logs.append, output, wim.run) == 1
+    assert not output.exists()
+print('Observed Synopsys/Qualcomm INF preflight and unchanged build gate: PASS')

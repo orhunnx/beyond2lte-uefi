@@ -1,5 +1,60 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: gerçek inbox INF — genel URS ve Qualcomm kurulum ayrımı düzeltildi
+
+Kullanıcının paylaştığı numaralı 105 satırlık `ufxsynopsys.inf`, önceki
+belirsizliğin nedenini kesinleştirdi: ARM64 model listesi hem
+`ufxsynopsys.Install` hem `ufxsynopsys.Install_Qualcomm` içeriyor.
+Önceki “bütün ARM64 modelleri tek DDInstall kullanmalı” koşulu yanlıştı.
+
+Gerçek satır 58:
+
+```ini
+%ufxsynopsys.DeviceDesc%=ufxsynopsys.Install,, URS\PNP0CA1&FUNCTION
+```
+
+İki virgülün arasındaki hardware ID boş; sonraki alan compatible ID'dir.
+[Windows INF Models sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-models-section)
+boş hardware ID ve dolu compatible ID kullanımına izin verir. Satırlar
+59–60 Qualcomm kimliklerini ayrı kurulum bölümüne bağlar. Qualcomm HW
+bölümü `QcUsbFnSSFilter` lower filter'ını ekler; genel kurulumda bu yoktur.
+
+`make-function-inf.py` artık sadece ARM64 modellerinde tam
+`URS\PNP0CA1&FUNCTION` kimliğini içeren satırın DDInstall referansını seçer.
+Bölüm adına veya listedeki sıraya göre tahmin yapılmaz. Kimlik hardware
+veya compatible ID alanında olabilir; boş ara alan atlama hatası olmaz.
+Aynı kimlik için hedef yoksa veya birden fazla farklı hedef varsa hata
+korunur. Qualcomm tek seçenek olsa bile genel Synopsys yerine seçilmez.
+
+Üretilen platform INF'si kendi `URS\BYN0002&FUNCTION` eşleşmesini korur;
+PDO'ya/ACPI'ye `PNP0CA1` veya Qualcomm kimliği eklenmedi. Inbox INF
+üzerinden `ufxsynopsys.install.nt`, `.services` ve `.hw` Include/Needs
+referansları üretilir. Gerçek ClassGuid
+`{bbbe8734-08fa-4966-b6a6-4e5ad010cdd7}` korunur. Genel HW bölümü
+`pci.inf / PciD3ColdSupported.HW` ihtiyacını, Services bölümü ise
+`ufx01000` bağımlılığını içerir; bunlar tahmini kayıtlarla değiştirilmedi.
+Bölüm seçiminin doğrulanması Exynos function transferinin veya tüm Windows
+bağımlılıklarının çalıştığı anlamına gelmez.
+
+### Doğrulama ve kalan engel
+
+`tests/fixtures/ufxsynopsys-26100.inf` rapordaki tam metnin normalize edilmiş
+kopyasıdır. UTF-16LE BOM + CRLF ile yeniden kodlandığında SHA256:
+`62c0c7745af49f0b65dfdc705820da15c68cda18b43b2f0eca83e395b259dddf`.
+Bu değer kullanıcının WSL raporuyla aynıdır; test bunu doğrular. Hem bu
+özgün bayt biçimi hem UTF-8 normalize biçimi parser'dan geçer. Testler
+beklenen üç Needs bölümünü, doğru ClassGuid'yi, platform kimliğinin
+korunmasını, Qualcomm filtresi olmamasını, bölüm yeniden adlandırıldığında
+ID'ye göre seçimi ve eksik/çoklu genel modelin reddini sınar.
+
+Gerçek INF ile tüm runtime ön kontrolü de geçti. Karma 28000 çekirdek +
+26100 runtime testi hâlâ reddediliyor. Önceki kaynak/hedef uyumsuzluğu
+kaldırılmadı; hedef 28000 WinPE'deki UFX paketi/servisleme eksiği devam eder.
+Aynı ISO'nun yeniden çıkarılması INF düzeltmesini doğrulamak için gerekli
+değil; gerçek içerikle yerel test tamamlandı. URS/INF testleri, runtime
+ön kontrol testleri ve USB kaynak kontrolleri geçti. Mac'te WDK/UEFI/WIM
+build veya kaynak runtime aktarımı yapılmadı; sürümler değişmedi.
+
 ## 5 Eylül 2026: 25H2 ISO ölçümü — UFX var, hedef build farklı, INF çözümü açık
 
 Kullanıcının WSL incelemesi artık gerçek kaynak verisi sağladı:
