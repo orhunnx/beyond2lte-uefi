@@ -158,6 +158,7 @@ harness += "\n" + re.search(r"^#define B2L_MAX_PHOTO_ROWS .*", control, re.M)[0]
 harness += function("B2lPrintMaxEventPage", control)
 harness += function("B2lPrintMaxPhotoOverview", control)
 harness += function("B2lPrintMuicPhotoOverview", control)
+harness += function("B2lPrintConnectorPhotoOverview", control)
 
 harness += r"""
 typedef int HANDLE;
@@ -168,14 +169,16 @@ typedef int BOOL;
 #define DIGCF_ALLCLASSES 4
 #define DIGCF_PRESENT 2
 #define ERROR_NO_MORE_ITEMS 259
-#define B2L_USB_IOCTL_VERSION 6
+#define B2L_USB_IOCTL_VERSION 7
+#define B2L_USB_STATUS_REGISTERS_VALID 0x40UL
+#define B2lUsbRoleHost 1UL
 #define IOCTL_B2L_USB_GET_STATUS 123
 #define B2L_XHCI_PORTSC_CCS 1
 #define B2L_XHCI_PORTSC_PED 2
 #define B2L_XHCI_PORTSC_PP 512
 typedef struct { DWORD cbSize; } SP_DEVINFO_DATA;
 typedef struct {
-    ULONG Version, Size, RequestedRole, CurrentRole, LastRoleStatus;
+    ULONG Version, Size, RequestedRole, CurrentRole, LastRoleStatus, Flags;
     ULONG XhciUsbCmd, XhciUsbSts, XhciConfig, XhciPortSc1, XhciPortSc2;
 } B2L_USB_STATUS;
 static int usb_failure;
@@ -188,14 +191,14 @@ static BOOL DeviceIoControl(HANDLE h, DWORD code, void *in, DWORD n,
         B2L_USB_STATUS *s, DWORD size, DWORD *returned, void *overlap) {
     assert(h == 1 && code == IOCTL_B2L_USB_GET_STATUS && in == NULL && n == 0);
     assert(size == sizeof(*s) && overlap == NULL);
-    *returned = sizeof(*s); s->Version = 6; s->Size = sizeof(*s);
+    *returned = sizeof(*s); s->Version = 7; s->CurrentRole=1; s->Flags=B2L_USB_STATUS_REGISTERS_VALID; s->Size = sizeof(*s);
     s->XhciPortSc1 = 0x203;
     if (usb_failure == 3) s->Version=0;
     return usb_failure != 2;
 }
 static HDEVINFO SetupDiGetClassDevsW(void *guid, const WCHAR *name, void *window, DWORD flags) {
     assert(guid == NULL && window == NULL && flags == (DIGCF_ALLCLASSES|DIGCF_PRESENT));
-    assert(wcscmp(name,L"USB")==0 || wcscmp(name,L"HID")==0);
+    assert(wcscmp(name,L"URS")==0 || wcscmp(name,L"USB")==0 || wcscmp(name,L"HID")==0);
     return usb_failure == 4 ? -1 : 1;
 }
 static BOOL SetupDiEnumDeviceInfo(HDEVINFO h,DWORD count,SP_DEVINFO_DATA *d) {
@@ -285,6 +288,9 @@ int main(void) {
     output_lines=max_width=0;
     B2lPrintMuicPhotoOverview(2);
     assert(output_lines == 34 && max_width < 64);
+    output_lines=max_width=0;
+    B2lPrintConnectorPhotoOverview(2);
+    assert(output_lines == 17 && max_width < 64);
     output_lines=max_width=0; registry_error=2;
     B2lPrintMaxPhotoOverview(3);
     assert(output_lines == 3 && max_width < 64);

@@ -1,5 +1,5 @@
-; Beyond2LTE Exynos9820 DWC3 static USB2 host preparation (ARM64 only).
-; b2lusb.sys powers the PHY and selects HOST before the ACPI xHCI child starts.
+; Beyond2LTE Exynos9820 DWC3 USB2 role-switch platform (ARM64 only).
+; b2lusb.sys programs the PHY/core only when URS switches the active role.
 
 [Version]
 Signature="$WINDOWS NT$"
@@ -7,7 +7,7 @@ Class=USB
 ClassGuid={36fc9e60-c465-11cf-8056-444553540000}
 Provider=%B2L%
 CatalogFile=b2lusb.cat
-DriverVer=09/03/2026,0.1.0.18
+DriverVer=09/05/2026,0.1.0.19
 PnpLockdown=1
 
 [DestinationDirs]
@@ -49,6 +49,6 @@ KmdfLibraryVersion=1.15
 
 [Strings]
 B2L="beyond2lte"
-B2LUsb.DeviceDesc="Beyond2LTE Exynos9820 USB Host Platform"
-B2LUsb.ServiceDesc="Beyond2LTE USB Host Platform Driver"
+B2LUsb.DeviceDesc="Beyond2LTE Exynos9820 USB Role Switch Platform"
+B2LUsb.ServiceDesc="Beyond2LTE USB Role Switch Platform Driver"
 B2LUsb.DiskName="Beyond2LTE USB driver package"

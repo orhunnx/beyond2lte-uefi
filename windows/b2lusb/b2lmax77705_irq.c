@@ -104,7 +104,6 @@ B2lMaxRetireOpcodeLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_OPCODE_REQUEST Reque
             Context->DataRoleStatus = Status;
             if (NT_SUCCESS(Status)) {
                 if (Context->WaterDetected) Context->DataRoleStatus = STATUS_DEVICE_NOT_READY;
-                else if (Context->DataRole == B2L_MAX_DATA_UFP) Context->DataRoleStatus = STATUS_NOT_SUPPORTED;
             }
         }
         Context->DiagnosticStage = Pair->Path == 0x09U ?
@@ -125,6 +124,7 @@ B2lMaxCancelOpcodesLocked(PB2L_MAX_CONTEXT Context, NTSTATUS Status)
     // supplied as the passive interrupt's WaitLock. Never cancel as success.
     NT_ASSERT(!NT_SUCCESS(Status));
     Context->MfdFault = Status;
+    B2lMaxQueueConnectorLocked(Context);
     while ((Request = Context->OpcodeHead) != NULL) {
         Context->OpcodeHead = Request->Next;
         Request->Next = NULL;

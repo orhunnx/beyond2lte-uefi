@@ -18,7 +18,7 @@ def function(name):
     while depth:
         depth+=(source[end]=='{')-(source[end]=='}'); end+=1
     return source[start:end]
-a=header.index('typedef struct _B2L_MAX_OPCODE_REQUEST');b=header.index('} B2L_MAX_CONTEXT, *PB2L_MAX_CONTEXT;',a)+len('} B2L_MAX_CONTEXT, *PB2L_MAX_CONTEXT;')
+a=header.index('typedef struct _B2L_MAX_CONNECTOR_EVENT');b=header.index('} B2L_MAX_CONTEXT, *PB2L_MAX_CONTEXT;',a)+len('} B2L_MAX_CONTEXT, *PB2L_MAX_CONTEXT;')
 h=r'''
 #include <stdint.h>
 #include <string.h>
@@ -31,6 +31,7 @@ typedef uint64_t ULONGLONG;
 typedef int32_t NTSTATUS;
 typedef int BOOLEAN;
 typedef void VOID;
+typedef void *UCMCONNECTOR, *WDFOBJECT;
 typedef void *WDFDEVICE, *WDFWORKITEM, *WDFWAITLOCK, *WDFINTERRUPT, *WDFTIMER;
 typedef int KEVENT, WDF_POWER_DEVICE_STATE;
 #define TRUE 1
@@ -67,6 +68,9 @@ typedef struct {
     } u;
 } CM_PARTIAL_RESOURCE_DESCRIPTOR, *PCM_PARTIAL_RESOURCE_DESCRIPTOR;
 typedef struct { ULONG Count; CM_PARTIAL_RESOURCE_DESCRIPTOR Entries[10]; } RESOURCES, *WDFCMRESLIST;
+static NTSTATUS B2lMaxCreateConnector(PB2L_MAX_CONTEXT c) { c->Connector=c; return 0; }
+static void B2lMaxStopConnector(PB2L_MAX_CONTEXT c) { c->ConnectorRunning=0; }
+static void WdfObjectDelete(WDFOBJECT o) { (void)o; }
 static PB2L_MAX_CONTEXT current;
 static int held, starts, stops, off_calls, muic_calls, quiesces, unmaps, maps;
 static NTSTATUS init_status, off_status, muic_status, diagnostic;

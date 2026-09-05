@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build, test-sign and inject the ARM64 Exynos9820 KMDF static-host USB package.
+# Build, test-sign and inject the ARM64 Exynos9820 KMDF role-switch USB package.
 # Run from WSL with Windows WDK, Visual Studio ARM64 tools and boot.wim.
 
 set -euo pipefail
@@ -21,7 +21,7 @@ AUTO_HOST="${B2L_USB_AUTO_HOST:-0}"
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die() { printf '\nHATA: %s\n' "$*" >&2; exit 1; }
 
-for Tool in powershell.exe file osslsigncode openssl wimlib-imagex sha256sum wslpath; do
+for Tool in python3 powershell.exe file osslsigncode openssl wimlib-imagex sha256sum wslpath; do
   command -v "$Tool" >/dev/null || die "$Tool yok"
 done
 [ -s "$WIM" ] || die "boot.wim yok; once tools_winpe_adk.sh calistir"
@@ -100,7 +100,7 @@ if [ "${B2L_SKIP_MSVC_BUILD:-0}" = "1" ]; then
   fi
   say "Var olan B2LUSB ARM64 ciktilari kullaniliyor"
 else
-  say "B2LUSB derleniyor (Windows MSVC ARM64 + KMDF static HOST)"
+  say "B2LUSB derleniyor (Windows MSVC ARM64 + KMDF UCM/URS)"
   powershell.exe -NoProfile -ExecutionPolicy Bypass \
     -File "$(wslpath -w "$PS_BUILD")" \
     -ProjectRoot "$(wslpath -w "$HERE")" \
@@ -139,6 +139,32 @@ osslsigncode sign -certs "$CERT" -key "$KEY" \
   -n "beyond2lte USB host control" -h sha256 \
   -in "$OUT/b2lusbctl.exe" -out "$OUT/b2lusbctl-signed.exe" >/dev/null
 mv -f "$OUT/b2lusbctl-signed.exe" "$OUT/b2lusbctl.exe"
+# Use only the runtime/components already serviced into the target image.
+# In particular never import an old Windows Mobile Urscx into this WinPE.
+ROLE_CHECK="$(mktemp -d)"
+for RolePath in /Windows/System32/ntoskrnl.exe /Windows/System32/drivers/UcmCx.sys /Windows/System32/drivers/Urscx01000.sys \
+  /Windows/System32/drivers/Ufx01000.sys /Windows/System32/drivers/ufxsynopsys.sys \
+  /Windows/INF/ufxsynopsys.inf; do
+  wimlib-imagex extract "$WIM" 1 "$RolePath" --dest-dir="$ROLE_CHECK" --no-acls >/dev/null || {
+    rm -rf "$ROLE_CHECK"
+    die "Hedef WinPE UCM/URS/function bileseni eksik: $RolePath; ayni Windows build'inin paketi gerekli"
+  }
+done
+ROLE_BINARIES=()
+for RoleFile in ntoskrnl.exe UcmCx.sys Urscx01000.sys Ufx01000.sys ufxsynopsys.sys; do
+  ROLE_BINARIES+=("$(find "$ROLE_CHECK" -iname "$RoleFile" -type f -print -quit)")
+done
+python3 "$SRC/make-function-inf.py" --runtimes "${ROLE_BINARIES[@]}" || {
+  rm -rf "$ROLE_CHECK"
+  die "UCM/URS/UFX ARM64 surumleri hedef Windows build'iyle eslesmiyor"
+}
+UFX_INF="$(find "$ROLE_CHECK" -iname ufxsynopsys.inf -type f -print -quit)"
+python3 "$SRC/make-function-inf.py" "$UFX_INF" "$OUT/b2lusb-function.inf" || {
+  rm -rf "$ROLE_CHECK"
+  die "Hedef ARM64 UFX INF bolumleri dogrulanamadi"
+}
+rm -rf "$ROLE_CHECK"
+
 cp "$SRC/b2lusb.inf.in" "$OUT/b2lusb.inf"
 cp "$SRC/b2lusb-host.inf.in" "$OUT/b2lusb-host.inf"
 cp "$SRC/b2lmax77705.inf.in" "$OUT/b2lmax77705.inf"
@@ -209,17 +235,20 @@ fi
 
 MANIFEST="$OUT/b2lusb-manifest.txt"
 {
-  echo "B2LUSB_PACKAGE=exynos9820-kmdf-static-usb2-host-bringup"
+  echo "B2LUSB_PACKAGE=exynos9820-kmdf-ucm-urs-usb2"
   echo "B2LUSB_DRIVER_VERSION=$PARENT_DRIVER_VERSION"
   echo "B2LUSB_HOST_DRIVER_VERSION=$HOST_DRIVER_VERSION"
   echo "B2LUSB_MAX77705_DRIVER_VERSION=$MAX77705_DRIVER_VERSION"
   echo "B2LUSB_ACPI_ID=ACPI\\BYN0002"
-  echo "B2LUSB_HOST_ID=ACPI\\BYN0003"
+  echo "B2LUSB_HOST_ID=URS\\BYN0002&HOST"
+  echo "B2LUSB_FUNCTION_ID=URS\\BYN0002&FUNCTION"
+  echo "B2LUSB_ROLE_AUTHORITY=MAX77705_UCM_URS"
   echo "B2LUSB_MAX77705_ID=ACPI\\BYN0004"
   echo "B2LUSB_SUPERSPEED=DISABLED_UNTIL_COMBO_PMA_SAFE"
   echo "B2LUSB_AUTO_HOST=$AUTO_HOST"
   echo "B2LUSB_OFFLINE_DRIVERSTORE=1"
   echo "B2LUSB_INF_SHA256=$(sha256sum "$OUT/b2lusb.inf" | awk '{print $1}')"
+  echo "B2LUSB_FUNCTION_INF_SHA256=$(sha256sum "$OUT/b2lusb-function.inf" | awk '{print $1}')"
   echo "B2LUSB_HOST_INF_SHA256=$(sha256sum "$OUT/b2lusb-host.inf" | awk '{print $1}')"
   echo "B2LUSB_MAX77705_INF_SHA256=$(sha256sum "$OUT/b2lmax77705.inf" | awk '{print $1}')"
   echo "B2LUSB_SYS_SHA256=$(sha256sum "$OUT/b2lusb.sys" | awk '{print $1}')"
@@ -272,7 +301,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -Package "$OFFLINE_PACKAGE" || die "B2LUSB offline DriverStore servislemesi basarisiz"
 
 say "B2LUSB paketi boot.wim'e ekleniyor"
-for Item in b2lusb.inf b2lusb-host.inf b2lmax77705.inf b2lusb.sys b2lusbmon.sys b2lmax77705.sys b2lusb.cat b2lusbctl.exe; do
+for Item in b2lusb.inf b2lusb-host.inf b2lusb-function.inf b2lmax77705.inf b2lusb.sys b2lusbmon.sys b2lmax77705.sys b2lusb.cat b2lusbctl.exe; do
   wimlib-imagex update "$WIM" 1 \
     --command="delete --force /Windows/B2LUSB/$Item" >/dev/null 2>&1 || true
   wimlib-imagex update "$WIM" 1 \
@@ -298,7 +327,7 @@ wimlib-imagex update "$WIM" 1 \
 
 rm -rf "$CHECK"
 CHECK="$(mktemp -d)"
-for Item in b2lusb.inf b2lusb-host.inf b2lmax77705.inf b2lusb.sys b2lusbmon.sys b2lmax77705.sys b2lusb.cat b2lusbctl.exe; do
+for Item in b2lusb.inf b2lusb-host.inf b2lusb-function.inf b2lmax77705.inf b2lusb.sys b2lusbmon.sys b2lmax77705.sys b2lusb.cat b2lusbctl.exe; do
   wimlib-imagex extract "$WIM" 1 "/Windows/B2LUSB/$Item" \
     --dest-dir="$CHECK" --no-acls >/dev/null
   Want="$(sha256sum "$OUT/$Item" | awk '{print $1}')"

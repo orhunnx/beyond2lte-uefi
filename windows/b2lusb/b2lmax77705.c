@@ -178,7 +178,11 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxMuicRaw09", L"B2LMaxMuicRaw0A", L"B2LMaxMuicAdc",
         L"B2LMaxMuicEffectiveBc", L"B2LMaxMuicChargerType",
         L"B2LMaxRidRaw", L"B2LMaxMuicRid", L"B2LMaxRidChanges", L"B2LMaxMuicRprd",
-        L"B2LMaxMuicClassified"
+        L"B2LMaxMuicClassified",
+        L"B2LMaxConnectorStatus", L"B2LMaxConnectorSwapStatus",
+        L"B2LMaxConnectorRunning", L"B2LMaxConnectorAttached",
+        L"B2LMaxConnectorQueued", L"B2LMaxConnectorAttempts",
+        L"B2LMaxConnectorCount", L"B2LMaxConnectorOverflow"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -332,6 +336,14 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[130] = Context->RidChanges;
     Values[131] = Context->MuicRprd ? 1UL : 0UL;
     Values[132] = Context->MuicClassified ? 1UL : 0UL;
+    Values[133] = (ULONG)Context->ConnectorStatus;
+    Values[134] = (ULONG)Context->ConnectorSwapStatus;
+    Values[135] = (ULONG)Context->ConnectorRunning;
+    Values[136] = (ULONG)Context->ConnectorAttached;
+    Values[137] = (ULONG)Context->ConnectorQueued;
+    Values[138] = (ULONG)Context->ConnectorAttempts;
+    Values[139] = (ULONG)Context->ConnectorCount;
+    Values[140] = (ULONG)Context->ConnectorOverflow;
     Context->DiagnosticDirty = FALSE;
     WdfWaitLockRelease(Context->MfdLock);
 
@@ -1190,8 +1202,16 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
         }
         Context->PowerRole = B2L_MAX_CC_SOURCE;
         Context->PowerRoleValid = TRUE;
+        B2lMaxQueueConnectorLocked(Context);
         // DFP/UFP comes from PD_STATUS1, never from this power-role value.
         return STATUS_SUCCESS;
+    }
+    // A known physical detach must reach USB even if disabling source power
+    // subsequently fails. Keep the charger error visible independently.
+    if (CcState != B2L_MAX_CC_SINK) {
+        Context->PowerRoleValid = Context->DataRoleValid = FALSE;
+        Context->PowerRole = Context->DataRole = 0xFFU;
+        B2lMaxQueueConnectorLocked(Context);
     }
     // CC source power is permitted in exactly one state. This also shuts down
     // OTG inherited from boot firmware when the current cable is detached,
@@ -1207,12 +1227,14 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
     if (CcState == B2L_MAX_CC_SINK) {
         Context->PowerRole = B2L_MAX_CC_SINK;
         Context->PowerRoleValid = TRUE;
+        B2lMaxQueueConnectorLocked(Context);
         // A PR swap does not imply a DR swap or disconnect the data path.
         return STATUS_SUCCESS;
     }
     Context->PowerRoleValid = Context->DataRoleValid = FALSE;
     Context->PowerRole = Context->DataRole = 0xFFU;
     Context->DataRoleStatus = STATUS_DEVICE_NOT_READY;
+    B2lMaxQueueConnectorLocked(Context);
     Context->MuicRprd = FALSE;
     Context->MuicType = B2L_MAX_MUIC_NONE;
     // Mirror Samsung detach/logical-detach: remove VBUS first, then isolate
@@ -1240,6 +1262,22 @@ B2lMaxReadWaterState(PB2L_MAX_CONTEXT Context)
         Context->WaterDetected = (BOOLEAN)((Value & MAX77705_CC_STATUS_WATER) != 0U);
     }
     return Status;
+}
+
+static NTSTATUS
+B2lMaxReadCurrentAdvertisement(PB2L_MAX_CONTEXT Context)
+{
+    UCHAR Value;
+    NTSTATUS Status = B2lMaxReadByte(Context, B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_CC_STATUS0, &Value);
+    if (!NT_SUCCESS(Status)) return Status;
+    // max77705_ccistat_irq reads live CC_STATUS0 before CCSTAT dispatch.
+    // This event updates Rp information only; it does not assert a power or
+    // data role from the other bits in the same register.
+    Context->CcStatus0 = Value;
+    if (Context->PowerRoleValid && Context->PowerRole == B2L_MAX_CC_SINK)
+        B2lMaxQueueConnectorLocked(Context);
+    return STATUS_SUCCESS;
 }
 
 static NTSTATUS
@@ -1436,9 +1474,7 @@ B2lMaxHandleDataRole(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
     // RpRd=0 does not clear it in Samsung; physical CC detach clears it.
     if (Role == B2L_MAX_DATA_DFP) Context->MuicRprd = TRUE;
     Status = B2lMaxDetectMuicLocked(Context, B2L_MAX_MUIC_CC_NOTIFY);
-    // Analog USB_AP for a real USB/CDP UFP is now supported. The independent
-    // Windows function-stack consumer is still unimplemented, not successful.
-    if ((Status == STATUS_SUCCESS) && (Role == B2L_MAX_DATA_UFP)) Status = STATUS_NOT_SUPPORTED;
+    B2lMaxQueueConnectorLocked(Context); // independent asynchronous USB consumer
     Context->DataRoleStatus = Status;
     B2lMaxSetDiagnosticLocked(Context, B2L_MAX_STAGE_PD, Status);
     return Status;
@@ -1496,6 +1532,11 @@ B2lMaxDispatchCcPdLocked(PB2L_MAX_CONTEXT Context, const B2L_MAX_IRQ_FRAME *Fram
 
     if ((Frame->Active[1] & MAX77705_CC_INT_WATER) != 0U) {
         Status = B2lMaxReadWaterState(Context);
+        Handled = TRUE;
+    }
+    if ((Frame->Active[1] & MAX77705_CC_INT_CURRENT) != 0U) {
+        NTSTATUS CurrentStatus = B2lMaxReadCurrentAdvertisement(Context);
+        if (NT_SUCCESS(Status)) Status = CurrentStatus;
         Handled = TRUE;
     }
     if (NT_SUCCESS(Status) && (((Frame->Active[1] & MAX77705_CC_INT_STATE) != 0U) ||
@@ -1761,6 +1802,12 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Context = B2lMaxGetContext(Device);
     RtlZeroMemory(Context, sizeof(*Context));
     Context->Device = Device;
+    {
+        UCM_MANAGER_CONFIG UcmConfig;
+        UCM_MANAGER_CONFIG_INIT(&UcmConfig);
+        Status = UcmInitializeDevice(Device, &UcmConfig);
+        if (!NT_SUCCESS(Status)) return Status;
+    }
     KeInitializeEvent(&Context->HsI2cCompletion, SynchronizationEvent, FALSE);
     WDF_INTERRUPT_CONFIG_INIT(&InterruptConfig,
         B2lMaxHsI2cEvtInterruptIsr, B2lMaxHsI2cEvtInterruptDpc);
@@ -1819,7 +1866,11 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     if (!NT_SUCCESS(Status)) return Status;
     WDF_WORKITEM_CONFIG_INIT(&WorkConfig, B2lMaxEvtPolicyWork);
     WorkConfig.AutomaticSerialization = FALSE;
-    return WdfWorkItemCreate(&WorkConfig, &Attributes, &Context->PolicyWork);
+    Status = WdfWorkItemCreate(&WorkConfig, &Attributes, &Context->PolicyWork);
+    if (!NT_SUCCESS(Status)) return Status;
+    WDF_WORKITEM_CONFIG_INIT(&WorkConfig, B2lMaxEvtConnectorWork);
+    WorkConfig.AutomaticSerialization = FALSE;
+    return WdfWorkItemCreate(&WorkConfig, &Attributes, &Context->ConnectorWork);
 }
 
 NTSTATUS
@@ -1836,6 +1887,7 @@ B2lMaxEvtPrepareHardware(
     ULONG Index;
     ULONG MemoryCount = 0UL;
     ULONG InterruptCount = 0UL;
+    NTSTATUS Status;
     ULONGLONG Start;
 
     B2lMaxUnmapResources(Context);
@@ -1949,6 +2001,11 @@ B2lMaxEvtPrepareHardware(
             );
         return STATUS_INSUFFICIENT_RESOURCES;
     }
+    Status = B2lMaxCreateConnector(Context);
+    if (!NT_SUCCESS(Status)) {
+        B2lMaxUnmapResources(Context);
+        return Status;
+    }
     Context->HardwareReady = TRUE;
     B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_RESOURCES, STATUS_SUCCESS);
     return STATUS_SUCCESS;
@@ -1969,9 +2026,15 @@ B2lMaxEvtReleaseHardware(
     WdfWaitLockRelease(Context->MfdLock);
     WdfWaitLockRelease(Context->BusLock);
     WdfWorkItemFlush(Context->PolicyWork);
+    B2lMaxStopConnector(Context);
     WdfWaitLockAcquire(Context->BusLock, NULL);
     // Hardware is no longer accessible here; all mask/quiesce operations
     // were completed in PreInterruptsDisabled while resources were powered.
+    if (Context->Connector != NULL) {
+        WdfObjectDelete((WDFOBJECT)Context->Connector);
+        Context->Connector = NULL;
+        Context->ConnectorAttached = FALSE;
+    }
     B2lMaxUnmapResources(Context);
     Context->IdentityReady = FALSE;
     Context->BaselineValid = FALSE;
@@ -1999,7 +2062,17 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     NTSTATUS Status;
 
     UNREFERENCED_PARAMETER(PreviousState);
+    // A previous failed UCM detach cannot be treated as a fresh connection.
+    if (Context->ConnectorAttached) {
+        B2lMaxStopConnector(Context);
+        if (Context->ConnectorAttached) return STATUS_DEVICE_NOT_READY;
+    }
     WdfWaitLockAcquire(Context->BusLock, NULL);
+    Context->ConnectorOverflow = FALSE;
+    Context->ConnectorQueued = Context->ConnectorAttempts = 0UL;
+    Context->ConnectorCount = Context->ConnectorRead = 0UL;
+    RtlZeroMemory(&Context->ConnectorLast, sizeof(Context->ConnectorLast));
+    Context->ConnectorStatus = Context->ConnectorSwapStatus = STATUS_DEVICE_NOT_READY;
     RtlZeroMemory(Context->MuicPairs, sizeof(Context->MuicPairs));
     Context->MuicOutstanding = 0UL;
     Context->MuicGeneration = 0ULL;
@@ -2081,6 +2154,7 @@ B2lMaxEvtD0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE P
     WdfWaitLockAcquire(Context->BusLock, NULL);
     WdfWaitLockAcquire(Context->MfdLock, NULL);
     Context->PolicyEnabled = TRUE;
+    Context->ConnectorRunning = TRUE;
     WdfWaitLockRelease(Context->MfdLock);
     WdfWaitLockRelease(Context->BusLock);
     WdfWorkItemEnqueue(Context->PolicyWork);
@@ -2101,6 +2175,7 @@ B2lMaxEvtD0ExitPreInterruptsDisabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Ta
     WdfWaitLockRelease(Context->MfdLock);
     WdfWaitLockRelease(Context->BusLock);
     WdfWorkItemFlush(Context->PolicyWork);
+    B2lMaxStopConnector(Context);
     WdfWaitLockAcquire(Context->BusLock, NULL);
     if (Context->HardwareReady && Context->PlatformPrepared) {
         WdfWaitLockAcquire(Context->MfdLock, NULL);

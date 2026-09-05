@@ -1,6 +1,6 @@
 <#
  .SYNOPSIS
-   Builds the Beyond2LTE KMDF static-host USB driver and control tool for ARM64.
+   Builds the Beyond2LTE KMDF role-switch USB driver and control tool for ARM64.
 
  .DESCRIPTION
    Run from WSL through powershell.exe.  Sources are staged in a native
@@ -72,13 +72,13 @@ if ([string]::IsNullOrWhiteSpace($WdkVersion)) {
 }
 
 $WdkInclude = Resolve-Directory (Join-Path $KitsRoot ("Include\{0}" -f $WdkVersion)) 'Secilen WDK Include dizini'
-foreach ($Header in @('km\ntddk.h', 'um\setupapi.h')) {
+foreach ($Header in @('km\ntddk.h', 'um\setupapi.h', 'km\ucm\1.0\UcmCx.h', 'km\urs\1.0\Urscx.h')) {
     if (-not (Test-Path -LiteralPath (Join-Path $WdkInclude $Header) -PathType Leaf)) {
         Fail "$Header yok: $WdkInclude"
     }
 }
 $WdkLib = Resolve-Directory (Join-Path $KitsRoot ("Lib\{0}\km\arm64" -f $WdkVersion)) 'WDK ARM64 kernel kutuphane dizini'
-foreach ($Library in @('ntoskrnl.lib', 'hal.lib', 'libcntpr.lib', 'BufferOverflowFastFailK.lib')) {
+foreach ($Library in @('ntoskrnl.lib', 'hal.lib', 'libcntpr.lib', 'BufferOverflowFastFailK.lib', 'UcmCxStub.lib', 'UrsCxStub.lib')) {
     if (-not (Test-Path -LiteralPath (Join-Path $WdkLib $Library) -PathType Leaf)) {
         Fail "$Library yok: $WdkLib"
     }
@@ -132,13 +132,13 @@ try {
     foreach ($Name in @(
             'b2lusb.h', 'b2lusb_public.h', 'b2lusb.c', 'b2lusb_hw.c',
             'b2lusbmon.c', 'b2lusbctl.c', 'b2lmax77705.h',
-            'b2lmax77705.c', 'b2lmax77705_hw.c', 'b2lmax77705_irq.c', 'b2lmax77705_events.h')) {
+            'b2lmax77705.c', 'b2lmax77705_hw.c', 'b2lmax77705_irq.c', 'b2lmax77705_ucm.c', 'b2lmax77705_events.h')) {
         Copy-Item -LiteralPath (Join-Path $SourceDir $Name) -Destination (Join-Path $StageRoot $Name) -Force
     }
 
     $Compiler = Join-Path $Arm64Bin 'cl.exe'
     $Linker = Join-Path $Arm64Bin 'link.exe'
-    $Flags = "/nologo /c /TC /kernel /Zl /GS- /W4 /WX /wd4324 /O1 /D_WIN32_WINNT=0x0A00 /D_ARM64_=1 /DKMDF_VERSION_MAJOR=1 /DKMDF_VERSION_MINOR=15 /I`"$KmdfInclude`" /I`"$WdkInclude\km`" /I`"$WdkInclude\shared`" /I`"$WdkInclude\ucrt`" /I`"$WdkInclude\um`""
+    $Flags = "/nologo /c /TC /kernel /Zl /GS- /W4 /WX /wd4324 /O1 /D_WIN32_WINNT=0x0A00 /D_ARM64_=1 /DKMDF_VERSION_MAJOR=1 /DKMDF_VERSION_MINOR=15 /I`"$KmdfInclude`" /I`"$WdkInclude\km`" /I`"$WdkInclude\km\ucm\1.0`" /I`"$WdkInclude\km\urs\1.0`" /I`"$WdkInclude\shared`" /I`"$WdkInclude\ucrt`" /I`"$WdkInclude\um`""
     $UserFlags = "/nologo /TC /O1 /W4 /WX /MT /DUNICODE /D_UNICODE /D_WIN32_WINNT=0x0A00 /I`"$WdkInclude\um`" /I`"$WdkInclude\shared`" /I`"$WdkInclude\ucrt`""
     $Lines = @(
         '@echo off',
@@ -150,7 +150,7 @@ try {
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $Flags /Fo`"b2lusb_hw.obj`" `"b2lusb_hw.c`"",
         'if errorlevel 1 exit /b 1',
-        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lusb.sys`" `"b2lusb.obj`" `"b2lusb_hw.obj`" WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
+        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lusb.sys`" `"b2lusb.obj`" `"b2lusb_hw.obj`" UrsCxStub.lib WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $Flags /Fo`"b2lusbmon.obj`" `"b2lusbmon.c`"",
         'if errorlevel 1 exit /b 1',
@@ -162,7 +162,9 @@ try {
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $Flags /Fo`"b2lmax77705_irq.obj`" `"b2lmax77705_irq.c`"",
         'if errorlevel 1 exit /b 1',
-        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lmax77705.sys`" `"b2lmax77705.obj`" `"b2lmax77705_hw.obj`" `"b2lmax77705_irq.obj`" WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
+        "`"$Compiler`" $Flags /Fo`"b2lmax77705_ucm.obj`" `"b2lmax77705_ucm.c`"",
+        'if errorlevel 1 exit /b 1',
+        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lmax77705.sys`" `"b2lmax77705.obj`" `"b2lmax77705_hw.obj`" `"b2lmax77705_irq.obj`" `"b2lmax77705_ucm.obj`" UcmCxStub.lib WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $UserFlags /Fo`"b2lusbctl.obj`" `"b2lusbctl.c`" /Fe:`"b2lusbctl.exe`" /link /machine:arm64 /subsystem:console /libpath:`"$WdkUserLib`" kernel32.lib setupapi.lib advapi32.lib",
         'exit /b %errorlevel%'
@@ -171,7 +173,7 @@ try {
     [IO.File]::WriteAllText($BuildCmd, (($Lines -join "`r`n") + "`r`n"), [Text.Encoding]::ASCII)
 
     Write-Host ''
-    Write-Host '==> B2LUSB derleniyor (Windows MSVC ARM64 + KMDF 1.15 static HOST)' -ForegroundColor Cyan
+    Write-Host '==> B2LUSB derleniyor (Windows MSVC ARM64 + KMDF 1.15 UCM/URS)' -ForegroundColor Cyan
     Write-Host "  WDK    : $WdkVersion"
     Write-Host "  vcvars : $($Vcvars.FullName)"
     Push-Location -LiteralPath $StageRoot

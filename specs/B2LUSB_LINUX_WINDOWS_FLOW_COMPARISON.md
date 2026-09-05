@@ -1,5 +1,160 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.35` — gerçek MAX rolünden UCM/URS tüketicisine
+
+Flaş beklenmeden Windows'taki eksik USB bildirim tüketicisi eklendi. MAX
+`0.1.0.35`, parent/host/function paketleri `0.1.0.19`, IOCTL ABI `7`.
+**Kaynak bağlantısı kurulmuştur; USB'nin çalışması veya Linux akışının
+bütünü doğrulanmış değildir.** Özellikle aşağıdaki source Rp, PD ve hedef
+Windows runtime sınırları yeni sürümün gerçek açık işleridir.
+
+### Kapatılan statik HOST kopukluğu
+
+`.34`te MAX güç/veri rolünü ayırmasına rağmen `.18` parent, PrepareHardware
+ve D0Entry'de koşulsuz HOST seçiyordu. `_DEP` yalnız sürücü başlama ilişkisi
+kuruyordu; fiziksel CC/PD sonucu Windows host PDO'sunun ömrünü yönetmiyordu.
+Bu yol kaldırıldı:
+
+1. Gerçek CCSTAT güç rolünü, gerçek PD DATAROLE veri rolünü günceller.
+   Initial detect hâlâ Samsung'daki gibi SINK ile sınırlıdır; SOURCE/DFP
+   tahmini veya ID-pin olayı üretilmez. MUIC analog anahtar tüketicisi korunur.
+2. Bu işleyiciler `MfdLock` altında ayrı, 64 kayıtlık konektör kuyruğuna
+   durum değişimini koyar. Aynı IRQ içindeki detach ve sonraki attach ayrı
+   kayıt kalır. `PolicyWork` foto/registry işinin tamamlanması beklenmez.
+3. Ayrı pasif `ConnectorWork`, kilidi bırakarak UCM'ye attach/detach veya
+   veri/güç rolü değişimini bildirir. Yerel DFP için partner UFP, yerel UFP
+   için partner DFP verilir. CC gücü ve PD verisi birbirinden türetilmez.
+4. `UrsSetHardwareEventSupport(Device, FALSE)` Type-C sözleşmesini seçer.
+   `UrsReportHardwareEvent(IdGround/IdFloat)` kullanılmaz. URS eski role ait
+   stack'i kapatıp `EvtUrsSetRole` ile platform değişimini yaptırır.
+5. Yalnız bu callback DWC3 rolünü değiştirir. D0 dönüşü yalnız daha önce
+   OS'nin seçtiği rolü yeniden hazırlar; soğuk açılışın rolü NONE'dır.
+   Kullanıcı komutuyla HOST zorlayan IOCTL reddedilir; `host` CLI kaldırıldı.
+
+Linux eşlemesi: `ianmacd/d2s@d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39`
+[notify_dr_status](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_cc.c),
+[DATAROLE/CCI](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_pd.c).
+Windows tarafındaki tüketici sözleşmeleri:
+[Type-C → UCM → URS](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/dual-role-controller-bringup-for-a-usb-type-c-system),
+[URS ACPI/child kaynakları](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-dual-role-driver-stack-architecture).
+Microsoft'un genel örneklerindeki eski enum adları kopyalanmadı; DDI ve
+WDK `UcmTypes.h/UcmManager.h` imzaları kontrol edildi. `UcmInitializeDevice`
+WDFDEVICE oluşturulduktan sonra çağrılır. MAX INF artık `Class=UCM` ve
+`Dependencies=UcmCx` kullanır; [resmî örnek INF](https://github.com/microsoft/Windows-driver-samples/blob/main/usb/UcmCxUcsi/UcmCxUcsi.inf)
+ile aynı sınıf/sürücü bağımlılığı sözleşmesidir.
+
+### ACPI, platform ve hata ömrü
+
+BYN0002 parent `_CRS` artık DWC3 `10c00000/10000`, PHY `10b00000/200`,
+PMU `1586072c/4` kaynaklarını taşır. Sabit BYN0003/PNP0D15 PDO kaldırıldı.
+`USB0._ADR=0`, `UFN0._ADR=1`; her ikisinde özgün GSIV273 exclusive/level/high
+vardır. URS aynı anda tek role ait child'ı başlatır. Parent gereksinim
+filtresi yalnız DWC3 aralığını iki role aktarır; PHY/PMU child'a verilmez.
+Parent artık ACPI tarafından atanmamış DWC3 adresini doğrudan map etmez.
+MAX'ın GSIV114 ve GSIV51 kaynakları değişmedi.
+
+HOST ve FUNCTION geçişleri önce eski denetleyicinin durduğunu kontrol eder;
+sonra mevcut bounded PHY/core reset, GCTL rol seçimi ve gerçek GSTS kontrolü
+çalışır. USB2 function tune değerleri stok `beyond2lte.dts` ilk hücresidir:
+TXRES=3, SQRX=3; host ikinci hücre TXRES=1, SQRX=5. Ortak TXVREF=12,
+TXPREEMPA=3, COMPDIS=7 korunur. Function normal Samsung v3p1 enable yolunu,
+host `phy_exynos_usb_v3p1_config_host_mode` pulldown/VBUS-valid ayarını alır.
+Bu PHY register isimlerindeki FORCE_BVALID/VBUSVLDEXT, stok PHY'nin gerçek
+konfigürasyon bitleridir; Type-C attach veya güç ölçümü yerine kullanılmaz.
+USB3 PCS/PMA erişimi eklenmedi; USB2-only sınırı hâlâ açıktır.
+
+UCM çağrısı sırasında MAX pasif ISR kilidi tutulmaz. PnP kapanışında yeni
+bildirimler kapatılır, worker flush edilir, gerçek UCM bağlantısı detach
+edilir; connector ReleaseHardware'da silinir. Başarısız detach yeni attach
+önüne bariyer koyar. Kuyruk taşması eski olayları polling ile yeniden
+kurmaya çalışmaz: görünür hata bırakıp OS bağlantısını kapatmayı dener.
+Fiziksel CC detach biliniyorsa charger-off hatası USB detach bildirimini
+engellemez. Akım bildirimindeki hata daha önce gönderilen bağımsız veri/güç
+bildirimini geri alınmış gibi göstermez.
+
+CCI kesmesi ayrıca `max77705_ccistat_irq` gibi canlı CC_STATUS0 okur;
+yerel SINK için Rp güncellemesini aynı kuyruğa taşır. Tek başına CCI,
+SOURCE veya DATAROLE üretmez. Nested sıra WATER → CCI → CCSTAT → DATAROLE
+olarak korunur. PD sözleşmesi/PDO tekrar isteği ve batarya bildirimleri bu
+dar Rp taşımasının tamamladığı işler arasında değildir.
+
+URS geçişi tanı timer'ını durdurur. NONE veya başarısız donanım geçişinde
+register alanları okunmaz; ABI'deki `REGISTERS_VALID` bayrağı yoktur.
+Function sırasında xHCI/PORTSC alanları okunmaz. Böylece kapalı PHY'ye
+sonradan bir foto/observer erişimi yapılmaz ve sıfır alanlar ölçüm sayılmaz.
+Başarısız D0 kapanışı da rolün hazırlık işaretini geçersiz kılar; resume eski
+CurrentRole değerine bakıp başarı dönmez, donanım geçişini yeniden çalıştırır.
+
+### Tamamlanmış sayılmayan önemli sınırlar
+
+- **Source Rp akımı:** SINK'in `CC_STATUS0[5:4]` CCI alanı stok enumlardan
+  default/1.5A/3A olarak çözülür. Yerel SOURCE'un gerçek Rp ilanını mevcut
+  referansta kesin çözmediğimiz için `UcmTypeCCurrentInvalid` verilir.
+  Charger boost limiti veya örnekteki 1.5A değeri yerine konmaz. Hedef UCM
+  bu attach'i reddedebilir; bu durumda `UCM_NT` hata, `UCM_ATTACHED=0`
+  kalır. **Bu nedenle source/host bağlantısı kapatılmış bir eksik değildir.**
+- **OS tarafından DR/PR swap:** firmware'in yaptığı gerçek DATAROLE değişimi
+  bildirilir. OS'nin farklı rol isteği henüz `STATUS_NOT_SUPPORTED` alır.
+  İstenen rol zaten gerçek güncel rol ise UCM'ye mevcut rol bildirilir.
+  Stok `0x37` komutunun APCMD yanıtı tamamlanmış swap kanıtı değildir;
+  PDMSG/PS_RDY, reddetme ve timeout ömrü eklenmeden olumlu sonuç üretilmez.
+  `PdConfig=NULL`; PD sözleşmesi/PDO desteği ilan edilmez.
+- **Function:** URS rolü, USB2 PHY ayarı ve hedef inbox UFX'e bağlanacak INF
+  üretimi vardır. Bu, MTP/USB ağ/storage gibi function sınıfının ve uçtan
+  uca transferin tamamlandığı anlamına gelmez. O sınıflar ayrı açık iştir.
+- SYSMSG POR/WDT/APCMD_FAIL, PDMSG/PS_RDY/hard-reset, RID USB-detach ve
+  UART/CP tüketicileri, VCONN/accessory/alt-mode, AFC/hiccup/batarya, özgün
+  iki saniyelik VBUS workaround'u ve USB3 clock/reset/PHY hâlâ açık.
+
+### WSL build, paket ve tanı ekranı
+
+Build girişleri aynı kaldı; bu Mac'te WDK/UEFI/WIM build yapılmadı:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+WSL'den çağrılan PowerShell, WDK UCM/URS 1.0 header'larını ve ARM64
+`UcmCxStub.lib/UrsCxStub.lib` dosyalarını zorunlu kontrol eder. Paketleme,
+**hedef boot.wim'in içindeki** UcmCx, Urscx01000, Ufx01000, ufxsynopsys ve
+ufxsynopsys.inf dosyalarını ister. PE ARM64 mimarisi ve major/minor/build,
+hedef ntoskrnl ile karşılaştırılır; servicing revision farkı kabul edilir.
+Eksik veya başka build'e ait runtime varsa açık hatayla durur. Eski Windows
+Mobile runtime'ı kopyalayan yardımcı geri getirilmedi. Hedef görüntüde
+bileşenlerin servislenmiş olması ve gerçek Windows bağımlılıkları ayrıca
+WSL doğrulamasına tabidir; sadece dosya bulunması kurulum kanıtı değildir.
+
+`b2lusb-function.inf`, hedef ARM64 inbox INF'nin gerçek DDInstall,
+Services/HW bölümlerinden Include/Needs ile üretilir. Belirsiz veya yalnız
+x64 modeller reddedilir; section adı tahmin edilmez. Yeni INF ortak katalog,
+DriverStore ve WIM geri okuma hash kontrolüne dahildir. PnP tanısı artık
+`URS\BYN0002&HOST` ve `URS\BYN0002&FUNCTION` kimliklerini kullanır.
+
+`MAX FOTO v8`: genel 40, MUIC/RID 34, yeni UCM sayfası 17 satır; aralarda
+USB/PnP sayfası ve ardından dondurulmuş olay sayfaları vardır. Yirmi saniyelik
+klavyesiz dönüş korunur. 141 registry alanı vardır. `UCM_NT` bildirim
+sonucu, `UCM_ATTACHED` kabul edilen attach, `QUEUED/PENDING/ATTEMPTS`
+kuyruk/gönderim denemesi, `OVERFLOW` kayıp sıralama, `SWAP_NT` OS rol
+isteği sonucudur. Başarısız denemeler ATTEMPTS'e dahildir. Hiçbiri HID veya
+veri aktarımı kanıtı değildir. `USB FOTO v3`, etkin HOST yokken PORTSC
+sıfırlarını göstermeyip register okunmadığını yazar.
+
+On kontrol grubu geçti: transport, IRQ, connection, lifecycle, events, yeni UCM
+sıralama/hata fixture'ı, yeni URS/INF/runtime fixture'ı ve üç kaynak kontrolü.
+UCM fixture'ı gerçek queue/worker C kodunu çalıştırır; attach/detach/attach,
+duplicate, rol/akım değişimi, çağrı hataları, detach bariyeri, taşma ve
+kapanış denetlenir. URS fixture'ı gerçek role/power/resource callback'lerini
+çalıştırır; soğuk NONE, resume, function, hata ve adres aktarımını denetler.
+Foto satır/genişlik kontrolü, shell sözdizimi ve diff kontrolü de geçti.
+Bunlar KMDF/UCM/URS sürücülerini veya fiziksel kesme teslimini çalıştırmaz.
+
+İleride flaşta aranacak sıra: gerçek MAX güç/veri rolü → UCM kabulü →
+URS parent gerçek rol/GSTS → ilgili host/function PDO → root hub/alıcı/HID
+ve gerçek transfer. Boş portta statik Started/HOST beklenmez. Sonraki kaynak
+çalışması için yeni flaş önkoşul değildir; yukarıdaki açık akım/PD kolları
+önce kaynak üzerinden tamamlanmalıdır.
+
 ## 5 Eylül 2026: `.34` — gerçek MUIC/BC sınıflandırması ve FCTID/RID
 
 Flaş beklenmeden kaynak karşılaştırmasına devam edildi. `.33`ün UFP dalı

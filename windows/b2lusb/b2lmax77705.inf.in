@@ -4,11 +4,11 @@
 
 [Version]
 Signature="$WINDOWS NT$"
-Class=System
-ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Class=UCM
+ClassGuid={e6f1aa1c-7f3b-4473-b2e8-c97d8ac71d53}
 Provider=%B2L%
 CatalogFile=b2lusb.cat
-DriverVer=09/05/2026,0.1.0.34
+DriverVer=09/05/2026,0.1.0.35
 PnpLockdown=1
 
 [DestinationDirs]
@@ -41,6 +41,7 @@ ServiceType=1
 StartType=3
 ErrorControl=1
 ServiceBinary=%12%\b2lmax77705.sys
+Dependencies=UcmCx
 
 [B2LMax_Install.NT.Wdf]
 KmdfService=b2lmax77705,B2LMax_Wdf

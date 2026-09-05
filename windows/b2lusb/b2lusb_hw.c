@@ -16,6 +16,7 @@
 #define B2L_DWC3_GCTL_CORESOFTRESET   (1UL << 11)
 #define B2L_DWC3_GCTL_PRTCAP_MASK     (3UL << 12)
 #define B2L_DWC3_GCTL_PRTCAP_HOST     (1UL << 12)
+#define B2L_DWC3_GCTL_PRTCAP_DEVICE   (2UL << 12)
 #define B2L_DWC3_GSTS_CURMOD_MASK     3UL
 #define B2L_DWC3_GSTS_CURMOD_DEVICE   0UL
 #define B2L_DWC3_GSTS_CURMOD_HOST     1UL
@@ -420,7 +421,8 @@ B2lUsb2PhyDisable(
 
 static NTSTATUS
 B2lUsb2PhyEnable(
-    PB2L_USB_CONTEXT Context
+    PB2L_USB_CONTEXT Context,
+    B2L_USB_ROLE Role
     )
 {
     ULONG Poll;
@@ -488,7 +490,7 @@ B2lUsb2PhyEnable(
     Value |= B2L_HSP_VBUSVLDEXTSEL | B2L_HSP_VBUSVLDEXT;
     B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP, Value);
 
-    // Host tune values are the verified host column from beyond2lte.dts.
+    // Stock beyond2lte.dts columns are device, host (tx_res=3/1, sqrx=3/5).
     Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSP_TUNE);
     Value &= ~(B2L_HSP_TUNE_TXVREF_MASK |
                B2L_HSP_TUNE_TXRES_MASK |
@@ -496,9 +498,9 @@ B2lUsb2PhyEnable(
                B2L_HSP_TUNE_SQRX_MASK |
                B2L_HSP_TUNE_COMPDIS_MASK);
     Value |= B2L_HSP_TUNE_TXVREF(12) |
-             B2L_HSP_TUNE_TXRES(1) |
+             B2L_HSP_TUNE_TXRES(Role == B2lUsbRoleHost ? 1UL : 3UL) |
              B2L_HSP_TUNE_TXPREEMPA(3) |
-             B2L_HSP_TUNE_SQRX(5) |
+             B2L_HSP_TUNE_SQRX(Role == B2lUsbRoleHost ? 5UL : 3UL) |
              B2L_HSP_TUNE_COMPDIS(7);
     B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP_TUNE, Value);
 
@@ -528,14 +530,17 @@ B2lUsb2PhyEnable(
     Value &= ~B2L_LINK_PORT_U2_DISABLE;
     B2lWrite32(Context->PhyRegisters, B2L_PHY_LINK_PORT, Value);
 
-    Value = B2lRead32(Context->PhyRegisters, B2L_PHY_UTMI);
-    Value |= B2L_UTMI_DP_PULLDOWN | B2L_UTMI_DM_PULLDOWN;
-    Value &= ~(B2L_UTMI_FORCE_BVALID | B2L_UTMI_FORCE_VBUSVALID);
-    B2lWrite32(Context->PhyRegisters, B2L_PHY_UTMI, Value);
-
-    Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSP);
-    Value &= ~(B2L_HSP_VBUSVLDEXTSEL | B2L_HSP_VBUSVLDEXT);
-    B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP, Value);
+    if (Role == B2lUsbRoleHost) {
+        // Samsung phy_exynos_usb_v3p1_config_host_mode. Device mode retains
+        // the normal v3p1 enable values above; URS alone authorizes this path.
+        Value = B2lRead32(Context->PhyRegisters, B2L_PHY_UTMI);
+        Value |= B2L_UTMI_DP_PULLDOWN | B2L_UTMI_DM_PULLDOWN;
+        Value &= ~(B2L_UTMI_FORCE_BVALID | B2L_UTMI_FORCE_VBUSVALID);
+        B2lWrite32(Context->PhyRegisters, B2L_PHY_UTMI, Value);
+        Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSP);
+        Value &= ~(B2L_HSP_VBUSVLDEXTSEL | B2L_HSP_VBUSVLDEXT);
+        B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP, Value);
+    }
 
     // Mirror the bounded readback gate used by the verified UEFI bring-up.
     // Do not hand a half-powered PHY to USBXHCI after the POR sequence.
@@ -612,10 +617,6 @@ B2lUsbHardwareSetRole(
         return Status;
     }
 
-    if ((Role != B2lUsbRoleNone) && (Role == Context->CurrentRole)) {
-        return STATUS_SUCCESS;
-    }
-
     CurrentMode = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GSTS) &
         B2L_DWC3_GSTS_CURMOD_MASK;
 
@@ -632,7 +633,7 @@ B2lUsbHardwareSetRole(
         return STATUS_SUCCESS;
     }
 
-    if (Role == B2lUsbRoleHost) {
+    if ((Role == B2lUsbRoleHost) || (Role == B2lUsbRoleDevice)) {
         if (CurrentMode == B2L_DWC3_GSTS_CURMOD_DEVICE) {
             Status = B2lStopDeviceController(Context);
             if (!NT_SUCCESS(Status)) {
@@ -645,7 +646,7 @@ B2lUsbHardwareSetRole(
             }
         }
 
-        Status = B2lUsb2PhyEnable(Context);
+        Status = B2lUsb2PhyEnable(Context, Role);
         if (!NT_SUCCESS(Status)) {
             return Status;
         }
@@ -656,9 +657,11 @@ B2lUsbHardwareSetRole(
         }
         Gctl = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL);
         Gctl &= ~B2L_DWC3_GCTL_PRTCAP_MASK;
-        Gctl |= B2L_DWC3_GCTL_PRTCAP_HOST;
+        Gctl |= Role == B2lUsbRoleHost ?
+            B2L_DWC3_GCTL_PRTCAP_HOST : B2L_DWC3_GCTL_PRTCAP_DEVICE;
         B2lWrite32(Context->Dwc3Registers, B2L_DWC3_GCTL, Gctl);
-        Status = B2lWaitDwc3Mode(Context, B2L_DWC3_GSTS_CURMOD_HOST);
+        Status = B2lWaitDwc3Mode(Context, Role == B2lUsbRoleHost ?
+            B2L_DWC3_GSTS_CURMOD_HOST : B2L_DWC3_GSTS_CURMOD_DEVICE);
         if (!NT_SUCCESS(Status)) {
             B2lUsb2PhyDisable(Context);
         }
@@ -685,11 +688,14 @@ B2lUsbHardwareGetStatus(
 
     Status->Flags |= B2L_USB_STATUS_HARDWARE_READY |
                      B2L_USB_STATUS_USB2_ONLY |
-                     B2L_USB_STATUS_STATIC_HOST;
+                     B2L_USB_STATUS_UCM_URS;
     Status->CoreResetCount = Context->CoreResetCount;
     if (Context->CoreResetCount != 0) {
         Status->Flags |= B2L_USB_STATUS_CORE_RESET;
     }
+    // NONE has no active controller/PHY; zero fields are not register reads.
+    if (!Context->RegistersValid) return;
+    Status->Flags |= B2L_USB_STATUS_REGISTERS_VALID;
     Status->GsnpsId = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GSNPSID);
     Status->Dwc3VerNumber = B2lRead32(
         Context->Dwc3Registers,
@@ -732,6 +738,7 @@ B2lUsbHardwareGetStatus(
     Status->XhciObserveConfig = Context->XhciObserveConfig;
     WdfSpinLockRelease(Context->XhciObserveLock);
 
+    if (Context->CurrentRole != B2lUsbRoleHost) return;
     UsbStatus = 0;
     if (NT_SUCCESS(B2lReadXhciUsbStatus(Context, &UsbStatus))) {
         UCHAR CapLength;

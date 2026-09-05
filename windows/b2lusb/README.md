@@ -1,5 +1,26 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
+## Güncel kaynak: `.35` / UCM ve URS
+
+MAX `0.1.0.35`, parent/host/function `0.1.0.19`, IOCTL ABI 7.
+Koşulsuz HOST kaldırıldı. Gerçek MAX CC/PD değişiklikleri ayrı pasif UCM
+kuyruğuna, oradan URS host/function yaşam döngüsüne gider. ACPI rol çocukları
+`_ADR=0/1`, PnP kimlikleri `URS\BYN0002&HOST/FUNCTION`; özgün GSIV273.
+`status`, `observe`, `maxevents`, `maxscreen` tanı komutlarıdır; `host` yoktur.
+
+`MAX FOTO v8` ayrı UCM sonucu/kuyruk sayfası gösterir. UCM kabulü enumeration
+kanıtı değildir. Source Rp akımı, OS PD swap/PDO/sözleşmeleri, function sınıfı,
+SYSMSG/PD kurtarma ve USB3 hâlâ açık. Bu sürüm USB çalıştı iddiası taşımaz.
+
+Build yalnız WSL: `bash yap.sh --touch --usb-test --clean`, ardından
+`bash cache_esp.sh --win --system --baseline`. Hedef WIM'de aynı Windows
+build'inin ARM64 UCM/URS/UFX bileşenleri gerekir. Function INF gerçek inbox
+bölümlerinden üretilir; eski Mobile runtime veya tahmini INF adı kullanılmaz.
+Ayrıntı ve test kapsamı: `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md`, `.35`.
+
+**Aşağıdaki `.34` ve statik `.18` bölümleri önceki ölçüm/tasarım günlüğüdür;
+statik HOST komutları ve BYN0003 kimliği güncel build için kullanılmaz.**
+
 **5 Eylül / MAX 0.1.0.34:** Gerçek UIC/BC ve PD FCTID/RID sonuçlarıyla
 USB/CDP/OTG/şarj sınıflandırması eklendi. UFP artık koşulsuz OPEN yapmaz;
 USB/CDP analog yolu gerçek APCMD/read-back ile doğrulanır. Stok duplicate

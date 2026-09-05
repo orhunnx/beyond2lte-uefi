@@ -18,7 +18,7 @@ def function(name):
     brace=main.index('{',pos);end=brace+1;depth=1
     while depth: depth+=(main[end]=='{')-(main[end]=='}');end+=1
     return main[start:end]
-a=header.index('typedef struct _B2L_MAX_OPCODE_REQUEST');b=header.index('WDF_DECLARE_CONTEXT_TYPE')
+a=header.index('typedef struct _B2L_MAX_CONNECTOR_EVENT');b=header.index('WDF_DECLARE_CONTEXT_TYPE')
 h=r'''
 #include <stdint.h>
 #include <string.h>
@@ -32,6 +32,7 @@ typedef int64_t LONGLONG;
 typedef int32_t NTSTATUS;
 typedef int BOOLEAN;
 typedef void VOID;
+typedef void *UCMCONNECTOR, *WDFOBJECT;
 typedef void *WDFDEVICE,*WDFWORKITEM,*WDFWAITLOCK,*WDFINTERRUPT,*WDFTIMER;
 typedef struct { int signaled; } KEVENT;
 typedef struct { LONGLONG QuadPart; } LARGE_INTEGER;
@@ -68,6 +69,8 @@ typedef struct { ULONG Vector; } WDF_INTERRUPT_INFO;
 h+='\n'.join(re.findall(r'^#define B2L_MAX_.*',header,re.M))+'\n'+header[a:b]
 h+='\n'.join(re.findall(r'^#define MAX77705_.*',main.replace('\\\n',' '),re.M))+'\n'
 h+=r'''
+static unsigned connector_notifications;
+static void B2lMaxQueueConnectorLocked(PB2L_MAX_CONTEXT c) { (void)c; ++connector_notifications; }
 static PB2L_MAX_CONTEXT current;
 static ULONG regs[0x1000/4], mmio_ack, held, queued, r2c_reads, responses, commands, cancels;
 static UCHAR top, raw[4], reg_values[128][256], last_opcode, last_payload, reply_opcode;
@@ -108,6 +111,7 @@ static NTSTATUS B2lMaxReadByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v) {
     assert(c==current && held); if (read_error) return read_error;
     if(a==0x69 && r==0xb5) trace[trace_count++]='B';
     if(a==0x25 && r==0x0b) trace[trace_count++]='W';
+    if(a==0x25 && r==0x0a) trace[trace_count++]='I';
     if(a==0x25 && r==0x0d) trace[trace_count++]='P';
     if(a==0x66 && r==0x22) *v=top;
     else if(a==0x25 && r==0x07) *v=0;
@@ -179,7 +183,7 @@ static NTSTATUS KeWaitForSingleObject(KEVENT *event,int r,int m,int alert,LARGE_
     ticks+=(ULONGLONG)-t->QuadPart;return STATUS_TIMEOUT;
 }
 '''
-for name in ('B2lMaxSetDiagnosticLocked','B2lMaxReadCcStatus','B2lMaxEvaluateConnection','B2lMaxReadWaterState','B2lMaxDetectMuicLocked','B2lMaxReadRidLocked','B2lMaxDispatchMuicLocked','B2lMaxHandleDataRole','B2lMaxHandleBypass','B2lMaxDispatchBypassLocked','B2lMaxObserveIrqLocked','B2lMaxDispatchCcPdLocked'):
+for name in ('B2lMaxSetDiagnosticLocked','B2lMaxReadCcStatus','B2lMaxEvaluateConnection','B2lMaxReadWaterState','B2lMaxReadCurrentAdvertisement','B2lMaxDetectMuicLocked','B2lMaxReadRidLocked','B2lMaxDispatchMuicLocked','B2lMaxHandleDataRole','B2lMaxHandleBypass','B2lMaxDispatchBypassLocked','B2lMaxObserveIrqLocked','B2lMaxDispatchCcPdLocked'):
     h+='\n'+function(name)+'\n'
 # Match the forward prototype linkage of the real callback in this TU.
 h+=irq.replace('BOOLEAN\nB2lMaxEvtMaxInterruptIsr','static BOOLEAN\nB2lMaxEvtMaxInterruptIsr')
@@ -192,7 +196,7 @@ static void reset(PB2L_MAX_CONTEXT c) {
     mmio_ack=0; read_error=write_error=snap_error=normalize_status=0;
     drop_irq=wrong_reply=stale_wakes=probe_test=0; last_opcode=last_payload=reply_opcode=0;
     c->Device=c->MaxInterrupt=c->PolicyWork=c->OpcodeDeadline=c;
-    timer_due=0;muic_actual=0;muic_bad_read=trace_count=0;memset(trace,0,sizeof(trace)); c->MfdLock=(void *)1;
+    timer_due=0;muic_actual=0;muic_bad_read=trace_count=0;connector_notifications=0;memset(trace,0,sizeof(trace)); c->MfdLock=(void *)1;
     c->AliveRegisters=(PUCHAR)regs; c->AliveLength=0x1000; c->MaxTranslatedIrq=0xa02;
     c->PolicyEnabled=TRUE; c->MfdReady=TRUE; c->MuicRid=7; c->RidRaw=0xff; top=8;
     assert(B2lMaxPrepareGpio(c)==0);
@@ -287,7 +291,7 @@ int main(void) {
     reset(&c);probe_test=1;c.MfdReady=FALSE;B2lMaxGpioMask(&c);
     reg_values[0x25][0x0a]=1;reg_values[0x25][0x0d]=0;
     assert(B2lMaxInitializeUsbc(&c)==0 && c.UsbcInitialized && c.MfdFault==0);
-    assert(c.DataRoleStatus==STATUS_NOT_SUPPORTED && commands==4 && c.MuicType==B2L_MAX_MUIC_NONE);
+    assert(c.DataRoleStatus==STATUS_SUCCESS && commands==4 && c.MuicType==B2L_MAX_MUIC_NONE);
     reset(&c);probe_test=1;c.MfdReady=FALSE;B2lMaxGpioMask(&c);
     reg_values[0x25][0x0a]=1;reg_values[0x25][0x0b]=2;reg_values[0x25][0x0d]=0x80;
     assert(B2lMaxInitializeUsbc(&c)==0 && c.UsbcInitialized && c.MfdFault==0);
@@ -301,12 +305,25 @@ int main(void) {
     assert(B2lMaxRequestMuicLocked(&c,9)==STATUS_PENDING && commands==1);
     WdfWaitLockRelease(c.MfdLock);
     assert(!c.MuicPathVerified && c.MuicOutstanding==1);
-    top=9;raw[0]=0x80;raw[1]=0x11;raw[2]=0x20;
-    assert(deliver() && strcmp(trace,"BAWCP")==0);
+    top=9;raw[0]=0x80;raw[1]=0x15;raw[2]=0x20;
+    assert(deliver() && strcmp(trace,"BAWICP")==0);
     assert(!c.OtgEnabled && c.OvercurrentEvents==1 && c.MuicOutstanding==1);
     assert(c.DataRoleStatus==STATUS_PENDING && !c.MuicPathVerified);
     top=8;assert(deliver() && c.MuicPathVerified && c.MuicControl1==9);
     assert(c.MuicOutstanding==0 && c.DataRoleStatus==0 && timer_due==0);
+    // CCI alone updates the live Rp advertisement without creating CC/DR.
+    reset(&c);c.PowerRoleValid=c.DataRoleValid=TRUE;c.PowerRole=1;c.DataRole=0;
+    c.CcStatus0=0x11;reg_values[0x25][0x0a]=0x31;raw[1]=4;
+    assert(deliver() && strcmp(trace,"I")==0 && c.CcStatus0==0x31);
+    assert(connector_notifications==1 && c.PowerRole==1 && c.DataRole==0 && !commands);
+    reset(&c);reg_values[0x25][0x0a]=0x32;raw[1]=4;
+    assert(deliver() && !connector_notifications && !c.PowerRoleValid && !c.DataRoleValid);
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=2;raw[1]=4;
+    assert(deliver() && !connector_notifications); // CCI is not local source Rp
+    reset(&c);c.CcStatus0=0x11;read_error=STATUS_IO_TIMEOUT;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxReadCurrentAdvertisement(&c)==STATUS_IO_TIMEOUT && c.CcStatus0==0x11 && !connector_notifications);
+    WdfWaitLockRelease(c.MfdLock);
     // An old USB read-back cannot verify a newer detach request.
     reset(&c);c.PowerRoleValid=c.DataRoleValid=TRUE;c.PowerRole=2;c.DataRole=1;
     WdfWaitLockAcquire(c.MfdLock,NULL);
@@ -383,10 +400,10 @@ int main(void) {
     assert(written_op[0]==6 && written_op[1]==5 && written_op[2]==0x57);
     assert(written_op[3]==0x54 && written_op[4]==0x0c && written_op[5]==0x0b);
     assert(c.MuicType==B2L_MAX_MUIC_USB && c.MuicControl1==9 && c.MuicPathVerified);
-    assert(c.DataRole==0 && c.DataRoleStatus==STATUS_NOT_SUPPORTED); // OS function still absent
+    assert(c.DataRole==0 && c.DataRoleStatus==STATUS_SUCCESS); // analog completion, OS status is separate
     // UIC handlers precede CC/PD; their BC status never manufactures CC/DR events.
     reset(&c);reg_values[0x25][8]=0x82;raw[0]=0x22;
-    assert(deliver() && strcmp(trace,"MM")==0 && c.MuicSamples==2);
+    assert(deliver() && strcmp(trace,"IMM")==0 && c.MuicSamples==2);
     assert(c.MuicCause==2 && c.MuicType==B2L_MAX_MUIC_CDP && !c.DataRoleValid && !c.PowerRoleValid);
     assert(c.IrqFrames[0].Raw[0]==0x22 && c.IrqFrames[0].Active[1]==0);
     // VBADC working-value adjustment retains raw bytes. An unrelated voltage

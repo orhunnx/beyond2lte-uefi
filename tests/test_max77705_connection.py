@@ -48,6 +48,7 @@ typedef struct {
     ULONG DataRoleEvents, DataRoleChanges, OvercurrentEvents;
     NTSTATUS DataRoleStatus;
 } CONTEXT, *PB2L_MAX_CONTEXT;
+static void B2lMaxQueueConnectorLocked(PB2L_MAX_CONTEXT c) { (void)c; }
 static UCHAR raw[2], pd_raw, byp_raw;
 static NTSTATUS read_error, power_error, muic_error;
 static char actions[32]; static size_t action_count;
@@ -144,7 +145,7 @@ int main(void) {
     reset();c.DataRoleValid=0;assert(B2lMaxHandleDataRole(&c,FALSE)==STATUS_DEVICE_NOT_READY && strcmp(actions,"P")==0);
     reset();raw[1]=0;assert(B2lMaxReadWaterState(&c)==0 && !c.WaterDetected);
     // A UFP observation cannot masquerade as a supported host/function path.
-    reset();pd_raw=0;assert(B2lMaxHandleDataRole(&c,FALSE)==STATUS_NOT_SUPPORTED);
+    reset();pd_raw=0;assert(B2lMaxHandleDataRole(&c,FALSE)==STATUS_SUCCESS);
     assert(strcmp(actions,"PM")==0 && c.DataRole==0 && c.DataRoleValid);
     assert(c.OtgEnabled); // data-role swap does not silently change source power
     reset();byp_raw=1;assert(B2lMaxHandleBypass(&c)==0 && strcmp(actions,"UBD")==0);

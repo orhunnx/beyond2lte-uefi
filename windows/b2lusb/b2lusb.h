@@ -3,6 +3,7 @@
 
 #include <ntddk.h>
 #include <wdf.h>
+#include <Urscx.h>
 
 #include "b2lusb_public.h"
 
@@ -27,6 +28,7 @@ typedef struct _B2L_USB_CONTEXT {
     ULONG PhyLength;
     ULONG CoreResetCount;
     BOOLEAN HardwareReady;
+    BOOLEAN RoleInitialized, RegistersValid;
     B2L_USB_ROLE RequestedRole;
     B2L_USB_ROLE CurrentRole;
     NTSTATUS LastRoleStatus;
@@ -57,6 +59,8 @@ EVT_WDF_DEVICE_D0_ENTRY B2lUsbEvtD0Entry;
 EVT_WDF_DEVICE_D0_EXIT B2lUsbEvtD0Exit;
 EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL B2lUsbEvtIoDeviceControl;
 EVT_WDF_TIMER B2lUsbEvtXhciObserveTimer;
+EVT_URS_DEVICE_FILTER_RESOURCE_REQUIREMENTS B2lUsbEvtFilterResources;
+EVT_URS_SET_ROLE B2lUsbEvtSetRole;
 
 NTSTATUS B2lUsbHardwareSetRole(
     PB2L_USB_CONTEXT Context,

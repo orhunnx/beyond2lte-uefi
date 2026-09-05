@@ -3,6 +3,7 @@
 
 #include <ntddk.h>
 #include <wdf.h>
+#include <Ucmcx.h>
 #include "b2lmax77705_events.h"
 
 #define B2L_MAX_CMGP_CMU_PHYSICAL_BASE     0x15C00000ULL
@@ -74,6 +75,12 @@
 #define B2L_MAX_MUIC_CC_NOTIFY     0x200UL
 #define B2L_MAX_MUIC_RID_NOTIFY    0x400UL
 
+#define B2L_MAX_CONNECTOR_EVENTS 64UL
+typedef struct _B2L_MAX_CONNECTOR_EVENT {
+    BOOLEAN Attached;
+    UCHAR DataRole, PowerRole, CcStatus0;
+} B2L_MAX_CONNECTOR_EVENT;
+
 // Requests belong to a waiting probe/shutdown caller or a fixed MUIC slot.
 // Queue ownership and slot reuse are protected by the passive ISR MfdLock.
 typedef struct _B2L_MAX_OPCODE_REQUEST {
@@ -106,6 +113,13 @@ typedef struct _B2L_MAX_IRQ_FRAME {
 typedef struct _B2L_MAX_CONTEXT {
     WDFDEVICE Device;
     WDFWORKITEM PolicyWork;
+    UCMCONNECTOR Connector;
+    WDFWORKITEM ConnectorWork;
+    B2L_MAX_CONNECTOR_EVENT ConnectorEvents[B2L_MAX_CONNECTOR_EVENTS];
+    B2L_MAX_CONNECTOR_EVENT ConnectorLast, ConnectorReported;
+    BOOLEAN ConnectorRunning, ConnectorAttached, ConnectorOverflow;
+    ULONG ConnectorRead, ConnectorCount, ConnectorQueued, ConnectorAttempts;
+    NTSTATUS ConnectorStatus, ConnectorSwapStatus;
     WDFTIMER OpcodeDeadline;
     B2L_MAX_MUIC_PAIR MuicPairs[B2L_MAX_MUIC_SLOTS];
     ULONGLONG MuicGeneration;
@@ -301,5 +315,11 @@ NTSTATUS B2lMaxHsI2cWriteRead(
     UCHAR *ReadBuffer,
     ULONG ReadLength
     );
+
+EVT_UCM_CONNECTOR_SET_DATA_ROLE B2lMaxEvtSetDataRole;
+EVT_WDF_WORKITEM B2lMaxEvtConnectorWork;
+NTSTATUS B2lMaxCreateConnector(PB2L_MAX_CONTEXT Context);
+VOID B2lMaxQueueConnectorLocked(PB2L_MAX_CONTEXT Context);
+VOID B2lMaxStopConnector(PB2L_MAX_CONTEXT Context);
 
 #endif

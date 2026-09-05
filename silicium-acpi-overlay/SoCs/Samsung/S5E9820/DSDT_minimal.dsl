@@ -293,60 +293,40 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000006)
             })
         }
 
-        // Exynos9820 DWC_usb31 USB2 host bring-up.  BYN0002 prepares the
-        // Exynos PHY/core before ACPI starts BYN0003 directly on USBXHCI.
-        // Keeping the real host PDO under ACPI avoids a synthetic role-child
-        // runtime in this WinPE build.  SuperSpeed PCS/PMA
-        // windows remain hidden until 0x10AE0000/0x10AF0000 are safe.
+        // Exynos9820 DWC_usb31: UCM reports the real MAX77705 Type-C role.
+        // URS owns the shared controller and enumerates exactly one role child.
         Device (USBP)
         {
             Name (_HID, "BYN0002")
             Name (_UID, Zero)
             Name (_CCA, Zero)
-            // CC attach and connector VBUS must be under MAX77705 control
-            // before the DWC3/xHCI host path is started.
-            Name (_DEP, Package (0x01)
-            {
-                \_SB.USBC
-            })
-
-            Method (_STA, 0, NotSerialized)
-            {
-                Return (0x0F)
-            }
-
+            Name (_DEP, Package (0x01) { \_SB.USBC })
             Name (_CRS, ResourceTemplate ()
             {
+                Memory32Fixed (ReadWrite, 0x10C00000, 0x00010000)
                 Memory32Fixed (ReadWrite, 0x10B00000, 0x00000200)
                 Memory32Fixed (ReadWrite, 0x1586072C, 0x00000004)
+                // No ID-pin interrupt: MAX77705 owns Type-C GSIV51.
             })
-
-            // USBXHCI exclusively owns the DWC3 window and interrupt.  The
-            // parent maps that verified window only for the ordered HOST
-            // handoff before this child is allowed to start.
             Device (USB0)
             {
-                Name (_HID, "BYN0003")
-                // Windows SoC ACPI contract: standard xHCI without a DBG2
-                // debug capability.  The vendor HID keeps the package-specific
-                // INF preferred; this CID provides the inbox fallback identity.
-                Name (_CID, "PNP0D15")
-                Name (_UID, Zero)
+                Name (_ADR, Zero)
                 Name (_CCA, Zero)
-
-                Method (_STA, 0, NotSerialized)
-                {
-                    Return (0x0F)
-                }
-
                 Name (_CRS, ResourceTemplate ()
                 {
-                    Memory32Fixed (ReadWrite, 0x10C00000, 0x00010000)
-                    // Stock DTB SPI 241 -> GIC GSIV 241 + 32 = 273.
+                    // Original DWC3 SPI241 + 32, owned by the active child.
                     Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
-                    {
-                        0x00000111
-                    }
+                    { 0x00000111 }
+                })
+            }
+            Device (UFN0)
+            {
+                Name (_ADR, One)
+                Name (_CCA, Zero)
+                Name (_CRS, ResourceTemplate ()
+                {
+                    Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+                    { 0x00000111 }
                 })
             }
         }

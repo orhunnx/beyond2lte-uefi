@@ -53,7 +53,7 @@ if exist "%B2LUSBDIR%\auto-host.test" cls
 echo.
 echo === Test sonu ===
 echo Yazilimsal yeniden baslatma bu platformda donuyor; burada bekleniyor.
-if exist "%B2LUSBDIR%\b2lusbctl.exe" echo USB host kontrolu: %B2LUSBDIR%\b2lusbctl.exe status^|observe^|host
+if exist "%B2LUSBDIR%\b2lusbctl.exe" echo USB host kontrolu: %B2LUSBDIR%\b2lusbctl.exe status^|observe
 if not exist "%B2LUSBDIR%\auto-host.test" call :B2LTouchLaunchKeyboard
 if exist "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" (
   if exist "%SystemDrive%\B2LUSB-USB-SUMMARY.TXT" (
@@ -207,7 +207,8 @@ timeout /t 3 /nobreak >nul 2>&1
 echo Offline PnP baslangic sonucu:
 type "%SystemDrive%\B2LUSB-PNP.TXT"
 pnputil /enum-devices /deviceid "ACPI\BYN0002" 2>nul
-pnputil /enum-devices /deviceid "ACPI\BYN0003" /services /stack /drivers /resources 2>nul
+pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /services /stack /drivers /resources 2>nul
+pnputil /enum-devices /deviceid "URS\BYN0002&FUNCTION" /services /stack /drivers /resources 2>nul
 pnputil /enum-devices /deviceid "ACPI\BYN0004" /services /stack /drivers /resources 2>nul
 call :B2LUsbCollectMax77705State
 if exist "%B2LUSBDIR%\b2lusbctl.exe" (
@@ -216,17 +217,17 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
   "%B2LUSBDIR%\b2lusbctl.exe" status
   if exist "%B2LUSBDIR%\auto-host.test" (
     echo.
-    echo B2LUSB --usb-test statik ACPI HOST ilk-boot kontrolu:
-    > "%SystemDrive%\B2LUSB-AUTOHOST.TXT" echo ACPI HOST child yerinde birakildi; hedefli restart yapilmadi.
+    echo B2LUSB --usb-test gercek UCM/URS rol kontrolu:
+    > "%SystemDrive%\B2LUSB-AUTOHOST.TXT" echo Rol MAX77705 - UCM - URS zinciriyle belirlenir.
     call :B2LUsbTraceStart
     "%B2LUSBDIR%\b2lusbctl.exe" observe >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     pnputil /scan-devices >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
     timeout /t 5 /nobreak >nul 2>&1
     call :B2LUsbTraceStop
-    pnputil /enum-devices /deviceid "ACPI\BYN0003" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
-    pnputil /enum-devices /deviceid "ACPI\BYN0003" /resources > "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" 2>&1
+    pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /services /stack /drivers /resources >> "%SystemDrive%\B2LUSB-AUTOHOST.TXT" 2>&1
+    pnputil /enum-devices /deviceid "URS\BYN0002&HOST" /resources > "%SystemDrive%\B2LUSB-HOST-RESOURCES.TXT" 2>&1
     call :B2LUsbCollectMax77705State
-    reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI" /s /f B2LMon > "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT" 2>&1
+    reg.exe query "HKLM\SYSTEM\CurrentControlSet\Enum\URS" /s /f B2LMon > "%SystemDrive%\B2LUSB-HOST-MONITOR.TXT" 2>&1
     call :B2LUsbCollectSetupApiSummary
     call :B2LUsbCollectInputState
     "%B2LUSBDIR%\b2lusbctl.exe" status > "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT" 2>&1
@@ -234,7 +235,7 @@ if exist "%B2LUSBDIR%\b2lusbctl.exe" (
     type "%SystemDrive%\B2LUSB-MOUSE.TXT"
     type "%SystemDrive%\B2LUSB-AUTOHOST-STATUS.TXT"
   ) else (
-    echo HOST yeniden hazirlama: %B2LUSBDIR%\b2lusbctl.exe host
+    echo Rol otomatik: gercek Type-C baglantisi bekleniyor.
   )
 )
 exit /b 0
@@ -355,6 +356,14 @@ call :B2LUsbAppendMax77705Summary MUIC_CHGTYP B2LMaxMuicChargerType
 call :B2LUsbAppendMax77705Summary RID_RAW B2LMaxRidRaw
 call :B2LUsbAppendMax77705Summary RID_CACHED B2LMaxMuicRid
 call :B2LUsbAppendMax77705Summary MUIC_RPRD B2LMaxMuicRprd
+call :B2LUsbAppendMax77705Summary UCM_STATUS B2LMaxConnectorStatus
+call :B2LUsbAppendMax77705Summary UCM_SWAPSTATUS B2LMaxConnectorSwapStatus
+call :B2LUsbAppendMax77705Summary UCM_RUNNING B2LMaxConnectorRunning
+call :B2LUsbAppendMax77705Summary UCM_ATTACHED B2LMaxConnectorAttached
+call :B2LUsbAppendMax77705Summary UCM_QUEUED B2LMaxConnectorQueued
+call :B2LUsbAppendMax77705Summary UCM_ATTEMPTS B2LMaxConnectorAttempts
+call :B2LUsbAppendMax77705Summary UCM_COUNT B2LMaxConnectorCount
+call :B2LUsbAppendMax77705Summary UCM_OVERFLOW B2LMaxConnectorOverflow
 call :B2LUsbAppendMax77705Summary CHG_UNLOCK B2LMaxChargerUnlocked
 call :B2LUsbAppendMax77705Summary CHG_CFG06 B2LMaxChgConfig06
 call :B2LUsbAppendMax77705Summary CHG_MODE B2LMaxChgMode

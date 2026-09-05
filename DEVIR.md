@@ -18,6 +18,14 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / `.35` kaynak güncellemesi:** Gerçek CC/PD rolü için ayrı
+> UCM bildirim kuyruğu ve URS parent/host/function kaynakları eklendi.
+> Koşulsuz HOST ve manuel `host` komutu kaldırıldı. MAX `.35`, parent/host
+> `.19`, `MAX FOTO v8`. Source Rp bilgisi, OS PD swap/sözleşmeleri ve gerçek
+> Windows runtime/transfer doğrulaması hâlâ açık; USB çalıştı denmiyor.
+> Ayrıntılar Linux karşılaştırmasının başındaki `.35` bölümündedir.
+> Flaş beklenmeden kaynak çalışması devam eder.
+
 > **5 Eylül / `.34` kaynak güncellemesi:** UFP'nin koşulsuz OPEN dalı
 > yerine özgün MUIC BC/RID sınıflandırması ve gerçek UIC/FCTID işleyicileri
 > eklendi. USB/CDP USB_AP kullanır; ilk TA eşleşmesinde stok `write_vps_regs`
@@ -67,7 +75,7 @@ Bugün itibarıyla:
   çekirdeği ve WinPE erken kullanıcı modu çalışıyor.
 - Windows `b2ltouch.sys` + VHF yolu çalışıyor; on temaslı gerçek multi-touch ve
   imleç hareketi cihazda doğrulandı.
-- Windows USB tarafında sabit USB2 HOST denetleyicisi `Started/RUN` görülüyor.
+- Son cihaz fotoğraflarında eski sabit USB2 HOST denetleyicisi `Started/RUN` görülüyor.
   Root-hub/alıcı/HID zincirinin bütünü bu fotoğraflarla doğrulanmış değil;
   boş özetlerde eksik `findstr` etkisi var. USB henüz çalışmıyor.
 - MAX77705, Windows'tan HSI2C45 üzerinden erişiliyor; kimlik, charger kilidi,
@@ -83,7 +91,8 @@ Bugün itibarıyla:
   `.30` HSI2C GSIV114 aktarımını, `.31` MAX GPIO GSIV51/opcode kuyruğunu,
   `.32` CC güç rolü/PD veri rolü ayrımını, `.33` asenkron MUIC ve nested
   kesme sırasını, `.34` MUIC BC/RID sınıflandırmasını kaynakta uygular. Bu yeni sürümlerin
-  cihaz sonucu yoktur. MAX -> Windows role-switch/DWC3 bildirimi eksiktir.
+  cihaz sonucu yoktur. `.35` UCM/URS tüketicisini ekler; akım/PD ve gerçek
+  Windows doğrulaması hâlâ eksiktir.
 - Yeni fotoğraflar aynı D0 oturumunda 13 -> 15 olayı gösteriyor; tamamının
   status snapshot'ı geçersiz. ForceError veya firmware reset gerektiği bu
   kayıtlardan çıkarılamaz. Eksik `findstr` ve seri registry sorguları tanı
@@ -114,12 +123,12 @@ kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikle
 
 ### 0.3 Güncel repo ve sürüm çıpası
 
-`.34` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
+`.35` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
 
 ```text
 dal:    codex/touch-from-8549bfa
-taban:  44a5037  fix: dispatch MAX77705 roles without blocking on MUIC replies
-önceki: 7313c9d  docs: clarify remaining Type-C role-switch dependencies
+taban:  5e288eb  feat: classify MAX77705 MUIC cables from BC and RID events
+önceki: 44a5037  fix: dispatch MAX77705 roles without blocking on MUIC replies
 ```
 
 Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
@@ -127,9 +136,9 @@ Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
 | Bileşen | Sürüm | ACPI kimliği / işlev |
 |---|---:|---|
 | `b2ltouch.sys` | `0.2.0.1` | `ACPI\BYN0001`, Samsung sec_ts -> KMDF/VHF touch |
-| `b2lusb.sys` parent | `0.1.0.18` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
-| inbox host | `0.1.0.18` INF | `ACPI\BYN0003`, `USBXHCI` + GSIV 273 |
-| `b2lmax77705.sys` | `0.1.0.34` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG |
+| `b2lusb.sys` parent | `0.1.0.19` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
+| inbox host | `0.1.0.19` INF | `URS\BYN0002&HOST`, `USBXHCI` + GSIV 273 |
+| `b2lmax77705.sys` | `0.1.0.35` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG |
 | `b2lufs.sys` | `0.0.4.5` kaynak sürümü | Deneysel Windows UFS miniport; güncel USB kapısı değil |
 
 Yalnız MAX77705 değiştiğinde parent/host sürümünün aynı kalması normaldir.
@@ -144,31 +153,34 @@ seçilmelidir.
 
 ### 0.4 Açılış ve sürücü mimarisi
 
+Samsung S-Boot → Mu-Silicium UEFI → SYSTEM FAT32 ESP → bootmgfw →
+WinPE boot.wim → startnet. Touch/VHF zinciri korunur.
+
+USB kaynak mimarisi `.35`te:
+
 ```text
-Samsung S-Boot
-  -> BOOT bölümündeki Mu-Silicium UEFI boot.img
-  -> UEFI Shell / startup.nsh
-  -> SYSTEM bölümündeki FAT32 ESP
-  -> bootmgfw.efi -> boot.sdi + boot.wim
-  -> WinPE RAM disk
-  -> Windows/System32/startnet.cmd
-       +-> BYN0001 b2ltouch -> VHF -> HID Touch Screen
-       +-> BYN0004 b2lmax77705 -> HSI2C45 -> MAX77705
-       +-> BYN0002 b2lusb -> Exynos USB PHY/DWC3 HOST
-       `-> BYN0003 USBXHCI -> USBHUB3 -> HIDUSB/MOUHID/MOUCLASS
+BYN0004 MAX77705 (özgün HSI2C GSIV114 / GPIO GSIV51)
+  → gerçek CC güç rolü ve PD DATAROLE
+  → ayrı UCM bildirim kuyruğu
+  → BYN0002 URS platform sürücüsü / PHY / DWC3
+      → URS\BYN0002&HOST → USBXHCI → USBHUB3 → HID
+      → URS\BYN0002&FUNCTION → hedef inbox UFX
 ```
 
-USB paketi **USB2-only sabit HOST** profilidir. SuperSpeed combo PCS/PMA
-sayfaları cihazda synchronous external abort verdiği için Windows ACPI'sine ve
-sürücü yazma yoluna alınmaz. `LINK_PORT.U3_DISABLE` açıktır. Rastgele combo-PHY
-okuması/yazması eklenmemelidir.
+URS aynı anda tek role ait child'ı başlatır. Soğuk açılış NONE'dır;
+`_DEP` CC attach yerine kullanılmaz. Parent DWC3/PHY/PMU kaynaklarını
+ACPI'den alır. Host `_ADR=0`, function `_ADR=1`; ikisi de özgün GSIV273
+kaynağını yalnız aktif oldukları sırada kullanır. Manuel HOST komutu yoktur.
 
-Şu anda ACPI `_DEP`, BYN0002'nin BYN0004 sürücüsünün başlamasını beklemesini
-sağlar; ancak MAX probe/politika işi PostInterruptsEnabled sonrasında ayrı
-çalışır. `_DEP` gerçek CC/PD rolünü beklemez. Statik `.18` parent bu nedenle
-konektör DFP olmadan xHCI başlatabilir. Doğru eşdeğerlik yalnız READY kontrolü
-değildir: gerçek Type-C/UCM veri rolü bildirimi ve OS'nin host/function start-stop
-yaşam döngüsü kurulmalıdır. Bu kaynak işi için kullanıcıdan flaş beklenmiyor.
+USB2-only sınırı devam ediyor. Combo PCS/PMA sayfaları önceki cihaz
+ölçümünde external abort verdi; `.35` bu sayfalara erişim eklemez.
+Source Rp akımı henüz kesin çözülmediği için UCM attach başarısı garanti
+değildir. OS PD swap, sözleşme/PDO, function sınıf sürücüleri ve diğer
+kalan Linux kolları açık. Bu kaynak sürümü uçtan uca USB başarısı değildir.
+
+WSL paketleme hedef WIM'de aynı major/minor/build ARM64 UCM/URS/UFX
+bileşenlerini denetler; eski Windows Mobile runtime'ı kullanmaz. Function
+INF'nin Include/Needs bölümleri hedef `ufxsynopsys.inf`ten türetilir.
 
 ### 0.5 Sıfırdan ortam hazırlama
 
