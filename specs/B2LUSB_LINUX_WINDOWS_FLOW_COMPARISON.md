@@ -1,5 +1,131 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.41` — gerçek RID değişimi ve USB bildirim ömrü
+
+MAX `0.1.0.41`, parent/host/function `0.1.0.19`, ABI `7`, FOTO v14.
+Kaynak çalışması flaş beklenmeden sürdürüldü. Yeni WSL veya telefon ölçümü
+yoktur. Bu değişiklik, `.34/.35`teki RID sınıflandırmasının USB tüketicisine
+ulaşmayan kısmını tamamlar; bütün manager/USB akışı bitmiş değildir.
+
+### Aynı cihazın kaynak zinciri
+
+Sabit `corsicanu/android_kernel_samsung_universal9820` commit'i
+`55f042627bb7030c93550faafa117674d32b21d1` içinde üç ayrı durum vardır:
+
+1. [max77705_pd_rid](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/ccic/max77705_pd.c#L1093)
+   canlı `PD_STATUS1[3:0]` FCT değerini bir PD device sınıfına çevirir.
+   Tüm tanımsız kodlar aynı `DEV_UNKNOWN` sınıfıdır. Önceki **PD device**
+   değiştiyse MUIC RID bildirimi gönderilir; OPEN, UNKNOWN, 523K ve 619K
+   için ayrıca USB DETACH gönderilir. İlk `kzalloc` durumu DEV_NONE'dır;
+   ilk OPEN/UNKNOWN bu nedenle bir değişimdir.
+2. [MUIC RID tüketicisi](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/muic/max77705-muic-ccic.c#L116)
+   yalnız 1..7 aralığını kabul eder. Tanımsız RID son kabul edilen MUIC
+   RID'ini silmez. 1K cache'e alınır fakat tek başına detect işi oluşturmaz.
+   İlk MUIC RID'i OPEN'dır; bu, ilk PD device durumuyla aynı şey değildir.
+3. [typec manager](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/usb/manager/usb_typec_manager_notifier.c#L724)
+   kendi RID durumunu günceller. UART 523K/619K varken USB attach'i
+   engeller; bu RID koşulu USB detach'i engellemez. Aynı fonksiyondaki
+   bağımsız charger filtresi de vardır; bu sürümde o dal tamamlanmadı.
+
+Manager ve MUIC tüketicisinin aynı commit üzerindeki dosyaları ayrıca
+yeniden alınarak kaynak yolu ve içerikleri doğrulandı.
+HWC1 `CONFIG_CCIC_NOTIFIER`, `CONFIG_TYPEC` ve
+`CONFIG_USB_TYPEC_MANAGER_NOTIFIER` açıktır; kapalı bir konfigürasyon dalı
+Windows'a gerekçesiz taşınmadı.
+
+### Windows'ta düzeltilen ayrım
+
+Önceki kod yalnız `MuicRid` değişimini izliyordu. Bu yüzden MUIC'in
+reddettiği UNKNOWN veya başlangıçta zaten OPEN olan MUIC cache'i,
+Linux'un ayrı USB-detach olayını kaybettiriyordu. UCM ayrıca sadece geçerli
+CC/DR değerlerine bakıyordu; RID ile kapatılmış USB bağlantısını sonraki
+CCI veya CC güncellemesi yeniden açabilirdi.
+
+Yeni `PdRid`, PD device karşılaştırması için normalleştirilmiş sınıftır:
+0=UNKNOWN, 1..7=FCT/RID, ff=henüz okunmadı. Bunlar Linux DEV enum sayıları
+olarak sunulmaz. Ham `RidRaw` ve son kabul edilen `MuicRid` ayrı kalır.
+`PdRidChanges`, tanımsız farklı ham kodlar arasında artmaz; ilk geçerli
+okumadaki DEV_NONE geçişi ise kaybolmaz.
+
+`UsbRoleAttached`, gerçek DATAROLE işleyicisinden çıkan USB bildiriminin
+durumunu tutar. CC gücü ve PD veri rolünden ayrı olması zorunludur:
+
+| Gerçek olay | USB tüketicisine etkisi | Korunan gerçek durum |
+|---|---|---|
+| PD device değişimi → OPEN/UNKNOWN/523K/619K | MUIC bildiriminden sonra USB detach kuyruğa girer | CC/DR geçerliliği ve değerleri, VBUS/OTG, PDO ve opcode kuyruğu |
+| Aynı tanımlı RID veya farklı ham UNKNOWN kodu | Yeni RID olayı üretilmez | Ham son FCT okunması görünür kalır |
+| RID nedeniyle detach sonrası aynı DATAROLE | Attach üretilmez; stok `current_dr` karşılaştırması değişmemiştir | Gerçek DR korunur |
+| Yeni DATAROLE, manager RID 523K/619K | MUIC işi kendi akışındadır; USB attach engellenir | Yeni gerçek DR kaydedilir; özgün RpRd/RID önceliği korunur |
+| Yeni DATAROLE, diğer RID | Mevcut bağımsız USB tüketicisi yeni rolü alır | SOURCE veya DFP tahmini yapılmaz |
+| Fiziksel CC no-connection | Önceki `.39` queue-clear/VBUS/PD/detach akışı sürer | PD RID cache'i sırf CC detach nedeniyle sıfırlanmaz |
+
+RID değişimi bir **USB bildirimi**dir; bunun için sahte CC kesmesi,
+CC NO_CONNECTION değeri, VBUS-off veya firmware queue-clear üretilmez.
+MUIC detect okuması hata verse bile bağımsız RID USB detach kaybolmaz;
+RID okumasının kendisi hata verirse eski veriyle karar verilmez.
+Aynı fiziksel frame'de DATAROLE ve FCTID varsa stok sıra korunur:
+DATAROLE önce, FCTID sonra. İki USB bildirimi de ayrı kuyruk kayıtlarıdır.
+
+UCM attach artık bu USB bildirim durumunu da gerektirir. RID detach sonrası
+geçerli CC/DR değerleri tek başına attach oluşturamaz. Daha sonraki gerçek
+attach, bekleyen detach kaydının arkasında kalır. Aynı rolü isteyen OS
+callback'i de USB bildirimi kapalıyken veya MFD hatalıyken başarı dönmez.
+Bu callback değişikliği, eksik OS rol değiştirme komutunu uygulamış değildir.
+
+### Tanı, kontroller ve build
+
+FOTO v14'ün UCM sayfası **25 satırdır**. `PD_RID`, `RID_TRANS`,
+`RID_DETACH`, `RID_BLOCK`, `USB_NOTIFY` alanları eklendi; mevcut MUIC
+sayfasının ham RID ve kabul edilen RID alanları ayrı durur.
+`RID_DETACH` handler'ın USB-detach üretim sayısıdır; UCM çağrısı veya
+fiziksel kablo çıkarma sayısı değildir. `USB_NOTIFY=1` OS kabulü, mux
+readback'i veya USB transfer başarısı değildir; `UCM_ATTACHED` ve
+`UCM_NT` ayrı değerlendirilir. İlk probe OPEN okumasında RID_DETACH artıp
+sonraki gerçek başlangıç DATAROLE ile USB_NOTIFY=1 olabilir; bu çelişki
+değildir. Registry 232 alanı ardışık yayımlar; sayfa atomik snapshot değildir.
+Startnet özeti aynı beş alanı içerir. REG_BINARY olay biçimi/IOCTL ABI değişmedi.
+
+Gerçek C işlevlerini çalıştıran host fixture'lar: tüm detach RID'leri,
+UNKNOWN normalleştirmesi, ilk OPEN, tekrar RID/DR, UART attach engeli,
+sonraki gerçek DR, tek frame DATAROLE→FCTID sırası, MUIC/RID okuma hatası,
+CC detach ve UCM detach bariyeri için geçti. CC/PD, lifecycle, foto genişlik
+ve satır sınırı, Windows USB/MAX kaynak kontrolleri de geçti. IRQ ve UCM
+fixture'ları AddressSanitizer/UndefinedBehaviorSanitizer ile de geçti; 232
+registry adı/ataması kontrol edildi. Bunlar WDK,
+GIC IRQ teslimi, UCM/URS runtime veya telefonda USB transfer testi değildir.
+
+Build yalnız WSL'de, DEVIR'deki aynı yöntemle:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+### Bu tur incelenen, henüz kapanmamış kaynak boşlukları
+
+- **SOURCE akımı:** Linux'un `pwr_opmode=TYPEC_PWR_MODE_USB` yazılım
+  başlangıcı elektriksel SOURCE Rp ölçümü değildir. MAX77705 header'ındaki
+  `CCSrcCurCh/CCSrcCur` isimleri de encoding ve latched/current ayrımını
+  tek başına kanıtlamaz. Komşu MAX77860'ın
+  [resmî datasheet'i](https://www.analog.com/media/en/technical-documentation/data-sheets/MAX77860.pdf)
+  CC_CTRL1 alanının istek latch'i olduğunu, readback'in gerçek pullup'ı
+  her zaman göstermediğini anlatır. Bu **başka silicon** açıklaması,
+  MAX77705 için akım değeri atama yetkisi vermez. `Invalid` değerinin bu
+  telefondaki UCM attach'i reddettirdiği henüz ölçülmedi; kesin kök neden
+  diye sunulamaz.
+- **Mux ve OS bildirimi:** Linux `notify_dr_status` MUIC bildirimini USB'den
+  önce üretir; her iki tüketici asenkrondur. Windows kodu MUIC isteğini
+  başlatıp ayrı UCM kuyruğuna geçiyor; MUIC'in gerçek tamamlanması ve USB3
+  orientation/PHY hazırlığı UCM attach için bütünleşmiş bir hazır olma
+  sözleşmesine henüz bağlı değil. Microsoft
+  [UCM attach sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/bring-up-a-usb-type-c-connector-on-a-windows-system#2-report-the-partner-connector-attach-event)
+  öncesinde mux'un doğru kurulmasını ister. Sabit bekleme, sahte PATH_OK
+  veya yalnız bir flag eklemek bu işi tamamlamaz; gerçek tamamlanma,
+  hata, detach ve yeni nesil bildirim ömrü birlikte bağlanmalıdır.
+- UART AP/CP tüketicisi, manager charger politikası, OS DR/PR swap ve RDO,
+  battery/CHGINSEL, AFC/VDM/READY/RAM tüketicileri, USB3 ve function/gerçek
+  transfer hedefi hâlâ açıktır. Bu tur bunların yerine başka bir akış koymadı.
+
 ## 5 Eylül 2026: `.40` — gerçek opcode yanıtının dağıtımı
 
 MAX `0.1.0.40`, parent/host/function `0.1.0.19`, ABI `7`. `.39`daki gerçek

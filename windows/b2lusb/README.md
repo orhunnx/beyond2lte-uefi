@@ -1,12 +1,20 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
-## Güncel kaynak: `.40` / gerçek opcode yanıtının dağıtımı
+## Güncel kaynak: `.41` / RID ve USB bildirim ömrü
 
-MAX `0.1.0.40`, parent/host/function `0.1.0.19`, IOCTL ABI 7.
+MAX `0.1.0.41`, parent/host/function `0.1.0.19`, IOCTL ABI 7.
 Koşulsuz HOST kaldırıldı. Gerçek MAX CC/PD değişiklikleri ayrı pasif UCM
 kuyruğuna, oradan URS host/function yaşam döngüsüne gider. ACPI rol çocukları
 `_ADR=0/1`, PnP kimlikleri `URS\BYN0002&HOST/FUNCTION`; özgün GSIV273.
 `status`, `observe`, `maxevents`, `maxscreen` tanı komutlarıdır; `host` yoktur.
+
+Gerçek FCTID/RID değişimi ayrı PD device cache'iyle izlenir. OPEN, UNKNOWN,
+523K veya 619K'ya değişim, Linux gibi MUIC bildiriminden sonra USB detach
+üretir. CC/DR değerleri, VBUS, PDO ve mailbox kuyruğu bu nedenle değiştirilmez.
+UART RID'lerinde yeni USB attach manager koşuluyla engellenir. Aynı DR'nin
+tekrar okunması veya tek başına CCI, RID ile kapatılan USB'yi yeniden açmaz.
+`USB_NOTIFY` sürücünün bildirim durumudur; `UCM_ATTACHED` OS kabulüdür.
+`PD_RID/RID_TRANS/RID_DETACH/RID_BLOCK` bu ayrımı foto ve startnet'te gösterir.
 
 Gerçek PDMSG/PS_RDY kesmeleri stok sırada işlenir; hard-reset/source-timeout
 VBUS off ve 760/800 ms gecikmeli on işlemini kullanır. On öncesi gerçek
@@ -46,7 +54,7 @@ I2C/trim hatası yine kuyruğu iptal eder. GRL gerçek `70` yanıtında bir kez
 READ ile başarılı sayılmaz. Eksik gerçek tüketiciler `RX_UNHANDLED` ile
 bildirilir. `ALT_ACK` manager READY veya DP anlaşması değildir.
 
-`MAX FOTO v13` genel/USB/MUIC/UCM, 35 satırlık PD/PDO, 24 satırlık
+`MAX FOTO v14` genel/USB/MUIC ve 25 satırlık UCM, 35 satırlık PD/PDO, 24 satırlık
 SYSMSG ve 32 satırlık başlangıç/reset/GRL sayfasının ardından 29 satırlık gerçek opcode yanıtını gösterir.
 Beklenen/alınan opcode, tek istek ve tüketici sonuçları ayrıdır. SYS_VALID/READ_N,
 retry sonucu ve AFC relock alanları farklı kanıt katmanlarıdır.

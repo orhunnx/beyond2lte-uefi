@@ -49,7 +49,7 @@ typedef struct {
  WDFDEVICE Device; UCMCONNECTOR Connector; WDFWAITLOCK MfdLock;
  WDFWORKITEM ConnectorWork;
  B2L_MAX_CONNECTOR_EVENT ConnectorEvents[64],ConnectorLast,ConnectorReported;
- BOOLEAN ConnectorRunning,ConnectorAttached,ConnectorOverflow,DataRoleValid,PowerRoleValid,WaterDetected,DiagnosticDirty;
+ BOOLEAN ConnectorRunning,ConnectorAttached,ConnectorOverflow,DataRoleValid,PowerRoleValid,WaterDetected,DiagnosticDirty,UsbRoleAttached;
  UCHAR DataRole,PowerRole,CcStatus0;
  ULONG ConnectorRead,ConnectorCount,ConnectorQueued,ConnectorAttempts;
  NTSTATUS ConnectorStatus,ConnectorSwapStatus,MfdFault;
@@ -100,7 +100,7 @@ static void reset(void) {
  assert(B2lMaxCreateConnector(&c)==0);
 }
 static void queue(int connected,UCHAR data,UCHAR power,UCHAR cc) {
- c.PowerRoleValid=c.DataRoleValid=connected;c.DataRole=data;c.PowerRole=power;c.CcStatus0=cc;
+ c.PowerRoleValid=c.DataRoleValid=c.UsbRoleAttached=connected;c.DataRole=data;c.PowerRole=power;c.CcStatus0=cc;
  WdfWaitLockAcquire(c.MfdLock,NULL);B2lMaxQueueConnectorLocked(&c);WdfWaitLockRelease(c.MfdLock);
 }
 int main(void) {
@@ -121,6 +121,21 @@ int main(void) {
  queue(1,0,1,0x31);B2lMaxEvtConnectorWork(&c);
  assert(c.ConnectorStatus==-44 && c.ConnectorReported.DataRole==0 && c.ConnectorReported.PowerRole==1);
  assert(calls[n-3]=='R' && calls[n-2]=='C' && calls[n-1]=='P');
+ // RID detach closes the USB consumer without falsifying still-valid CC/DR.
+ reset();queue(1,1,2,2);B2lMaxEvtConnectorWork(&c);c.UsbRoleAttached=FALSE;
+ WdfWaitLockAcquire(c.MfdLock,NULL);B2lMaxQueueConnectorLocked(&c);WdfWaitLockRelease(c.MfdLock);
+ assert(B2lMaxEvtSetDataRole(&c,UcmDataRoleDfp)==STATUS_DEVICE_NOT_READY);
+ B2lMaxEvtConnectorWork(&c);
+ assert(strcmp(calls,"APD")==0 && !c.ConnectorAttached && c.PowerRoleValid && c.DataRoleValid);
+ // CC/CCI updates alone cannot reopen the RID-detached USB connection.
+ c.CcStatus0=0x31;c.PowerRole=1;
+ WdfWaitLockAcquire(c.MfdLock,NULL);B2lMaxQueueConnectorLocked(&c);WdfWaitLockRelease(c.MfdLock);
+ B2lMaxEvtConnectorWork(&c);assert(strcmp(calls,"APD")==0 && !c.ConnectorCount);
+ // A later actual USB attach stays ordered behind the pending detach.
+ reset();queue(1,1,2,2);B2lMaxEvtConnectorWork(&c);c.UsbRoleAttached=FALSE;
+ WdfWaitLockAcquire(c.MfdLock,NULL);B2lMaxQueueConnectorLocked(&c);WdfWaitLockRelease(c.MfdLock);
+ queue(1,0,1,0x11);B2lMaxEvtConnectorWork(&c);assert(strcmp(calls,"APDAP")==0);
+ c.MfdFault=-99;{int before=n;assert(B2lMaxEvtSetDataRole(&c,UcmDataRoleUfp)==STATUS_DEVICE_NOT_READY && n==before);}
  reset();attach_failure=-42;queue(1,0,1,0x11);B2lMaxEvtConnectorWork(&c);
  assert(!c.ConnectorAttached && c.ConnectorStatus==-42 && strcmp(calls,"A")==0);
  reset();queue(1,1,2,2);B2lMaxEvtConnectorWork(&c);detach_failure=-43;

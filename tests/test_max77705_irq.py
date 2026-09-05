@@ -75,8 +75,13 @@ typedef struct { ULONG Vector; } WDF_INTERRUPT_INFO;
 h+='\n'.join(re.findall(r'^#define B2L_MAX_.*',header,re.M))+'\n'+header[a:b]
 h+='\n'.join(re.findall(r'^#define MAX77705_.*',main.replace('\\\n',' '),re.M))+'\n'
 h+=r'''
+static NTSTATUS muic_sample_error;
 static unsigned connector_notifications;
-static void B2lMaxQueueConnectorLocked(PB2L_MAX_CONTEXT c) { (void)c; ++connector_notifications; }
+static BOOLEAN connector_usb[1024];
+static void B2lMaxQueueConnectorLocked(PB2L_MAX_CONTEXT c) {
+    assert(connector_notifications < 1024);
+    connector_usb[connector_notifications++] = c->UsbRoleAttached;
+}
 static PB2L_MAX_CONTEXT current;
 static ULONG regs[0x1000/4], mmio_ack, held, queued, r2c_reads, responses, commands, cancels;
 static UCHAR top, raw[4], reg_values[128][256], last_opcode, last_payload, reply_opcode;
@@ -168,7 +173,7 @@ static NTSTATUS B2lMaxReadBlock(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v,ULON
     if(read_error) return read_error;
     if(r==0x0a) { assert(n==2);trace[trace_count++]='C';v[0]=reg_values[a][r];v[1]=reg_values[a][r+1];return 0; }
     if(r==0x02) { assert(n==4); ++r2c_reads; memcpy(v,raw,4); memset(raw,0,4); return 0; }
-    if(r==0x06) { if(n==5) { trace[trace_count++]='M'; memcpy(v,&reg_values[a][r],5); return 0; } assert(n==8); memset(v,0x81,n); return snap_error; }
+    if(r==0x06) { if(n==5) { trace[trace_count++]='M'; if(muic_sample_error)return muic_sample_error; memcpy(v,&reg_values[a][r],5); return 0; } assert(n==8); memset(v,0x81,n); return snap_error; }
     assert(r==0x51 && n>=1 && n<=33); ++responses;
     if(mailbox_error)return mailbox_error;
     if(response_override_length) {
@@ -275,12 +280,12 @@ static void reset(PB2L_MAX_CONTEXT c) {
     reset_writes=trim_writes=delay_100ms=0;reset_irq=0;reset_fail_stage=control3_bad=cc_bad=0;
     drop_irq=wrong_reply=stale_wakes=probe_test=0; last_opcode=last_payload=reply_opcode=0;
     sys_read_count=sys_read_length=sys_read_fail=afc_step=afc_fail=trace_sysmsg=retry_while_waiting=0;
-    mailbox_error=0;response_override_length=0;memset(response_override,0,sizeof(response_override));
+    mailbox_error=muic_sample_error=0;response_override_length=0;memset(response_override,0,sizeof(response_override));
     memset(sys_reads,0,sizeof(sys_reads));
     c->Device=c->MaxInterrupt=c->PolicyWork=c->OpcodeDeadline=c;
     timer_due=pd_due=0;otg_on=otg_off=0;otg_error=0;memset(pd_response,0,sizeof(pd_response));c->PdRecoveryTimer=(void *)2;muic_actual=0;muic_bad_read=trace_count=0;connector_notifications=0;memset(trace,0,sizeof(trace)); c->MfdLock=(void *)1;
     c->AliveRegisters=(PUCHAR)regs; c->AliveLength=0x1000; c->MaxTranslatedIrq=0xa02;
-    c->PolicyEnabled=TRUE; c->MfdReady=TRUE; c->MuicRid=7; c->RidRaw=0xff; top=8;
+    c->PolicyEnabled=TRUE; c->MfdReady=TRUE; c->MuicRid=7; c->RidRaw=c->PdRid=0xff; top=8;
     assert(B2lMaxPrepareGpio(c)==0);
     assert(B2lMaxEvtMaxInterruptEnable(c,c)==0);
     B2lMaxGpioUnmask(c);
@@ -565,6 +570,70 @@ int main(void) {
     assert(c.RidRaw==0x0f && c.MuicRid==3 && c.RidChanges==1);
     reset(&c);reg_values[0x25][0x0d]=2;raw[2]=1;assert(deliver());
     assert(c.MuicRid==2 && c.MuicSamples==0 && commands==0);
+    // PD RID has its own normalized device state. OPEN/UNKNOWN/UART notify
+    // USB detach while leaving actual CC/DR, VBUS and PDO state untouched.
+    {
+        const UCHAR detach_rids[] = {0,5,6,7,8,15};
+        for (i=0;i<RTL_NUMBER_OF(detach_rids);++i) {
+            reset(&c);c.PowerRoleValid=c.DataRoleValid=c.UsbRoleAttached=TRUE;
+            c.PowerRole=2;c.DataRole=1;c.OtgEnabled=c.OtgHardwareActive=TRUE;
+            c.PsRdyReceived=c.PdCapsValid=TRUE;c.PdPdoCount=1;c.PdPdos[0]=0x1912c;
+            reg_values[0x25][0x0d]=(UCHAR)(0x80|detach_rids[i]);raw[2]=1;
+            assert(deliver() && c.RidUsbDetaches==1 && c.PdRidChanges==1);
+            assert(!c.UsbRoleAttached && connector_notifications==1 && !connector_usb[0]);
+            assert(c.PowerRoleValid && c.PowerRole==2 && c.DataRoleValid && c.DataRole==1);
+            assert(c.OtgEnabled && c.OtgHardwareActive && !otg_off && !c.DetachQueueClears);
+            assert(c.PsRdyReceived && c.PdCapsValid && c.PdPdos[0]==0x1912c && !c.QueueClears);
+            assert(!c.MfdFault && !commands); // RID is not physical detach/OPEN request
+            raw[2]=1;assert(deliver() && c.RidUsbDetaches==1); // classified duplicate
+            raw[2]=0x20;assert(deliver() && !c.UsbRoleAttached && c.DataRoleChanges==0);
+            assert(connector_notifications==1); // same real DR cannot reopen USB
+        }
+    }
+    reset(&c);reg_values[0x25][0x0d]=0;raw[2]=1;assert(deliver());
+    reg_values[0x25][0x0d]=15;raw[2]=1;assert(deliver());
+    assert(c.RidRaw==15 && c.PdRid==0 && c.PdRidChanges==1 && c.MuicRid==7);
+    reg_values[0x25][0x0d]=3;raw[2]=1;assert(deliver());
+    assert(c.PdRidChanges==2 && c.RidUsbDetaches==1 && !c.UsbRoleAttached);
+    // First OPEN changes PD DEV_NONE even though MUIC already starts OPEN.
+    reset(&c);reg_values[0x25][0x0d]=7;raw[2]=1;assert(deliver());
+    assert(c.PdRid==7 && c.PdRidChanges==1 && c.RidChanges==0 && c.RidUsbDetaches==1);
+    // Original manager blocks UART attach on changed DR, without erasing DR.
+    for(i=5;i<=6;++i) {
+        reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;c.PdRid=(UCHAR)i;c.MuicRid=(UCHAR)i;
+        reg_values[0x25][0x0d]=0;raw[2]=0x20;assert(deliver());
+        assert(c.DataRoleValid && c.DataRole==0 && !c.UsbRoleAttached && c.RidUsbAttachBlocks==1);
+        assert(c.MuicDetectStatus==STATUS_NOT_SUPPORTED && !commands && !c.MfdFault);
+        assert(!connector_usb[connector_notifications-1]);
+        // A valid RID change alone does not synthesize the missed USB event.
+        reg_values[0x25][0x0d]=7;raw[2]=1;assert(deliver());
+        raw[2]=0x20;assert(deliver() && !c.UsbRoleAttached);
+        reg_values[0x25][0x0d]=0x87;raw[2]=0x20;assert(deliver());
+        assert(c.UsbRoleAttached && c.DataRole==1 && c.RidUsbAttachBlocks==1);
+        assert(connector_usb[connector_notifications-1]);
+    }
+    // DATAROLE before FCTID in one frame: attach then stock RID detach.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=2;reg_values[0x25][0x0d]=0x87;raw[2]=0x21;
+    assert(deliver() && connector_notifications==2 && connector_usb[0] && !connector_usb[1]);
+    assert(!c.UsbRoleAttached && c.DataRoleValid && c.DataRole==1 && c.RidUsbDetaches==1);
+    // A failed MUIC sample cannot suppress the independent RID USB detach.
+    reset(&c);c.UsbRoleAttached=TRUE;c.PdRid=3;c.MuicRid=3;
+    reg_values[0x25][0x0d]=5;read_error=STATUS_IO_TIMEOUT;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxReadRidLocked(&c)==STATUS_IO_TIMEOUT);
+    assert(c.PdRid==3 && c.UsbRoleAttached && !connector_notifications); // RID read itself failed
+    WdfWaitLockRelease(c.MfdLock);
+    reset(&c);c.UsbRoleAttached=TRUE;c.PdRid=3;c.MuicRid=3;
+    reg_values[0x25][0x0d]=5;muic_sample_error=STATUS_IO_TIMEOUT;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxReadRidLocked(&c)==STATUS_IO_TIMEOUT);
+    assert(c.PdRid==5 && c.MuicRid==5 && !c.UsbRoleAttached && c.RidUsbDetaches==1);
+    assert(connector_notifications==1 && !connector_usb[0]);
+    WdfWaitLockRelease(c.MfdLock);
+    // Physical detach clears USB eligibility but retains the stock PD RID cache.
+    reset(&c);c.PowerRoleValid=c.DataRoleValid=c.UsbRoleAttached=TRUE;c.PdRid=3;
+    c.PowerRole=1;c.DataRole=0;raw[1]=1;assert(deliver());
+    assert(!c.UsbRoleAttached && !c.DataRoleValid && c.PdRid==3 && c.DetachQueueClears==1);
     // USB -> OTG logical role swap writes USB_AP without an intervening OPEN.
     reset(&c);c.MuicType=B2L_MAX_MUIC_USB;c.MuicPathVerified=TRUE;
     c.MuicPathRequested=c.MuicControl1=9;c.MuicRprd=TRUE;

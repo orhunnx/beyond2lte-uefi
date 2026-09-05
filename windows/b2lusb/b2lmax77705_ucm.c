@@ -35,7 +35,8 @@ B2lMaxEvtSetDataRole(UCMCONNECTOR Connector, UCM_DATA_ROLE DataRole)
     NTSTATUS Status = STATUS_NOT_SUPPORTED;
 
     WdfWaitLockAcquire(Context->MfdLock, NULL);
-    if (!Context->ConnectorRunning || !Context->DataRoleValid ||
+    if (!Context->ConnectorRunning || !Context->UsbRoleAttached ||
+        !NT_SUCCESS(Context->MfdFault) || !Context->DataRoleValid ||
         !Context->PowerRoleValid || Context->WaterDetected) {
         Status = STATUS_DEVICE_NOT_READY;
     } else {
@@ -82,7 +83,8 @@ B2lMaxQueueConnectorLocked(PB2L_MAX_CONTEXT Context)
 
     if (!Context->ConnectorRunning) return;
     RtlZeroMemory(&Event, sizeof(Event));
-    Event.Attached = (BOOLEAN)(Context->PowerRoleValid && Context->DataRoleValid &&
+    Event.Attached = (BOOLEAN)(Context->UsbRoleAttached &&
+        Context->PowerRoleValid && Context->DataRoleValid &&
         !Context->WaterDetected && NT_SUCCESS(Context->MfdFault));
     if (Event.Attached) {
         Event.DataRole = Context->DataRole;

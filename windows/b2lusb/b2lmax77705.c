@@ -240,7 +240,12 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxSelftestValid",
         L"B2LMaxSelftestCc",
         L"B2LMaxSelftestSbu0",
-        L"B2LMaxSelftestSbu1"
+        L"B2LMaxSelftestSbu1",
+        L"B2LMaxPdRid",
+        L"B2LMaxPdRidChanges",
+        L"B2LMaxRidUsbDetaches",
+        L"B2LMaxRidUsbAttachBlocks",
+        L"B2LMaxUsbRoleAttached"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -482,6 +487,11 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[224] = (ULONG)Context->SelftestCc;
     Values[225] = Context->SelftestSbuRaw[0];
     Values[226] = Context->SelftestSbuRaw[1];
+    Values[227] = Context->PdRid;
+    Values[228] = Context->PdRidChanges;
+    Values[229] = Context->RidUsbDetaches;
+    Values[230] = Context->RidUsbAttachBlocks;
+    Values[231] = Context->UsbRoleAttached ? 1UL : 0UL;
     Context->DiagnosticDirty = FALSE;
     WdfWaitLockRelease(Context->MfdLock);
 
@@ -1295,6 +1305,7 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
     // subsequently fails. Keep the charger error visible independently.
     if (CcState != B2L_MAX_CC_SINK) {
         Context->PowerRoleValid = Context->DataRoleValid = FALSE;
+        Context->UsbRoleAttached = FALSE;
         Context->PowerRole = Context->DataRole = 0xFFU;
         B2lMaxResetPdConnectionLocked(Context);
         B2lMaxQueueConnectorLocked(Context);
@@ -1486,24 +1497,39 @@ B2lMaxDetectMuicLocked(PB2L_MAX_CONTEXT Context, ULONG Cause)
 static NTSTATUS
 B2lMaxReadRidLocked(PB2L_MAX_CONTEXT Context)
 {
-    UCHAR Value, Rid;
+    UCHAR Value, Rid, PdRid;
     NTSTATUS Status = B2lMaxReadByte(Context, B2L_MAX_USBC_ADDRESS,
         MAX77705_USBC_PD_STATUS1, &Value);
     if (!NT_SUCCESS(Status)) return Status;
     Rid = (UCHAR)(Value & 0x0FU);
     Context->PdStatus1 = Value;
     Context->RidRaw = Rid;
-    // max77705_pd_rid sends RID_UNDEFINED for other FCT values; MUIC ignores
-    // that notification instead of replacing its last recognized RID.
+    Context->DiagnosticDirty = TRUE;
+    // max77705_pd_rid compares the classified PD device, not MUIC's last
+    // accepted RID. All undefined FCT encodings are the same DEV_UNKNOWN.
+    // 0xff is our unread sentinel (stock starts at DEV_NONE, not UNKNOWN).
+    PdRid = (Rid >= 1U && Rid <= 7U) ? Rid : 0U;
+    if (PdRid == Context->PdRid) return STATUS_SUCCESS;
+    Context->PdRid = PdRid;
+    ++Context->PdRidChanges;
+    // Notify MUIC first. It ignores RID_UNDEFINED, retaining its own cache.
     if ((Rid >= 1U) && (Rid <= 7U) && (Rid != Context->MuicRid)) {
         Context->MuicRid = Rid;
         ++Context->RidChanges;
         if (Rid != 2U) {
-            return B2lMaxDetectMuicLocked(Context, B2L_MAX_MUIC_RID_NOTIFY);
+            Status = B2lMaxDetectMuicLocked(Context, B2L_MAX_MUIC_RID_NOTIFY);
         }
     }
-    Context->DiagnosticDirty = TRUE;
-    return STATUS_SUCCESS;
+    if (PdRid == 0U || PdRid >= 5U) {
+        // Stock OPEN/UNKNOWN/523K/619K sends USB DETACH independently of
+        // MUIC's result. This is not a CC detach: preserve current_pr/dr,
+        // VBUS, PDO state and mailbox queue. A repeated DATAROLE value must
+        // not manufacture a fresh USB attach after this notification.
+        Context->UsbRoleAttached = FALSE;
+        ++Context->RidUsbDetaches;
+        B2lMaxQueueConnectorLocked(Context);
+    }
+    return Status;
 }
 
 VOID
@@ -1563,6 +1589,14 @@ B2lMaxHandleDataRole(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
     // RpRd=0 does not clear it in Samsung; physical CC detach clears it.
     if (Role == B2L_MAX_DATA_DFP) Context->MuicRprd = TRUE;
     Status = B2lMaxDetectMuicLocked(Context, B2L_MAX_MUIC_CC_NOTIFY);
+    // Active stock TYPEC_MANAGER rejects USB attach for UART factory RIDs.
+    // Keep the actual PD data role, but do not deliver a blocked USB event.
+    if (Context->PdRid == 5U || Context->PdRid == 6U) {
+        Context->UsbRoleAttached = FALSE;
+        ++Context->RidUsbAttachBlocks;
+    } else {
+        Context->UsbRoleAttached = TRUE;
+    }
     B2lMaxQueueConnectorLocked(Context); // independent asynchronous USB consumer
     Context->DataRoleStatus = Status;
     B2lMaxSetDiagnosticLocked(Context, B2L_MAX_STAGE_PD, Status);
@@ -2180,6 +2214,9 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     Context->MuicType = B2L_MAX_MUIC_NONE;
     Context->MuicCause = Context->MuicSamples = Context->RidChanges = 0UL;
     Context->RidRaw = 0xFFU;
+    Context->PdRid = 0xFFU;
+    Context->UsbRoleAttached = FALSE;
+    Context->PdRidChanges = Context->RidUsbDetaches = Context->RidUsbAttachBlocks = 0UL;
     Context->MuicRid = Context->MuicAdc = 7U; // stock notifier starts at RID_OPEN
     Context->MuicEffectiveBc = Context->MuicChargerType = 0U;
     Context->MuicDetectStatus = STATUS_DEVICE_NOT_READY;

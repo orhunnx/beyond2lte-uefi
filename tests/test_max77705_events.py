@@ -294,7 +294,7 @@ int main(void) {
     assert(output_lines == 34 && max_width < 64);
     output_lines=max_width=0;
     B2lPrintConnectorPhotoOverview(2);
-    assert(output_lines == 17 && max_width < 64);
+    assert(output_lines == 25 && max_width < 64);
     output_lines=max_width=0;
     B2lPrintPdPhotoOverview(2);
     assert(output_lines == 35 && max_width < 64);

@@ -469,7 +469,7 @@ B2lPrintMaxPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v13 / tur %lu / GENEL DURUM\n", Cycle);
+    wprintf(L"MAX FOTO v14 / tur %lu / GENEL DURUM\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -505,11 +505,14 @@ B2lPrintConnectorPhotoOverview(ULONG Cycle)
         L"B2LMaxConnectorStatus", L"B2LMaxConnectorSwapStatus",
         L"B2LMaxConnectorRunning", L"B2LMaxConnectorAttached",
         L"B2LMaxConnectorQueued", L"B2LMaxConnectorAttempts",
-        L"B2LMaxConnectorCount", L"B2LMaxConnectorOverflow"
+        L"B2LMaxConnectorCount", L"B2LMaxConnectorOverflow",
+        L"B2LMaxPdRid", L"B2LMaxPdRidChanges", L"B2LMaxRidUsbDetaches",
+        L"B2LMaxRidUsbAttachBlocks", L"B2LMaxUsbRoleAttached"
     };
     static const WCHAR *Labels[] = {
         L"UCM_NT", L"SWAP_NT", L"UCM_RUN", L"UCM_ATTACHED",
-        L"QUEUED", L"ATTEMPTS", L"PENDING", L"OVERFLOW"
+        L"QUEUED", L"ATTEMPTS", L"PENDING", L"OVERFLOW",
+        L"PD_RID", L"RID_TRANS", L"RID_DETACH", L"RID_BLOCK", L"USB_NOTIFY"
     };
     HKEY Key;
     LSTATUS Error;
@@ -519,7 +522,7 @@ B2lPrintConnectorPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v13 / tur %lu / WINDOWS ROL BILDIRIMI\n", Cycle);
+    wprintf(L"MAX FOTO v14 / tur %lu / WINDOWS ROL BILDIRIMI\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -546,6 +549,9 @@ B2lPrintConnectorPhotoOverview(ULONG Cycle)
     RegCloseKey(Key);
     wprintf(L"UCM_NT: Windows bildirim sonucu; USB testi degil.\n");
     wprintf(L"UCM_ATTACHED=1: UCM attach kabul etti.\n");
+    wprintf(L"USB_NOTIFY: USB tuketicisine giden gercek rol olayi.\n");
+    wprintf(L"PD_RID=0: tanimsiz, 1..7: RID, FF: okunmadi.\n");
+    wprintf(L"RID_DETACH: USB bildirimi; fiziksel CC detach degil.\n");
     wprintf(L"Host/function PnP sonucu USB sayfasinda.\n");
     wprintf(L"SWAP_NT=C00000BB: OS PD rol takasi henuz eksik.\n");
     wprintf(L"Source Rp akimi bilinmiyorsa tahmin edilmez.\n");
@@ -624,7 +630,7 @@ B2lPrintPdPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v13 / tur %lu / PD OLAYLARI VE PDO\n", Cycle);
+    wprintf(L"MAX FOTO v14 / tur %lu / PD OLAYLARI VE PDO\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -703,7 +709,7 @@ B2lPrintSysmsgPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v13 / tur %lu / SYSMSG / OPCODE HATASI\n", Cycle);
+    wprintf(L"MAX FOTO v14 / tur %lu / SYSMSG / OPCODE HATASI\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -793,7 +799,7 @@ B2lPrintRecoveryPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v13 / tur %lu / BASLANGIC / RESET / GRL\n", Cycle);
+    wprintf(L"MAX FOTO v14 / tur %lu / BASLANGIC / RESET / GRL\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -886,7 +892,7 @@ B2lPrintResponsePhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v13 / tur %lu / GERCEK OPCODE YANITI\n", Cycle);
+    wprintf(L"MAX FOTO v14 / tur %lu / GERCEK OPCODE YANITI\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -947,7 +953,7 @@ B2lPrintMuicPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v13 / tur %lu / MUIC / RID\n", Cycle);
+    wprintf(L"MAX FOTO v14 / tur %lu / MUIC / RID\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -994,7 +1000,7 @@ B2lPrintMaxEventPage(const B2L_MAX_EVENT_LOG *Log, ULONG Page, ULONG Cycle)
     }
     // At most 33 lines on the WinPE 64x41 console. One immutable registry
     // snapshot for the whole cycle: new events cannot reorder later pages.
-    wprintf(L"MAX FOTO v13 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
+    wprintf(L"MAX FOTO v14 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
     wprintf(L"Bu ekrani fotograflayin. Sonraki sayfa: 20 sn\n");
     wprintf(L"D0=%llu count=%lu total=%llu\n", Log->StartTime, Log->Count, Log->Total);
     wprintf(L"kayip=%llu UIC=%02lX SYS=%lu ERR=%lu FAIL=%lu\n",

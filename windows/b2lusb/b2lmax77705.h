@@ -178,7 +178,9 @@ typedef struct _B2L_MAX_CONTEXT {
     ULONG MuicOutstanding;
     NTSTATUS MuicStatus;
     UCHAR MuicSample[5], MuicAdc, MuicEffectiveBc, MuicChargerType;
-    UCHAR RidRaw, MuicRid;
+    UCHAR RidRaw, MuicRid, PdRid;
+    BOOLEAN UsbRoleAttached;
+    ULONG PdRidChanges, RidUsbDetaches, RidUsbAttachBlocks;
     BOOLEAN MuicSampleValid, MuicClassified, MuicRprd;
     ULONG MuicType, MuicCause, MuicSamples, RidChanges;
     NTSTATUS MuicDetectStatus;
