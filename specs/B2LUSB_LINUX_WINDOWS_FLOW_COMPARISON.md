@@ -1,5 +1,26 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: WSL build — UCM/URS stub arama yolu düzeltmesi
+
+Kullanıcının WDK `10.0.28000.0` çıktısı derleme başlamadan
+`UcmCxStub.lib yok: ...\km\arm64` hatası verdi. Betik yalnız düz kernel
+kütüphane dizinini kontrol ediyordu. Bu çıktı kütüphanenin bütün WDK
+kurulumunda eksik olduğunu kanıtlamaz; alt dizinler henüz kontrol edilmemişti.
+
+`build-b2lusb.ps1` artık seçilen WDK'nın ARM64 kökü altında önce
+`ucm\1.0\UcmCxStub.lib` ve `urs\1.0\UrsCxStub.lib`, ardından aynı
+kökün düz yerleşimini kontrol eder. Başlıklarla aynı 1.0 sürümü korunur;
+başka WDK, mimari veya class-extension sürümü aranmaz. Linker'a bulunan
+kütüphanenin tırnaklı tam yolu verilir ve bu yol build çıktısında gösterilir.
+Dosya bulunamazsa hata iki kontrol yolunu da yazar. Gerçek UCM/URS
+kütüphaneleri zorunludur; bu değişiklik USB çalışma zamanı akışını değiştirmez.
+Parent `.21`, MAX `.42`, USB ABI 8 ve tanı sürümleri aynı kalır.
+
+Mac üzerinde WDK derlemesi yapılmadı; Windows kütüphane yerleşimi ve gerçek
+link sonucu burada doğrulanamadı. WSL komutları değişmedi:
+`bash yap.sh --touch --usb-test --clean`, başarılı olunca
+`bash cache_esp.sh --win --system --baseline`.
+
 ## 5 Eylül 2026: parent `.21` — gerçek FSYS0A güç/saat yaşam döngüsü
 
 Taban `d3303dd`; parent/host/function `0.1.0.21`, MAX `0.1.0.42`.

@@ -28,6 +28,22 @@ function Resolve-Directory([string]$Path, [string]$Description) {
     return (Resolve-Path -LiteralPath $Path).Path
 }
 
+function Resolve-ClassExtensionStub([string]$KernelLib, [string]$Extension, [string]$Library) {
+    # Headers use the 1.0 class-extension ABI. Keep the library in the same
+    # selected WDK and ARM64 tree; never pick another kit/architecture/version.
+    $Candidates = @(
+        (Join-Path $KernelLib ("{0}\1.0\{1}" -f $Extension, $Library)),
+        (Join-Path $KernelLib $Library)
+    )
+    foreach ($Path in $Candidates) {
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            return (Resolve-Path -LiteralPath $Path).Path
+        }
+    }
+    Fail ("{0} yok. Denetlenen yollar:`n  {1}`nSecilen WDK'nin ARM64 {2} 1.0 kutuphanelerini kur/onar." -f
+        $Library, ($Candidates -join "`n  "), $Extension.ToUpperInvariant())
+}
+
 function Assert-Arm64Pe([string]$Path, [string]$Description) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { Fail "$Description uretilmedi" }
     $Bytes = [IO.File]::ReadAllBytes($Path)
@@ -78,11 +94,13 @@ foreach ($Header in @('km\ntddk.h', 'um\setupapi.h', 'km\ucm\1.0\UcmCx.h', 'km\u
     }
 }
 $WdkLib = Resolve-Directory (Join-Path $KitsRoot ("Lib\{0}\km\arm64" -f $WdkVersion)) 'WDK ARM64 kernel kutuphane dizini'
-foreach ($Library in @('ntoskrnl.lib', 'hal.lib', 'libcntpr.lib', 'BufferOverflowFastFailK.lib', 'UcmCxStub.lib', 'UrsCxStub.lib')) {
+foreach ($Library in @('ntoskrnl.lib', 'hal.lib', 'libcntpr.lib', 'BufferOverflowFastFailK.lib')) {
     if (-not (Test-Path -LiteralPath (Join-Path $WdkLib $Library) -PathType Leaf)) {
         Fail "$Library yok: $WdkLib"
     }
 }
+$UcmStub = Resolve-ClassExtensionStub $WdkLib 'ucm' 'UcmCxStub.lib'
+$UrsStub = Resolve-ClassExtensionStub $WdkLib 'urs' 'UrsCxStub.lib'
 $WdkUserLib = Resolve-Directory (Join-Path $KitsRoot ("Lib\{0}\um\arm64" -f $WdkVersion)) 'SDK ARM64 kullanici kutuphane dizini'
 foreach ($Library in @('kernel32.lib', 'setupapi.lib')) {
     if (-not (Test-Path -LiteralPath (Join-Path $WdkUserLib $Library) -PathType Leaf)) {
@@ -152,7 +170,7 @@ try {
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $Flags /Fo`"b2lusb_power.obj`" `"b2lusb_power.c`"",
         'if errorlevel 1 exit /b 1',
-        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lusb.sys`" `"b2lusb.obj`" `"b2lusb_hw.obj`" `"b2lusb_power.obj`" UrsCxStub.lib WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
+        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lusb.sys`" `"b2lusb.obj`" `"b2lusb_hw.obj`" `"b2lusb_power.obj`" `"$UrsStub`" WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $Flags /Fo`"b2lusbmon.obj`" `"b2lusbmon.c`"",
         'if errorlevel 1 exit /b 1',
@@ -174,7 +192,7 @@ try {
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $Flags /Fo`"b2lmax77705_response.obj`" `"b2lmax77705_response.c`"",
         'if errorlevel 1 exit /b 1',
-        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lmax77705.sys`" `"b2lmax77705.obj`" `"b2lmax77705_hw.obj`" `"b2lmax77705_irq.obj`" `"b2lmax77705_ucm.obj`" `"b2lmax77705_pd.obj`" `"b2lmax77705_sysmsg.obj`" `"b2lmax77705_control.obj`" `"b2lmax77705_response.obj`" UcmCxStub.lib WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
+        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lmax77705.sys`" `"b2lmax77705.obj`" `"b2lmax77705_hw.obj`" `"b2lmax77705_irq.obj`" `"b2lmax77705_ucm.obj`" `"b2lmax77705_pd.obj`" `"b2lmax77705_sysmsg.obj`" `"b2lmax77705_control.obj`" `"b2lmax77705_response.obj`" `"$UcmStub`" WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $UserFlags /Fo`"b2lusbctl.obj`" `"b2lusbctl.c`" /Fe:`"b2lusbctl.exe`" /link /machine:arm64 /subsystem:console /libpath:`"$WdkUserLib`" kernel32.lib setupapi.lib advapi32.lib",
         'exit /b %errorlevel%'
@@ -185,6 +203,8 @@ try {
     Write-Host ''
     Write-Host '==> B2LUSB derleniyor (Windows MSVC ARM64 + KMDF 1.15 UCM/URS)' -ForegroundColor Cyan
     Write-Host "  WDK    : $WdkVersion"
+    Write-Host "  UCM    : $UcmStub"
+    Write-Host "  URS    : $UrsStub"
     Write-Host "  vcvars : $($Vcvars.FullName)"
     Push-Location -LiteralPath $StageRoot
     try {

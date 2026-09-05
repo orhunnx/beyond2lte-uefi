@@ -18,6 +18,12 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / build betiği düzeltmesi:** WDK 10.0.28000.0 çıktısındaki
+> `UcmCxStub.lib yok` hatası için ARM64 `ucm/1.0` ve `urs/1.0` alt
+> klasörleri artık kontrol ediliyor; linker tam kütüphane yolunu kullanıyor.
+> Parent `.21` / MAX `.42` değişmedi. Windows build sonucu henüz yok;
+> WSL build/paketleme yöntemi aynı. Ayrıntı Linux karşılaştırmasının başında.
+
 > **5 Eylül / parent `.21` kaynak güncellemesi:** FSYS0A gerçek PMU
 > on/off, USER mux/CCF sırası, CAL kayıt saklama/geri yükleme ve gerçek AXI
 > idle kontrolü eklendi. DWC3 erişimi clock hazırlığını bekler. USB parent

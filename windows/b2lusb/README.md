@@ -197,6 +197,14 @@ abort ürettiği için onları açan bir paket güvenli değildir.
 
 ## WSL derleme ve paketleme
 
+WDK UCM/URS kütüphaneleri seçilen `Lib/<WDK>/km/arm64` altında
+`ucm/1.0/UcmCxStub.lib` ve `urs/1.0/UrsCxStub.lib` yollarından çözülür;
+aynı ARM64 kökündeki düz yerleşim de desteklenir. Bulunan tam yollar build
+çıktısına ve linker'a aktarılır. `UcmCxStub.lib yok` hatası artık denetlenen
+iki yolu gösterir; ikisi de yoksa seçilen WDK'nın ARM64 bileşeni onarılmalıdır.
+Başka kit/mimari/sürümden kütüphane alınmaz. Bu yol düzeltmesinin gerçek
+WDK 10.0.28000.0 link sonucu Windows üzerinde henüz doğrulanmadı.
+
 Normal tam tur:
 
 ```bash
