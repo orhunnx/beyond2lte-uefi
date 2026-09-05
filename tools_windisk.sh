@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# WinPE'yi RAM diskten degil GERCEK BIR BOLUMDEN acmak icin NTFS imaji uretir.
+# B2LUFS boot-start WinPE'yi RAM diskten degil GERCEK UFS/NTFS bolumunden
+# acmak icin SYSTEM imaji uretir.
 #
 #   bash tools_windisk.sh [boyut_GiB]      varsayilan 3
 #
@@ -13,11 +14,11 @@
 # Bunu once elemistim ("diskten acmak diskin zaten calismasini gerektirir"),
 # ama itiraz dogru: BASARISIZLIGIN KENDISI SINYAL.
 #
-# RAM diskten acarken storufs'un baglanip baglanmamasi hicbir seyi
-# degistirmiyor - Windows yine aciliyor, sadece depolama gormuyor ve bize
-# bunu soyleyemiyor. Otuz turdur bu sessizlikle bogusuyoruz.
+# RAM diskten acarken depolama miniportunun yuklenmesi acilis icin zorunlu
+# degildi. Artik b2lufs offline DriverStore'da Start=0 ve SCSI Miniport
+# grubundadir; winload surucuyu cekirdege gecmeden belleğe alir.
 #
-# Diskten acarken storufs baglanmazsa winload ACILIS BIRIMINI BULAMAZ ve
+# Diskten acarken b2lufs baglanmazsa Windows ACILIS BIRIMINI BULAMAZ ve
 # EKRANA HATA BASAR. Bunun calistigini biliyoruz: ws2ifsl.sys denemesinde
 # "0xc0000428 / digital signature couldn't be verified" ekranini gordük.
 # winload'un hata yolu saglam; sorun ona ulasacak bir hata olmamasiydi.
@@ -58,6 +59,33 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 [ -s "$WIM" ] || { echo "esp/sources/boot.wim yok. Once tools_winboot.sh calistir."; exit 1; }
 command -v wimlib-imagex >/dev/null || { echo "wimlib yok -> sudo apt install -y wimtools"; exit 1; }
 command -v mkntfs        >/dev/null || { echo "mkntfs yok -> sudo apt install -y ntfs-3g"; exit 1; }
+
+# Disk imajini yalniz gercek offline boot paketi tasiyan WIM'den uret.
+# /Windows/B2LUFS altindaki INF/SYS kopyalari tek basina yeterli degildir;
+# bu isaret ancak Windows DISM, SYSTEM hive Start=0/Group degerlerini ve
+# System32/drivers hash'ini dogruladiktan sonra yazilir.
+VERIFY_DIR="$(mktemp -d)"
+trap 'rm -rf "$VERIFY_DIR"' EXIT
+if ! wimlib-imagex extract "$WIM" 1 /Windows/B2LUFS/offline-driverstore.txt \
+    --dest-dir="$VERIFY_DIR" --no-acls >/dev/null; then
+  echo "HATA: boot.wim'de B2LUFS offline boot-start isareti yok."
+  echo "Once: bash tools_b2lufs.sh"
+  exit 1
+fi
+for EXPECTED in \
+  'B2L_OFFLINE_DRIVERSTORE=1' \
+  'B2L_OFFLINE_PACKAGE=UFS' \
+  'B2L_BOOT_START=1' \
+  'B2L_LOAD_ORDER_GROUP=SCSI Miniport' \
+  'B2L_ERROR_CONTROL=3'; do
+  tr -d '\r' < "$VERIFY_DIR/offline-driverstore.txt" | grep -Fqx "$EXPECTED" || {
+    echo "HATA: boot.wim B2LUFS boot kaydi eksik: $EXPECTED"
+    exit 1
+  }
+done
+rm -rf "$VERIFY_DIR"
+trap - EXIT
+echo "  B2LUFS offline boot-start paketi dogrulandi"
 
 IMG="$OUT/system.img"
 
@@ -155,12 +183,14 @@ SIRA:
      BCD'yi masaustunden kopyala:  cp .../Desktop/BCD windows/BCD
   2) ESP'yi guncelle (bootmgfw + yeni BCD, RAM diski yok):
         bash tools_winboot.sh <ISO> --disk
-        bash cache_esp.sh --win
-  3) Iki tar'i da flasla: system-esp.tar ve cache-esp.tar
+        bash cache_esp.sh --win --disk --baseline
+  3) BOOT + NTFS SYSTEM + disk ESP'yi tek AP arsivine al:
+        bash tools_odin_winpe_bundle.sh --disk
+     Odin AP: out/beyond2lte-winpe-ufs-disk.tar
 
 BEKLENEN OKUMA:
-  Windows aciliyor            -> storufs BAGLI, depolama calisiyor
-  "Inaccessible boot device"  -> storufs baglanmiyor, ama ARTIK GORUNUR
+  Windows aciliyor            -> b2lufs boot-start + UFS/NTFS yolu calisiyor
+  "Inaccessible boot device"  -> b2lufs acilis birimini tasiyamiyor
   Baska bir 0xc0000... kodu   -> winload tam olarak neyi bulamadigini soyluyor
 
   Ucu de sessizlikten iyi.

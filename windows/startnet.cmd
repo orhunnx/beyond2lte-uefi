@@ -39,8 +39,8 @@ rem yalniz calisan WinPE oturumunun mount manager durumunu degistirir.
 if exist "%SystemRoot%\System32\mountvol.exe" mountvol /N >nul 2>&1
 
 echo.
-echo [B2LUFS kurulumu]
-call :B2LUfsInstall
+echo [B2LUFS boot-start dogrulamasi]
+call :B2LUfsVerifyBootStart
 if errorlevel 1 goto :Finish
 
 echo.
@@ -613,13 +613,21 @@ reg.exe delete "HKCU\Software\Microsoft\Osk" /f >> "%B2LOSKLOG%" 2>&1
 type "%B2LOSKLOG%"
 exit /b 0
 
-:B2LUfsInstall
+:B2LUfsVerifyBootStart
 if not exist "%B2LUFSDIR%\b2lufs.inf" (
   echo HATA: B2LUFS paketi WIM'de yok.
   exit /b 1
 )
 if not exist "%B2LUFSDIR%\manifest.txt" (
   echo HATA: B2LUFS manifest yok; eski veya yari paketlenmis WIM reddedildi.
+  exit /b 1
+)
+if not exist "%B2LUFSDIR%\offline-driverstore.txt" (
+  echo HATA: B2LUFS offline DriverStore isareti yok.
+  exit /b 1
+)
+if not exist "%SystemRoot%\System32\drivers\b2lufs.sys" (
+  echo HATA: boot-start b2lufs.sys System32\drivers altinda yok.
   exit /b 1
 )
 if not exist "%SystemRoot%\System32\pnputil.exe" (
@@ -629,16 +637,28 @@ if not exist "%SystemRoot%\System32\pnputil.exe" (
 echo Paket kimligi:
 type "%B2LUFSDIR%\manifest.txt"
 echo.
-echo PnP surucusu kuruluyor ve aygitlar yeniden taraniyor...
-pnputil /add-driver "%B2LUFSDIR%\b2lufs.inf" /install > "%SystemDrive%\B2LUFS-PNP.TXT" 2>&1
-if errorlevel 1 (
-  type "%SystemDrive%\B2LUFS-PNP.TXT"
+echo Offline boot kaydi:
+type "%B2LUFSDIR%\offline-driverstore.txt"
+
+set "B2LUFSSTART="
+for /f "tokens=3" %%V in ('reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lufs" /v Start 2^>nul ^| "%SystemRoot%\System32\find.exe" "REG_DWORD"') do set "B2LUFSSTART=%%V"
+if /i not "%B2LUFSSTART%"=="0x0" (
+  echo HATA: b2lufs servis Start=0 degil ^(bulunan: %B2LUFSSTART%^).
   exit /b 1
 )
-pnputil /scan-devices >> "%SystemDrive%\B2LUFS-PNP.TXT" 2>&1
-timeout /t 5 /nobreak >nul 2>&1
+
+set "B2LUFSGROUP="
+for /f "tokens=2,*" %%V in ('reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lufs" /v Group 2^>nul ^| "%SystemRoot%\System32\find.exe" "REG_SZ"') do set "B2LUFSGROUP=%%W"
+if /i not "%B2LUFSGROUP%"=="SCSI Miniport" (
+  echo HATA: b2lufs servis grubu SCSI Miniport degil ^(bulunan: %B2LUFSGROUP%^).
+  exit /b 1
+)
+
+> "%SystemDrive%\B2LUFS-PNP.TXT" echo B2LUFS_OFFLINE_BOOT_START=1
+reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lufs" >> "%SystemDrive%\B2LUFS-PNP.TXT" 2>&1
+pnputil /enum-devices /deviceid "ACPI\BYND9820" /services /stack /drivers /resources >> "%SystemDrive%\B2LUFS-PNP.TXT" 2>&1
 echo.
-echo PnP kurulum ve tarama sonucu:
+echo Boot-start servis ve PnP sonucu:
 type "%SystemDrive%\B2LUFS-PNP.TXT"
 exit /b 0
 

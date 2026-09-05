@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # B2LUFS — WDK basliklariyla ARM64 UFS StorPort miniportunu paketle,
-# mevcut b2lfb test sertifikasi ile imzala ve yalniz WinPE WIM'ine koy.
+# mevcut b2lfb test sertifikasi ile imzala ve WinPE WIM'ine boot-start
+# StorPort paketi olarak offline kur.
 #
 # Bu tur LUN 0 icin normal okuma/yazma disk surucusudur. ACPI'nin verdigi alti MMIO
 # kaynagini StorPort uzerinden sahiplenir; firmware'in canli UFS linkini
@@ -316,7 +317,7 @@ rm -f "$PFX"
 # paketleme asamasinda kesin bir hata haline getirir.
 MANIFEST="$OUT/b2lufs-manifest.txt"
 {
-  echo "B2LUFS_PACKAGE=storport-cache-online-write-report"
+  echo "B2LUFS_PACKAGE=storport-boot-start-disk-v1"
   echo "B2LUFS_INF_SHA256=$(sha256sum "$OUT/b2lufs.inf" | awk '{print $1}')"
   echo "B2LUFS_SYS_SHA256=$(sha256sum "$OUT/b2lufs.sys" | awk '{print $1}')"
   echo "B2LUFS_CAT_SHA256=$(sha256sum "$OUT/b2lufs.cat" | awk '{print $1}')"
@@ -353,6 +354,20 @@ wimlib-imagex update "$WIM" 1 \
 wimlib-imagex update "$WIM" 1 \
   --command="add '$SNTMP' /Windows/System32/startnet.cmd" >/dev/null
 
+# Dosyalari yalniz WIM icinde bir tani klasorune kopyalamak boot icin yeterli
+# degildir. DISM paketi offline DriverStore'a kaydeder, INF'nin Start=0 servis
+# kaydini SYSTEM hive'ina isler ve SYS'yi System32/drivers'a yerlestirir.
+# Ortak stage betigi commit etmeden once hive'i geri okuyup Start, Group,
+# ErrorControl, ImagePath ve imzali SYS hash'ini dogrular.
+PS_STAGE="$HERE/windows/stage-winpe-driverstore.ps1"
+[ -s "$PS_STAGE" ] || die "offline DriverStore betigi yok: $PS_STAGE"
+say "B2LUFS boot-start paketi DriverStore'a offline kuruluyor"
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File "$(wslpath -w "$PS_STAGE")" \
+  -ProjectRoot "$WIN_PROJECT_ROOT" \
+  -WimPath "$(wslpath -w "$WIM")" \
+  -Package Ufs || die "B2LUFS offline boot-start servislemesi basarisiz"
+
 CHECK="$(mktemp -d)"
 for Item in b2lufs.inf b2lufs.sys b2lufs.cat; do
   wimlib-imagex extract "$WIM" 1 "/Windows/B2LUFS/$Item" \
@@ -368,6 +383,18 @@ wimlib-imagex extract "$WIM" 1 /Windows/B2LUFS/manifest.txt \
   "$(sha256sum "$CHECK/manifest.txt" | awk '{print $1}')" ] || \
   die "B2LUFS manifest WIM geri okuma hash'i farkli; flaslama"
 echo "  dogrulandi: B2LUFS manifest $(grep '^B2LUFS_SYS_SHA256=' "$MANIFEST" | cut -c1-34)"
+wimlib-imagex extract "$WIM" 1 /Windows/B2LUFS/offline-driverstore.txt \
+  --dest-dir="$CHECK" --no-acls >/dev/null
+for Expected in \
+  'B2L_OFFLINE_DRIVERSTORE=1' \
+  'B2L_OFFLINE_PACKAGE=UFS' \
+  'B2L_BOOT_START=1' \
+  'B2L_LOAD_ORDER_GROUP=SCSI Miniport' \
+  'B2L_ERROR_CONTROL=3'; do
+  tr -d '\r' < "$CHECK/offline-driverstore.txt" | grep -Fqx "$Expected" || \
+    die "B2LUFS offline boot isareti eksik: $Expected"
+done
+echo "  dogrulandi: offline DriverStore + Start=0 + SCSI Miniport"
 wimlib-imagex extract "$WIM" 1 /Windows/System32/b2lgptdump.exe \
   --dest-dir="$CHECK" --no-acls >/dev/null
 [ "$(sha256sum "$OUT/b2lgptdump.exe" | awk '{print $1}')" = \
@@ -378,8 +405,8 @@ wimlib-imagex extract "$WIM" 1 /Windows/System32/startnet.cmd \
   --dest-dir="$CHECK" --no-acls >/dev/null
 [ "$(sha256sum "$SNTMP" | awk '{print $1}')" = "$(sha256sum "$CHECK/startnet.cmd" | awk '{print $1}')" ] || \
   die "startnet.cmd WIM geri okuma hash'i farkli; flaslama"
-echo "  dogrulandi: startnet.cmd B2LUFS PnP kurulumunu iceriyor"
+echo "  dogrulandi: startnet.cmd B2LUFS boot-start durumunu denetliyor"
 
 say "B2LUFS hazir"
-echo "Bu imajda beklenen sonuc: CACHE W: olarak baglanir, test dosyasi yazilir ve geri okunur."
-echo "Sonraki paketleme: bash cache_esp.sh --win --system && bash cache_esp.sh --win --bos"
+echo "RAM WinPE acilisinda surucu artik startnet'ten once boot-start olarak yuklenir."
+echo "Diskten WinPE icin sonraki adim: bash tools_windisk.sh"

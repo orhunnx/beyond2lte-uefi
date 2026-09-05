@@ -276,12 +276,29 @@ paket boot.wim DriverStore'ına tek DISM mount/commit ve tek UAC istemiyle
 offline eklenir. İkinci komut SYSTEM imajı ve tek Odin AP arşivini üretir. Son
 komut arşivde `boot.img` ile `system.img` bulunduğunu gözle doğrular.
 
+Bu iki komut cihazda doğrulanmış RAM-WinPE profilidir. UFS sürücüsünü
+Winload aşamasına alıp SYSTEM NTFS'ten açılan yeni profil şudur:
+
+```bash
+bash yap.sh --touch --usb-test --ufs-boot --clean
+bash tools_windisk.sh
+# Windows yonetici CMD: windows\bcd_olustur.cmd disk
+bash tools_winboot.sh /yol/Windows_ARM64.iso --disk
+bash cache_esp.sh --win --disk --baseline
+bash tools_odin_winpe_bundle.sh --disk
+```
+
+Bu profilde `cache_esp.sh --win --system --baseline` çalıştırılmaz: SYSTEM
+artık FAT/RAM-WinPE ESP'si değil, `tools_windisk.sh` tarafından üretilen NTFS
+işletim sistemi birimidir. CACHE yalnız bootmgfw ve disk BCD'sini taşır.
+Nihai AP dosyası `out/beyond2lte-winpe-ufs-disk.tar` olur.
+
 ADK `boot.wim` sıfırdan kurulacaksa günlük sıranın önüne yalnız bir kez şunu
 ekle:
 
 ```bash
 bash tools_winpe_adk.sh "/mnt/c/Program Files (x86)/Windows Kits/10/Assessment and Deployment Kit/Windows Preinstallation Environment/arm64/Media"
-bash tools_b2lufs.sh       # UFS paketi de bu yeni WIM'e girecekse
+bash yap.sh --touch --usb-test --ufs-boot --clean
 ```
 
 Yalnız dokunmatik C kaynakları değiştiyse UEFI'yi yeniden derlemek gerekmez;

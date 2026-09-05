@@ -27,8 +27,9 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | Windows Boot Manager | ✅ çalışıyor, ekran çiziyor, ESP'den okuyor |
 | Windows çekirdeği (`ntoskrnl`) | ✅ başlıyor |
 | Windows ARM64 dokunmatik sürücüsü | ✅ KMDF/VHF, 10 temas ve gerçek multi-touch cihazda doğrulandı |
+| Windows ARM64 UFS miniportu | ✅ post-boot disk okuma/yazma; 🧪 `0.0.4.6` offline boot-start/disk boot cihaz doğrulaması bekliyor |
 | WinPE yerel ekran klavyesi | ⏸️ Microsoft OSK yükleniyor fakat 28000/26200 ortamında başlatılamıyor; ertelendi |
-| Windows WinPE / erken kullanıcı modu | ✅ açılıyor |
+| Windows WinPE / erken kullanıcı modu | ✅ RAM'den açılıyor; 🧪 UFS/NTFS SYSTEM'den boot profili hazır |
 
 Ayrıntı: [`STATUS.md`](STATUS.md)
 
@@ -40,6 +41,7 @@ Klasörü WSL'den erişilebilir bir yere koy, sonra:
 bash yap.sh --clean          # DEBUG derle
 bash yap.sh --tar            # Odin için .tar da üret
 bash yap.sh --acpi           # ACPI tablolarını derle + etkinleştir
+bash yap.sh --touch --usb-test --ufs-boot --clean  # diskten Windows profili
 ```
 
 `yap.sh` overlay'i `~/Mu-Silicium`'a kopyalar, derler, çıktıyı Windows

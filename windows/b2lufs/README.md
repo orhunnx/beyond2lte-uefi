@@ -275,12 +275,17 @@ akışı bu kayıtları veya genel disk envanterini konsola dökmez.
 
 ## WinPE kabul ölçütü
 
-`startnet.cmd` otomatik harf atamasını sürücü kurulumundan önce kapatır,
-B2LUFS'u kurup yeniden tarar; `Disk 0 / Partition 28` odağındaki CACHE
+`b2lufs` artık DISM ile offline DriverStore'a kurulur. INF paketi
+`StartType=0`, `ErrorControl=3` ve `LoadOrderGroup="SCSI Miniport"` taşır;
+bu nedenle Winload sürücüyü çekirdeğe geçmeden yükler. `startnet.cmd` sürücü
+kurmaz veya yeniden tarama istemez; SYSTEM hive'daki `Start=0`/grup kaydını,
+yüklenmiş servis durumunu ve `ACPI\BYND9820` PnP yığınını raporlar.
+
+`startnet.cmd` otomatik harf atamasını kapatır; `Disk 0 / Partition 28` odağındaki CACHE
 volume'unu açıkça çevrimiçi yapıp `W:` olarak bağlar.
 Akış, eski GPT/PnP envanteri/registry/ETW tanı kalabalığını üretmeden
 yalnız yazma yolunun karar vermek için gereken ayrıntılarını gösterir:
-paket kimliği, PnP kurulum ve tarama sonucu, DiskPart'ın volume'u online
+paket kimliği, boot-start/PnP sonucu, DiskPart'ın volume'u online
 yapma ve `W:` atama sonucu, `vol W:` bilgisi, yazılan yol ve geri okunan
 içerik. Başarılı testin kabul kanıtı şu tek satırdır:
 
@@ -321,22 +326,38 @@ rağmen StorPort tarama üretmemiştir; `BLT1` de yoksa sorun timer'ın
 planlanmasından önceki miniport başlatma aşamasındadır.
 
 `Code 10`/`FAILED_START`, HCE/link durumunun firmware'den canlı devralınamadığını
-veya transfer-list scheduler'ın boş olmadığını gösterir. İmza veya `pnputil`
-hatası ise sürücünün hiç çalıştırılmadığını gösterir. Her iki durumda da
+veya transfer-list scheduler'ın boş olmadığını gösterir. İmza, offline
+DriverStore veya boot service kapısı hatası ise sürücünün Winload zincirine
+giremediğini gösterir. Her iki durumda da
 sürücü UFS LUN'una komut göndermeden başarısız olur.
 
 Bu testte DSDT `UFS0` aygıtı yalnız `ACPI\\BYND9820` compatible ID'sini
 yayınlar ve altı MMIO penceresini yalnız b2lufs'a verir. Böylece inbox
-`storufs` ile aynı HBA'ya iki sürücünün bağlanması mümkün değildir. WinPE
-`startnet.cmd`, paket eklendiyse `pnputil /add-driver ... /install` çağrısını
-otomatik yapar; fotoğrafta hedef PnP durumu `b2lufs.inf` + `Started`dır.
+`storufs` ile aynı HBA'ya iki sürücünün bağlanması mümkün değildir. Paketleme
+betiği DISM commit'inden önce offline SYSTEM hive'ını geri okuyup servis
+tipini, `Start=0`, `ErrorControl=3`, `SCSI Miniport` grubunu, ImagePath'i ve
+`System32\drivers\b2lufs.sys` hash'ini doğrular. Bu kapılardan biri geçmezse
+WIM yayımlanmaz.
 
-USB ve touch paketlerinin aksine UFS şimdilik offline DriverStore'a
-taşınmaz. Çalışan sıra önce `mountvol /N` ile otomatik harf atamasını kapatır,
-sonra UFS'yi runtime kurar ve yalnız etiketi doğrulanan CACHE bölümünü `W:`
-olarak bağlar. UFS'yi `wpeinit` öncesine almak Android RAW bölümlerinin PnP
-sırasını ve sürücü harfi tüketimini değiştireceğinden ayrı bir kontrollü deney
-olarak ele alınmalıdır.
+## UFS/NTFS bölümünden WinPE boot
+
+Boot-start WIM doğrulandıktan sonra disk akışı şöyledir:
+
+```bash
+bash tools_b2lufs.sh
+bash tools_windisk.sh
+# Windows yonetici CMD: windows\bcd_olustur.cmd disk
+bash tools_winboot.sh /yol/Windows_ARM64.iso --disk
+bash cache_esp.sh --win --disk --baseline
+bash tools_odin_winpe_bundle.sh --disk
+```
+
+`tools_windisk.sh`, WIM'deki offline boot marker'ını doğrular ve image index
+1'i NTFS `out/system.img` içine uygular. `tools_winboot.sh --disk`, BCD'nin
+gerçekten `locate=\Windows\System32\winload.efi` kullandığını ve osloader'ın
+RAM disk taşımadığını `bcdedit` ile denetler. CACHE yalnız bootmgfw+BCD ESP'si
+olur; `boot.wim` bulunursa paketleme durur. Nihai tek Odin AP çıktısı
+`out/beyond2lte-winpe-ufs-disk.tar` dosyasıdır.
 
 `tools_b2lufs.sh`, WSL'den Windows WDK'nin ARM64 `storport.lib` ve
 `ntoskrnl.lib` kitaplıklarını kullanır. Kaynaklar WSL clang'iyle değil,

@@ -5,9 +5,10 @@
 #
 # NEDEN: Bu turda iki farkli katman degisiyor:
 #   boot.img   -> UEFI + etkin UFS ACPI tanimi (ham firmware imaji)
-#   system.img -> WinPE boot.wim + girissiz PnP/UFS raporu (Android sparse)
-#   cache.img  -> eski startup.nsh olmadan bos FAT32 CACHE dosya sistemi
-#                (Android sparse)
+#   system.img -> varsayilan: WinPE boot.wim tasiyan FAT ESP
+#                 --disk: B2LUFS boot-start WinPE tasiyan NTFS sistem birimi
+#   cache.img  -> varsayilan: bos FAT32 CACHE
+#                 --disk: bootmgfw + disk BCD tasiyan FAT ESP
 #
 # Odin, FAT imajlarini ham halde reddedebiliyor. Bu betik SYSTEM ve CACHE
 # kaynak imajlarini bizzat img2simg ile sparse'e cevirir; sparse basligini ve
@@ -18,15 +19,29 @@
 #   bash cache_esp.sh --win --system
 #   bash cache_esp.sh --win --bos
 #   bash tools_odin_winpe_bundle.sh
+# Diskten boot icin:
+#   bash tools_odin_winpe_bundle.sh --disk
 #
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$HERE/out"
-BOOT_TAR="${1:-$OUT/uefi-boot.tar}"
-SYSTEM_RAW="${2:-$OUT/system.img}"
-CACHE_RAW="${3:-$OUT/cache.img}"
-BUNDLE="$OUT/beyond2lte-winpe-ufs.tar"
+DISK_MODE=0
+ARGS=()
+for Arg in "$@"; do
+  case "$Arg" in
+    --disk) DISK_MODE=1 ;;
+    *) ARGS+=("$Arg") ;;
+  esac
+done
+BOOT_TAR="${ARGS[0]:-$OUT/uefi-boot.tar}"
+SYSTEM_RAW="${ARGS[1]:-$OUT/system.img}"
+CACHE_RAW="${ARGS[2]:-$OUT/cache.img}"
+if [ "$DISK_MODE" = 1 ]; then
+  BUNDLE="$OUT/beyond2lte-winpe-ufs-disk.tar"
+else
+  BUNDLE="$OUT/beyond2lte-winpe-ufs.tar"
+fi
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 fail() { echo "HATA: $*" >&2; exit 1; }
@@ -38,6 +53,20 @@ done
 
 command -v tar >/dev/null || fail "tar yok"
 command -v img2simg >/dev/null || fail "img2simg yok -> sudo apt install -y android-sdk-libsparse-utils"
+
+if [ "$DISK_MODE" = 1 ]; then
+  command -v mdir >/dev/null || fail "--disk CACHE ESP dogrulamasi icin mtools/mdir gerekli"
+  NTFS_MAGIC="$(dd if="$SYSTEM_RAW" bs=1 skip=3 count=8 status=none)"
+  [ "$NTFS_MAGIC" = "NTFS    " ] || fail "--disk SYSTEM imaji NTFS degil"
+  MTOOLS_SKIP_CHECK=1 mdir -i "$CACHE_RAW" ::/EFI/Microsoft/Boot/BCD >/dev/null 2>&1 || \
+    fail "--disk CACHE imajinda EFI/Microsoft/Boot/BCD yok"
+  if MTOOLS_SKIP_CHECK=1 mdir -i "$CACHE_RAW" ::/sources/boot.wim >/dev/null 2>&1; then
+    fail "--disk CACHE ESP hala boot.wim tasiyor; RAM disk imaji reddedildi"
+  fi
+  say "DISK MODU dogrulandi"
+  echo "  SYSTEM: NTFS"
+  echo "  CACHE: bootmgfw/BCD ESP, boot.wim yok"
+fi
 
 say "Girdiler"
 printf '  BOOT arsivi: %s\n' "$BOOT_TAR"
@@ -111,12 +140,14 @@ for DESK in /mnt/c/Users/*/OneDrive/Masa*st* \
   break
 done
 
-cat <<'SON'
-
-Hazir: out/beyond2lte-winpe-ufs.tar
-  Odin -> AP: bu TEK dosya
-  Re-Partition: KAPALI
-
-Arsiv yalnizca boot.img, system.img ve cache.img icerir.
-SYSTEM ve CACHE'nin Android sparse oldugu bu betik tarafindan dogrulandi.
-SON
+echo
+echo "Hazir: ${BUNDLE#$HERE/}"
+echo "  Odin -> AP: bu TEK dosya"
+echo "  Re-Partition: KAPALI"
+echo
+echo "Arsiv yalnizca boot.img, system.img ve cache.img icerir."
+if [ "$DISK_MODE" = 1 ]; then
+  echo "SYSTEM NTFS, CACHE disk-BCD ESP ve iki sparse imaj dogrulandi."
+else
+  echo "SYSTEM ve CACHE'nin Android sparse oldugu dogrulandi."
+fi

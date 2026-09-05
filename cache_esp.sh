@@ -6,7 +6,7 @@
 #   out/cache.img       ham imaj   -> recovery + adb dd yolu
 #   out/cache-esp.tar   sparse tar -> Odin, AP slotu
 #
-#   bash cache_esp.sh [--win] [--baseline|--psci-hvc|--bos] [iceri-konacak-dosya.efi]
+#   bash cache_esp.sh [--win] [--disk|--baseline|--psci-hvc|--bos] [iceri-konacak-dosya.efi]
 #
 # Argüman verilmezse Mu-Silicium build'indeki Shell.efi aranir.
 #
@@ -58,6 +58,7 @@ BIGPART=0
 BOSALT=0
 BASELINE=0
 PSCI_HVC=0
+DISKBOOT=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
@@ -67,6 +68,7 @@ for a in "$@"; do
     --bos)    BOSALT=1 ;;
     --baseline) BASELINE=1 ;;
     --psci-hvc) PSCI_HVC=1 ;;
+    --disk)   DISKBOOT=1 ;;
     *)        ARGS+=("$a") ;;
   esac
 done
@@ -74,7 +76,8 @@ if [ ${#ARGS[@]} -gt 0 ]; then set -- "${ARGS[@]}"; else set --; fi
 
 #
 # --baseline: B2L UEFI tani kodu calistirmayan Windows ESP. Imzali Windows
-# surucu paketleri boot.wim icinde kalir ve startnet.cmd tarafindan kurulur.
+# surucu paketleri boot.wim offline DriverStore'unda kalir; startnet yalniz
+# durumlarini denetler.
 #
 # Bu mod B2LGOSTR.EFI ve EBSTEST.EFI'yi imaja ALMAZ, normal startup.nsh
 # yerine yalnizca bootmgfw.efi'yi bulan kucuk baslangic betigini koyar.
@@ -107,6 +110,25 @@ if [ "$BOSALT" = 1 ] && [ "$BIGPART" = 1 ]; then
   echo "--bos yalniz CACHE icindir; --system ile birlikte kullanilmaz."
   echo "Dogru komut: bash cache_esp.sh --win --bos"
   exit 1
+fi
+if [ "$DISKBOOT" = 1 ] && [ "$WINONLY" = 0 ]; then
+  echo "--disk yalniz Windows ESP icindir: bash cache_esp.sh --win --disk --baseline"
+  exit 1
+fi
+if [ "$DISKBOOT" = 1 ] && { [ "$BIGPART" = 1 ] || [ "$BOSALT" = 1 ]; }; then
+  echo "--disk CACHE'te boot ESP, SYSTEM'de NTFS kullanir; --system/--bos ile birlesmez."
+  exit 1
+fi
+if [ "$DISKBOOT" = 1 ]; then
+  [ -s "$PROJ/esp/EFI/Microsoft/Boot/BCD" ] || {
+    echo "HATA: disk ESP icin BCD yok. Once: bash tools_winboot.sh --disk"
+    exit 1
+  }
+  [ ! -e "$PROJ/esp/sources/boot.wim" ] || {
+    echo "HATA: --disk secildi ama ESP hala boot.wim tasiyor; RAM disk karisimi reddedildi."
+    exit 1
+  }
+  say "MOD: UFS disk boot ESP (CACHE: bootmgfw + BCD, boot.wim yok)"
 fi
 if [ "$WINONLY" = 1 ]; then say "MOD: Windows"; else say "MOD: Linux"; fi
 if [ "$BASELINE" = 1 ]; then
@@ -656,7 +678,7 @@ PYUFX
   echo "  UI SCALE  : %$UiScale"
 }
 
-if [ "$WINONLY" = 1 ]; then
+if [ "$WINONLY" = 1 ] && [ "$DISKBOOT" = 0 ]; then
   verify_winpe_b2lufs_package
   verify_winpe_b2ltouch_package
   verify_winpe_b2lusb_package
@@ -734,8 +756,18 @@ if command -v mcopy >/dev/null; then
     echo "  Windows icin:  bash cache_esp.sh --win"
     echo "  esp/ toplami: $(du -sh "$PROJ/esp" | cut -f1) / imaj ${LIMIT_MB} MB"
   fi
-  # Windows icin boot.wim gerekiyor; sessizce eksik kalmasin.
-  if mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
+  # RAM WinPE icin boot.wim gerekir; disk modunda ise bulunmasi hatadir.
+  if [ "$DISKBOOT" = 1 ]; then
+    mdir -i "$IMG" ::/EFI/Microsoft/Boot/BCD >/dev/null 2>&1 || {
+      echo "HATA: disk ESP imajinda BCD yok."
+      exit 1
+    }
+    if mdir -i "$IMG" ::/sources/boot.wim >/dev/null 2>&1; then
+      echo "HATA: disk ESP imajina boot.wim sizdi."
+      exit 1
+    fi
+    echo "--- disk boot ESP: BCD VAR, boot.wim YOK"
+  elif mdir -i "$IMG" ::/sources >/dev/null 2>&1; then
     echo "--- sources/ (WinPE):"
     mdir -i "$IMG" ::/sources | sed 's/^/  /'
   else

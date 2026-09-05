@@ -40,9 +40,9 @@ setlocal enabledelayedexpansion
 ::
 ::
 ::   disk     WinPE'yi RAM diskten degil GERCEK BIR NTFS BOLUMDEN acar.
-::            ramdisk yerine locate= kullaniyor. storufs baglanmazsa winload
-::            ekrana hata basar - RAM diskteki sessizligin panzehiri.
-::            Once: bash tools_windisk.sh  (SYSTEM bolumu icin NTFS imaji)
+::            ramdisk yerine locate= kullaniyor. b2lufs boot-start olarak
+::            baglanmazsa Windows acilis birimini tasiyamaz.
+::            Once: bash tools_b2lufs.sh ve bash tools_windisk.sh
 ::
 ::   menu     "disk" + ACILIS MENUSU + 30 saniye bekleme.
 ::            TEK ACILISTA IKI SORUYU BIRDEN AYIRIR.
@@ -72,9 +72,8 @@ setlocal enabledelayedexpansion
 ::            NEDEN GERI DONUYORUZ: disk yolunda winload her seyi hatasiz
 ::            yukledi (50 saniye, UFS uzerindeki NTFS'ten) ama cekirdek 2
 ::            saniyede oldu. RAM diskte cekirdek sonuna kadar gidiyor.
-::            Aradaki tek fark acilis biriminin UFS olmasi, yani suclu
-::            storufs.sys - ve onu ACPI'den duzeltmenin yolu yok
-::            (bkz. STATUS.md, "storufs: kapanan kapi").
+::            O eski deney inbox storufs.sys yolundaydi. Guncel disk profili,
+::            offline DriverStore'a Start=0 kurulan b2lufs.sys icindir.
 ::
 ::            RAM disk yolunda Windows GERCEKTEN ACILIYOR. Sirada onu
 ::            ayakta tutmak ve calistigini gorunur kilmak var.
@@ -161,7 +160,7 @@ echo   osloader GUID: %G%
 :: RAM DISK MI, GERCEK BOLUM MU
 ::
 :: "disk" varyanti WinPE'yi RAM diskten degil NTFS bir bolumden aciyor.
-:: Fikir kullanicidan geldi ve haklıydı: RAM diskte storufs'un baglanip
+:: RAM diskte b2lufs'un baglanip
 :: baglanmamasi hicbir seyi degistirmiyor, o yuzden sessiz. Diskten acarken
 :: baglanmazsa winload ACILIS BIRIMINI BULAMAZ ve EKRANA HATA BASAR.
 ::
@@ -377,7 +376,13 @@ echo Dosya: %BCD%
 echo.
 echo Simdi WSL'de:
 echo   cp "%BCD%" ~/beyond2lte-uefi/windows/BCD
-echo   cd ~/beyond2lte-uefi ^&^& bash tools_winboot.sh ^&^& bash cache_esp.sh --win
+if defined DISKMOD (
+  echo   cd ~/beyond2lte-uefi ^&^& bash tools_winboot.sh --disk
+  echo   bash cache_esp.sh --win --disk --baseline
+  echo   bash tools_odin_winpe_bundle.sh --disk
+) else (
+  echo   cd ~/beyond2lte-uefi ^&^& bash tools_winboot.sh ^&^& bash cache_esp.sh --win
+)
 echo.
 pause
 exit /b 0

@@ -489,6 +489,34 @@ cp "$BM"  "$ESP/EFI/Microsoft/Boot/bootmgfw.efi"
 # bootstatuspolicy IgnoreAllFailures, quietboot No, sos On).
 #
 OWNBCD="$(dirname "$ESP")/windows/BCD"
+if [ "$DISK_MODU" = 1 ]; then
+  [ -s "$OWNBCD" ] || {
+    echo "HATA: --disk icin windows/BCD yok. Windows'ta windows\\bcd_olustur.cmd disk calistir."
+    exit 1
+  }
+  command -v bcdedit.exe >/dev/null || {
+    echo "HATA: --disk BCD kapisi icin WSL Windows interop/bcdedit.exe gerekli."
+    exit 1
+  }
+  command -v wslpath >/dev/null || { echo "HATA: wslpath yok"; exit 1; }
+  BCD_DUMP="$W/bcd-disk.txt"
+  if ! bcdedit.exe /store "$(wslpath -w "$OWNBCD")" /enum all > "$BCD_DUMP" 2>&1; then
+    tr -d '\000\r' < "$BCD_DUMP"
+    echo "HATA: windows/BCD bcdedit ile okunamadi."
+    exit 1
+  fi
+  tr -d '\000\r' < "$BCD_DUMP" > "$BCD_DUMP.txt"
+  grep -Fqi 'locate=\Windows\System32\winload.efi' "$BCD_DUMP.txt" || {
+    echo "HATA: --disk verildi ama BCD gercek bolum locate= girdisi tasimiyor."
+    echo "Windows'ta yeniden: windows\\bcd_olustur.cmd disk"
+    exit 1
+  }
+  if grep -Fqi 'ramdisk=' "$BCD_DUMP.txt"; then
+    echo "HATA: --disk BCD osloader girdisinde ramdisk bulundu."
+    exit 1
+  fi
+  echo "  BCD disk profili dogrulandi: locate=, ramdisk yok"
+fi
 if [ -s "$OWNBCD" ] && [ "$(head -c4 "$OWNBCD")" = "regf" ]; then
   cp "$OWNBCD" "$ESP/EFI/Microsoft/Boot/BCD"
   echo "  BCD: KENDI URETTIGIMIZ ($(stat -c%s "$OWNBCD") bayt, tani acik)"

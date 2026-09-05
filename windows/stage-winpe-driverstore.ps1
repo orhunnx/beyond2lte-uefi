@@ -2,7 +2,7 @@
 param(
     [string]$ProjectRoot,
     [string]$WimPath,
-    [ValidateSet("Usb", "Touch", "UsbTouch")]
+    [ValidateSet("Usb", "Touch", "UsbTouch", "Ufs")]
     [string]$Package,
     [string]$PreparedRoot
 )
@@ -81,6 +81,89 @@ function Set-B2LVhfOfflineService {
     }
 }
 
+function Test-B2LUfsOfflineBootService {
+    param(
+        [string]$MountPath,
+        [string]$DriverRoot
+    )
+
+    $sourceDriver = Join-Path $DriverRoot "b2lufs.sys"
+    $installedDriver = Join-Path $MountPath "Windows\System32\drivers\b2lufs.sys"
+    if (-not (Test-Path -LiteralPath $installedDriver -PathType Leaf)) {
+        throw "B2LUFS boot SYS offline Windows dizininde yok: $installedDriver"
+    }
+    $sourceHash = (Get-FileHash -LiteralPath $sourceDriver -Algorithm SHA256).Hash
+    $installedHash = (Get-FileHash -LiteralPath $installedDriver -Algorithm SHA256).Hash
+    if ($sourceHash -ne $installedHash) {
+        throw "B2LUFS boot SYS hash'i paket girdisinden farkli"
+    }
+
+    $systemHive = Join-Path $MountPath "Windows\System32\config\SYSTEM"
+    $hiveLeaf = "B2LUFSOFFLINE_$PID"
+    $hiveName = "HKLM\$hiveLeaf"
+    $loaded = $false
+    try {
+        Invoke-B2LReg -Arguments @("load", $hiveName, $systemHive)
+        $loaded = $true
+        $hiveRoot = "Registry::HKEY_LOCAL_MACHINE\$hiveLeaf"
+        $select = Get-ItemProperty -LiteralPath "$hiveRoot\Select"
+        $controlSetNumbers = @([int]$select.Current, [int]$select.Default)
+        if ($null -ne $select.PSObject.Properties["LastKnownGood"]) {
+            $controlSetNumbers += [int]$select.LastKnownGood
+        }
+        $controlSetNumbers = @($controlSetNumbers | Where-Object { $_ -gt 0 } | Sort-Object -Unique)
+        if ($controlSetNumbers.Count -eq 0) {
+            throw "B2LUFS offline SYSTEM etkin control set icermiyor"
+        }
+
+        foreach ($controlSetNumber in $controlSetNumbers) {
+            $controlSet = "ControlSet{0:D3}" -f $controlSetNumber
+            $servicePath = "$hiveRoot\$controlSet\Services\b2lufs"
+            if (-not (Test-Path -LiteralPath $servicePath)) {
+                throw "B2LUFS offline servis kaydi yok: $controlSet\Services\b2lufs"
+            }
+
+            $service = Get-ItemProperty -LiteralPath $servicePath
+            if ([int]$service.Type -ne 1) {
+                throw "B2LUFS offline Type boot surucusu degil: $controlSet=$($service.Type)"
+            }
+            if ([int]$service.Start -ne 0) {
+                throw "B2LUFS offline Start=0 degil: $controlSet=$($service.Start)"
+            }
+            if ([int]$service.ErrorControl -ne 3) {
+                throw "B2LUFS offline ErrorControl=3 degil: $controlSet=$($service.ErrorControl)"
+            }
+            if ([string]$service.Group -cne "SCSI Miniport") {
+                throw "B2LUFS offline load-order grubu gecersiz: $controlSet='$($service.Group)'"
+            }
+            $imagePath = ([string]$service.ImagePath).Replace('/', '\')
+            if ($imagePath -notmatch '(?i)^(\\SystemRoot\\)?System32\\drivers\\b2lufs\.sys$') {
+                throw "B2LUFS offline ImagePath gecersiz: $controlSet='$imagePath'"
+            }
+
+            $overridePath = Join-Path $servicePath "StartOverride"
+            if (Test-Path -LiteralPath $overridePath) {
+                $override = Get-ItemProperty -LiteralPath $overridePath
+                foreach ($property in $override.PSObject.Properties) {
+                    if ($property.Name -like "PS*") { continue }
+                    if ([int]$property.Value -ne 0) {
+                        throw "B2LUFS StartOverride boot-start'i engelliyor: $controlSet/$($property.Name)=$($property.Value)"
+                    }
+                }
+            }
+
+            Write-B2LStageLog "Offline B2LUFS boot servisi dogrulandi: $controlSet\\Services\\b2lufs Start=0 Group=SCSI Miniport ErrorControl=3"
+        }
+
+        Write-B2LStageLog "Offline B2LUFS SYS hash'i paketle ayni: $($installedHash.ToLowerInvariant())"
+    }
+    finally {
+        if ($loaded) {
+            Invoke-B2LReg -Arguments @("unload", $hiveName)
+        }
+    }
+}
+
 function Test-B2LRuntimeFiles {
     param([string]$MountPath, [object]$Record, [string]$Stage, [switch]$RequireMatch)
     $different = @()
@@ -116,6 +199,9 @@ function Invoke-B2LOfflineServicing {
     $mountRoot = Join-Path $WorkRoot "mount"
     New-Item -ItemType Directory -Path $mountRoot -Force | Out-Null
 
+    $hasUsb = $SelectedPackage -in @("Usb", "UsbTouch")
+    $hasTouch = $SelectedPackage -in @("Touch", "UsbTouch")
+
     if ($SelectedPackage -eq "Usb") {
         $requiredInfs = @("b2lmax77705.inf", "b2lusb-host.inf", "b2lusb-function.inf", "b2lusb.inf")
         $markerDirectories = @("Windows\B2LUSB")
@@ -124,9 +210,13 @@ function Invoke-B2LOfflineServicing {
         $requiredInfs = @("b2ltouch.inf")
         $markerDirectories = @("Windows\B2LTOUCH")
     }
-    else {
+    elseif ($SelectedPackage -eq "UsbTouch") {
         $requiredInfs = @("b2lmax77705.inf", "b2lusb-host.inf", "b2lusb-function.inf", "b2lusb.inf", "b2ltouch.inf")
         $markerDirectories = @("Windows\B2LUSB", "Windows\B2LTOUCH")
+    }
+    else {
+        $requiredInfs = @("b2lufs.inf")
+        $markerDirectories = @("Windows\B2LUFS")
     }
 
     $mounted = $false
@@ -137,7 +227,7 @@ function Invoke-B2LOfflineServicing {
 
         $runtime = $null
         $runtimeManifest = Join-Path $WorkRoot "experimental-ufx.json"
-        if ($SelectedPackage -ne "Touch" -and (Test-Path -LiteralPath $runtimeManifest)) {
+        if ($hasUsb -and (Test-Path -LiteralPath $runtimeManifest)) {
             $runtime = Get-Content -LiteralPath $runtimeManifest -Raw | ConvertFrom-Json
             if ($runtime.profile -ne "experimental-ufx-overlay-v2") {
                 throw "Bilinmeyen runtime paket profili"
@@ -173,8 +263,12 @@ function Invoke-B2LOfflineServicing {
             }
         }
 
-        if ($SelectedPackage -ne "Usb") {
+        if ($hasTouch) {
             Set-B2LVhfOfflineService -MountPath $mountRoot
+        }
+
+        if ($SelectedPackage -eq "Ufs") {
+            Test-B2LUfsOfflineBootService -MountPath $mountRoot -DriverRoot $driverRoot
         }
 
         $verified = @(Get-WindowsDriver -Path $mountRoot -All)
@@ -206,11 +300,19 @@ function Invoke-B2LOfflineServicing {
         foreach ($markerDirectory in $markerDirectories) {
             $markerRoot = Join-Path $mountRoot $markerDirectory
             New-Item -ItemType Directory -Path $markerRoot -Force | Out-Null
-            @(
+            $marker = @(
                 "B2L_OFFLINE_DRIVERSTORE=1"
                 "B2L_OFFLINE_PACKAGE=$($SelectedPackage.ToUpperInvariant())"
                 "B2L_OFFLINE_INFS=$($requiredInfs -join ',')"
-            ) | Set-Content -LiteralPath (Join-Path $markerRoot "offline-driverstore.txt") -Encoding ASCII
+            )
+            if ($SelectedPackage -eq "Ufs") {
+                $marker += @(
+                    "B2L_BOOT_START=1"
+                    "B2L_LOAD_ORDER_GROUP=SCSI Miniport"
+                    "B2L_ERROR_CONTROL=3"
+                )
+            }
+            $marker | Set-Content -LiteralPath (Join-Path $markerRoot "offline-driverstore.txt") -Encoding ASCII
         }
 
         Write-B2LStageLog "DISM commit: $SelectedPackage"
@@ -253,13 +355,15 @@ if (-not (Test-Path -LiteralPath $WimPath -PathType Leaf)) {
 
 $usbSourceDirectory = Join-Path $ProjectRoot "out\b2lusb"
 $touchSourceDirectory = Join-Path $ProjectRoot "out\b2ltouch"
+$ufsSourceDirectory = Join-Path $ProjectRoot "out\b2lufs"
 $usbFiles = @(
     "b2lmax77705.inf", "b2lusb-host.inf", "b2lusb-function.inf", "b2lusb.inf",
     "b2lmax77705.sys", "b2lusb.sys", "b2lusbmon.sys", "b2lusb.cat"
 )
 $touchFiles = @("b2ltouch.inf", "b2ltouch.sys", "b2ltouch.cat")
+$ufsFiles = @("b2lufs.inf", "b2lufs.sys", "b2lufs.cat")
 $packagedSynopsys = $false
-if ($Package -ne "Touch") {
+if ($Package -in @("Usb", "UsbTouch")) {
     $functionInf = Get-Content -LiteralPath (Join-Path $usbSourceDirectory "b2lusb-function.inf") -Raw
     $packagedSynopsys = ($functionInf -split "`r?`n")[0] -eq "; B2L_PACKAGED_SYNOPSYS=1"
     if ($packagedSynopsys) { $usbFiles += "ufxsynopsys.sys" }
@@ -278,7 +382,7 @@ try {
     if ($packagedSynopsys) {
         Copy-Item -LiteralPath (Join-Path $usbSourceDirectory "experimental-ufx.json") -Destination $workRoot
     }
-    if ($Package -ne "Touch") {
+    if ($Package -in @("Usb", "UsbTouch")) {
         foreach ($fileName in $usbFiles) {
             $sourceFile = Join-Path $usbSourceDirectory $fileName
             if (-not (Test-Path -LiteralPath $sourceFile -PathType Leaf)) {
@@ -287,9 +391,18 @@ try {
             Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $driverRoot $fileName) -Force
         }
     }
-    if ($Package -ne "Usb") {
+    if ($Package -in @("Touch", "UsbTouch")) {
         foreach ($fileName in $touchFiles) {
             $sourceFile = Join-Path $touchSourceDirectory $fileName
+            if (-not (Test-Path -LiteralPath $sourceFile -PathType Leaf)) {
+                throw "Driver paket dosyasi bulunamadi: $sourceFile"
+            }
+            Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $driverRoot $fileName) -Force
+        }
+    }
+    if ($Package -eq "Ufs") {
+        foreach ($fileName in $ufsFiles) {
+            $sourceFile = Join-Path $ufsSourceDirectory $fileName
             if (-not (Test-Path -LiteralPath $sourceFile -PathType Leaf)) {
                 throw "Driver paket dosyasi bulunamadi: $sourceFile"
             }
@@ -336,7 +449,15 @@ try {
 finally {
     # Keep stage hashes even on failure/UAC errors; do not lose the evidence
     # when the native Windows temporary directory is cleaned up.
-    $logDestination = if ($Package -eq "Touch") { $touchSourceDirectory } else { $usbSourceDirectory }
+    $logDestination = if ($Package -eq "Touch") {
+        $touchSourceDirectory
+    }
+    elseif ($Package -eq "Ufs") {
+        $ufsSourceDirectory
+    }
+    else {
+        $usbSourceDirectory
+    }
     if (Test-Path -LiteralPath $script:LogPath) {
         Copy-Item -LiteralPath $script:LogPath -Destination (Join-Path $logDestination "offline-driverstore.log") -Force
     }

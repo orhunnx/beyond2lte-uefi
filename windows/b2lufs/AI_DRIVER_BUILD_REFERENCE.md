@@ -471,8 +471,9 @@ INF şablonunun önemli bölümleri:
 | Hardware match | `ACPI\BYND9820` |
 | `AddService` flag | `0x00000002`; aygıtla ilişkili servis |
 | `ServiceType` | `1`; kernel driver |
-| `StartType` | `3`; PnP/demand start |
-| `ErrorControl` | `1`; normal hata denetimi |
+| `StartType` | `0`; Winload tarafından yüklenen boot-start sürücüsü |
+| `ErrorControl` | `3`; işletim sistemi diski için kritik hata denetimi |
+| `LoadOrderGroup` | `SCSI Miniport`; boot depolama miniport grubu |
 | `ServiceBinary` | `%12%\b2lufs.sys` |
 
 `SourceDisksFiles` içindeki açık `b2lufs.sys` eşlemesi, Inf2Cat'in ikiliyi
@@ -681,7 +682,10 @@ Betik aşağıdaki işleri yapar:
 9. CAT imzasını ve SYS-katalog eşleşmesini doğrular.
 10. INF/SYS/CAT/GPTDUMP SHA-256 manifesti üretir.
 11. Paket, GPT dump aracı ve `startnet.cmd` dosyasını `boot.wim` içine ekler.
-12. WIM'den geri extract ederek bütün hash'leri tekrar doğrular.
+12. Ortak DISM stage betiğiyle INF'yi offline DriverStore'a kurar.
+13. Offline SYSTEM hive'ında `Start=0`, `ErrorControl=3`, `SCSI Miniport`,
+    ImagePath ve kurulu SYS hash'ini doğrular.
+14. WIM'den geri extract ederek bütün hash ve boot marker'larını tekrar doğrular.
 
 Betik `set -euo pipefail` kullanır:
 
@@ -802,8 +806,10 @@ ekler:
 /Windows/B2LUFS/b2lufs.sys
 /Windows/B2LUFS/b2lufs.cat
 /Windows/B2LUFS/manifest.txt
+/Windows/B2LUFS/offline-driverstore.txt
 /Windows/System32/b2lgptdump.exe
 /Windows/System32/startnet.cmd
+/Windows/System32/drivers/b2lufs.sys
 ```
 
 Kullanılan temel biçimler:
@@ -823,6 +829,9 @@ wimlib-imagex extract <boot.wim> 1 <target> --dest-dir=<dir> --no-acls
   kaldırır; WIM içindeki dosya baytlarını değiştirmez.
 
 `startnet.cmd` WIM'e eklenmeden önce LF satır sonları CRLF'e çevrilir.
+`offline-driverstore.txt` yalnız DISM kurulumu ve offline SYSTEM/SYS
+doğrulamaları geçtikten sonra yazılır; dosyanın varlığı salt kopyalama
+işleminin değil boot-start servislemesinin marker'ıdır.
 
 ## 7. WinPE çalışma dosyası: `windows/startnet.cmd`
 
@@ -1111,11 +1120,14 @@ Kaynak ile türetilmiş çıktıları ayırmak önemlidir:
 | `out/b2lufs/b2lufs.inf` | `tools_b2lufs.sh` | INF şablonunun paket kopyası |
 | `out/b2lufs/b2lufs.cat` | Inf2Cat + SignTool | İmzalı driver catalog |
 | `out/b2lufs/b2lufs-manifest.txt` | `tools_b2lufs.sh` | Paket kimliği ve SHA-256 değerleri |
-| `esp/sources/boot.wim` | `tools_b2lufs.sh` tarafından güncellenir | WinPE + B2LUFS paketi |
+| `esp/sources/boot.wim` | `tools_b2lufs.sh` tarafından güncellenir | WinPE + offline boot-start B2LUFS paketi |
 | `out/system.img` | `cache_esp.sh --win --system` | Ham FAT WinPE/SYSTEM imajı |
 | `out/cache.img` | `cache_esp.sh --win --bos` | Ham 600 MiB FAT32 CACHE imajı |
 | `out/uefi-boot.tar` | `yap.sh` | Yalnız ham `boot.img` |
 | `out/beyond2lte-winpe-ufs.tar` | `tools_odin_winpe_bundle.sh` | Tek Odin AP paketi |
+| `out/system.img` (disk modu) | `tools_windisk.sh` | B2LUFS boot-start WinPE içeren NTFS SYSTEM |
+| `out/cache.img` (disk modu) | `cache_esp.sh --win --disk --baseline` | bootmgfw + disk BCD içeren temiz CACHE ESP |
+| `out/beyond2lte-winpe-ufs-disk.tar` | `tools_odin_winpe_bundle.sh --disk` | Diskten WinPE için tek Odin AP paketi |
 
 `out/` içeriği kaynak değildir. C veya INF değişikliğinden sonra SYS ve paket
 yeniden üretilmelidir.
@@ -1143,7 +1155,7 @@ bash yap.sh --acpi
 
 ACPI/UEFI kaynakları değişmediyse mevcut `out/uefi-boot.tar` kullanılabilir.
 
-### 14.4 WSL: SYSTEM ve boş CACHE
+### 14.4 WSL: RAM-WinPE SYSTEM ve boş CACHE
 
 ```bash
 bash cache_esp.sh --win --system
@@ -1161,6 +1173,20 @@ Nihai çıktı:
 ```text
 out/beyond2lte-winpe-ufs.tar
 ```
+
+### 14.6 WSL/Windows: UFS diskinden WinPE
+
+```bash
+bash tools_windisk.sh
+# Windows yonetici CMD: windows\bcd_olustur.cmd disk
+bash tools_winboot.sh /yol/Windows_ARM64.iso --disk
+bash cache_esp.sh --win --disk --baseline
+bash tools_odin_winpe_bundle.sh --disk
+```
+
+Nihai çıktı `out/beyond2lte-winpe-ufs-disk.tar` olur. SYSTEM NTFS imajında
+uygulanmış WinPE ve boot-start B2LUFS, CACHE ESP'de yalnız bootmgfw+disk BCD
+bulunur; RAM `boot.wim` ESP'ye dahil edilmez.
 
 ## 15. Katmanlar arası değişiklik haritası
 

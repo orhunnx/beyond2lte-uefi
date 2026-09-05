@@ -12,6 +12,7 @@
 #   yap.sh --touch         deneysel UEFI dokunmatik + zorunlu ACPI yenileme
 #   yap.sh --touch-test    kareli UEFI dokunmatik testi + Windows'a devam
 #   yap.sh --usb-test      USB tanisi + Windows ARM64 statik HOST paketi + zorunlu ACPI
+#   yap.sh --ufs-boot      B2LUFS ARM64 paketini WinPE'ye offline boot-start kur
 #   yap.sh --psci-hvc      deneysel: Windows PSCI'sini EL2 HVC koprusune yonlendir
 #   (Odin .tar ve .img her zaman uretilir)
 #   yap.sh --clean         temiz derleme (-c)
@@ -20,7 +21,7 @@ set -euo pipefail
 
 PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MU="${MU_SILICIUM:-$HOME/Mu-Silicium}"
-REL="DEBUG"; CLEAN=""; DO_ACPI=0; DO_TAR=0; PSCI_HVC=0; TOUCH=0; TOUCH_TEST=0; USB_TEST=0
+REL="DEBUG"; CLEAN=""; DO_ACPI=0; DO_TAR=0; PSCI_HVC=0; TOUCH=0; TOUCH_TEST=0; USB_TEST=0; UFS_BOOT=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -29,6 +30,7 @@ while [ $# -gt 0 ]; do
     --touch) TOUCH=1; DO_ACPI=1; shift ;;
     --touch-test) TOUCH=1; TOUCH_TEST=1; DO_ACPI=1; shift ;;
     --usb-test) USB_TEST=1; DO_ACPI=1; shift ;;
+    --ufs-boot) UFS_BOOT=1; DO_ACPI=1; shift ;;
     --psci-hvc) PSCI_HVC=1; DO_ACPI=1; shift ;;
     --tar)   shift ;;   # geriye donuk uyumluluk, artik varsayilan
     --clean) CLEAN="-c"; shift ;;
@@ -433,6 +435,22 @@ if [ "$USB_TEST" = 1 ]; then
   fi
 else
   rm -f "$PROJ/esp/B2LUSB.EFI"
+fi
+
+# B2LUFS en son offline-stage edilir. Touch ve USB ayni WIM'e daha once
+# kurulmus olabilir; UFS stage yalniz kendi INF paketini yeniler ve mevcut
+# paketleri korur. Start=0/SCSI Miniport/SYS hash kapilari tools_b2lufs.sh
+# icinde DISM commit edilmeden once denetlenir.
+if [ "$UFS_BOOT" = 1 ]; then
+  if [ "${B2L_SKIP_WINDOWS_UFS_BUILD:-0}" = "1" ]; then
+    echo "B2LUFS Windows boot paketi B2L_SKIP_WINDOWS_UFS_BUILD=1 ile atlandi"
+  else
+    [ -s "$PROJ/tools_b2lufs.sh" ] || {
+      echo "HATA: tools_b2lufs.sh yok veya bos"
+      exit 1
+    }
+    bash "$PROJ/tools_b2lufs.sh"
+  fi
 fi
 
 if [ "$TOUCH_TEST" = 1 ]; then

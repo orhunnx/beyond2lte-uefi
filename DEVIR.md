@@ -18,6 +18,24 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / B2LUFS boot-start ve diskten WinPE kaynak geçişi:** Cihazda
+> doğrulanmış son UFS yolu post-boot `pnputil` ile yüklenen `0.0.4.5` idi;
+> CACHE dosya yaz/geri-okuma çalışıyordu. Yeni `0.0.4.6` paket kaynağı
+> `StartType=0`, `ErrorControl=3`, `SCSI Miniport` grubundadır. B2LUFS artık
+> DISM ile offline DriverStore'a kurulur; commit öncesi offline SYSTEM hive,
+> ImagePath ve kurulu SYS hash'i geri okunur. `startnet.cmd` runtime INF
+> kurmaz, boot-start durumunu denetler. Disk akışı WIM'i NTFS SYSTEM'e açar,
+> BCD'yi `locate=\Windows\System32\winload.efi` için doğrular ve CACHE'te
+> yalnız bootmgfw+BCD tutar; RAM `boot.wim` disk ESP'sine sızarsa build durur.
+> Güncel tam başlangıç komutu
+> `bash yap.sh --touch --usb-test --ufs-boot --clean`dir. Ardından
+> `tools_windisk.sh`, Windows'ta `bcd_olustur.cmd disk`,
+> `tools_winboot.sh <ISO> --disk`, `cache_esp.sh --win --disk --baseline` ve
+> `tools_odin_winpe_bundle.sh --disk` çalışır. Çıktı
+> `out/beyond2lte-winpe-ufs-disk.tar`dır. Mac'te statik/regresyon testleri
+> geçti; gerçek WSL DISM/MSVC build'i ve cihaz disk boot sonucu henüz yoktur.
+> Bu doğrulandıktan sonraki ayrı hedef WinPE yerine Windows Desktop'tır.
+
 > **5 Eylül / USB geliştirmesine ara verildi — güncel son durum:** Kullanıcı
 > USB çalışmasını durdurdu; yeni build/flaş veya veri beklenmiyor. `.43`
 > ile MAX, BYN0002 ve URS host PnP Started doğrulanmıştı. Ek MAX FOTO v15
@@ -296,7 +314,8 @@ Mu-Silicium tabanlı UEFI üzerinden Windows ARM64 WinPE çalıştırmak ve ciha
 Bugün itibarıyla:
 
 - UEFI, ekran, yan tuşlar, ACPI, UEFI UFS, Windows Boot Manager, Windows
-  çekirdeği ve WinPE erken kullanıcı modu çalışıyor.
+  çekirdeği ve RAM-WinPE erken kullanıcı modu cihazda çalışıyor. B2LUFS
+  boot-start/disk-WinPE geçişi kaynakta hazır, cihaz doğrulaması bekliyor.
 - Windows `b2ltouch.sys` + VHF yolu çalışıyor; on temaslı gerçek multi-touch ve
   imleç hareketi cihazda doğrulandı.
 - Son cihaz fotoğraflarında eski sabit USB2 HOST denetleyicisi `Started/RUN` görülüyor.
@@ -367,7 +386,7 @@ Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
 | `b2lusb.sys` parent | `0.1.0.21` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
 | inbox host | `0.1.0.21` INF | `URS\BYN0002&HOST`, `USBXHCI` + GSIV 273 |
 | `b2lmax77705.sys` | `0.1.0.42` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG/PD |
-| `b2lufs.sys` | `0.0.4.5` kaynak sürümü | Deneysel Windows UFS miniport; güncel USB kapısı değil |
+| `b2lufs.sys` | `0.0.4.6` kaynak sürümü | Offline boot-start Windows UFS StorPort miniportu |
 
 Yalnız MAX77705 değiştiğinde parent/host sürümünün aynı kalması normaldir.
 Paket manifesti üç sürümü ayrı ayrı INF dosyalarından türetir. Cihaz fotoğrafını
@@ -381,8 +400,14 @@ seçilmelidir.
 
 ### 0.4 Açılış ve sürücü mimarisi
 
+Doğrulanmış eski yol:
 Samsung S-Boot → Mu-Silicium UEFI → SYSTEM FAT32 ESP → bootmgfw →
-WinPE boot.wim → startnet. Touch/VHF zinciri korunur.
+WinPE boot.wim RAM disk → startnet.
+
+Yeni disk hedefi:
+Samsung S-Boot → Mu-Silicium UEFI/UFS BlockIO → CACHE FAT ESP/bootmgfw →
+BCD `locate=` → SYSTEM NTFS/winload → boot-start b2lufs → aynı SYSTEM NTFS →
+WinPE startnet. Touch/VHF ve USB offline DriverStore paketleri korunur.
 
 USB kaynak mimarisi `.35`te:
 
@@ -443,8 +468,8 @@ bash tools_winpe_adk.sh "/mnt/c/Program Files (x86)/Windows Kits/10/Assessment a
 ```
 
 Bu işlemden sonra ilgili özel paketler yeniden WIM'e enjekte edilmelidir.
-Güncel `--touch --usb-test` turu touch ve USB paketini birlikte ekler. Windows
-UFS paketi de yeni WIM'de isteniyorsa ayrıca `bash tools_b2lufs.sh` çalıştırılır.
+`--touch --usb-test --ufs-boot` turu touch, USB ve boot-start UFS paketlerini
+aynı WIM'de korur; ayrıca `tools_b2lufs.sh` çağırmak gerekmez.
 
 Betikler kendi proje konumlarını bulur. Eski dokümanlardaki kullanıcıya özel
 mutlak repo yolları kopyalanmamalıdır. Harici Mu yolu farklıysa:
@@ -455,7 +480,7 @@ MU_SILICIUM=/gercek/Mu-Silicium/yolu bash yap.sh --touch --usb-test --clean
 
 ### 0.6 Güncel tam derleme ve flaş üretim turu
 
-MAX77705/USB + Windows touch için kullanılan günlük tam sıra:
+Son doğrulanmış RAM-WinPE üretim sırası:
 
 ```bash
 cd /bu/deponun/WSLdeki/yolu
@@ -481,6 +506,19 @@ Birinci komut tek turda:
 optimize/verify eder ve yerel sürücü hash'leriyle manifestin aynı olduğunu
 yeniden kontrol eder.
 
+Yeni UFS disk-boot üretim sırası aynı ilk komutu şu şekilde genişletir;
+`cache_esp.sh --win --system --baseline` bu profilde kullanılmaz çünkü SYSTEM
+artık FAT ESP değil NTFS işletim sistemi birimidir:
+
+```bash
+bash yap.sh --touch --usb-test --ufs-boot --clean
+bash tools_windisk.sh
+# Windows yonetici CMD: windows\bcd_olustur.cmd disk
+bash tools_winboot.sh /yol/Windows_ARM64.iso --disk
+bash cache_esp.sh --win --disk --baseline
+bash tools_odin_winpe_bundle.sh --disk
+```
+
 Derleme sırasında Windows'ta UAC penceresi gelmesi normaldir; offline DISM
 servislemesi yönetici yetkisi ister. Kaynak değiştiği halde eski `.sys`
 kullanılmamalıdır.
@@ -494,6 +532,7 @@ kullanılmamalıdır.
 | `--touch` | `--acpi`yi zorlar; UEFI touch DXE'yi ve Windows VHF paketini açar | Windows touch korunacaksa |
 | `--touch-test` | `--touch`ü içerir; Windows öncesi kareli UEFI touch test uygulamasını ESP'ye koyar | Yalnız dokunmatik tanısı |
 | `--usb-test` | `--acpi`yi zorlar; MAX DXE ve `B2LUSB.EFI` üretir, Windows statik HOST paketini derler/stage eder | Güncel USB/MAX geliştirme turu |
+| `--ufs-boot` | `--acpi`yi zorlar; B2LUFS'yi derler, imzalar ve WIM'e offline boot-start stage eder | UFS/NTFS disk boot üretimi |
 | `--psci-hvc` | ACPI FADT'yi HVC yapar ve EL2 köprüsünü açar | Ayrı, deneysel PSCI turu; USB günlük turuyla karıştırma |
 | `--clean` | Mu build'ini temiz yapar | Kaynak/INF/ACPI değiştiğinde kullan |
 | `-r RELEASE` veya `--release RELEASE` | RELEASE UEFI üretir | Tanı gerekmeyen boyut/hız turu |
@@ -515,6 +554,7 @@ mount/commit işleminde birleştirir. Bu yüzden güncel tam turda ayrıca
 | `B2L_USB_AUTO_HOST` | `yap.sh --usb-test` içinde `1` | WIM'e otomatik HOST test marker'ı koyar; `0` tanı akışını kapatır |
 | `B2L_SKIP_WINDOWS_TOUCH_BUILD` | `0` | `1` touch Windows build/stage'ini atlar; normal tam turda kullanma |
 | `B2L_SKIP_WINDOWS_USB_BUILD` | `0` | `1` yalnız UEFI USB uygulamasını bırakır; güncel Windows testi için kullanma |
+| `B2L_SKIP_WINDOWS_UFS_BUILD` | `0` | `1` UFS boot paketini atlar; disk-boot profilinde kullanma |
 | `B2L_SKIP_MSVC_BUILD` | `0` | `1` mevcut ARM64 çıktıları yeniden paketler; yalnız kaynaklardan eski değillerse |
 | `B2L_ALLOW_STALE_SYS` | `0` | Eski `.sys` korumasını bilinçli aşar; normal testte kesinlikle kullanma |
 | `B2L_WINROOT`, `B2L_WDK_ROOT` | `/mnt/c`, otomatik WDK | Windows/WDK farklı diskteyse ileri düzey yol override'ı |
@@ -530,6 +570,7 @@ değişkenleridir; günlük komutta elle verilmemelidir.
 | bayraksız | Linux ESP'yi `CACHE` için üretir; Windows dosyalarını dışlar |
 | `--win` | Windows bootmgfw/BCD/boot.sdi/boot.wim içeren ESP üretir |
 | `--system` | 600 MiB CACHE yerine büyük Android `SYSTEM` bölümünü hedefler; büyük WIM için gereklidir |
+| `--disk` | Yalnız `--win` ile CACHE'te bootmgfw+BCD ESP üretir; `boot.wim` bulunursa reddeder; `--baseline` ile kullanılabilir |
 | `--linux` | Linux'u bilerek SYSTEM'e yazacağını açık eder; güvenlik kilidini kaldırır |
 | `--baseline` | Yalnız Windows. `B2LGOSTR/B2LUSB/B2LTOUCH/EBSTEST.EFI` uygulamalarını dışlar, fakat Windows sürücülerini WIM'de tutar |
 | `--bos` | Yalnız `--win` ile, 600 MiB boş FAT32 CACHE üretir; `--system` ile birlikte kullanılamaz |
@@ -538,11 +579,13 @@ değişkenleridir; günlük komutta elle verilmemelidir.
 Kritik ayrımlar:
 
 - `--system` verip `--win` vermemek geçmişte SYSTEM'e Linux ESP yazılmasına
-  yol açtı. Betik artık bunu reddeder. Güncel Windows komutu tam olarak
+  yol açtı. Betik artık bunu reddeder. RAM-WinPE komutu tam olarak
   `--win --system --baseline` olmalıdır.
 - `--baseline`, UEFI tanı **uygulamalarını** çıkarır; `b2lusb.sys`,
   `b2lmax77705.sys` ve `b2ltouch.sys` WIM içinde kalır. Güncel WinPE sürücü
   testi için doğru profildir.
+- Disk profilinde `--baseline` SYSTEM ESP üretilmez. `tools_windisk.sh` WIM'i
+  NTFS SYSTEM'e açar; `cache_esp.sh --win --disk --baseline` yalnız temiz önyükleme ESP'sidir.
 - Güncel betik `--baseline` turunda birleşik `beyond2lte-usb-diag.tar`
   üretmez. Gerçek çıktılar `out/uefi-boot.tar` (`boot.img`) ve
   `out/system-esp.tar` (`system.img`) olur. Eski `BUILD.md` içindeki
@@ -561,8 +604,8 @@ Samsung Odin hedefi tar arşivinin içindeki dosya adına göre seçer:
 | Tar üyesi | Hedef bölüm |
 |---|---|
 | `boot.img` | `BOOT` — Mu-Silicium UEFI |
-| `system.img` | `SYSTEM` — Windows FAT32 ESP + WIM |
-| `cache.img` | `CACHE` — Linux/boş/yardımcı ESP |
+| `system.img` | `SYSTEM` — RAM profilinde FAT32 ESP+WIM; disk profilinde NTFS WinPE |
+| `cache.img` | `CACHE` — disk profilinde bootmgfw+BCD ESP; diğer profillerde Linux/boş/yardımcı ESP |
 
 Flaş öncesi her arşivi doğrula:
 
@@ -576,6 +619,9 @@ Güncel baseline turunda ilk arşiv yalnız `boot.img`, ikincisi yalnız
 birlikte bulunmalıdır; farklı turlardan kalan arşivler karıştırılmamalıdır.
 Birleşik tanı profili kullanılıyorsa ilgili tar içinde hem `boot.img` hem
 `system.img` gözle doğrulanır.
+Disk profilinde `tar -tf out/beyond2lte-winpe-ufs-disk.tar` çıktısı sırasıyla
+`boot.img`, `system.img`, `cache.img` olmalıdır; bundle betiği SYSTEM'in NTFS,
+CACHE'in BCD taşıyan ve `boot.wim` taşımayan ESP olduğunu ayrıca doğrular.
 
 Odin'de arşiv AP alanından yüklenir ve **Re-Partition kesinlikle kapalı**
 kalır. Bu çalışma `sboot`u değil Android BOOT/SYSTEM/CACHE bölümlerini
