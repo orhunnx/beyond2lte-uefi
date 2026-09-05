@@ -58,7 +58,13 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 command -v 7z >/dev/null || { echo "7z yok -> sudo apt install -y p7zip-full"; exit 1; }
 
 say "ISO: $ISO"
-W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
+W="$(mktemp -d)"
+BCD_LOCAL=""
+cleanup() {
+  rm -rf "$W"
+  [ -z "$BCD_LOCAL" ] || rm -f "$BCD_LOCAL"
+}
+trap cleanup EXIT
 
 say "ISO icindeki boot dosyalari araniyor"
 #
@@ -499,12 +505,33 @@ if [ "$DISK_MODU" = 1 ]; then
     exit 1
   }
   command -v wslpath >/dev/null || { echo "HATA: wslpath yok"; exit 1; }
+  command -v powershell.exe >/dev/null || {
+    echo "HATA: --disk BCD kapisi icin powershell.exe gerekli."
+    exit 1
+  }
   BCD_DUMP="$W/bcd-disk.txt"
-  if ! bcdedit.exe /store "$(wslpath -w "$OWNBCD")" /enum all > "$BCD_DUMP" 2>&1; then
+
+  # bcdedit, \\wsl.localhost UNC yolu uzerindeki registry hive'ini acamaz ve
+  # "Incorrect function / Yanlis islev" doner. BCD'yi Windows'un yerel TEMP
+  # dizinine birebir kopyalayip /store kontrolunu NTFS yolu uzerinden yap.
+  WIN_TEMP_WIN="$(powershell.exe -NoProfile -NonInteractive -Command '[IO.Path]::GetTempPath()' | tr -d '\r')"
+  [ -n "$WIN_TEMP_WIN" ] || { echo "HATA: Windows TEMP yolu okunamadi."; exit 1; }
+  WIN_TEMP_WSL="$(wslpath -u "$WIN_TEMP_WIN")"
+  [ -d "$WIN_TEMP_WSL" ] || { echo "HATA: Windows TEMP WSL'den gorunmuyor: $WIN_TEMP_WSL"; exit 1; }
+  BCD_LOCAL="$(mktemp "$WIN_TEMP_WSL/B2L-BCD.XXXXXX")"
+  cp "$OWNBCD" "$BCD_LOCAL"
+  cmp -s "$OWNBCD" "$BCD_LOCAL" || {
+    echo "HATA: BCD Windows TEMP kopyasi kaynaktan farkli."
+    exit 1
+  }
+
+  if ! bcdedit.exe /store "$(wslpath -w "$BCD_LOCAL")" /enum all > "$BCD_DUMP" 2>&1; then
     tr -d '\000\r' < "$BCD_DUMP"
     echo "HATA: windows/BCD bcdedit ile okunamadi."
     exit 1
   fi
+  rm -f "$BCD_LOCAL"
+  BCD_LOCAL=""
   tr -d '\000\r' < "$BCD_DUMP" > "$BCD_DUMP.txt"
   grep -Fqi 'locate=\Windows\System32\winload.efi' "$BCD_DUMP.txt" || {
     echo "HATA: --disk verildi ama BCD gercek bolum locate= girdisi tasimiyor."

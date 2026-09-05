@@ -52,6 +52,12 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > Yerel statik, shell, touch ve USB regresyonları geçti; yeni WSL/DISM turu
 > henüz cihaz tarafında doğrulanmadı.
 
+> **5 Eylül / disk BCD WSL UNC doğrulama düzeltmesi:** `bcdedit.exe /store`,
+> repo içindeki `windows/BCD` için üretilen `\\wsl.localhost\...` yolunu
+> registry hive olarak açmayıp “Yanlış işlev” döndürdü. `tools_winboot.sh`
+> artık BCD'yi hash eşitliği korunarak Windows'un yerel `%TEMP%` NTFS yoluna
+> kopyalar, disk/ramdisk kapısını orada çalıştırır ve geçici kopyayı siler.
+
 > **5 Eylül / USB geliştirmesine ara verildi — güncel son durum:** Kullanıcı
 > USB çalışmasını durdurdu; yeni build/flaş veya veri beklenmiyor. `.43`
 > ile MAX, BYN0002 ve URS host PnP Started doğrulanmıştı. Ek MAX FOTO v15
