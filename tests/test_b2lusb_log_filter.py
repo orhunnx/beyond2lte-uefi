@@ -72,8 +72,10 @@ with tempfile.TemporaryDirectory(prefix='b2l-filter-test-') as directory:
     r=run('missing',None); assert r.returncode==2 and 'OPEN_ERROR' in r.stdout
     r=run('long',b'x'*16384+b'Status: Started\n'); assert r.returncode==2 and 'LINE_TOO_LONG' in r.stdout
     r=run('metacharacters',b'MAX_PATH=!thing! & (device) %PATH%\n'); assert r.returncode==0 and '!thing! & (device) %PATH%' in r.stdout
-# Boot-time consumers must use the staged executable, never missing findstr.
+# USB diagnostics are disabled in the disk-boot profile and must not leak into
+# WinPE startup. The standalone tool remains tested above.
 startnet=(ROOT/'windows/startnet.cmd').read_text()
 assert 'findstr ' not in startnet.lower()
-assert startnet.count('b2lusbctl.exe" filter ')==5
+assert 'b2lusbctl.exe' not in startnet.lower()
+assert 'b2lusb' not in startnet.lower()
 print('B2LUSB log filter tests: PASS (UCRT Unicode decoding still needs WSL build)')

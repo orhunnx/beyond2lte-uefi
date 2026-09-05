@@ -60,10 +60,11 @@ grep -q 'B2L_DEFER_OFFLINE_STAGE=1' "$ROOT/yap.sh"
 grep -q 'B2L_STAGE_TOUCH_WITH_USB="$WINDOWS_TOUCH_DEFERRED"' "$ROOT/yap.sh"
 grep -q 'delete --force /Windows/B2LTOUCH/offline-driverstore.txt' "$ROOT/tools_b2ltouch.sh"
 grep -q 'B2LTOUCH_PACKAGE=sec-ts-kmdf-vhf-ten-contact-live-diag' "$ROOT/tools_b2ltouch.sh"
-grep -q 'B2LTouchLaunchKeyboard' "$ROOT/windows/startnet.cmd"
-grep -q 'TabTip.exe' "$ROOT/windows/startnet.cmd"
-grep -q 'System32\\osk.exe' "$ROOT/windows/startnet.cmd"
-grep -q 'B2LOSK\\manifest.txt' "$ROOT/windows/startnet.cmd"
+if rg -q 'B2LTouchLaunchKeyboard|TabTip\.exe|System32\\osk\.exe|B2LTouchPrepareNativeOsk' \
+    "$ROOT/windows/startnet.cmd"; then
+  echo "HATA: ertelenmis OSK/TSF deneyi sade startnet.cmd icine sizmis" >&2
+  exit 1
+fi
 if rg -q 'b2losk|B2LTOUCH_OSK_SHA256' "$ROOT/windows" "$ROOT/tools_b2ltouch.sh"; then
   echo "HATA: yerel Windows klavyesi yerine paketlenmis ozel OSK bulundu" >&2
   exit 1
@@ -87,9 +88,11 @@ grep -q '/Windows/System32/osk.exe' "$ROOT/cache_esp.sh"
 grep -q '/Windows/B2LOSK/manifest.txt' "$ROOT/cache_esp.sh"
 grep -q 'B2LOSK_PACKAGE=microsoft-classic-osk-winpe-runtime-v2' "$ROOT/tools_winpe_native_osk.sh"
 grep -q 'B2LOSK_MSCTF_COM_REGISTRATION=runtime' "$ROOT/tools_winpe_native_osk.sh"
-grep -q 'B2LTouchPrepareNativeOsk' "$ROOT/windows/startnet.cmd"
-grep -Fq 'regsvr32.exe" /s "%SystemRoot%\System32\msctf.dll' "$ROOT/windows/startnet.cmd"
-grep -q '529A9E6B-6587-4F23-AB9E-9C7D683E3C50' "$ROOT/windows/startnet.cmd"
+if rg -qi 'regsvr32|msctf\.dll|529A9E6B-6587-4F23-AB9E-9C7D683E3C50' \
+    "$ROOT/windows/startnet.cmd"; then
+  echo "HATA: TSF runtime kayit deneyi startnet.cmd icinde kalmis" >&2
+  exit 1
+fi
 grep -q 'WIMLIB_IMAGEX_IGNORE_CASE=1' "$ROOT/tools_winpe_native_osk.sh"
 grep -q 'B2LTOUCH/offline-driverstore.txt' "$ROOT/cache_esp.sh"
 grep -q 'B2LUSB/offline-driverstore.txt' "$ROOT/cache_esp.sh"

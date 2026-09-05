@@ -277,21 +277,18 @@ akışı bu kayıtları veya genel disk envanterini konsola dökmez.
 
 `b2lufs` artık DISM ile offline DriverStore'a kurulur. INF paketi
 `StartType=0`, `ErrorControl=3` ve `LoadOrderGroup="SCSI Miniport"` taşır;
-bu nedenle Winload sürücüyü çekirdeğe geçmeden yükler. `startnet.cmd` sürücü
-kurmaz veya yeniden tarama istemez; SYSTEM hive'daki `Start=0`/grup kaydını,
-yüklenmiş servis durumunu ve `ACPI\BYND9820` PnP yığınını raporlar.
+bu nedenle Winload sürücüyü çekirdeğe geçmeden yükler. Bu yol 5 Eylül 2026'da
+SM-G975F üzerinde gerçek UFS/NTFS SYSTEM'den WinPE kabuğuna kadar doğrulandı.
+`startnet.cmd` sürücü kurmaz veya yeniden tarama istemez; yalnız SYSTEM
+hive'daki `Start=0`/grup kaydını kısa bir güvenlik kapısı olarak denetler.
 
 `bash yap.sh --touch --ufs-boot --clean` kullanıldığında b2ltouch/VHF ile
 B2LUFS `TouchUfs` profili altında tek DISM mount/commit oturumunda eklenir;
 deneysel B2LUSB paketleri bu disk-boot profilinden kaldırılır.
 
-`startnet.cmd` otomatik harf atamasını kapatır; `Disk 0 / Partition 28` odağındaki CACHE
-volume'unu açıkça çevrimiçi yapıp `W:` olarak bağlar.
-Akış, eski GPT/PnP envanteri/registry/ETW tanı kalabalığını üretmeden
-yalnız yazma yolunun karar vermek için gereken ayrıntılarını gösterir:
-paket kimliği, boot-start/PnP sonucu, DiskPart'ın volume'u online
-yapma ve `W:` atama sonucu, `vol W:` bilgisi, yazılan yol ve geri okunan
-içerik. Başarılı testin kabul kanıtı şu tek satırdır:
+`startnet.cmd` otomatik harf atamasını kapatır. Önceki otomatik CACHE bağlama
+ve yaz/geri-okuma testi disk-boot başarısından sonra başlangıç yolundan
+çıkarıldı. Tarihsel kabul kanıtı şu tek satırdı:
 
 `CACHE basarili: W:\B2LUFS-WRITE-OK.TXT yazildi ve geri okundu.`
 
@@ -299,8 +296,8 @@ Bu satır, `Disk 0 / Partition 28`, bağlama sonrası `CACHE` etiketi ve FAT32
 bağlama kontrollerinin geçtiğini; dosyanın yazılıp aynı içerikle geri okunduğunu
 gösterir. `vol` çıktısındaki `CACHE` etiketi Windows'un `find.exe`
 aracıyla doğrulanır; böylece yerelleştirilmiş `vol` metninde `findstr` kaynaklı
-yanlış negatif oluşmaz. Otomatik akış GPT, tam PnP envanteri, registry veya
-ETW tanı dökümü üretmez.
+yanlış negatif oluşmaz. Güncel otomatik akış GPT, tam PnP envanteri,
+registry/ETW, USB/MAX veya CACHE yazma tanısı üretmez.
 
 ### Cihaz üstü doğrulama
 

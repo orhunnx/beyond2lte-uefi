@@ -74,7 +74,7 @@ class B2LUfsBootPipelineTests(unittest.TestCase):
     def test_winpe_never_runtime_installs_b2lufs(self) -> None:
         startnet = read("windows/startnet.cmd")
         match = re.search(
-            r"(?ms)^:B2LUfsVerifyBootStart\n(?P<body>.*?)(?=^:B2LUfsMountCache\n)",
+            r"(?ms)^:B2LUfsVerifyBootStart\n(?P<body>.*?)(?=^:B2LTouchVerify\n)",
             startnet,
         )
         self.assertIsNotNone(match)
@@ -83,6 +83,9 @@ class B2LUfsBootPipelineTests(unittest.TestCase):
         self.assertIn('if /i not "%B2LUFSSTART%"=="0x0"', body)
         self.assertIn('if /i not "%B2LUFSGROUP%"=="SCSI Miniport"', body)
         self.assertIn('reg.exe query "HKLM\\SYSTEM\\CurrentControlSet\\Services\\b2lufs"', body)
+        self.assertNotIn(":B2LUfsMountCache", startnet)
+        self.assertNotIn("B2LUSB", startnet)
+        self.assertNotIn("pnputil", startnet.lower())
 
     def test_disk_image_and_esp_reject_ram_boot_mix(self) -> None:
         windisk = read("tools_windisk.sh")

@@ -293,6 +293,10 @@ artık FAT/RAM-WinPE ESP'si değil, `tools_windisk.sh` tarafından üretilen NTF
 işletim sistemi birimidir. CACHE yalnız bootmgfw ve disk BCD'sini taşır.
 Nihai AP dosyası `out/beyond2lte-winpe-ufs-disk.tar` olur.
 
+Bu sıra 5 Eylül 2026'da SM-G975F üzerinde doğrulandı: cihaz RAM `boot.wim`
+kullanmadan CACHE ESP'deki boot manager/BCD ile UFS üzerindeki NTFS SYSTEM'e
+geçti ve WinPE kabuğuna ulaştı.
+
 `--touch --ufs-boot` sırasında Touch/VHF ve B2LUFS tek DISM mount/commit
 oturumunda eklenir. Önceki komut alışkanlığıyla ayrıca `--usb-test` verilirse
 seçenek bu profilde yok sayılır; eski B2LUSB DriverStore paketleri ve runtime

@@ -1,6 +1,11 @@
 # beyond2lte UEFI — durum
 
-**Son güncelleme:** 10 Ağustos 2026 — UEFI ilk kez açıldı.
+**Son güncelleme:** 5 Eylül 2026 — B2LUFS boot-start ile UFS/NTFS diskten WinPE açıldı.
+
+> Güncel dönüm noktası: özel ARM64 `b2lufs.sys` sürücüsü offline DriverStore'a
+> `Start=0`, `SCSI Miniport` olarak kuruldu. `bootmgfw` ve disk BCD'si CACHE
+> ESP'den, Windows/WinPE dosyaları gerçek NTFS SYSTEM bölümünden okundu ve
+> cihaz WinPE kabuğuna ulaştı. RAM `boot.wim` bu profilde kullanılmıyor.
 
 ## Çalışan / çalışmayan
 
@@ -10,8 +15,9 @@
 | Display | ✅ | Framebuffer `0xCA000000` doğruymuş |
 | Yan tuşlar | ✅ | Ses +/−, güç — `KeypadDeviceLib` GPIO'ları doğru |
 | **Dahili depolama (UFS)** | **✅** | 5 LUN, DiskIO protokolü kurulu — `S5E9820Pkg/Library/PlatformUfsLib` yazıldı |
-| USB | ❌ | Henüz sürücü yok |
-| OS boot | ❌ | Depolama olmadan mümkün değil |
+| USB | ⏸️ | Deneysel sürücüler disk-boot profilinde devre dışı |
+| Windows UFS/NTFS disk boot | ✅ | B2LUFS `0.0.4.6` boot-start ile WinPE kabuğuna ulaşıldı |
+| Windows Desktop | 🚧 | Sıradaki aşama; WinPE yerine tam ARM64 Windows imajı hazırlanacak |
 
 Karşılaştırma: upstream `beyond1lte` (S10) Status.md'de Display ✅ ve tuşlar ✅
 diyor ama "Inactive" işaretli. **beyond2lte artık ondan ileride** — çünkü onun

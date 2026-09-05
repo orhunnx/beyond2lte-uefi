@@ -312,11 +312,11 @@ fi
 grep -q 'b2lmax77705.sys' "$WIN/build-b2lusb.ps1"
 grep -q 'b2lmax77705.inf' "$ROOT/tools_b2lusb.sh"
 grep -q 'b2lmax77705.inf' "$ROOT/windows/stage-winpe-driverstore.ps1"
-grep -Fq 'B2LUSB-MAX77705.TXT' "$ROOT/windows/startnet.cmd"
-# One unfiltered key query retains all published values, including fields
-# omitted from the compact photo/console summary. Verify the dump destination
-# and that the driver still publishes the previously required values.
-grep -Fq 'reg.exe query "HKLM\SYSTEM\CurrentControlSet\Services\b2lmax77705" >> "%SystemDrive%\B2LUSB-MAX77705.TXT" 2>&1' "$ROOT/windows/startnet.cmd"
+# Disk-boot startup is intentionally free of the paused USB/MAX experiment.
+if rg -qi 'b2lmax77705|B2LUSB|MAX77705' "$ROOT/windows/startnet.cmd"; then
+  echo 'HATA: devre disi USB/MAX tanisi startnet.cmd icine sizmis' >&2
+  exit 1
+fi
 grep -Fq 'B2LMaxChgDetails2' "$MAIN"
 grep -Fq 'B2LMaxAutoVbusDisabled' "$MAIN"
 grep -Fq 'B2LMaxOpcodeResponse' "$MAIN"

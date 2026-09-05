@@ -246,7 +246,6 @@ grep -q 'b2lmax77705.sys' "$WIN/build-b2lusb.ps1"
 grep -q 'b2lusbmon.sys' "$ROOT/tools_b2lusb.sh"
 grep -q 'b2lmax77705.sys' "$ROOT/tools_b2lusb.sh"
 grep -q 'auto-host.test' "$ROOT/tools_b2lusb.sh"
-grep -q 'B2LUSB-AUTOHOST-STATUS.TXT' "$ROOT/windows/startnet.cmd"
 grep -q 'B2LUI/manifest.txt' "$ROOT/cache_esp.sh"
 grep -q 'USBXHCI.SYS' "$ROOT/tools_b2lusb.sh"
 grep -q 'USBHUB3.SYS' "$ROOT/tools_b2lusb.sh"
@@ -268,76 +267,16 @@ test "$(grep -n 'wimlib-imagex optimize' "$ROOT/cache_esp.sh" | head -n1 | cut -
 test "$(grep -n 'wimlib-imagex verify' "$ROOT/cache_esp.sh" | head -n1 | cut -d: -f1)" \
   -lt "$(grep -n 'ICERIK_MB=' "$ROOT/cache_esp.sh" | head -n1 | cut -d: -f1)"
 grep -q 'B2LGOSTR.EFI|B2LUSB.EFI|B2LTOUCH.EFI|EBSTEST.EFI' "$ROOT/cache_esp.sh"
-grep -q 'call :B2LUsbInstall' "$ROOT/windows/startnet.cmd"
-grep -A4 'call :B2LUsbInstall' "$ROOT/windows/startnet.cmd" | grep -q 'B2LUSBFAILED=1'
-if grep -A4 'call :B2LUsbInstall' "$ROOT/windows/startnet.cmd" | grep -q 'goto :Finish'; then
-  echo 'HATA: USB hatasi touch kurulumunu atliyor' >&2
+if rg -qi 'B2LUSB|b2lmax77705|USBXHCI|USBHUB3|Ucx01000|tracerpt|logman' \
+    "$ROOT/windows/startnet.cmd"; then
+  echo 'HATA: devre disi USB/MAX tanisi sade startnet.cmd icine sizmis' >&2
   exit 1
 fi
-grep -q 'UYARI: B2LUSB basarisiz; touch ve UFS tanisi yine de surdurulecek' "$ROOT/windows/startnet.cmd"
-grep -Fq 'Services\Ucx01000' "$ROOT/windows/startnet.cmd"
-grep -Fq 'Services\USBXHCI' "$ROOT/windows/startnet.cmd"
-grep -Fq 'Services\USBHUB3' "$ROOT/windows/startnet.cmd"
-grep -Fq 'drivers\USBXHCI.SYS' "$ROOT/windows/startnet.cmd"
-grep -Fq 'drivers\USBHUB3.SYS' "$ROOT/windows/startnet.cmd"
-grep -Fq 'drivers\HIDUSB.SYS' "$ROOT/windows/startnet.cmd"
-grep -Fq 'drivers\MOUHID.SYS' "$ROOT/windows/startnet.cmd"
-grep -Fq 'drivers\MOUCLASS.SYS' "$ROOT/windows/startnet.cmd"
-grep -Fq 'Services\HidUsb' "$ROOT/windows/startnet.cmd"
-grep -Fq 'Services\mouhid' "$ROOT/windows/startnet.cmd"
-grep -Fq 'Services\mouclass' "$ROOT/windows/startnet.cmd"
-grep -Fq 'Services\b2lmax77705' "$ROOT/windows/startnet.cmd"
-grep -Fq 'ACPI\BYN0004' "$ROOT/windows/startnet.cmd"
-grep -Fq 'B2LUSB-MAX77705.TXT' "$ROOT/windows/startnet.cmd"
-grep -Fq 'B2LUSB-MAX77705-SUMMARY.TXT' "$ROOT/windows/startnet.cmd"
-grep -Fq 'B2LUSB MAX77705 kritik ozet' "$ROOT/windows/startnet.cmd"
-grep -Fq 'call :B2LUsbAppendMax77705Summary I2C_CTL B2LMaxHsI2cControl' "$ROOT/windows/startnet.cmd"
-grep -Fq 'call :B2LUsbAppendMax77705Summary I2C_ERR B2LMaxHsI2cErrorStatus' "$ROOT/windows/startnet.cmd"
-grep -Fq 'call :B2LUsbAppendMax77705Summary I2C_XFER B2LMaxHsI2cTransferStatus' "$ROOT/windows/startnet.cmd"
-grep -Fq 'call :B2LUsbAppendMax77705Summary I2C_REGADDR B2LMaxHsI2cAddress' "$ROOT/windows/startnet.cmd"
-grep -Fq 'call :B2LUsbAppendMax77705Summary I2C_TRYADDR B2LMaxHsI2cAttemptedAddress' "$ROOT/windows/startnet.cmd"
-grep -Fq 'call :B2LUsbAppendMax77705Summary I2C_PHASE B2LMaxHsI2cFailurePhase' "$ROOT/windows/startnet.cmd"
-grep -Fq 'call :B2LUsbAppendMax77705Summary MUIC_OK B2LMaxMuicPathVerified' "$ROOT/windows/startnet.cmd"
-grep -Fq 'call :B2LUsbAppendMax77705Summary OTG_HW B2LMaxOtgHardwareActive' "$ROOT/windows/startnet.cmd"
-grep -q 'b2lusbctl.exe" status' "$ROOT/windows/startnet.cmd"
-grep -q 'b2lusbctl.exe" observe' "$ROOT/windows/startnet.cmd"
-if rg -n 'pnputil /add-driver .*b2lusb' "$ROOT/windows/startnet.cmd"; then
-  echo 'HATA: USB paketi calisan WinPE oturumunda kurulmamali' >&2
+if rg -qi 'pnputil|setupapi|B2LUfsMountCache|B2LTouchLaunchKeyboard' \
+    "$ROOT/windows/startnet.cmd"; then
+  echo 'HATA: eski runtime tani/kurulum akisi startnet.cmd icinde kalmis' >&2
   exit 1
 fi
-grep -Fq 'B2LUSBDIR%\offline-driverstore.txt' "$ROOT/windows/startnet.cmd"
-if rg -n 'b2lusbctl\.exe" (host|none)' "$ROOT/windows/startnet.cmd"; then
-  echo 'HATA: otomatik USB testi Code 14 temizlenmeden rol degistirmemeli' >&2
-  exit 1
-fi
-grep -q 'if exist "%B2LUSBDIR%\\auto-host.test"' "$ROOT/windows/startnet.cmd"
-if rg -n 'pnputil /restart-device|B2LUSB-HOST-RESTART|HOST_TARGET_RESTART' "$ROOT/windows/startnet.cmd"; then
-  echo 'HATA: statik ACPI host ilk boot sonrasi otomatik yeniden baslatilmamali' >&2
-  exit 1
-fi
-grep -Fq 'Rol MAX77705 - UCM - URS zinciriyle belirlenir.' "$ROOT/windows/startnet.cmd"
-grep -Fq '/services /stack /drivers /resources' "$ROOT/windows/startnet.cmd"
-grep -Fq 'B2LUSB-HOST-RESOURCES.TXT' "$ROOT/windows/startnet.cmd"
-grep -Fq 'B2LUSB-HOST-MONITOR.TXT' "$ROOT/windows/startnet.cmd"
-grep -Fq '/s /f B2LMon' "$ROOT/windows/startnet.cmd"
-grep -Fq 'Microsoft-Windows-USB-USBXHCI' "$ROOT/windows/startnet.cmd"
-grep -Fq 'Microsoft-Windows-USB-UCX' "$ROOT/windows/startnet.cmd"
-grep -Fq 'tracerpt.exe' "$ROOT/windows/startnet.cmd"
-grep -Fq 'B2LUSB-ETW-SUMMARY.TXT' "$ROOT/windows/startnet.cmd"
-grep -Fq 'B2LUsbExportLogs' "$ROOT/windows/startnet.cmd"
-grep -Fq 'B2LUsbCollectSetupApiSummary' "$ROOT/windows/startnet.cmd"
-grep -Fq 'B2LUSB SetupAPI Code 10 ozeti' "$ROOT/windows/startnet.cmd"
-grep -Fq '"CM_PROB_FAILED_START"' "$ROOT/windows/startnet.cmd"
-grep -Fq '"0xC000009E"' "$ROOT/windows/startnet.cmd"
-grep -Fq 'pnputil /enum-devices /class USB /services /stack /drivers' "$ROOT/windows/startnet.cmd"
-grep -Fq 'B2LUSB-USB-SUMMARY.TXT' "$ROOT/windows/startnet.cmd"
-grep -Fq 'B2LUSB root hub / USB alici zinciri' "$ROOT/windows/startnet.cmd"
-grep -Fq '"Device Description:"' "$ROOT/windows/startnet.cmd"
-grep -Fq 'pnputil /enum-devices /class HIDClass /services /stack /drivers' "$ROOT/windows/startnet.cmd"
-grep -Fq 'pnputil /enum-devices /class Mouse /services /stack /drivers' "$ROOT/windows/startnet.cmd"
-grep -Fq 'B2LUSB-MOUSE.TXT' "$ROOT/windows/startnet.cmd"
-grep -Fq 'if exist "%B2LUSBDIR%\auto-host.test" cls' "$ROOT/windows/startnet.cmd"
-grep -Fq 'if not exist "%B2LUSBDIR%\auto-host.test" call :B2LTouchLaunchKeyboard' "$ROOT/windows/startnet.cmd"
 grep -q 'LogPixels /t REG_DWORD /d 168' "$ROOT/windows/startnet.cmd"
 grep -q 'mode con: cols=64 lines=41' "$ROOT/windows/startnet.cmd"
 

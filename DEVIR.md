@@ -18,9 +18,9 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
-> **5 Eylül / B2LUFS boot-start ve diskten WinPE kaynak geçişi:** Cihazda
-> doğrulanmış son UFS yolu post-boot `pnputil` ile yüklenen `0.0.4.5` idi;
-> CACHE dosya yaz/geri-okuma çalışıyordu. Yeni `0.0.4.6` paket kaynağı
+> **5 Eylül / B2LUFS boot-start ve diskten WinPE BAŞARILI:** Önceki doğrulanmış
+> UFS yolu post-boot `pnputil` ile yüklenen `0.0.4.5` idi; CACHE dosya
+> yaz/geri-okuma çalışıyordu. Yeni `0.0.4.6` paket kaynağı
 > `StartType=0`, `ErrorControl=3`, `SCSI Miniport` grubundadır. B2LUFS artık
 > DISM ile offline DriverStore'a kurulur; commit öncesi offline SYSTEM hive,
 > ImagePath ve kurulu SYS hash'i geri okunur. `startnet.cmd` runtime INF
@@ -34,9 +34,16 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > `tools_windisk.sh`, Windows'ta `bcd_olustur.cmd disk`,
 > `tools_winboot.sh <ISO> --disk`, `cache_esp.sh --win --disk --baseline` ve
 > `tools_odin_winpe_bundle.sh --disk` çalışır. Çıktı
-> `out/beyond2lte-winpe-ufs-disk.tar`dır. Mac'te statik/regresyon testleri
-> geçti; gerçek WSL DISM/MSVC build'i ve cihaz disk boot sonucu henüz yoktur.
-> Bu doğrulandıktan sonraki ayrı hedef WinPE yerine Windows Desktop'tır.
+> `out/beyond2lte-winpe-ufs-disk.tar`dır. WSL DISM/MSVC üretimi tamamlandı ve
+> paket gerçek SM-G975F üzerinde UFS/NTFS SYSTEM'den WinPE kabuğuna ulaştı.
+> Böylece `bootmgfw -> B2LUFS boot-start -> UFS/NTFS -> winload -> WinPE`
+> zinciri cihazda doğrulandı. Sıradaki hedef WinPE yerine Windows Desktop'tır.
+
+> **5 Eylül / startnet sadeleştirmesi:** Disk boot kanıtlandıktan sonra artık
+> paketlenmeyen USB/MAX77705 bring-up, ETW, SetupAPI, otomatik HOST, CACHE
+> yazma/geri-okuma tekrarı ve ertelenmiş OSK/TSF kayıt deneyi başlangıç
+> betiğinden çıkarıldı. `startnet.cmd` yalnız `wpeinit`, B2LUFS Start=0/grup
+> kapısı, Touch/VHF kısa durum kontrolü ve açık CMD kabuğunu korur.
 
 > **5 Eylül / İlk gerçek offline UFS denemesi ve ACCESS_DENIED düzeltmesi:**
 > WSL denemesinde `b2lufs.inf` eklendi; `ControlSet001`, `Start=0`,

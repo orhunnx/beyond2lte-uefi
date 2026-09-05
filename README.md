@@ -27,9 +27,9 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | Windows Boot Manager | ✅ çalışıyor, ekran çiziyor, ESP'den okuyor |
 | Windows çekirdeği (`ntoskrnl`) | ✅ başlıyor |
 | Windows ARM64 dokunmatik sürücüsü | ✅ KMDF/VHF, 10 temas ve gerçek multi-touch cihazda doğrulandı |
-| Windows ARM64 UFS miniportu | ✅ post-boot disk okuma/yazma; 🧪 `0.0.4.6` offline boot-start/disk boot cihaz doğrulaması bekliyor |
+| Windows ARM64 UFS miniportu | ✅ `0.0.4.6` boot-start; UFS/NTFS diskten WinPE cihazda açıldı |
 | WinPE yerel ekran klavyesi | ⏸️ Microsoft OSK yükleniyor fakat 28000/26200 ortamında başlatılamıyor; ertelendi |
-| Windows WinPE / erken kullanıcı modu | ✅ RAM'den açılıyor; 🧪 UFS/NTFS SYSTEM'den boot profili hazır |
+| Windows WinPE / erken kullanıcı modu | ✅ RAM ve UFS/NTFS SYSTEM üzerinden cihazda açılıyor |
 
 Ayrıntı: [`STATUS.md`](STATUS.md)
 
