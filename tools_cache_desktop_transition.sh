@@ -4,12 +4,15 @@
 # acilinca CACHE'i Disk 0 / Partition 28 olarak W: harfine baglar, mevcut
 # BCD'yi yedekler, winpe degerini siler, normal winload.efi yolunu yazar ve
 # telefonu kapatir. CACHE imaji uretmez ve CACHE partitionina flash atmaz.
+# Istege bagli ilk arguman ham disk-WinPE system.img veya onu tasiyan eski
+# Odin .tar arsividir. Arguman yoksa bilinen out/Masaustu yollarini arar.
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_WIM="$HERE/esp/sources/boot.wim"
 SOURCE_SYSTEM="$HERE/out/system.img"
+SOURCE_OVERRIDE="${1:-}"
 STARTNET="$HERE/windows/startnet-cache-desktop.cmd"
 OUT="$HERE/out"
 IMAGE="$OUT/system-cache-bcd-transition.img"
@@ -33,15 +36,71 @@ CHECK="$WORK/check"
 mkdir -p "$CHECK/startnet" "$CHECK/ufs"
 rm -f "$IMAGE" "$TAR"
 
-if [ -s "$SOURCE_SYSTEM" ] && \
-   [ "$(dd if="$SOURCE_SYSTEM" bs=1 skip=3 count=8 status=none)" = "NTFS    " ]; then
+system_is_ntfs() {
+  [ -s "$1" ] && [ "$(dd if="$1" bs=1 skip=3 count=8 status=none)" = "NTFS    " ]
+}
+
+archive_has_system() {
+  [ -s "$1" ] && [ "$(tar -tf "$1" 2>/dev/null | grep -Fxc 'system.img' || true)" = 1 ]
+}
+
+WINPE_SYSTEM=""
+SOURCE_LABEL=""
+if [ -n "$SOURCE_OVERRIDE" ]; then
+  [ -s "$SOURCE_OVERRIDE" ] || die "verilen disk-WinPE kaynagi yok ya da bos: $SOURCE_OVERRIDE"
+  if system_is_ntfs "$SOURCE_OVERRIDE"; then
+    WINPE_SYSTEM="$SOURCE_OVERRIDE"
+    SOURCE_LABEL="$SOURCE_OVERRIDE"
+  elif archive_has_system "$SOURCE_OVERRIDE"; then
+    RECOVERY_ARCHIVE="$SOURCE_OVERRIDE"
+  else
+    die "verilen kaynak ne ham NTFS system.img ne de system.img tasiyan tar: $SOURCE_OVERRIDE"
+  fi
+elif system_is_ntfs "$SOURCE_SYSTEM"; then
+  WINPE_SYSTEM="$SOURCE_SYSTEM"
+  SOURCE_LABEL="$SOURCE_SYSTEM"
+else
+  RECOVERY_ARCHIVE=""
+  for candidate in \
+    "$OUT/beyond2lte-winpe-ufs-disk.tar" \
+    "$OUT/system-esp.tar" \
+    /mnt/c/Users/*/OneDrive/Masa*st*/beyond2lte-flash/beyond2lte-winpe-ufs-disk.tar \
+    /mnt/c/Users/*/OneDrive/Desktop/beyond2lte-flash/beyond2lte-winpe-ufs-disk.tar \
+    /mnt/c/Users/*/Masa*st*/beyond2lte-flash/beyond2lte-winpe-ufs-disk.tar \
+    /mnt/c/Users/*/Desktop/beyond2lte-flash/beyond2lte-winpe-ufs-disk.tar; do
+    if archive_has_system "$candidate"; then
+      RECOVERY_ARCHIVE="$candidate"
+      break
+    fi
+  done
+fi
+
+if [ -n "${RECOVERY_ARCHIVE:-}" ]; then
+  command -v simg2img >/dev/null || die "eski Odin arsivini acmak icin simg2img yok -> sudo apt install -y android-sdk-libsparse-utils"
+  say "Disk-WinPE SYSTEM eski Odin arsivinden kurtariliyor"
+  echo "  kaynak: $RECOVERY_ARCHIVE"
+  RECOVERED_SPARSE="$WORK/system.winpe.sparse.img"
+  RECOVERED_RAW="$WORK/system.winpe.raw.img"
+  tar -xOf "$RECOVERY_ARCHIVE" system.img > "$RECOVERED_SPARSE" || \
+    die "eski Odin arsivinden system.img cikarilamadi"
+  [ "$(od -An -tx4 -N4 "$RECOVERED_SPARSE" | tr -d '[:space:]')" = ed26ff3a ] || \
+    die "eski Odin arsivindeki system.img Android sparse degil"
+  simg2img "$RECOVERED_SPARSE" "$RECOVERED_RAW"
+  system_is_ntfs "$RECOVERED_RAW" || \
+    die "eski Odin arsivindeki SYSTEM disk-WinPE NTFS imaji degil"
+  WINPE_SYSTEM="$RECOVERED_RAW"
+  SOURCE_LABEL="$RECOVERY_ARCHIVE -> system.img"
+fi
+
+if [ -n "$WINPE_SYSTEM" ]; then
   # Disk-WinPE'den kalan uygulanmis system.img en hizli ve en guvenli
-  # kaynaktir. USERDATA Desktop uretimi bu dosyaya dokunmaz.
+  # kaynaktir. Ham imaj silinmisse eski Odin AP arsivinden geri acilir.
   for tool in ntfscp ntfscat; do
     command -v "$tool" >/dev/null || die "$tool yok -> sudo apt install -y ntfs-3g"
   done
   say "Mevcut disk-WinPE SYSTEM imaji gecis icin kopyalaniyor"
-  cp --sparse=always "$SOURCE_SYSTEM" "$IMAGE"
+  echo "  kaynak: $SOURCE_LABEL"
+  cp --sparse=always "$WINPE_SYSTEM" "$IMAGE"
   ntfscat "$IMAGE" /Windows/B2LUFS/offline-driverstore.txt > "$CHECK/ufs/offline-driverstore.txt" || \
     die "mevcut SYSTEM imajinda B2LUFS offline boot-start isareti yok"
   for expected in B2L_BOOT_START=1 'B2L_LOAD_ORDER_GROUP=SCSI Miniport'; do
@@ -56,8 +115,17 @@ else
   for tool in wimlib-imagex mkntfs; do
     command -v "$tool" >/dev/null || die "$tool yok"
   done
-  [ -s "$SOURCE_WIM" ] || \
-    die "ne disk-WinPE out/system.img ne de esp/sources/boot.wim bulundu"
+  if [ ! -s "$SOURCE_WIM" ]; then
+    cat >&2 <<EOF
+
+HATA: disk-WinPE kaynagi bulunamadi.
+Eski calisan AP arsivini su adla geri kopyala:
+  out/beyond2lte-winpe-ufs-disk.tar
+veya yolu dogrudan ver:
+  bash tools_cache_desktop_transition.sh /mnt/c/.../beyond2lte-winpe-ufs-disk.tar
+EOF
+    exit 1
+  fi
   WIM="$WORK/transition.wim"
   cp "$SOURCE_WIM" "$WIM"
   say "Tek kullanimlik otomatik CACHE BCD gecisi WIM'e enjekte ediliyor"

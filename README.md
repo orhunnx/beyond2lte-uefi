@@ -57,6 +57,8 @@ USERDATA hedefi `userdata.img.lz4` adıyla Odin uyumlu LZ4 frame'e sıkıştır�
 bu, ustar'ın 8 GiB tek-dosya sınırını aşmadan büyük Windows imajını taşır.
 Klavye yoksa `tools_cache_desktop_transition.sh`, yalnız geçici SYSTEM
 WinPE'yi flaşlayan ve bu BCD dönüşümünü tamamen otomatik yapan paketi üretir.
+Ham disk-WinPE SYSTEM kaybolmuşsa araç eski `beyond2lte-winpe-ufs-disk.tar`
+AP arşivindeki sparse SYSTEM'i güvenli kaynak olarak geri açabilir.
 WSL wimlib System Compression üretemediği için betik edition'ın `Total Bytes`
 değerini NTFS/OOBE payıyla önceden denetler ve USERDATA gerekiyorsa asgari
 `--size-mib` değerini açıkça bildirir.
