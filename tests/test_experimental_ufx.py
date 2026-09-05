@@ -5,6 +5,8 @@ External WIM/hive commands are scripted here; real WSL servicing is separate.
 """
 from pathlib import Path
 import runpy
+import hashlib
+import json
 import shlex
 import struct
 import tempfile
@@ -63,7 +65,10 @@ print('UFX service relocation and bounded ARM64 import parsing: PASS')
 
 # Script a complete preparation. Fail during candidate read-back, then verify
 # that the original WIM and any earlier rollback image remain byte-identical.
-for fail_readback in (True, False):
+for scenario in ('fresh-fail', 'fresh-pass', 'serviced-fail', 'serviced-pass', 'bad-evidence'):
+    fail_readback = scenario.endswith('-fail')
+    resume = scenario.startswith('serviced-') or scenario == 'bad-evidence'
+    bad_evidence = scenario == 'bad-evidence'
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp).resolve()
         source, target = root/'install.wim', root/'boot.wim'
@@ -74,6 +79,8 @@ for fail_readback in (True, False):
         store_path = '/Windows/System32/DriverStore/FileRepository/ufxsynopsys.inf_arm64_test'
         files = {p: ('target-' + p).encode() for p in m['REQUIRED'] if p != m['REQUIRED'][3]}
         src_files = {p: ('source-' + p).encode() for p in m['REQUIRED'][2:]}
+        if resume:
+            files.update(src_files)
         payload = {}
         service_data = {s.lower(): (f'Windows Registry Editor Version 5.00\n\n'
                         f'[{prefix}\\ControlSet001\\Services\\{s}]\n"OldParameter"=dword:00000002\n')
@@ -83,8 +90,20 @@ for fail_readback in (True, False):
 
         def fake_extract(image, index, path, work, optional=False):
             if path == m['MARKER'] and Path(image) == target:
-                return None
-            if Path(image) == target and path == m['REQUIRED'][3]:
+                if not resume:
+                    return None
+                dest = Path(tempfile.mkdtemp(dir=work))/'experimental-ufx.json'
+                dest.write_text(json.dumps(installed))
+                return dest
+            if resume and Path(image) == target and path.startswith('/Windows/B2LUSB/runtime-source/'):
+                service = Path(path).stem
+                dest = Path(tempfile.mkdtemp(dir=work))/Path(path).name
+                content = service_reg(service, 'ControlSet001')
+                if bad_evidence and service == 'Ufx01000':
+                    content += '\n"Type"=dword:00000002\n'
+                dest.write_text(content)
+                return dest
+            if Path(image) == target and path == m['REQUIRED'][3] and not resume:
                 return None
             if Path(image) == target and path.startswith(store_path):
                 return None
@@ -128,7 +147,7 @@ for fail_readback in (True, False):
                     data = Path(args[-1]).read_text()
                     if Path(args[-1]).stem.endswith('-delete'):
                         service = Path(args[-1]).stem[:-7].lower()
-                        assert service in ('urscx01000', 'ufxsynopsys')
+                        assert service in ('urscx01000', 'ufxsynopsys', 'ufx01000')
                         assert f'\\Services\\{Path(args[-1]).stem[:-7]}]' in data
                         assert '[-HKEY_LOCAL_MACHINE\\SYSTEM\\ControlSet001\\Services\\' in data
                         del service_data[service]
@@ -144,6 +163,18 @@ for fail_readback in (True, False):
                 return service_reg(service, 'ControlSet002') if is_source else service_data[service.lower()]
             raise AssertionError(args)
 
+        if resume:
+            # A completed AddService can change text/data under the service.
+            # URS and UFX still match, while Synopsys differs from source.
+            for service in ('UrsCx01000', 'Ufx01000'):
+                service_data[service.lower()] = service_reg(service, 'ControlSet001')
+            installed = {
+                'profile': m['PROFILE'], 'source_sha256': m['sha'](source), 'source_index': 1,
+                'files': {p: hashlib.sha256(b).hexdigest() for p, b in files.items()},
+                'services': {service: {'control_set': 'ControlSet001',
+                    'reg_sha256': hashlib.sha256(service_reg(service, 'ControlSet001').encode()).hexdigest()}
+                    for service in m['SERVICES']},
+                'replaced': {p: 'original-native-hash' for p in m['REQUIRED'][4:]}}
         audit = {'resolve_image': lambda image, *args: image, 'check': lambda *args, **kwargs: 0,
                  'VALIDATOR': {'check_runtimes': lambda files: None,
                                'arm64_build': lambda raw: (10, 0, 26100 if raw.startswith(b'source-') else 28000)}}
@@ -154,24 +185,39 @@ for fail_readback in (True, False):
         }), patch('shutil.which', return_value='/fake/tool'):
             try:
                 m['prepare'](source, 1, target, root/'manifest.json', lambda _: None)
-                assert not fail_readback
+                assert not fail_readback and not bad_evidence
             except ValueError as error:
-                assert fail_readback and 'injected read-back failure' in str(error), error
-        assert target.read_bytes() == (b'original-target' if fail_readback else b'updated-target')
+                if bad_evidence:
+                    assert 'kaynak servis kaydi degismis' in str(error), error
+                else:
+                    assert fail_readback and 'injected read-back failure' in str(error), error
+        failed = fail_readback or bad_evidence
+        assert target.read_bytes() == (b'original-target' if failed else b'updated-target')
         assert backup.read_bytes() == b'previous-rollback'
         assert source.read_bytes() == b'source-image'
-        assert (root/'manifest.json').exists() == (not fail_readback)
-        assert set(deleted) == {'urscx01000', 'ufxsynopsys'}
+        assert (root/'manifest.json').exists() == (not failed)
+        expected_deleted = {'urscx01000', 'ufxsynopsys', 'ufx01000'} if resume else {'urscx01000', 'ufxsynopsys'}
+        assert set(deleted) == (set() if bad_evidence else expected_deleted)
         assert service_data['unrelated'] == 'preserved'
-        assert all('OldParameter' not in service_data[s.lower()] for s in m['SERVICES'])
-        if not fail_readback:
+        if not bad_evidence:
+            assert all('OldParameter' not in service_data[s.lower()] for s in m['SERVICES'])
+        if resume and not bad_evidence:
+            report = root/'runtime-service-diff/ufxsynopsys.diff'
+            assert report.exists() and 'OldParameter' in report.read_text()
+            assert (root/'runtime-service-diff/ufxsynopsys-current.reg').exists()
+            assert (root/'runtime-service-diff/ufxsynopsys-source.reg').exists()
+        if not failed:
             import json
             record = json.loads((root/'manifest.json').read_text())
             assert record['profile'] == 'experimental-ufx-overlay-v2'
-            assert record['replaced'][m['REQUIRED'][3]] is None
+            if resume:
+                assert record['replaced'][m['REQUIRED'][4]] == 'original-native-hash'
+                assert record['replaced'][m['REQUIRED'][3]]
+            else:
+                assert record['replaced'][m['REQUIRED'][3]] is None
             assert record['replaced'][m['REQUIRED'][4]]  # existing native Synopsys was replaced
             assert set(record['services']) == set(m['SERVICES'])
-print('UFX WIM staging: publish after read-back; failed read-back preserves original and rollback: PASS')
+print('UFX WIM staging: fresh and post-DISM service rebuild, evidence gate, diffs, rollback on failure: PASS')
 
 # Only the original manifest's exact native Synopsys can be recovered. A newer
 # build number alone is not sufficient; all other files remain hash-bound.

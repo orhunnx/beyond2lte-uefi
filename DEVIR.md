@@ -18,6 +18,16 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / tekrar build servis karşılaştırması:** Runtime dosyaları geçip
+> `ufxsynopsys: hazirlanmis servis agaci degismis` hatası geldi. Hazırlayıcı
+> DISM öncesi kaynak REG kopyasını son WIM'de de değişmez sanıyordu.
+> Servis farkı artık `out/b2lusb/runtime-service-diff/` altında kaydedilir;
+> aynı hash/index bağlı ISO'dan normal geçici WIM hazırlaması tekrar yürür,
+> ardından gerçek DISM kurar. Farklı servis mevcut haliyle kabul edilmez.
+> Fark varsa ISO yeniden çıkarılır; yoksa hızlı yol kalır. Bozuk kaynak REG,
+> farklı ISO ve bilinmeyen binary değişimleri hâlâ reddedilir. Host testleri
+> geçti; WSL/DISM doğrulaması bekleniyor. MAX `.43`, build yöntemi aynı.
+
 > **5 Eylül / yeni flaş: MAX `.42` Code 31, düzeltme `.43`:**
 > Fotoğraf BYN0004 için `C0200211 / STATUS_WDF_EXECUTION_LEVEL_INVALID`
 > gösteriyor. DeviceAdd, timer'ın açık Passive ExecutionLevel attributes'ını

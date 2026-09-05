@@ -6,6 +6,7 @@ original INF/DriverStore directory and service subtrees. Work on a WIM copy;
 retain a rollback image and publish only after read-back verification.
 """
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -179,7 +180,7 @@ def prepare(source, index, target, manifest, emit=print):
     # Same directory permits atomic publication; a failed experiment never edits target.
     with tempfile.TemporaryDirectory(prefix='.b2l-ufx-', dir=target.parent) as temp:
         work = Path(temp)
-        repair_servicing = False
+        rebuild_source = False
         installed_record = extract(target, 1, MARKER, work, optional=True)
         if installed_record is not None:
             installed = json.loads(installed_record.read_text(encoding='utf-8'))
@@ -191,9 +192,9 @@ def prepare(source, index, target, manifest, emit=print):
             if AUDIT['check'](target, 1, emit, experimental_ufx_manifest=installed_record):
                 actual = {path: sha(extract(target, 1, path, work)) for path in REQUIRED}
                 changed = known_servicing_drift(installed, actual)
-                repair_servicing = True
+                rebuild_source = True
                 emit('Kayitli native Synopsys geri gelmis; kaynak katmani yeniden hazirlanacak: ' + ', '.join(changed))
-        if installed_record is not None and installed['profile'] == PROFILE and not repair_servicing:
+        if installed_record is not None and installed['profile'] == PROFILE and not rebuild_source:
             hive = extract(target, 1, SYSTEM, work)
             cs = control_set(hive)
             for service in SERVICES:
@@ -202,12 +203,31 @@ def prepare(source, index, target, manifest, emit=print):
                     raise ValueError(f'{service}: kaynak servis kaydi degismis')
                 current = command(['hivexregedit', '--export', '--prefix', PREFIX,
                                    hive, f'{cs}\\Services\\{service}'])
-                if remap_service(current, cs, cs, service) != evidence.read_text(encoding='utf-8'):
-                    raise ValueError(f'{service}: hazirlanmis servis agaci degismis')
-            manifest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(installed_record, manifest)
-            emit('Ayni kaynak UFX denemesi zaten hazir; ISO yeniden cikarilmadi.')
-            return
+                expected = remap_service(evidence.read_text(encoding='utf-8'),
+                                         installed['services'][service]['control_set'], cs, service)
+                actual = remap_service(current, cs, cs, service)
+                if actual != expected:
+                    # The source snapshot predates AddService. It is not a
+                    # post-DISM invariant. Do not bless unknown current values:
+                    # rebuild from the same hash-bound ISO via the normal
+                    # transactional path, then let DISM install the platform INF.
+                    rebuild_source = True
+                    reports = manifest.parent / 'runtime-service-diff'
+                    reports.mkdir(parents=True, exist_ok=True)
+                    (reports / f'{service}-current.reg').write_text(current, encoding='utf-8')
+                    (reports / f'{service}-source.reg').write_text(expected, encoding='utf-8')
+                    difference = reports / f'{service}.diff'
+                    difference.write_text(''.join(difflib.unified_diff(
+                        expected.splitlines(keepends=True), actual.splitlines(keepends=True),
+                        fromfile='source-before-DISM', tofile='current-before-rebuild')), encoding='utf-8')
+                    emit(f'SERVIS FARKI: {service}; rapor: {difference}')
+            if not rebuild_source:
+                manifest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(installed_record, manifest)
+                emit('Ayni kaynak UFX denemesi zaten hazir; ISO yeniden cikarilmadi.')
+                return
+            emit('Servisler ayni ISO kaynagindan gecici WIM uzerinde yeniden hazirlanacak; '
+                 'ardindan normal DISM kurulumu yapilacak.')
         image = AUDIT['resolve_image'](source, work, emit)
         if AUDIT['check'](image, index, emit):
             raise ValueError('Kaynak imajin kendi runtime/INF dogrulamasi basarisiz')
@@ -225,7 +245,7 @@ def prepare(source, index, target, manifest, emit=print):
             existing = extract(target, 1, path, work, optional=True)
             record['replaced'][path] = sha(existing) if existing is not None else None
             emit(f'RUNTIME: {path}: {record["replaced"][path] or "YOK"} -> {sha(file)}')
-        if repair_servicing:
+        if rebuild_source:
             # Keep the original pre-overlay identity across repeated repairs.
             for path in REQUIRED[4:]:
                 record['replaced'][path] = installed['replaced'].get(path)

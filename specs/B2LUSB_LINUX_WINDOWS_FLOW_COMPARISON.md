@@ -1,6 +1,60 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
 
+## 5 Eylül 2026: Tekrar build — DISM öncesi servis kopyası son durum değildir
+
+Yeni WSL çıktısında bütün runtime dosya/build/INF kontrolleri geçiyor;
+sonra `ufxsynopsys: hazirlanmis servis agaci degismis` hatasıyla hazırlayıcı
+duruyor. Bu MAX `.43` derleme veya telefon USB hatası değildir. Aynı ISO
+SHA256/index ve runtime hash kapılarından sonra, mevcut SYSTEM servis ağacı
+ile `runtime-source/ufxsynopsys.reg` metni karşılaştırılırken oluşmuştur.
+
+Önceki kontrolün hatası: `runtime-source/*.reg`, kaynak ISO'dan alınan
+**DISM öncesi** servis ağacıdır. Sonraki gerçek platform INF kurulumu
+`AddService` çalıştırır; bu kayıt son WIM'in değişmez servis sözleşmesi
+sayılamaz. [Microsoft AddService sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-addservice-directive)
+servis binary yolu, başlangıç tipi, isim ve bağımlılık gibi alanların INF
+kurulumuyla düzenlenmesini tanımlar. Ancak kullanıcının mesajı değişen REG
+alanını içermiyor: bunu kesin olarak DisplayName/ImagePath ya da belirli
+bir DISM değeri diye adlandırmıyoruz; kayıt sırası/metin farkı da henüz
+elenmiş değildir.
+
+Hazırlayıcı artık aynı kaynak ve dosya doğrulamaları geçtikten sonra üç
+servis kanıtının SHA256'sını denetler. Karşılaştırma için kaydedilmiş kaynak
+ControlSet başlığı gerçek hedef ControlSet'e uyarlanır. Servis farkı varsa
+şu tanı dosyaları WSL'de `out/b2lusb/runtime-service-diff/` altına yazılır:
+
+- `<service>-current.reg`: mevcut WIM'den alınan servis ağacı.
+- `<service>-source.reg`: doğrulanmış kaynak ağacının hedef ControlSet biçimi.
+- `<service>.diff`: kaynak ve mevcut servis arasındaki metin farkı.
+
+Farklı mevcut servis kaydı "geçerli DISM sonucu" diye otomatik kabul edilmez;
+manifest hash'i mevcut kayda göre değiştirilmez ve karşılaştırma kapısı
+kaldırılmaz. Bunun yerine aynı SHA256/index ile bağlı ISO tekrar çıkarılır,
+kaynağın runtime/INF kontrolleri yapılır, mevcut normal hazırlama yolu üç
+kaynak servis ağacını geçici hive/WIM üzerinde yeniden kurar. Kaynak ve WIM
+geri okumaları tamamlandıktan sonra hedef atomik olarak değiştirilir.
+Ardından normal MSVC/imzalama ve gerçek DISM platform INF kurulumu çalışır.
+DISM sonrası runtime/DriverStore kontrolleri aynen sürer. Bu hazırlayıcı
+tek başına son servisleme sonucunu veya Windows yüklenebilirliğini kanıtlamaz.
+
+Fark yoksa önceki hızlı yol korunur: ISO yeniden çıkarılmaz. Servis farkı
+olan tekrar build ise yeniden ISO çıkarma süresini ve geçici alanını ister.
+Bu turda amaç servisleme öncesi kaynağı yeniden üretmektir; DISM sonrası
+servisler için yeni bir semantik eşdeğerlik/izin listesi icat edilmemiştir.
+Kaynak REG kanıtı bozulmuşsa veya ISO farklıysa işlem hâlâ durur. Bilinmeyen
+runtime binary değişikliklerini kabul etmeme kuralı da korunur. İlk rollback
+WIM ve özgün native Synopsys dosya hash'leri yeniden hazırlamada korunur.
+
+Host testleri ilk hazırlama ve servislenmiş WIM'den yeniden hazırlamayı
+çalıştırır; fark raporunu, aynı kaynağın servislerinin geri kurulmasını,
+bozuk REG kanıtının reddini ve başarısız candidate geri okumasında hedef
+WIM/rollback'in değişmemesini denetler. Gerçek WSL/hivex/DISM bu Mac'te
+çalıştırılmadı. MAX `.43`, parent/host `.21`, deneysel function `.22` ve
+Linux/Android USB akışı değişmedi. WSL build komutu aynı; manuel REG silme,
+kontrol atlama, WIM'i sıfırdan edinme veya yeni flaş bu hazırlayıcı
+hatasını çözmenin önkoşulu değildir.
+
 ## 5 Eylül 2026: `.42` cihaz fotoğrafı — MAX DeviceAdd Code 31 / C0200211
 
 Yeni kullanıcı fotoğrafı Windows'un açıldığını ve deneysel UFX paket

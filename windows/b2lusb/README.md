@@ -1,5 +1,16 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
+## Servislenmiş WIM ile yeniden build
+
+Runtime kontrolü geçtikten sonra servis ağacı kaynak kopyadan farklıysa,
+`out/b2lusb/runtime-service-diff/` altında current/source REG ve diff raporu
+saklanır. DISM öncesi kaynak kopya, servislenmiş WIM'in değişmez son hali
+değildir. Aynı SHA256/index bağlı ISO'dan normal geçici WIM hazırlaması
+tekrarlanır; ardından gerçek DISM kurulumu çalışır. Mevcut farklı kayıt
+kontrolsüz kabul edilmez. Fark olan build ISO'yu yeniden çıkaracağı için
+ek süre/alan ister; fark yoksa hızlı yol korunur. Kaynak kanıtı ve runtime
+hash kapıları değişmedi. MAX `.43`; WSL build komutu aynı.
+
 ## MAX `.43`: Code 31 / C0200211 düzeltmesi
 
 `.42` flaşında MAX aygıtı DeviceAdd aşamasında başarısız oldu. Timer için
