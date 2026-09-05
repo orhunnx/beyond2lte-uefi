@@ -1,5 +1,25 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: MSVC C4701 — VBUSDet durum okumalarının kontrol akışı
+
+Yeni WSL çıktısında MAX ana kaynak ve HSI2C kaynağı derlendi; IRQ kaynağı
+539. satırda `CcStatus` için C4701 verdi. Önceki iç içe `NT_SUCCESS`
+kontrolleri mantıksal olarak iki okumayı da koruyordu, fakat MSVC bu akışta
+koşullu CC atamasını kesin olarak izleyemedi. Değişkene sahte başlangıç
+CC değeri vermek yerine her okuma ayrı erken hata çıkışına bağlandı:
+`BC_STATUS (0x08) → hata kontrolü → CC_STATUS0 (0x0A) → hata kontrolü
+→ DetachRecheck`. `/W4 /WX` ve Linux PASS2 VBUSDet koşulu korunur.
+
+IRQ testine her iki byte okuması için ayrı hata enjeksiyonu eklendi.
+İlk okuma başarısızsa ikinciye gidilmediği, başarısız okuma sonrasında
+detach/snapshot dispatch yapılmadığı, tüketilen ham IRQ baytının ve gerçek
+I/O hata kodunun kaydedildiği, bekleyen opcode'un hatayla iptal edildiği
+ve IRQ'nun maskeli kaldığı doğrulandı. Mevcut connector hata bildirimi
+korunur; bu bir attach veya yeni CC geçişi değildir. IRQ/queue/MUIC/PD/
+SYSMSG/GRL/recovery host testi ve MAX kaynak kontrolleri geçti.
+Tam Windows MSVC build ve fiziksel IRQ/USB sonucu burada doğrulanmadı.
+Parent `.21`, MAX `.42`, ABI, tanı sürümleri ve WSL build yöntemi değişmedi.
+
 ## 5 Eylül 2026: MSVC C4310 — MUIC byte maskesi
 
 Yeni WSL çıktısı WDK `10.0.28000.0` altında UCM ve URS `1.0`

@@ -532,9 +532,8 @@ B2lMaxEvtMaxInterruptIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
         // a separate flag records this Linux rule, not an invented IRQ bit.
         if (((Frame.Raw[0] | Frame.UicReplay) & 0x20U) != 0U) {
             Status = B2lMaxReadByte(Context, B2L_MAX_USBC_ADDRESS, 0x08U, &BcStatus);
-            if (NT_SUCCESS(Status)) {
-                Status = B2lMaxReadByte(Context, B2L_MAX_USBC_ADDRESS, 0x0AU, &CcStatus);
-            }
+            if (!NT_SUCCESS(Status)) goto Failed;
+            Status = B2lMaxReadByte(Context, B2L_MAX_USBC_ADDRESS, 0x0AU, &CcStatus);
             if (!NT_SUCCESS(Status)) goto Failed;
             Frame.DetachRecheck = (BOOLEAN)(((BcStatus & 0x80U) == 0U) &&
                 ((CcStatus & B2L_MAX_CC_STATUS_MASK) == B2L_MAX_CC_NO_CONNECTION));

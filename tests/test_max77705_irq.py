@@ -97,6 +97,8 @@ static UCHAR muic_actual;
 static int muic_bad_read, trace_count;
 static char trace[1024];
 static NTSTATUS read_error, write_error, opcode_write_error, snap_error;
+static UCHAR fail_status_register;
+static unsigned detach_status_reads;
 static unsigned reset_writes, trim_writes, delay_100ms;
 static UCHAR reset_irq;
 static int reset_fail_stage, control3_bad, cc_bad;
@@ -151,6 +153,10 @@ static void WRITE_REGISTER_ULONG(PULONG p,ULONG value) {
 }
 static NTSTATUS B2lMaxReadByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v) {
     assert(c==current && held); if (read_error) return read_error;
+    if(a==0x25 && (r==0x08 || r==0x0a)) {
+        detach_status_reads |= r==0x08 ? 1U : 2U;
+        if(r==fail_status_register) return STATUS_IO_TIMEOUT;
+    }
     if(a==0x69 && r==0xb5) trace[trace_count++]='B';
     if(a==0x25 && r==0x0b) trace[trace_count++]='W';
     if(a==0x25 && r==0x0a) trace[trace_count++]='I';
@@ -280,6 +286,7 @@ static void reset(PB2L_MAX_CONTEXT c) {
     memset(c,0,sizeof(*c)); memset(regs,0xa5,sizeof(regs)); memset(reg_values,0,sizeof(reg_values));
     memset(raw,0,4); current=c; ticks=1234; held=queued=r2c_reads=responses=commands=cancels=0;
     mmio_ack=0; read_error=write_error=opcode_write_error=snap_error=0;
+    fail_status_register=0;detach_status_reads=0;
     reset_writes=trim_writes=delay_100ms=0;reset_irq=0;reset_fail_stage=control3_bad=cc_bad=0;
     drop_irq=wrong_reply=stale_wakes=probe_test=0; last_opcode=last_payload=reply_opcode=0;
     sys_read_count=sys_read_length=sys_read_fail=afc_step=afc_fail=trace_sysmsg=retry_while_waiting=0;
@@ -362,6 +369,22 @@ int main(void) {
     assert(deliver() && !c.IrqFrames[0].DetachRecheck);
     reset(&c);raw[0]=0x20;reg_values[0x25][0x0a]=2;
     assert(deliver() && !c.IrqFrames[0].DetachRecheck);
+    // Each live status read must succeed before VBUSDet can recheck detach.
+    // Failed reads leave output bytes untouched and stop further dispatch.
+    for(i=0;i<2;++i) {
+        reset(&c);queue(&c,&a,0x1c);raw[0]=0x20;
+        c.CcStatus0=2;c.CcStatusValid=TRUE;
+        fail_status_register=(UCHAR)(i==0 ? 0x08 : 0x0a);
+        assert(deliver() && c.MaxLastInterruptStatus==(ULONG)STATUS_IO_TIMEOUT);
+        assert(detach_status_reads==(i==0 ? 1U : 3U));
+        assert(c.IrqFrameCount==1 && c.IrqFrames[0].Raw[0]==0x20);
+        assert(!c.IrqFrames[0].DetachRecheck && !c.IrqFrames[0].SnapshotAttempted);
+        assert(c.CcStatus0==2 && c.CcStatusValid && !c.CcTransitionCount);
+        assert(connector_notifications==1 && c.MfdFault==STATUS_IO_TIMEOUT);
+        assert(!connector_usb[0]); // existing fault notification, no attach
+        assert(c.MaxInterruptFailures==1 && (regs[0x904/4]&(1U<<6)));
+        assert(a.Complete && a.Status==STATUS_IO_TIMEOUT && !c.OpcodeHead);
+    }
     reset(&c);top=1;raw[0]=0x80;assert(deliver() && r2c_reads==0 && c.IrqFrames[0].Charger==1);
     B2lMaxRecordIrqFrame(&c,&c.IrqFrames[0]);
     assert(!c.EventLog.Events[0].Valid && c.EventLog.SnapshotFailures==0); // CHG-only: no USBC snapshot attempted

@@ -18,6 +18,11 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / MSVC C4701 düzeltmesi:** IRQ VBUSDet yolunda BC ve CC
+> okumalarının her biri artık ayrı erken hata çıkışıyla korunuyor. Sahte
+> başlangıç CC değeri atanmadı; `/WX` açık. İki okumanın ayrı başarısızlık
+> testleri geçti. MAX `.42` / parent `.21` aynı; tam WDK sonucu henüz yok.
+
 > **5 Eylül / MSVC C4310 düzeltmesi:** UCM/URS yolları WSL çıktısında
 > doğrulandı. Sonraki MAX derleme hatasına neden olan iki daraltılmış sabit
 > maskesi byte aralığında AND işlemiyle değiştirildi. Linux MUIC davranışı
