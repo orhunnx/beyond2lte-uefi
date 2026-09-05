@@ -1416,7 +1416,7 @@ B2lMaxDetectMuicLocked(PB2L_MAX_CONTEXT Context, ULONG Cause)
         if (((Sample[0] >> 4) != 1U) || ((Sample[4] & 7U) != 0U)) {
             return STATUS_SUCCESS;
         }
-        Bc &= (UCHAR)~0x80U;
+        Bc = (UCHAR)(Bc & 0x7FU);
     }
     Context->MuicEffectiveBc = Bc;
     Charger = (UCHAR)(Bc & 3U);
@@ -1438,7 +1438,7 @@ B2lMaxDetectMuicLocked(PB2L_MAX_CONTEXT Context, ULONG Cause)
     else if ((Context->MuicRid >= 3U) && (Context->MuicRid <= 6U)) Adc = Context->MuicRid;
     if (Context->MuicRprd) Adc = 0U;
     Context->MuicAdc = Adc;
-    if (Adc == 5U) Bc &= (UCHAR)~0x80U; // stock 523K ignores VBUS
+    if (Adc == 5U) Bc = (UCHAR)(Bc & 0x7FU); // stock 523K ignores VBUS
     Context->MuicEffectiveBc = Bc;
 
     Type = B2L_MAX_MUIC_NONE;

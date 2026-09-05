@@ -18,6 +18,11 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / MSVC C4310 düzeltmesi:** UCM/URS yolları WSL çıktısında
+> doğrulandı. Sonraki MAX derleme hatasına neden olan iki daraltılmış sabit
+> maskesi byte aralığında AND işlemiyle değiştirildi. Linux MUIC davranışı
+> ve `/WX` korundu; MAX host testleri geçti. Tam WDK build sonucu henüz yok.
+
 > **5 Eylül / build betiği düzeltmesi:** WDK 10.0.28000.0 çıktısındaki
 > `UcmCxStub.lib yok` hatası için ARM64 `ucm/1.0` ve `urs/1.0` alt
 > klasörleri artık kontrol ediliyor; linker tam kütüphane yolunu kullanıyor.

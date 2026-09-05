@@ -1,5 +1,21 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: MSVC C4310 — MUIC byte maskesi
+
+Yeni WSL çıktısı WDK `10.0.28000.0` altında UCM ve URS `1.0`
+kütüphanelerinin doğru çözüldüğünü doğruladı. Derleme MAX ana kaynak
+dosyasının 1419 ve 1441. satırlarında `/WX` nedeniyle C4310 ile durdu.
+`(UCHAR)~0x80U`, unsigned genişlikte oluşan `0xFFFFFF7F` sabitini byte'a
+kesiyordu. İki kullanım da `Bc = (UCHAR)(Bc & 0x7FU)` olarak düzeltildi.
+Sonuç 0..127 aralığındadır; yalnız çalışma kopyasının bit7'si temizlenir.
+
+Linux VBADC koşulu ve 523K RID sınıflandırma davranışı değişmedi; ham
+`MuicSample` korunur. Donanıma yazı, yapay VBUS/CC veya rol olayı eklenmedi.
+`/W4 /WX` korunuyor. Mevcut IRQ/queue/MUIC/PD/SYSMSG/GRL/recovery yürütme
+testi ve MAX kaynak kontrolleri geçti. Bunlar yerel host testleridir;
+Windows MSVC derlemesinin tamamlandığı veya USB'nin çalıştığı anlamına gelmez.
+Parent `.21`, MAX `.42`, ABI ve build komutları değişmedi.
+
 ## 5 Eylül 2026: WSL build — UCM/URS stub arama yolu düzeltmesi
 
 Kullanıcının WDK `10.0.28000.0` çıktısı derleme başlamadan
