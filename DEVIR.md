@@ -73,6 +73,24 @@ Desktop paketinde `cache.img` **yoktur**. Cihazda disk-WinPE'yi başarıyla
 başlatan mevcut CACHE ESP korunur. SYSTEM/USERDATA Desktop imajını flaşlamadan
 hemen önce mevcut WinPE komut satırında CACHE birimine bir harf verilir:
 
+Fiziksel klavye yoksa aşağıdaki elle yazılan komutlar yerine klavyesiz geçiş
+paketi kullanılır:
+
+```bash
+bash tools_cache_desktop_transition.sh
+```
+
+Bu araç mevcut `out/system.img` disk-WinPE kopyasını tercih eder; yoksa
+`esp/sources/boot.wim`den yeniden üretir. Yalnız
+`out/beyond2lte-cache-bcd-transition.tar` içindeki `system.img` geçici olarak
+flaşlanır. WinPE açılınca Disk 0 / Partition 28'i CACHE etiketiyle doğrular,
+BCD'yi `BCD.winpe.bak` olarak yedekler, Desktop değerlerini yazar ve yeşil
+başarı ekranından sekiz saniye sonra telefonu kapatır. CACHE imajı üretilmez
+ve CACHE'e flash atılmaz. Ardından cihaz normal açılmadan Download Mode'a
+alınıp asıl Desktop paketi flaşlanır.
+
+Klavye mevcutsa aynı işlemin elle karşılığı aşağıdadır.
+
 ```text
 diskpart
 list volume

@@ -53,6 +53,8 @@ bilinerek `--target userdata --size-mib 24576` seçilebilir. Tam Windows BCD'si
 Desktop Odin arşivlerine `cache.img` eklenmez. Mevcut CACHE boot ESP korunur;
 Desktop geçişinden hemen önce çalışan disk-WinPE içinden BCD'nin `winpe`
 değeri silinip normal `winload.efi` yolu yerinde yazılır.
+Klavye yoksa `tools_cache_desktop_transition.sh`, yalnız geçici SYSTEM
+WinPE'yi flaşlayan ve bu BCD dönüşümünü tamamen otomatik yapan paketi üretir.
 WSL wimlib System Compression üretemediği için betik edition'ın `Total Bytes`
 değerini NTFS/OOBE payıyla önceden denetler ve USERDATA gerekiyorsa asgari
 `--size-mib` değerini açıkça bildirir.

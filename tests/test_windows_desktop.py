@@ -72,6 +72,20 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
         self.assertIn("boot.img system.img userdata.img", bundle)
         self.assertIn("Bu arsiv USERDATA bolumundeki mevcut veriyi siler", bundle)
 
+    def test_keyboardless_transition_never_packages_cache(self) -> None:
+        transition = read("tools_cache_desktop_transition.sh")
+        startnet = read("windows/startnet-cache-desktop.cmd")
+        self.assertIn("tar -H ustar -cf \"$TAR\" system.img", transition)
+        self.assertIn('= system.img ]', transition)
+        self.assertNotIn("cache.img", transition)
+        self.assertIn("select partition 28", startnet)
+        self.assertIn('find.exe /i "CACHE"', startnet)
+        self.assertIn("BCD.winpe.bak", startnet)
+        self.assertIn("/deletevalue {default} winpe", startnet)
+        self.assertIn("/set {default} path \\Windows\\System32\\winload.efi", startnet)
+        self.assertIn("B2L_CACHE_FLASHED=0", startnet)
+        self.assertIn("wpeutil shutdown", startnet)
+
 
 if __name__ == "__main__":
     unittest.main()
