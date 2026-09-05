@@ -26,6 +26,10 @@ normal `\Windows\System32\winload.efi` yolunu kullanır ve WinPE bayrağı yazma
 SYSTEM 5700 MiB ile sınırlıdır; sığmayan stok imaj için açıkça seçilen USERDATA
 hedefi desteklenir ve bu seçimin mevcut USERDATA'yı sileceği paketlemede tekrar
 uyarılır.
+WSL wimlib `--compact` uygulamasını desteklemediğinden Linux NTFS apply normal
+moddadır. Edition'ın açılmış `Total Bytes` değeri 512 MiB NTFS/OOBE payıyla
+işlem öncesinde ölçülür; sığmayan SYSTEM denemesi yarıda kalmak yerine gerekli
+USERDATA `--size-mib` değerini bildirir.
 
 Desktop flash arşivi CACHE'i artık içermez. Mevcut CACHE ESP'deki BCD,
 çalışan WinPE içinden iki `bcdedit /store` işlemiyle yerinde Desktop profiline

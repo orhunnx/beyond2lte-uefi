@@ -50,9 +50,11 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > indeksli WIM'e aktarır. B2LUFS+Touch tek DISM mount/commit turunda kurulur;
 > deneysel USB kaldırılır ve doğrulanmış `b2lfb.sys` ayrıca `Start=0`,
 > `ErrorControl=3`, `System Bus Extender` olarak offline SYSTEM hive'a yazılır.
-> Çıktı NTFS'e XPRESS16K CompactOS biçiminde uygulanır. Varsayılan SYSTEM
-> hedefi fiziksel 5700 MiB sınırını aşamaz; sığmayan stok Windows için ancak
-> mevcut veriyi sileceği bilinerek `--target userdata --size-mib 16384`
+> WSL wimlib `--compact` seçeneğini yalnız Windows'ta uygulayabildiği için
+> çıktı Linux'ta normal NTFS volume extraction ile uygulanır. Edition'ın
+> açılmış `Total Bytes` değeri ve 512 MiB NTFS/OOBE payı işlem öncesi ölçülür.
+> Varsayılan SYSTEM hedefi fiziksel 5700 MiB sınırını aşamaz; sığmayan stok Windows için ancak
+> mevcut veriyi sileceği bilinerek `--target userdata --size-mib 24576`
 > seçilir. `bcd_olustur.cmd desktop` normal
 > `\Windows\System32\winload.efi` yolunu yazar ve `winpe=Yes` yazmaz;
 > `tools_winboot.sh --desktop` iki koşulu da BCD'den geri okuyarak doğrular.

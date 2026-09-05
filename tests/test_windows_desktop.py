@@ -37,12 +37,15 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
             "B2L_OFFLINE_PACKAGE=TOUCHUFS",
             "B2L_BOOT_START=1",
             "B2L_FRAMEBUFFER_BOOT_START=1",
-            "--compact=XPRESS16K",
+            'wimlib-imagex apply "$DESKTOP_WIM" 1 "$IMAGE"',
+            "B2L_COMPACT=NONE",
+            "Total Bytes:",
             "SYSTEM bolumu tam 5700 MiB",
             "--target userdata",
             'if [ "$INDEX" = list ]',
         ):
             self.assertIn(gate, desktop)
+        self.assertNotIn("--compact=XPRESS16K", desktop)
 
         stage = read("windows/stage-winpe-driverstore.ps1")
         self.assertIn("[switch]$IncludeFramebuffer", stage)

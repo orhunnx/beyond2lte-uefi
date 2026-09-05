@@ -7,10 +7,11 @@
 # Kullanim:
 #   bash tools_windesktop.sh <ARM64-ISO|install.wim|install.esd> list
 #   bash tools_windesktop.sh <ARM64-ISO|install.wim|install.esd> <indeks>
-#   bash tools_windesktop.sh <kaynak> <indeks> --target userdata --size-mib 16384
+#   bash tools_windesktop.sh <kaynak> <indeks> --target userdata --size-mib 24576
 #
 # SYSTEM tam 5700 MiB'dir. Varsayilan 5696 MiB imaj bu bolume sigar fakat
-# stok Windows Desktop genellikle sigmaz. Bu durumda betik temizce durur;
+# stok Windows Desktop genellikle sigmaz. WSL wimlib System Compression
+# uretemez; bu durumda betik gereken boyutu daha NTFS olusturmadan bildirir.
 # USERDATA'yi silmeyi bilerek kabul eden kullanici ikinci komutu kullanir.
 
 set -euo pipefail
@@ -50,7 +51,7 @@ if [ "$INDEX" != list ]; then
 fi
 case "$TARGET" in
   system)   : "${SIZE_MIB:=5696}" ;;
-  userdata) : "${SIZE_MIB:=16384}" ;;
+  userdata) : "${SIZE_MIB:=24576}" ;;
   *) die "hedef yalniz system veya userdata olabilir" ;;
 esac
 [[ "$SIZE_MIB" =~ ^[1-9][0-9]*$ ]] || die "--size-mib pozitif tam sayi olmali"
@@ -91,10 +92,6 @@ fi
 for tool in mkntfs powershell.exe wslpath; do
   command -v "$tool" >/dev/null || die "$tool yok"
 done
-WIMLIB_APPLY_HELP="$(wimlib-imagex apply --help 2>&1 || true)"
-printf '%s\n' "$WIMLIB_APPLY_HELP" | grep -q -- '--compact' || \
-  die "wimlib --compact desteklemiyor; guncel wimtools/ntfs-3g kur"
-
 INFO="$WORK/image-info.txt"
 wimlib-imagex info "$INSTALL" "$INDEX" > "$INFO" || die "WIM indeksi okunamadi: $INDEX"
 if ! grep -Eqi '^Architecture:[[:space:]]*(arm64|9)[[:space:]]*$' "$INFO"; then
@@ -102,10 +99,23 @@ if ! grep -Eqi '^Architecture:[[:space:]]*(arm64|9)[[:space:]]*$' "$INFO"; then
   die "secilen Windows goruntusu ARM64 degil"
 fi
 NAME="$(sed -n 's/^Name:[[:space:]]*//p' "$INFO" | head -n1)"
+TOTAL_BYTES="$(sed -n 's/^Total Bytes:[[:space:]]*//p' "$INFO" | head -n1 | tr -cd '0-9')"
 say "Windows Desktop kaynagi"
 echo "  indeks : $INDEX"
 echo "  ad     : ${NAME:-<okunamadi>}"
 echo "  hedef  : ${TARGET^^}.img (${SIZE_MIB} MiB)"
+if [ -n "$TOTAL_BYTES" ]; then
+  TOTAL_MIB=$(( (TOTAL_BYTES + 1048575) / 1048576 ))
+  USABLE_MIB=$(( SIZE_MIB - 512 ))
+  echo "  acilmis: yaklasik ${TOTAL_MIB} MiB (+ NTFS/OOBE payi)"
+  if [ "$TOTAL_MIB" -gt "$USABLE_MIB" ]; then
+    NEEDED_MIB=$(( TOTAL_MIB + 1024 ))
+    if [ "$TARGET" = system ]; then
+      die "edition SYSTEM'e sigmaz (${TOTAL_MIB} MiB > ${USABLE_MIB} MiB). USERDATA kabul ediliyorsa: --target userdata --size-mib $NEEDED_MIB"
+    fi
+    die "USERDATA imaji kucuk; --size-mib en az $NEEDED_MIB kullan"
+  fi
+fi
 
 for required in \
   "$OUT/b2lufs/b2lufs.inf" "$OUT/b2lufs/b2lufs.sys" "$OUT/b2lufs/b2lufs.cat" \
@@ -151,9 +161,9 @@ truncate -s "${SIZE_MIB}M" "$IMAGE"
 mkntfs -Q -F -s 4096 -c 4096 -L WINDOWS "$IMAGE" 2>&1 | \
   grep -vi "not a block device\|has been set to 0\|was not specified\|will not be able to boot\|forced anyway" || true
 
-say "Windows Desktop NTFS'e CompactOS olarak aciliyor"
+say "Windows Desktop NTFS'e aciliyor"
 echo "  Kaynak edition'a gore uzun surebilir."
-if ! wimlib-imagex apply "$DESKTOP_WIM" 1 "$IMAGE" --compact=XPRESS16K; then
+if ! wimlib-imagex apply "$DESKTOP_WIM" 1 "$IMAGE"; then
   rm -f "$IMAGE"
   if [ "$TARGET" = system ]; then
     die "Windows 5696 MiB SYSTEM'e sigmadi. USERDATA silmeyi kabul ediyorsan --target userdata kullan"
@@ -178,7 +188,7 @@ MARKER="$OUT/windows-desktop-target.txt"
   echo "B2L_IMAGE=$(basename "$IMAGE")"
   echo "B2L_EDITION_INDEX=$INDEX"
   echo "B2L_EDITION_NAME=$NAME"
-  echo "B2L_COMPACT=XPRESS16K"
+  echo "B2L_COMPACT=NONE"
 } > "$MARKER"
 
 if [ "$TARGET" = userdata ]; then
