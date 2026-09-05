@@ -349,12 +349,12 @@ grep -q 'Get-WindowsDriver' "$STAGE_PS"
 grep -q 'Remove-WindowsDriver' "$STAGE_PS"
 grep -q 'B2L_OFFLINE_DRIVERSTORE=1' "$STAGE_PS"
 grep -q 'b2lmax77705.inf' "$STAGE_PS"
-grep -q 'ValidateSet("Usb", "Touch", "UsbTouch")' "$STAGE_PS"
+grep -q 'ValidateSet("Usb", "Touch", "UsbTouch", "Ufs", "TouchUfs")' "$STAGE_PS"
 grep -q 'Start-Process.*-Verb RunAs' "$STAGE_PS"
-if rg -n 'Package.*Ufs|b2lufs\.inf' "$STAGE_PS"; then
-  echo 'HATA: calisan UFS yolu erken-boot DriverStore deneyine katilmamali' >&2
-  exit 1
-fi
+grep -q '\$SelectedPackage -eq "TouchUfs"' "$STAGE_PS"
+grep -q '\$hasUfs = \$SelectedPackage -in @(\"Ufs\", \"TouchUfs\")' "$STAGE_PS"
+grep -q 'B2L_USB_TESTS=DISABLED' "$STAGE_PS"
+grep -q 'B2LUSB DriverStore paketleri ve runtime test marker' "$STAGE_PS"
 
 grep -q 'B2LMaxCcStatus0' "$WIN/README.md"
 grep -q 'Function stack' "$WIN/README.md"

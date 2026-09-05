@@ -41,7 +41,7 @@ Klasörü WSL'den erişilebilir bir yere koy, sonra:
 bash yap.sh --clean          # DEBUG derle
 bash yap.sh --tar            # Odin için .tar da üret
 bash yap.sh --acpi           # ACPI tablolarını derle + etkinleştir
-bash yap.sh --touch --usb-test --ufs-boot --clean  # diskten Windows profili
+bash yap.sh --touch --ufs-boot --clean  # diskten Windows; USB testleri kapali
 ```
 
 `yap.sh` overlay'i `~/Mu-Silicium`'a kopyalar, derler, çıktıyı Windows

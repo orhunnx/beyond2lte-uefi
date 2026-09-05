@@ -361,12 +361,19 @@ wimlib-imagex update "$WIM" 1 \
 # ErrorControl, ImagePath ve imzali SYS hash'ini dogrular.
 PS_STAGE="$HERE/windows/stage-winpe-driverstore.ps1"
 [ -s "$PS_STAGE" ] || die "offline DriverStore betigi yok: $PS_STAGE"
-say "B2LUFS boot-start paketi DriverStore'a offline kuruluyor"
+case "${B2L_STAGE_TOUCH_WITH_UFS:-0}" in
+  0) OFFLINE_PACKAGE="Ufs" ;;
+  1) OFFLINE_PACKAGE="TouchUfs" ;;
+  *) die "B2L_STAGE_TOUCH_WITH_UFS yalniz 0 veya 1 olabilir" ;;
+esac
+EXPECTED_OFFLINE_PACKAGE="$(printf '%s' "$OFFLINE_PACKAGE" | tr '[:lower:]' '[:upper:]')"
+say "B2LUFS boot-start paketi DriverStore'a offline kuruluyor: $OFFLINE_PACKAGE"
 powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -File "$(wslpath -w "$PS_STAGE")" \
   -ProjectRoot "$WIN_PROJECT_ROOT" \
   -WimPath "$(wslpath -w "$WIM")" \
-  -Package Ufs || die "B2LUFS offline boot-start servislemesi basarisiz"
+  -Package "$OFFLINE_PACKAGE" \
+  -DisableUsb || die "B2LUFS offline boot-start servislemesi basarisiz"
 
 CHECK="$(mktemp -d)"
 for Item in b2lufs.inf b2lufs.sys b2lufs.cat; do
@@ -387,14 +394,23 @@ wimlib-imagex extract "$WIM" 1 /Windows/B2LUFS/offline-driverstore.txt \
   --dest-dir="$CHECK" --no-acls >/dev/null
 for Expected in \
   'B2L_OFFLINE_DRIVERSTORE=1' \
-  'B2L_OFFLINE_PACKAGE=UFS' \
+  "B2L_OFFLINE_PACKAGE=$EXPECTED_OFFLINE_PACKAGE" \
   'B2L_BOOT_START=1' \
   'B2L_LOAD_ORDER_GROUP=SCSI Miniport' \
-  'B2L_ERROR_CONTROL=3'; do
+  'B2L_ERROR_CONTROL=3' \
+  'B2L_USB_TESTS=DISABLED'; do
   tr -d '\r' < "$CHECK/offline-driverstore.txt" | grep -Fqx "$Expected" || \
     die "B2LUFS offline boot isareti eksik: $Expected"
 done
-echo "  dogrulandi: offline DriverStore + Start=0 + SCSI Miniport"
+if [ "$OFFLINE_PACKAGE" = "TouchUfs" ]; then
+  mkdir -p "$CHECK/touch-marker"
+  wimlib-imagex extract "$WIM" 1 /Windows/B2LTOUCH/offline-driverstore.txt \
+    --dest-dir="$CHECK/touch-marker" --no-acls >/dev/null
+  tr -d '\r' < "$CHECK/touch-marker/offline-driverstore.txt" | \
+    grep -Fqx 'B2L_OFFLINE_PACKAGE=TOUCHUFS' || \
+    die "B2LTOUCH birlesik offline stage isareti eksik"
+fi
+echo "  dogrulandi: tek DISM turu + Start=0 + SCSI Miniport; USB testleri kapali"
 wimlib-imagex extract "$WIM" 1 /Windows/System32/b2lgptdump.exe \
   --dest-dir="$CHECK" --no-acls >/dev/null
 [ "$(sha256sum "$OUT/b2lgptdump.exe" | awk '{print $1}')" = \

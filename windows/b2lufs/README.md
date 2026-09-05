@@ -281,6 +281,10 @@ bu nedenle Winload sürücüyü çekirdeğe geçmeden yükler. `startnet.cmd` s�
 kurmaz veya yeniden tarama istemez; SYSTEM hive'daki `Start=0`/grup kaydını,
 yüklenmiş servis durumunu ve `ACPI\BYND9820` PnP yığınını raporlar.
 
+`bash yap.sh --touch --ufs-boot --clean` kullanıldığında b2ltouch/VHF ile
+B2LUFS `TouchUfs` profili altında tek DISM mount/commit oturumunda eklenir;
+deneysel B2LUSB paketleri bu disk-boot profilinden kaldırılır.
+
 `startnet.cmd` otomatik harf atamasını kapatır; `Disk 0 / Partition 28` odağındaki CACHE
 volume'unu açıkça çevrimiçi yapıp `W:` olarak bağlar.
 Akış, eski GPT/PnP envanteri/registry/ETW tanı kalabalığını üretmeden

@@ -11,7 +11,7 @@
 #   yap.sh --acpi          ACPI tablolarini derle + etkinlestir
 #   yap.sh --touch         deneysel UEFI dokunmatik + zorunlu ACPI yenileme
 #   yap.sh --touch-test    kareli UEFI dokunmatik testi + Windows'a devam
-#   yap.sh --usb-test      USB tanisi + Windows ARM64 statik HOST paketi + zorunlu ACPI
+#   yap.sh --usb-test      USB tanisi (tek basina; --ufs-boot ile devre disi)
 #   yap.sh --ufs-boot      B2LUFS ARM64 paketini WinPE'ye offline boot-start kur
 #   yap.sh --psci-hvc      deneysel: Windows PSCI'sini EL2 HVC koprusune yonlendir
 #   (Odin .tar ve .img her zaman uretilir)
@@ -38,6 +38,14 @@ while [ $# -gt 0 ]; do
     *) echo "Bilinmeyen secenek: $1"; exit 1 ;;
   esac
 done
+
+# Disk/UFS boot profili, sahada calismayan deneysel USB paketini boot zincirine
+# sokmaz. Eski komut satirlari --usb-test icerse bile UFS turu guvenli profile
+# indirgenir; bagimsiz USB gelistirmesi icin --usb-test tek basina kullanilabilir.
+if [ "$UFS_BOOT" = 1 ] && [ "$USB_TEST" = 1 ]; then
+  echo "UYARI: --ufs-boot profilinde --usb-test devre disi; B2LUSB paketlenmeyecek."
+  USB_TEST=0
+fi
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
@@ -391,7 +399,8 @@ if [ "$TOUCH" = 1 ]; then
       echo "HATA: tools_b2ltouch.sh yok veya calistirilabilir degil"
       exit 1
     }
-    if [ "$USB_TEST" = 1 ] && [ "${B2L_SKIP_WINDOWS_USB_BUILD:-0}" != "1" ]; then
+    if { [ "$USB_TEST" = 1 ] && [ "${B2L_SKIP_WINDOWS_USB_BUILD:-0}" != "1" ]; } || \
+       { [ "$UFS_BOOT" = 1 ] && [ "${B2L_SKIP_WINDOWS_UFS_BUILD:-0}" != "1" ]; }; then
       B2L_DEFER_OFFLINE_STAGE=1 "$PROJ/tools_b2ltouch.sh"
       WINDOWS_TOUCH_DEFERRED=1
     else
@@ -449,7 +458,7 @@ if [ "$UFS_BOOT" = 1 ]; then
       echo "HATA: tools_b2lufs.sh yok veya bos"
       exit 1
     }
-    bash "$PROJ/tools_b2lufs.sh"
+    B2L_STAGE_TOUCH_WITH_UFS="$WINDOWS_TOUCH_DEFERRED" bash "$PROJ/tools_b2lufs.sh"
   fi
 fi
 

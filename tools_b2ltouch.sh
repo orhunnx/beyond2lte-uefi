@@ -166,7 +166,7 @@ case "${B2L_DEFER_OFFLINE_STAGE:-0}" in
       -Package Touch || die "B2LTOUCH offline DriverStore servislemesi basarisiz"
     ;;
   1)
-    echo "B2LTOUCH offline stage, birlesik USB+touch DISM turuna ertelendi"
+    echo "B2LTOUCH offline stage, birlesik driver DISM turuna ertelendi"
     ;;
   *) die "B2L_DEFER_OFFLINE_STAGE yalniz 0 veya 1 olabilir" ;;
 esac

@@ -74,15 +74,20 @@ if ! wimlib-imagex extract "$WIM" 1 /Windows/B2LUFS/offline-driverstore.txt \
 fi
 for EXPECTED in \
   'B2L_OFFLINE_DRIVERSTORE=1' \
-  'B2L_OFFLINE_PACKAGE=UFS' \
   'B2L_BOOT_START=1' \
   'B2L_LOAD_ORDER_GROUP=SCSI Miniport' \
-  'B2L_ERROR_CONTROL=3'; do
+  'B2L_ERROR_CONTROL=3' \
+  'B2L_USB_TESTS=DISABLED'; do
   tr -d '\r' < "$VERIFY_DIR/offline-driverstore.txt" | grep -Fqx "$EXPECTED" || {
     echo "HATA: boot.wim B2LUFS boot kaydi eksik: $EXPECTED"
     exit 1
   }
 done
+grep -Eq '^B2L_OFFLINE_PACKAGE=(UFS|TOUCHUFS)\r?$' \
+  "$VERIFY_DIR/offline-driverstore.txt" || {
+  echo "HATA: boot.wim B2LUFS paketi UFS/TOUCHUFS profili degil"
+  exit 1
+}
 rm -rf "$VERIFY_DIR"
 trap - EXIT
 echo "  B2LUFS offline boot-start paketi dogrulandi"

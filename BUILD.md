@@ -280,7 +280,7 @@ Bu iki komut cihazda doğrulanmış RAM-WinPE profilidir. UFS sürücüsünü
 Winload aşamasına alıp SYSTEM NTFS'ten açılan yeni profil şudur:
 
 ```bash
-bash yap.sh --touch --usb-test --ufs-boot --clean
+bash yap.sh --touch --ufs-boot --clean
 bash tools_windisk.sh
 # Windows yonetici CMD: windows\bcd_olustur.cmd disk
 bash tools_winboot.sh /yol/Windows_ARM64.iso --disk
@@ -293,12 +293,17 @@ artık FAT/RAM-WinPE ESP'si değil, `tools_windisk.sh` tarafından üretilen NTF
 işletim sistemi birimidir. CACHE yalnız bootmgfw ve disk BCD'sini taşır.
 Nihai AP dosyası `out/beyond2lte-winpe-ufs-disk.tar` olur.
 
+`--touch --ufs-boot` sırasında Touch/VHF ve B2LUFS tek DISM mount/commit
+oturumunda eklenir. Önceki komut alışkanlığıyla ayrıca `--usb-test` verilirse
+seçenek bu profilde yok sayılır; eski B2LUSB DriverStore paketleri ve runtime
+test klasörü WIM'den temizlenir.
+
 ADK `boot.wim` sıfırdan kurulacaksa günlük sıranın önüne yalnız bir kez şunu
 ekle:
 
 ```bash
 bash tools_winpe_adk.sh "/mnt/c/Program Files (x86)/Windows Kits/10/Assessment and Deployment Kit/Windows Preinstallation Environment/arm64/Media"
-bash yap.sh --touch --usb-test --ufs-boot --clean
+bash yap.sh --touch --ufs-boot --clean
 ```
 
 Yalnız dokunmatik C kaynakları değiştiyse UEFI'yi yeniden derlemek gerekmez;

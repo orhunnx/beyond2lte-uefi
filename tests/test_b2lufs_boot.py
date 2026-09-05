@@ -25,28 +25,35 @@ class B2LUfsBootPipelineTests(unittest.TestCase):
 
     def test_offline_stage_validates_service_hive_and_exact_sys(self) -> None:
         stage = read("windows/stage-winpe-driverstore.ps1")
-        self.assertIn('ValidateSet("Usb", "Touch", "UsbTouch", "Ufs")', stage)
+        self.assertIn(
+            'ValidateSet("Usb", "Touch", "UsbTouch", "Ufs", "TouchUfs")',
+            stage,
+        )
         self.assertIn('Add-WindowsDriver -Path $mountRoot -Driver $infPath', stage)
         self.assertIn('Test-B2LUfsOfflineBootService -MountPath $mountRoot', stage)
         for gate in (
-            "[int]$service.Start -ne 0",
-            "[int]$service.ErrorControl -ne 3",
-            '[string]$service.Group -cne "SCSI Miniport"',
+            "$start -ne 0",
+            "$errorControl -ne 3",
+            '$group -cne "SCSI Miniport"',
             "B2LUFS boot SYS hash'i paket girdisinden farkli",
-            "[int]$select.Default",
-            'Properties["LastKnownGood"]',
+            'Get-B2LRequiredRegistryValue -Key $selectKey -Name "Default"',
+            '$selectKey.GetValueNames() -contains "LastKnownGood"',
             '"B2L_BOOT_START=1"',
         ):
             self.assertIn(gate, stage)
+        self.assertIn("Dismount-B2LRegistryHive", stage)
+        self.assertIn("[Microsoft.Win32.RegistryKey]::OpenBaseKey", stage)
+        self.assertNotIn("Get-ItemProperty -LiteralPath $servicePath", stage)
 
     def test_packager_runs_dism_ufs_stage_and_checks_marker(self) -> None:
         packager = read("tools_b2lufs.sh")
-        self.assertRegex(packager, r"(?s)-Package Ufs.*offline-driverstore\.txt")
+        self.assertRegex(packager, r'(?s)OFFLINE_PACKAGE="TouchUfs".*-DisableUsb')
         for marker in (
-            "B2L_OFFLINE_PACKAGE=UFS",
+            "B2L_OFFLINE_PACKAGE=$EXPECTED_OFFLINE_PACKAGE",
             "B2L_BOOT_START=1",
             "B2L_LOAD_ORDER_GROUP=SCSI Miniport",
             "B2L_ERROR_CONTROL=3",
+            "B2L_USB_TESTS=DISABLED",
         ):
             self.assertIn(marker, packager)
 
@@ -57,6 +64,12 @@ class B2LUfsBootPipelineTests(unittest.TestCase):
             build.index('"$PROJ/tools_b2lusb.sh"'),
             build.index('bash "$PROJ/tools_b2lufs.sh"'),
         )
+        self.assertIn('if [ "$UFS_BOOT" = 1 ] && [ "$USB_TEST" = 1 ]', build)
+        self.assertIn("USB_TEST=0", build)
+        self.assertIn('B2L_STAGE_TOUCH_WITH_UFS="$WINDOWS_TOUCH_DEFERRED"', build)
+
+        self.assertIn('$SelectedPackage -eq "TouchUfs"', read("windows/stage-winpe-driverstore.ps1"))
+        self.assertIn("B2LUSB DriverStore paketleri", read("windows/stage-winpe-driverstore.ps1"))
 
     def test_winpe_never_runtime_installs_b2lufs(self) -> None:
         startnet = read("windows/startnet.cmd")
@@ -78,6 +91,7 @@ class B2LUfsBootPipelineTests(unittest.TestCase):
         bundle = read("tools_odin_winpe_bundle.sh")
         self.assertIn("/Windows/B2LUFS/offline-driverstore.txt", windisk)
         self.assertIn("B2L_BOOT_START=1", windisk)
+        self.assertIn("B2L_USB_TESTS=DISABLED", windisk)
         self.assertIn('DISKBOOT=1', cache)
         self.assertIn("ESP hala boot.wim tasiyor", cache)
         self.assertIn("BCD disk profili dogrulandi", winboot)

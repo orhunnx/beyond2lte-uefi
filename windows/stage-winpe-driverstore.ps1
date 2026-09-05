@@ -2,9 +2,10 @@
 param(
     [string]$ProjectRoot,
     [string]$WimPath,
-    [ValidateSet("Usb", "Touch", "UsbTouch", "Ufs")]
+    [ValidateSet("Usb", "Touch", "UsbTouch", "Ufs", "TouchUfs")]
     [string]$Package,
-    [string]$PreparedRoot
+    [string]$PreparedRoot,
+    [switch]$DisableUsb
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,8 +32,17 @@ function Invoke-B2LReg {
         [switch]$ReturnOutput
     )
 
-    $output = & reg.exe @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
+    # Windows PowerShell 5.1 native stderr'i ErrorRecord'a cevirir. Scriptin
+    # genel Stop tercihi reg.exe cikis kodunu okumadan once kontrolu kesmesin.
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & reg.exe @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
     foreach ($line in $output) {
         Write-B2LStageLog ([string]$line)
     }
@@ -42,6 +52,49 @@ function Invoke-B2LReg {
     if ($ReturnOutput) {
         return $output
     }
+}
+
+function Dismount-B2LRegistryHive {
+    param([string]$HiveName)
+
+    $lastOutput = @()
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        [GC]::Collect()
+        [GC]::WaitForPendingFinalizers()
+
+        $previousPreference = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $lastOutput = @(& reg.exe unload $HiveName 2>&1)
+            $exitCode = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousPreference
+        }
+
+        if ($exitCode -eq 0) {
+            Write-B2LStageLog "Offline registry hive kapatildi: $HiveName"
+            return
+        }
+        if ($attempt -lt 5) {
+            Start-Sleep -Milliseconds (200 * $attempt)
+        }
+    }
+
+    $detail = ($lastOutput | ForEach-Object { [string]$_ }) -join " | "
+    throw "Offline registry hive kapatilamadi: $HiveName ($detail)"
+}
+
+function Get-B2LRequiredRegistryValue {
+    param(
+        [Microsoft.Win32.RegistryKey]$Key,
+        [string]$Name
+    )
+
+    if ($Key.GetValueNames() -notcontains $Name) {
+        throw "Offline registry degeri yok: $($Key.Name)\\$Name"
+    }
+    return $Key.GetValue($Name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
 }
 
 function Set-B2LVhfOfflineService {
@@ -76,7 +129,7 @@ function Set-B2LVhfOfflineService {
     }
     finally {
         if ($loaded) {
-            Invoke-B2LReg -Arguments @("unload", $hiveName)
+            Dismount-B2LRegistryHive -HiveName $hiveName
         }
     }
 }
@@ -102,15 +155,41 @@ function Test-B2LUfsOfflineBootService {
     $hiveLeaf = "B2LUFSOFFLINE_$PID"
     $hiveName = "HKLM\$hiveLeaf"
     $loaded = $false
+    $baseKey = $null
+    $offlineHive = $null
     try {
         Invoke-B2LReg -Arguments @("load", $hiveName, $systemHive)
         $loaded = $true
-        $hiveRoot = "Registry::HKEY_LOCAL_MACHINE\$hiveLeaf"
-        $select = Get-ItemProperty -LiteralPath "$hiveRoot\Select"
-        $controlSetNumbers = @([int]$select.Current, [int]$select.Default)
-        if ($null -ne $select.PSObject.Properties["LastKnownGood"]) {
-            $controlSetNumbers += [int]$select.LastKnownGood
+
+        # PowerShell Registry provider'i yuklu hive uzerinde cache'lenmis handle
+        # birakabiliyor. Anahtarlari .NET ile acip deterministik olarak kapat;
+        # aksi halde reg unload ve DISM dismount ACCESS_DENIED olur.
+        $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+            [Microsoft.Win32.RegistryHive]::LocalMachine,
+            [Microsoft.Win32.RegistryView]::Default
+        )
+        $offlineHive = $baseKey.OpenSubKey($hiveLeaf)
+        if ($null -eq $offlineHive) {
+            throw "B2LUFS offline SYSTEM hive acilamadi: $hiveLeaf"
         }
+
+        $selectKey = $offlineHive.OpenSubKey("Select")
+        if ($null -eq $selectKey) {
+            throw "B2LUFS offline SYSTEM Select anahtari yok"
+        }
+        try {
+            $controlSetNumbers = @(
+                [int](Get-B2LRequiredRegistryValue -Key $selectKey -Name "Current"),
+                [int](Get-B2LRequiredRegistryValue -Key $selectKey -Name "Default")
+            )
+            if ($selectKey.GetValueNames() -contains "LastKnownGood") {
+                $controlSetNumbers += [int]$selectKey.GetValue("LastKnownGood")
+            }
+        }
+        finally {
+            $selectKey.Close()
+        }
+
         $controlSetNumbers = @($controlSetNumbers | Where-Object { $_ -gt 0 } | Sort-Object -Unique)
         if ($controlSetNumbers.Count -eq 0) {
             throw "B2LUFS offline SYSTEM etkin control set icermiyor"
@@ -118,48 +197,62 @@ function Test-B2LUfsOfflineBootService {
 
         foreach ($controlSetNumber in $controlSetNumbers) {
             $controlSet = "ControlSet{0:D3}" -f $controlSetNumber
-            $servicePath = "$hiveRoot\$controlSet\Services\b2lufs"
-            if (-not (Test-Path -LiteralPath $servicePath)) {
+            $service = $offlineHive.OpenSubKey("$controlSet\Services\b2lufs")
+            if ($null -eq $service) {
                 throw "B2LUFS offline servis kaydi yok: $controlSet\Services\b2lufs"
             }
+            try {
+                $type = [int](Get-B2LRequiredRegistryValue -Key $service -Name "Type")
+                $start = [int](Get-B2LRequiredRegistryValue -Key $service -Name "Start")
+                $errorControl = [int](Get-B2LRequiredRegistryValue -Key $service -Name "ErrorControl")
+                $group = [string](Get-B2LRequiredRegistryValue -Key $service -Name "Group")
+                $imagePath = ([string](Get-B2LRequiredRegistryValue -Key $service -Name "ImagePath")).Replace('/', '\')
 
-            $service = Get-ItemProperty -LiteralPath $servicePath
-            if ([int]$service.Type -ne 1) {
-                throw "B2LUFS offline Type boot surucusu degil: $controlSet=$($service.Type)"
-            }
-            if ([int]$service.Start -ne 0) {
-                throw "B2LUFS offline Start=0 degil: $controlSet=$($service.Start)"
-            }
-            if ([int]$service.ErrorControl -ne 3) {
-                throw "B2LUFS offline ErrorControl=3 degil: $controlSet=$($service.ErrorControl)"
-            }
-            if ([string]$service.Group -cne "SCSI Miniport") {
-                throw "B2LUFS offline load-order grubu gecersiz: $controlSet='$($service.Group)'"
-            }
-            $imagePath = ([string]$service.ImagePath).Replace('/', '\')
-            if ($imagePath -notmatch '(?i)^(\\SystemRoot\\)?System32\\drivers\\b2lufs\.sys$') {
-                throw "B2LUFS offline ImagePath gecersiz: $controlSet='$imagePath'"
-            }
+                if ($type -ne 1) {
+                    throw "B2LUFS offline Type boot surucusu degil: $controlSet=$type"
+                }
+                if ($start -ne 0) {
+                    throw "B2LUFS offline Start=0 degil: $controlSet=$start"
+                }
+                if ($errorControl -ne 3) {
+                    throw "B2LUFS offline ErrorControl=3 degil: $controlSet=$errorControl"
+                }
+                if ($group -cne "SCSI Miniport") {
+                    throw "B2LUFS offline load-order grubu gecersiz: $controlSet='$group'"
+                }
+                if ($imagePath -notmatch '(?i)^(\\SystemRoot\\)?System32\\drivers\\b2lufs\.sys$') {
+                    throw "B2LUFS offline ImagePath gecersiz: $controlSet='$imagePath'"
+                }
 
-            $overridePath = Join-Path $servicePath "StartOverride"
-            if (Test-Path -LiteralPath $overridePath) {
-                $override = Get-ItemProperty -LiteralPath $overridePath
-                foreach ($property in $override.PSObject.Properties) {
-                    if ($property.Name -like "PS*") { continue }
-                    if ([int]$property.Value -ne 0) {
-                        throw "B2LUFS StartOverride boot-start'i engelliyor: $controlSet/$($property.Name)=$($property.Value)"
+                $override = $service.OpenSubKey("StartOverride")
+                if ($null -ne $override) {
+                    try {
+                        foreach ($valueName in $override.GetValueNames()) {
+                            $overrideValue = [int]$override.GetValue($valueName)
+                            if ($overrideValue -ne 0) {
+                                throw "B2LUFS StartOverride boot-start'i engelliyor: $controlSet/$valueName=$overrideValue"
+                            }
+                        }
+                    }
+                    finally {
+                        $override.Close()
                     }
                 }
-            }
 
-            Write-B2LStageLog "Offline B2LUFS boot servisi dogrulandi: $controlSet\\Services\\b2lufs Start=0 Group=SCSI Miniport ErrorControl=3"
+                Write-B2LStageLog "Offline B2LUFS boot servisi dogrulandi: $controlSet\\Services\\b2lufs Start=0 Group=SCSI Miniport ErrorControl=3"
+            }
+            finally {
+                $service.Close()
+            }
         }
 
         Write-B2LStageLog "Offline B2LUFS SYS hash'i paketle ayni: $($installedHash.ToLowerInvariant())"
     }
     finally {
+        if ($null -ne $offlineHive) { $offlineHive.Close() }
+        if ($null -ne $baseKey) { $baseKey.Close() }
         if ($loaded) {
-            Invoke-B2LReg -Arguments @("unload", $hiveName)
+            Dismount-B2LRegistryHive -HiveName $hiveName
         }
     }
 }
@@ -190,7 +283,8 @@ function Test-B2LRuntimeFiles {
 function Invoke-B2LOfflineServicing {
     param(
         [string]$WorkRoot,
-        [string]$SelectedPackage
+        [string]$SelectedPackage,
+        [switch]$DisableUsb
     )
 
     Import-Module Dism -ErrorAction Stop
@@ -200,7 +294,11 @@ function Invoke-B2LOfflineServicing {
     New-Item -ItemType Directory -Path $mountRoot -Force | Out-Null
 
     $hasUsb = $SelectedPackage -in @("Usb", "UsbTouch")
-    $hasTouch = $SelectedPackage -in @("Touch", "UsbTouch")
+    $hasTouch = $SelectedPackage -in @("Touch", "UsbTouch", "TouchUfs")
+    $hasUfs = $SelectedPackage -in @("Ufs", "TouchUfs")
+    if ($DisableUsb -and -not $hasUfs) {
+        throw "DisableUsb yalniz Ufs iceren offline stage ile kullanilabilir"
+    }
 
     if ($SelectedPackage -eq "Usb") {
         $requiredInfs = @("b2lmax77705.inf", "b2lusb-host.inf", "b2lusb-function.inf", "b2lusb.inf")
@@ -214,9 +312,17 @@ function Invoke-B2LOfflineServicing {
         $requiredInfs = @("b2lmax77705.inf", "b2lusb-host.inf", "b2lusb-function.inf", "b2lusb.inf", "b2ltouch.inf")
         $markerDirectories = @("Windows\B2LUSB", "Windows\B2LTOUCH")
     }
+    elseif ($SelectedPackage -eq "TouchUfs") {
+        $requiredInfs = @("b2ltouch.inf", "b2lufs.inf")
+        $markerDirectories = @("Windows\B2LTOUCH", "Windows\B2LUFS")
+    }
     else {
         $requiredInfs = @("b2lufs.inf")
         $markerDirectories = @("Windows\B2LUFS")
+    }
+    $removeInfs = @($requiredInfs)
+    if ($DisableUsb) {
+        $removeInfs += @("b2lmax77705.inf", "b2lusb-host.inf", "b2lusb-function.inf", "b2lusb.inf")
     }
 
     $mounted = $false
@@ -242,13 +348,21 @@ function Invoke-B2LOfflineServicing {
         $installed = @(Get-WindowsDriver -Path $mountRoot -All)
         foreach ($driver in $installed) {
             $originalName = [IO.Path]::GetFileName([string]$driver.OriginalFileName)
-            if ($requiredInfs -contains $originalName) {
+            if ($removeInfs -contains $originalName) {
                 Write-B2LStageLog "Eski offline paket kaldiriliyor: $originalName ($($driver.Driver))"
                 Remove-WindowsDriver -Path $mountRoot -Driver $driver.Driver | Out-Null
                 if ($null -ne $runtime) {
                     Test-B2LRuntimeFiles -MountPath $mountRoot -Record $runtime -Stage "Remove-$originalName"
                 }
             }
+        }
+
+        if ($DisableUsb) {
+            $usbTestRoot = Join-Path $mountRoot "Windows\B2LUSB"
+            if (Test-Path -LiteralPath $usbTestRoot) {
+                Remove-Item -LiteralPath $usbTestRoot -Recurse -Force
+            }
+            Write-B2LStageLog "B2LUSB DriverStore paketleri ve runtime test marker'lari devre disi birakildi."
         }
 
         foreach ($infName in $requiredInfs) {
@@ -267,7 +381,7 @@ function Invoke-B2LOfflineServicing {
             Set-B2LVhfOfflineService -MountPath $mountRoot
         }
 
-        if ($SelectedPackage -eq "Ufs") {
+        if ($hasUfs) {
             Test-B2LUfsOfflineBootService -MountPath $mountRoot -DriverRoot $driverRoot
         }
 
@@ -305,12 +419,15 @@ function Invoke-B2LOfflineServicing {
                 "B2L_OFFLINE_PACKAGE=$($SelectedPackage.ToUpperInvariant())"
                 "B2L_OFFLINE_INFS=$($requiredInfs -join ',')"
             )
-            if ($SelectedPackage -eq "Ufs") {
+            if ($hasUfs -and $markerDirectory -eq "Windows\B2LUFS") {
                 $marker += @(
                     "B2L_BOOT_START=1"
                     "B2L_LOAD_ORDER_GROUP=SCSI Miniport"
                     "B2L_ERROR_CONTROL=3"
                 )
+                if ($DisableUsb) {
+                    $marker += "B2L_USB_TESTS=DISABLED"
+                }
             }
             $marker | Set-Content -LiteralPath (Join-Path $markerRoot "offline-driverstore.txt") -Encoding ASCII
         }
@@ -338,7 +455,7 @@ if ($PreparedRoot) {
         exit 1
     }
     try {
-        Invoke-B2LOfflineServicing -WorkRoot $PreparedRoot -SelectedPackage $Package
+        Invoke-B2LOfflineServicing -WorkRoot $PreparedRoot -SelectedPackage $Package -DisableUsb:$DisableUsb
         exit 0
     }
     catch {
@@ -391,7 +508,7 @@ try {
             Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $driverRoot $fileName) -Force
         }
     }
-    if ($Package -in @("Touch", "UsbTouch")) {
+    if ($Package -in @("Touch", "UsbTouch", "TouchUfs")) {
         foreach ($fileName in $touchFiles) {
             $sourceFile = Join-Path $touchSourceDirectory $fileName
             if (-not (Test-Path -LiteralPath $sourceFile -PathType Leaf)) {
@@ -400,7 +517,7 @@ try {
             Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $driverRoot $fileName) -Force
         }
     }
-    if ($Package -eq "Ufs") {
+    if ($Package -in @("Ufs", "TouchUfs")) {
         foreach ($fileName in $ufsFiles) {
             $sourceFile = Join-Path $ufsSourceDirectory $fileName
             if (-not (Test-Path -LiteralPath $sourceFile -PathType Leaf)) {
@@ -411,14 +528,15 @@ try {
     }
 
     if (Test-B2LAdministrator) {
-        Invoke-B2LOfflineServicing -WorkRoot $workRoot -SelectedPackage $Package
+        Invoke-B2LOfflineServicing -WorkRoot $workRoot -SelectedPackage $Package -DisableUsb:$DisableUsb
         $exitCode = 0
     }
     else {
         Write-Host "DISM offline DriverStore icin Windows UAC onayi bekleniyor: $Package"
         $escapedScript = $localScript.Replace("'", "''")
         $escapedRoot = $workRoot.Replace("'", "''")
-        $command = "& '$escapedScript' -PreparedRoot '$escapedRoot' -Package '$Package'"
+        $disableUsbSwitch = if ($DisableUsb) { " -DisableUsb" } else { "" }
+        $command = "& '$escapedScript' -PreparedRoot '$escapedRoot' -Package '$Package'$disableUsbSwitch"
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
         $powershell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
         try {
@@ -452,7 +570,7 @@ finally {
     $logDestination = if ($Package -eq "Touch") {
         $touchSourceDirectory
     }
-    elseif ($Package -eq "Ufs") {
+    elseif ($Package -in @("Ufs", "TouchUfs")) {
         $ufsSourceDirectory
     }
     else {

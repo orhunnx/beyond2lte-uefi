@@ -28,13 +28,29 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > BCD'yi `locate=\Windows\System32\winload.efi` için doğrular ve CACHE'te
 > yalnız bootmgfw+BCD tutar; RAM `boot.wim` disk ESP'sine sızarsa build durur.
 > Güncel tam başlangıç komutu
-> `bash yap.sh --touch --usb-test --ufs-boot --clean`dir. Ardından
+> `bash yap.sh --touch --ufs-boot --clean`dir. Touch ve UFS tek DISM
+> mount/commit turunda eklenir; deneysel USB paketleri bu profilde kaldırılır.
+> Ardından
 > `tools_windisk.sh`, Windows'ta `bcd_olustur.cmd disk`,
 > `tools_winboot.sh <ISO> --disk`, `cache_esp.sh --win --disk --baseline` ve
 > `tools_odin_winpe_bundle.sh --disk` çalışır. Çıktı
 > `out/beyond2lte-winpe-ufs-disk.tar`dır. Mac'te statik/regresyon testleri
 > geçti; gerçek WSL DISM/MSVC build'i ve cihaz disk boot sonucu henüz yoktur.
 > Bu doğrulandıktan sonraki ayrı hedef WinPE yerine Windows Desktop'tır.
+
+> **5 Eylül / İlk gerçek offline UFS denemesi ve ACCESS_DENIED düzeltmesi:**
+> WSL denemesinde `b2lufs.inf` eklendi; `ControlSet001`, `Start=0`,
+> `SCSI Miniport`, `ErrorControl=3` ve kurulu SYS hash'i başarıyla doğrulandı.
+> Hata bundan sonra offline SYSTEM hive boşaltılırken oluştu: PowerShell
+> Registry provider açık handle bıraktığı için `reg unload` erişim engeli ve
+> ardından DISM dismount hatası verdi. UFS doğrulaması artık açıkça kapatılan
+> `.NET RegistryKey` nesneleri kullanıyor; hive unload beş kontrollü deneme ve
+> GC/finalizer kapısıyla yapılıyor. `--touch --ufs-boot` ayrıca `TouchUfs`
+> profiliyle b2ltouch, VHF ve B2LUFS'yi **tek DISM mount/commit** oturumunda
+> işler. Aynı oturum eski B2LUSB DriverStore paketlerini ve runtime test
+> klasörünü kaldırır; `--ufs-boot` ile verilse bile `--usb-test` yok sayılır.
+> Yerel statik, shell, touch ve USB regresyonları geçti; yeni WSL/DISM turu
+> henüz cihaz tarafında doğrulanmadı.
 
 > **5 Eylül / USB geliştirmesine ara verildi — güncel son durum:** Kullanıcı
 > USB çalışmasını durdurdu; yeni build/flaş veya veri beklenmiyor. `.43`
@@ -468,8 +484,9 @@ bash tools_winpe_adk.sh "/mnt/c/Program Files (x86)/Windows Kits/10/Assessment a
 ```
 
 Bu işlemden sonra ilgili özel paketler yeniden WIM'e enjekte edilmelidir.
-`--touch --usb-test --ufs-boot` turu touch, USB ve boot-start UFS paketlerini
-aynı WIM'de korur; ayrıca `tools_b2lufs.sh` çağırmak gerekmez.
+`--touch --ufs-boot` turu touch ve boot-start UFS paketlerini tek DISM
+mount/commit oturumunda ekler. Deneysel USB paketleri ve runtime test marker'ı
+bu profilde temizlenir; ayrıca `tools_b2lufs.sh` çağırmak gerekmez.
 
 Betikler kendi proje konumlarını bulur. Eski dokümanlardaki kullanıcıya özel
 mutlak repo yolları kopyalanmamalıdır. Harici Mu yolu farklıysa:
@@ -511,7 +528,7 @@ Yeni UFS disk-boot üretim sırası aynı ilk komutu şu şekilde genişletir;
 artık FAT ESP değil NTFS işletim sistemi birimidir:
 
 ```bash
-bash yap.sh --touch --usb-test --ufs-boot --clean
+bash yap.sh --touch --ufs-boot --clean
 bash tools_windisk.sh
 # Windows yonetici CMD: windows\bcd_olustur.cmd disk
 bash tools_winboot.sh /yol/Windows_ARM64.iso --disk
