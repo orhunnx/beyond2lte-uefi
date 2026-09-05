@@ -23,8 +23,8 @@ Uygulama yeni MMIO pencerelerini tek tek ve yalnız kullanıcı tuşuyla açar:
 3. DWC3 kimliği/globalleri ile xHCI capability, operational ve port durumu,
 4. DWC3 device/OTG rol registerleri,
 5. USB DRD PHY ana penceresinin doğrulanmış ilk 64 baytı,
-6. combo PHY PCS için önceki abort sonucu; MMIO okuması yok,
-7. combo PHY PMA için önceki abort sonucu; MMIO okuması yok,
+6. combo PHY PMA için önceki abort sonucu; MMIO okuması yok,
+7. combo PHY PCS için önceki abort sonucu; MMIO okuması yok,
 8. tek ekranlı canlı attach monitörü: iki saniyelik örneklerle anlık ve birikmiş
    `PWR/DWC/DEV/OTG/XHC/PHY` değişim bayrakları, DWC3 bağlantı hızı/link state,
    OTG `VBUS/B-session`, xHCI `CCS/PLS/change` ve DRD PHY `0x00..0x3c`.
@@ -53,7 +53,7 @@ kimliğini kabul eder, DWC_usb31 `VER_NUMBER/VER_TYPE` alanlarını gösterir ve
 salt-okuma role/PHY aşamalarını açar.
 
 R4-R6 ölçümleri kablo takılı değilken yapıldı. Ana DRD PHY okunabildi; combo
-PCS `+0x00/+0x0C` ve combo PMA `+0x00` erişimleri synchronous external abort
+PMA `10AE0000+0x00/+0x0C` ve combo PCS `10AF0000+0x00` erişimleri synchronous external abort
 verdi. R7 bu iki combo penceresini hiç okumaz. Kablo etkisi önce PC veri
 kablosu boot öncesinde takılarak güvenli PMU, DWC3/xHCI ve ana DRD PHY
 sayfalarında karşılaştırılır.
@@ -242,3 +242,7 @@ varsa `UcmUcsiCx.sys`/`UcmUcsiAcpiClient.sys` ile kullanılabilir. MAX77705 içi
 bu firmware/ACPI sözleşmesini gösteren kanıt bulunmadığından UCSI uyumluluğu
 varsayılmaz; mevcut donanım bulguları doğrudan HSI2C45 üzerindeki PMIC/CC-PD
 aygıtını gösterdiği için ilk Windows connector adayı özel UCM client'tır.
+
+5 Eylül 2026: Gen2 Linux kaynak eşlemesiyle eski PCS/PMA ekran adları
+düzeltildi. `10AE0000/2800` analog PMA, `10AF0000/800` PCS alanıdır.
+Eski abort ölçümlerinin adresleri ve MMIO okumama davranışı değişmedi.

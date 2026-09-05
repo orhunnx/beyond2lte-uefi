@@ -40,8 +40,8 @@ fi
 grep -Fq 'ACPI\BYN0002' "$PARENT_INF"
 grep -q 'KmdfLibraryVersion=1.15' "$PARENT_INF"
 grep -Fq 'URS\BYN0002&HOST' "$HOST_INF"
-grep -q 'DriverVer=09/05/2026,0.1.0.19' "$PARENT_INF"
-grep -q 'DriverVer=09/05/2026,0.1.0.19' "$HOST_INF"
+grep -q 'DriverVer=09/05/2026,0.1.0.20' "$PARENT_INF"
+grep -q 'DriverVer=09/05/2026,0.1.0.20' "$HOST_INF"
 grep -Fq 'ACPI\BYN0004' "$MAX_INF"
 grep -q 'DriverVer=09/05/2026,0.1.0.42' "$MAX_INF"
 grep -q 'KmdfLibraryVersion=1.15' "$MAX_INF"
@@ -95,14 +95,19 @@ grep -q 'B2L_HSP_TUNE_TXPREEMPA(3)' "$WIN/b2lusb_hw.c"
 grep -q 'B2L_HSP_TUNE_COMPDIS(7)' "$WIN/b2lusb_hw.c"
 grep -q 'B2lRequireXhciHalted' "$WIN/b2lusb_hw.c"
 grep -q 'B2lStopDeviceController' "$WIN/b2lusb_hw.c"
-grep -q '#define B2L_DWC3_GCTL_CORESOFTRESET' "$WIN/b2lusb_hw.c"
-grep -q '#define B2L_DWC3_ROLE_RESET_MS          100UL' "$WIN/b2lusb_hw.c"
-grep -q 'B2lResetDwc3RoleCore' "$WIN/b2lusb_hw.c"
+grep -q '#define B2L_DWC3_DCTL_CSFTRST' "$WIN/b2lusb_hw.c"
+grep -q '#define B2L_DWC3_DEVICE_SYNC_MS          50UL' "$WIN/b2lusb_hw.c"
+grep -q 'B2lResetDwc3DeviceCore' "$WIN/b2lusb_hw.c"
+grep -q 'B2lPrepareDwc3PhyReset' "$WIN/b2lusb_hw.c"
+if rg -n 'GCTL_CORESOFTRESET|B2L_PHY_DUALPHYSEL' "$WIN/b2lusb_hw.c"; then
+  echo 'HATA: Samsung OTG reseti genel GCTL reseti veya gereksiz dual-PHY secimi kullanmamali' >&2
+  exit 1
+fi
 grep -q 'KeDelayExecutionThread' "$WIN/b2lusb_hw.c"
 grep -q '#define B2L_PHY_VERIFY_POLLS' "$WIN/b2lusb_hw.c"
 grep -q 'STATUS_DEVICE_POWER_FAILURE' "$WIN/b2lusb_hw.c"
 grep -q 'EvtDeviceD0Entry = B2lUsbEvtD0Entry' "$WIN/b2lusb.c"
-test "$(rg -c 'Status = B2lResetDwc3RoleCore' "$WIN/b2lusb_hw.c")" -eq 1
+test "$(rg -c 'Status = B2lResetDwc3DeviceCore' "$WIN/b2lusb_hw.c")" -eq 1
 grep -q 'B2L_DWC3_GCTL_PRTCAP_DEVICE' "$WIN/b2lusb_hw.c"
 grep -q 'B2L_USB_STATUS_REGISTERS_VALID' "$WIN/b2lusb_hw.c"
 grep -q 'B2L_USB_STATUS_CORE_RESET' "$WIN/b2lusb_public.h"

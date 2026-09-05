@@ -27,6 +27,7 @@ typedef struct _B2L_USB_CONTEXT {
     ULONG Dwc3Length;
     ULONG PhyLength;
     ULONG CoreResetCount;
+    ULONG PhyTuneValue; // Last Samsung HS tune_param selection; initially zero.
     BOOLEAN HardwareReady;
     BOOLEAN RoleInitialized, RegistersValid;
     B2L_USB_ROLE RequestedRole;

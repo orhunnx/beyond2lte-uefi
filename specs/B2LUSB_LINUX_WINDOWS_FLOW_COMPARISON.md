@@ -1,5 +1,149 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: parent `.20` — özgün DWC3 reseti ve ana PHY sırası
+
+Parent/host/function `0.1.0.20`, MAX `0.1.0.42`, IOCTL ABI `7`, MAX FOTO
+v15. Taban `8095fcf`. Bu değişiklik, USB3 araştırmasında bulunan **ana PHY
+ve DWC3 reset sırası** farklarını kapatır. Tam SuperSpeed hazırlığı henüz
+uygulanmış değildir; aşağıdaki açık adımlar başarı sayılmaz. Kaynak işi
+flaş beklemeden sürdü; Mac'te WDK/UEFI/WIM build yapılmadı.
+
+### Doğru cihaz ve kaynak dalı
+
+Depodaki stok birleşik [beyond2lte DT](../mu-silicium-overlay/Resources/DTBs/beyond2lte.dts)
+`dr_mode=otg`, `maximum-speed=super-speed-plus`, ana PHY `0x301`, combo
+PHY `0x400`, `has_other_phy=0`, `has_combo_phy=1`, `phyclk_mux=none`
+kullanır. HWC1 boot IKCONFIG'i `CONFIG_USB_DWC3_DUAL_ROLE=y`, HOST-only ve
+`CONFIG_SOC_EXYNOS9820_EVT0` kapalı olduğunu ayrıca doğrular. Anlık HOST
+rolü, Linux'un derleme/DT düzeyindeki HOST-only istisnası değildir.
+
+Sabit kaynak `corsicanu/android_kernel_samsung_universal9820` commit'i
+`55f042627bb7030c93550faafa117674d32b21d1` içinde:
+
+- [dwc3_core_soft_reset](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/usb/dwc3/core.c#L400)
+  LINK reseti, PIPE/UTMI SUSPHY temizliği, iki PHY'nin power/init sırası ve
+  kendiliğinden temizlenen `DCTL.CSFTRST` kullanır. OTG yapılandırmasında
+  bu device reseti HOST başlangıcında da atlanmaz. DWC_usb31 için bit
+  temizlendikten sonra PHY alanına erişmeden önce 50 ms beklenir.
+- [exynos_usbdrd_pipe3_init](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/phy/samsung/phy-exynos-usbdrd.c#L1157)
+  gerçek GPIO yönünü okur; **Gen2** PMA/PCS/PLL/CDR yolunu çağırır. Aynı
+  isimli eski `phy-exynos-usbdp.c` bu çağrı zincirinin yerine kullanılamaz.
+- [USB3P1 ana PHY CAL](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/phy/samsung/phy-exynos-usb3p1.c#L369)
+  LINK darbesini ve UTMI hazırlığını tanımlar. Doğrulanan dosyanın SHA256'sı
+  `bc4fe792bfaa398b7ae626d85bcce470b5f439fb9e2be9b340025cdd86c70efa`.
+- [Gen2 CAL](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/phy/samsung/phy-exynos-usbdp-gen2.c#L479)
+  SHA256 `473a657fd0a0706c3b62cc8140059d28225184d8ddfacbed24ce80aac635954f`.
+  Her iki CAL dosyası daha önceki d2s ortak kaynak kopyasıyla byte düzeyinde
+  aynı çıktı. Farklı cihaz dosya adından akış farkı varsayılmadı; beyond
+  driver çağrıları ve stok DT/IKCONFIG belirleyici kabul edildi.
+
+### Düzeltilen Windows sırası
+
+Önceki parent PHY'yi açıp host pulldown/tune değerlerini uyguladıktan sonra
+SUSPHY temizliyor ve `GCTL.CORESOFTRESET` bitini 100 ms tutuyordu. Bu, bu
+Samsung OTG yolunun reset işlemi değildir. Yeni sırada:
+
+1. URS yetkisiyle önce eski function denetleyicisinin durması veya xHCI'nin
+   halted olması aranır. Çalışan xHCI'ye reset/PHY yazısı yapılmaz.
+2. `CLKRST.LINK_SW_RST` set → 10 us → clear uygulanır. Sonra önce
+   `GUSB3PIPECTL.SUSPHY`, ardından `GUSB2PHYCFG.SUSPHY` temizlenir.
+   Bu artık PHY POR ve güç açılışından öncedir.
+3. Mevcut ana PHY power/POR akışı yürür. Stok provider'ın başlangıçta
+   sıfırlanmış tune_param değerleri, sonraki açılışlarda ise son seçilmiş
+   sütunu kullanması korunur. Bu yazılım başlangıç durumu bir donanım
+   ölçümü değildir. Host/device sütunu erken POR aşamasına taşınmaz.
+4. Stok `rewa_ready` tamamlanır: HS ReWA kapatılır; DPDM monitor seçimi ve
+   digital bypass ayarı, HSTK=`1`, REFTO=`ff00`, altı olayın maskesi uygulanır.
+   Bu retention'ı açmak veya wake IRQ teslim etmek değildir.
+5. Stok UTMI-init sonundaki PIPE hazırlığı eklenir: LINK `PIPE3_FORCE_EN`
+   ve RX electrical-idle, PHY_STATUS temizliği; ana pencere `+48`
+   `PMA_LOW_PWRN` hold. Bunlar Linux'un gerçek geçici PHY hazırlık
+   yazılarıdır; CC/PD bağlantısı veya IRQ üretilmez. **Tam PIPE3 init'in
+   sonraki adımları eksiktir; bu hold SuperSpeed-ready sayılmaz.**
+6. Genel GCTL reseti kaldırıldı. `DCTL.CSFTRST` yazılır, en fazla 1000 kez
+   1 us aralıkla donanımın temizlemesi beklenir. Yazılımla clear edilmez.
+   Gerçek self-clear sonrasında 50 ms beklenir. Timeout rol başarısı olmaz;
+   PHY kapatılır ve hata döner.
+7. Sonra gerçek rolün HS tune sütunu uygulanır; HOST için DP/DM pulldown
+   ve VBUS-pad ayarı, ardından GCTL port rolü seçilir. Bu sıra stok
+   core_init → phy_tune → OTG host ayarı sırasını izler. xHCI'nin kendi
+   resetini ve ring/doorbell işlemlerini inbox USBXHCI yapar.
+
+`has_other_phy=0` ve stok provider'ın `dual_phy=0` olduğu bu cihazda
+koşulsuz DUALPHYSEL yazısı kaldırıldı. Stok tabloda bulunan `utmi_clk`
+parametresine yeni register etkisi uydurulmadı: bu USB3P1 tune fonksiyonunda
+onu uygulayan bir dal yoktur. Beş etkin HS tune alanı dışındaki bitler
+korunur. Seçilmiş tune değeri detach/power-off sırasında kaybolmaz; sonraki
+POR önce o provider durumunu, reset sonrasında yeni rolün sütununu kullanır.
+
+### USB3'ün kalan gerçek donanım zinciri
+
+Bu tablo tam akışın yerine USB2 başarısı konmasını önlemek içindir.
+Parent `.20` hâlâ `USB2_ONLY` bildirir; `U3_DISABLE` sınırlaması kaldırılmış
+ve USB3 adımları tamamlanmış **değildir**.
+
+| Linux adımı | Windows'ta mevcut durum / kalan iş |
+|---|---|
+| phy_conn → LDO10M/11M/12M → 1 ms | UEFI gerçek boot-on raylarını açıyor. Windows native ACPM/regulator yaşam döngüsü henüz yok. |
+| FSYS0A runtime PM → aclk/sclk enable | Parent, boot'tan kalan erişilebilir saat durumuna dayanıyor. Özgün clock/domain sağlayıcısı eksik. |
+| LINK reset → PIPE/UTMI SUSPHY clear | Parent `.20` içinde doğru sıra uygulandı. |
+| USB3 PMU `15860704` bit0 → USB2 PMU `1586072c` bit0 | Yalnız USB2 izolasyonu yönetiliyor. DT'deki pmu_mask=0 bit numarasıdır. |
+| UTMI POR/tune/ReWA/PIPE hold | Ana pencere adımları yukarıdaki kapsamda uygulanıyor. |
+| GPG0-4 → used_phy_port | Stok DT gerçek yön GPIO'sunu gösteriyor. Windows'ta sahiplik/okuma ve SS tüketicisi henüz yok; sabit yön veya CC pininden tahmin kullanılmayacak. |
+| g2_pma_ready | Ana `+48` PMA reset/refclock/low-power sırası, PIPE override bırakılması ve APB reset release eksik. |
+| g2_enable → analog tune → PCS | Doğru Gen2 kaynak doğrulandı; henüz Windows'a taşınmadı. |
+| INIT reset release → CMN/TRSV release → PLL lock | Gerçek lock okumaları/timeout ve hata temizliği eksik. Stok dış döngü 100, iç kontrol 1000 × 1 us. |
+| run_lane → seçilmiş RX CDR lock → LINK_PCLK_SEL → 3 ms | GPIO'ya bağlı lane/lock seçimi eksik. Kilit olmadan başarı üretilemez. |
+| DCTL self-clear → 50 ms → phy_setup/role tune/global setup | Device reset ve HS role-tune sırası düzeltildi. Tam SS phy_setup/quirk/global ayarları ayrıca eşleştirilecek. |
+| USB/DP ortak sahipliği ve son tüketicide kapanış | Stok combo_phy_control sahipliği, DP tüketicisi ve native clock/regulator kapanışı henüz yok. |
+
+Stok `phy_exynos_usbdp_g2_disable` gövdesi boştur. Bu, bütün USB3 kapanışının
+no-op olduğu anlamına gelmez: UTMI exit, PMU isolation, clock ve son
+USB/DP sahibinin regulator sırası ayrıca vardır. Windows'ta boş bir
+başarı fonksiyonu eklenerek bu zincir kapatılmadı.
+
+### Tanı adları ve doğrulama
+
+Eski UEFI ekranları, MemoryMap açıklamaları ve README'de combo pencere
+adları tersti. Kaynak eşlemesi şöyledir:
+
+| Adres / DT uzunluğu | Gen2 anlamı |
+|---|---|
+| `10b00000 / 200` | Ana DRD wrapper; `+48` combo PMA kontrolü |
+| `10ae0000 / 2800` | Analog PMA; `usbphy_sub_info.regs_base` |
+| `10af0000 / 800` | PCS; `regs_base_2nd`, g2_set_pcs burada çalışır |
+
+UEFI ekran adları ve MemoryMap etiketleri bu yönde düzeltildi. Eski
+R4/R5 abort ölçümleri `10ae0000+0c/+00`, R6 ölçümü `10af0000+00` olarak
+aynı adreslerde kalır. Yeni combo MMIO okuması veya yeni ölçüm eklenmedi.
+
+Windows durumunda eski belirsiz `resets` etiketi `devrst` oldu: yalnız
+başarılı DCTL self-clear + 50 ms sayısıdır. Rol seçimi daha sonra hata
+alabilir; `devrst>0` USB enumerate, PHY lock veya transfer kanıtı değildir.
+IOCTL yapısının yerleşimi değişmedi; MAX FOTO sayfaları v15 kalır.
+
+Yeni `tests/test_windows_usb_phy.py`, gerçek üretim C dosyasını adres ve
+zaman sırası izleyen host fixture'ında yürütür. Host/function başlangıcı,
+LINK/SUSPHY/POR/ReWA/PIPE/DCTL/tune sırası, ilk ve sonraki tune durumu,
+1000'inci okumada self-clear, hiç temizlenmeyen reset, çalışır xHCI,
+duramayan function, SUSPHY/PMU/SIDDQ hataları ve rol timeout temizliği
+geçti. Kodun GCTL global reseti, xHCI ring/command yazısı, DUALPHYSEL veya
+harici combo erişimi yapmadığı kontrol edildi. ASan/UBSan da geçti.
+Mevcut MAX IRQ, foto, lifecycle, connection, UCM, URS/target-INF ve
+Windows/UEFI kaynak kontrolleri geçti. Bunlar WDK build, gerçek MMIO bus
+cevabı, GIC teslimi veya USB transfer testi değildir.
+
+WSL yöntemi değişmedi:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+Kaynak işi yeni flaş beklemez. Yukarıdaki native güç/saat/USB3 adımları,
+SOURCE Rp, OS DR/PR swap/RDO, manager/battery/AFC/VDM/RAM tüketicileri ve
+uçtan uca function/transfer hedefi açık kalır.
+
 ## 5 Eylül 2026: `.42` — gerçek MUIC tamamlanmasından UCM bildirimine
 
 MAX `0.1.0.42`, parent/host/function `0.1.0.19`, ABI `7`, FOTO v15.

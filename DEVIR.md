@@ -18,6 +18,15 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / parent `.20` kaynak güncellemesi:** Samsung OTG yolundaki
+> LINK reseti ve SUSPHY sırası düzeltildi; genel GCTL/100 ms reseti yerine
+> gerçek DCTL self-clear + 50 ms kullanılıyor. Ana PHY ReWA/PIPE hazırlığı,
+> tune ömrü ve gereksiz DUALPHYSEL yazısı düzeltildi. UEFI PCS/PMA etiketleri
+> gerçek adreslere eşlendi. MAX `.42`, parent/host/function `.20`, FOTO v15.
+> Tam USB3/native güç-saat zinciri açık; kaynak işi flaş beklemiyor.
+> Ayrıntı ve açık adım tablosu Linux karşılaştırmasının başında; WSL/telefon
+> sonucu ve USB çalıştı iddiası yoktur.
+
 > **5 Eylül / `.42` kaynak güncellemesi:** UCM attach/veri rolü bildirimi
 > güncel MUIC USB_AP WRITE/READ tamamlanmasına bağlandı. Beklerken detach
 > veya yeni bağlantı eski OS işini iptal eder; IRQ üretilmez. Aynı KMDF
@@ -191,12 +200,12 @@ kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikle
 
 ### 0.3 Güncel repo ve sürüm çıpası
 
-`.42` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
+Parent `.20` / MAX `.42` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
 
 ```text
 dal:    codex/touch-from-8549bfa
-taban:  97fd527  fix: preserve Samsung RID-driven USB notification lifecycle
-önceki: 0bd3cf2  fix: dispatch actual MAX77705 responses without false bus faults
+taban:  8095fcf  fix: wait for real MUIC completion before USB role notification
+önceki: 97fd527  fix: preserve Samsung RID-driven USB notification lifecycle
 ```
 
 Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
@@ -204,8 +213,8 @@ Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
 | Bileşen | Sürüm | ACPI kimliği / işlev |
 |---|---:|---|
 | `b2ltouch.sys` | `0.2.0.1` | `ACPI\BYN0001`, Samsung sec_ts -> KMDF/VHF touch |
-| `b2lusb.sys` parent | `0.1.0.19` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
-| inbox host | `0.1.0.19` INF | `URS\BYN0002&HOST`, `USBXHCI` + GSIV 273 |
+| `b2lusb.sys` parent | `0.1.0.20` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
+| inbox host | `0.1.0.20` INF | `URS\BYN0002&HOST`, `USBXHCI` + GSIV 273 |
 | `b2lmax77705.sys` | `0.1.0.42` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG/PD |
 | `b2lufs.sys` | `0.0.4.5` kaynak sürümü | Deneysel Windows UFS miniport; güncel USB kapısı değil |
 

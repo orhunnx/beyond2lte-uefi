@@ -1,8 +1,16 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
-## Güncel kaynak: `.42` / MUIC tamamlanması ve UCM sırası
+## Güncel kaynak: parent `.20` / MAX `.42`
 
-MAX `0.1.0.42`, parent/host/function `0.1.0.19`, IOCTL ABI 7.
+MAX `0.1.0.42`, parent/host/function `0.1.0.20`, IOCTL ABI 7.
+Parent artık Samsung OTG LINK reseti → SUSPHY temizliği → ana PHY hazırlığı
+→ DCTL self-clear → 50 ms → role-tune sırasını uygular. Genel GCTL/100 ms
+reseti kaldırıldı. ReWA hazırlığı ve PIPE/PMA hold eklendi; DUALPHYSEL yazısı
+kaldırıldı. `devrst`, başarılı device reset/senkronizasyon sayısıdır;
+rol/USB başarısı değildir. Tam USB3 native clock/isolation/GPIO/lane zinciri
+hâlâ açıktır; `USB2_ONLY` sınırlaması sürer. Ayrıntılı adım tablosu ve testler
+[Linux karşılaştırmasının başında](../../specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md).
+
 Koşulsuz HOST kaldırıldı. Gerçek MAX CC/PD değişiklikleri ayrı pasif UCM
 kuyruğuna, oradan URS host/function yaşam döngüsüne gider. ACPI rol çocukları
 `_ADR=0/1`, PnP kimlikleri `URS\BYN0002&HOST/FUNCTION`; özgün GSIV273.
@@ -171,7 +179,7 @@ Windows'un inbox xHCI yığınına bağlayan güvenli bring-up paketidir.
   `Android-Artisan/android_kernel_samsung_exynos9820@9a0a792d227c8ae6cddac0c9d68a8bb9782c44cb`.
 
 Bu sürüm bilerek **USB2-only** çalışır. `LINK_PORT.U3_DISABLE` set edilir;
-`0x10AE0000` combo PCS ve `0x10AF0000` combo PMA ne ACPI'ye verilir ne de
+`0x10AE0000` analog PMA ve `0x10AF0000` combo PCS ne ACPI'ye verilir ne de
 sürücüden okunur. Güncel cihaz ölçümünde bu pencereler synchronous external
 abort ürettiği için onları açan bir paket güvenli değildir.
 

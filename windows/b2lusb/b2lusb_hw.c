@@ -13,7 +13,6 @@
 #define B2L_DWC3_ID_USB3              0x55330000UL
 #define B2L_DWC3_ID_USB31             0x33310000UL
 #define B2L_DWC3_ID_USB32             0x33320000UL
-#define B2L_DWC3_GCTL_CORESOFTRESET   (1UL << 11)
 #define B2L_DWC3_GCTL_PRTCAP_MASK     (3UL << 12)
 #define B2L_DWC3_GCTL_PRTCAP_HOST     (1UL << 12)
 #define B2L_DWC3_GCTL_PRTCAP_DEVICE   (2UL << 12)
@@ -22,6 +21,7 @@
 #define B2L_DWC3_GSTS_CURMOD_HOST     1UL
 #define B2L_DWC3_GUSB2PHYCFG_SUSPHY   (1UL << 6)
 #define B2L_DWC3_GUSB3PIPECTL_SUSPHY  (1UL << 17)
+#define B2L_DWC3_DCTL_CSFTRST          (1UL << 30)
 #define B2L_DWC3_DCTL_RUN_STOP        (1UL << 31)
 #define B2L_DWC3_DSTS_DEVCTRLHLT      (1UL << 22)
 
@@ -59,11 +59,26 @@
 #define B2L_PHY_LINK_CTRL              0x04UL
 #define B2L_PHY_LINK_PORT              0x08UL
 #define B2L_PHY_CLKRST                 0x20UL
-#define B2L_PHY_DUALPHYSEL             0x28UL
+#define B2L_PHY_COMBO_PMA_CTRL         0x48UL
 #define B2L_PHY_UTMI                   0x50UL
 #define B2L_PHY_HSP                    0x54UL
 #define B2L_PHY_HSP_TUNE               0x58UL
 #define B2L_PHY_HSP_TEST               0x5CUL
+
+#define B2L_PHY_REWA_ENABLE            0x100UL
+#define B2L_PHY_HSREWA_CTRL            0x108UL
+#define B2L_PHY_HSREWA_REFTO           0x10CUL
+#define B2L_PHY_HSREWA_HSTK            0x110UL
+#define B2L_PHY_HSREWA_INT1_MASK       0x11CUL
+#define B2L_REWA_ENABLE_HS            (1UL << 0)
+#define B2L_REWA_DIG_BYPASS           (1UL << 28)
+#define B2L_REWA_DPDM_MON_SEL         (1UL << 24)
+#define B2L_REWA_EVENT_MASK           0x00070007UL
+
+#define B2L_LINK_PIPE3_RX_ELEC_IDLE    (1UL << 18)
+#define B2L_LINK_PIPE3_PHY_STATUS     (1UL << 17)
+#define B2L_LINK_PIPE3_FORCE_EN       (1UL << 16)
+#define B2L_PMA_LOW_PWRN              (1UL << 4)
 
 #define B2L_LINK_DIS_QACT_LINKGATE     (1UL << 12)
 #define B2L_LINK_DIS_QACT_ID0          (1UL << 11)
@@ -81,10 +96,8 @@
 #define B2L_CLKRST_PHY20_RST_SEL       (1UL << 12)
 #define B2L_CLKRST_PHY30_SW_RST        (1UL << 3)
 #define B2L_CLKRST_PHY30_RST_SEL       (1UL << 2)
+#define B2L_CLKRST_LINK_SW_RST         (1UL << 0)
 #define B2L_CLKRST_PORT_RST            (1UL << 1)
-
-#define B2L_DUALPHYSEL_PORT_BITS       ((1UL << 8) | (1UL << 4) | \
-                                        (1UL << 1) | (1UL << 0))
 
 #define B2L_UTMI_FORCE_VBUSVALID       (1UL << 5)
 #define B2L_UTMI_FORCE_BVALID          (1UL << 4)
@@ -110,9 +123,14 @@
 #define B2L_HSP_TUNE_SQRX(Value)       (((Value) & 7UL) << 8)
 #define B2L_HSP_TUNE_COMPDIS(Value)    (((Value) & 7UL) << 0)
 
+#define B2L_HSP_TUNE_BOARD_MASK        (B2L_HSP_TUNE_TXVREF_MASK | \
+    B2L_HSP_TUNE_TXRES_MASK | B2L_HSP_TUNE_TXPREEMPA_MASK | \
+    B2L_HSP_TUNE_SQRX_MASK | B2L_HSP_TUNE_COMPDIS_MASK)
+
 #define B2L_ROLE_WAIT_ITERATIONS       2000UL
 #define B2L_ROLE_WAIT_US               10UL
-#define B2L_DWC3_ROLE_RESET_MS          100UL
+#define B2L_DWC3_DEVICE_RESET_POLLS    1000UL
+#define B2L_DWC3_DEVICE_SYNC_MS          50UL
 #define B2L_PHY_VERIFY_POLLS             20UL
 #define B2L_PHY_VERIFY_POLL_US          100UL
 #define B2L_PHY_PMU_SETTLE_US          1000UL
@@ -274,76 +292,66 @@ B2lWaitDwc3Mode(
     return STATUS_IO_TIMEOUT;
 }
 
+// Samsung dwc3_core_soft_reset: phy_reset, then PIPE/UTMI SUSPHY clear.
+// The board uses PHY v0x301 and dr_mode=otg; HOST is a runtime role, not
+// Linux's host-only build exception. Call only after the old stack halted.
 static NTSTATUS
-B2lResetDwc3RoleCore(
+B2lPrepareDwc3PhyReset(
     PB2L_USB_CONTEXT Context
     )
 {
-    LARGE_INTEGER Delay;
-    ULONG Gctl;
-    ULONG Usb2PhyCfg;
-    ULONG Usb3PipeCtl;
+    ULONG Value;
 
-    // Synopsys requires the PHY suspend requests to be deasserted while a
-    // DRD core changes role.  The Exynos9820 vendor sequence clears both
-    // bits before core/PHY initialization as well.  This only wakes the DWC3
-    // interfaces: the Samsung wrapper still keeps the unproven U3 port
-    // disabled, and no combo-PHY MMIO range is touched here.
-    Usb2PhyCfg = B2lRead32(
-        Context->Dwc3Registers,
-        B2L_DWC3_GUSB2PHYCFG0
-        );
-    Usb3PipeCtl = B2lRead32(
-        Context->Dwc3Registers,
-        B2L_DWC3_GUSB3PIPECTL0
-        );
-    B2lWrite32(
-        Context->Dwc3Registers,
-        B2L_DWC3_GUSB2PHYCFG0,
-        Usb2PhyCfg & ~B2L_DWC3_GUSB2PHYCFG_SUSPHY
-        );
-    B2lWrite32(
-        Context->Dwc3Registers,
-        B2L_DWC3_GUSB3PIPECTL0,
-        Usb3PipeCtl & ~B2L_DWC3_GUSB3PIPECTL_SUSPHY
-        );
+    Value = B2lRead32(Context->PhyRegisters, B2L_PHY_CLKRST);
+    B2lWrite32(Context->PhyRegisters, B2L_PHY_CLKRST,
+        Value | B2L_CLKRST_LINK_SW_RST);
+    KeStallExecutionProcessor(10);
+    B2lWrite32(Context->PhyRegisters, B2L_PHY_CLKRST,
+        Value & ~B2L_CLKRST_LINK_SW_RST);
+
+    Value = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GUSB3PIPECTL0);
+    B2lWrite32(Context->Dwc3Registers, B2L_DWC3_GUSB3PIPECTL0,
+        Value & ~B2L_DWC3_GUSB3PIPECTL_SUSPHY);
+    Value = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GUSB2PHYCFG0);
+    B2lWrite32(Context->Dwc3Registers, B2L_DWC3_GUSB2PHYCFG0,
+        Value & ~B2L_DWC3_GUSB2PHYCFG_SUSPHY);
+
     if (((B2lRead32(Context->Dwc3Registers, B2L_DWC3_GUSB2PHYCFG0) &
           B2L_DWC3_GUSB2PHYCFG_SUSPHY) != 0) ||
         ((B2lRead32(Context->Dwc3Registers, B2L_DWC3_GUSB3PIPECTL0) &
           B2L_DWC3_GUSB3PIPECTL_SUSPHY) != 0)) {
         return STATUS_DEVICE_HARDWARE_ERROR;
     }
-
-    // DWC_usb31 needs its internal clocks synchronized when changing roles.
-    // Keep the core in reset for the conservative interval used by the
-    // upstream DWC3 role-switch path, then hand a quiescent core to USBXHCI.
-    Gctl = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL);
-    B2lWrite32(
-        Context->Dwc3Registers,
-        B2L_DWC3_GCTL,
-        Gctl | B2L_DWC3_GCTL_CORESOFTRESET
-        );
-    if ((B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL) &
-         B2L_DWC3_GCTL_CORESOFTRESET) == 0) {
-        return STATUS_DEVICE_HARDWARE_ERROR;
-    }
-
-    Delay.QuadPart = -((LONGLONG)B2L_DWC3_ROLE_RESET_MS * 10LL * 1000LL);
-    (VOID)KeDelayExecutionThread(KernelMode, FALSE, &Delay);
-
-    Gctl = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL);
-    B2lWrite32(
-        Context->Dwc3Registers,
-        B2L_DWC3_GCTL,
-        Gctl & ~B2L_DWC3_GCTL_CORESOFTRESET
-        );
-    if ((B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL) &
-         B2L_DWC3_GCTL_CORESOFTRESET) != 0) {
-        return STATUS_IO_TIMEOUT;
-    }
-
-    ++Context->CoreResetCount;
     return STATUS_SUCCESS;
+}
+
+static NTSTATUS
+B2lResetDwc3DeviceCore(
+    PB2L_USB_CONTEXT Context
+    )
+{
+    LARGE_INTEGER Delay;
+    ULONG Value;
+    ULONG Poll;
+
+    // The target Samsung OTG path resets the device block after PHY init.
+    // CSFTRST self-clears: never clear it in software or report timeout as
+    // success. USBXHCI remains the owner of the later xHCI host reset.
+    Value = B2lRead32(Context->Dwc3Registers, B2L_DWC3_DCTL);
+    B2lWrite32(Context->Dwc3Registers, B2L_DWC3_DCTL,
+        Value | B2L_DWC3_DCTL_CSFTRST);
+    for (Poll = 0; Poll < B2L_DWC3_DEVICE_RESET_POLLS; ++Poll) {
+        Value = B2lRead32(Context->Dwc3Registers, B2L_DWC3_DCTL);
+        if ((Value & B2L_DWC3_DCTL_CSFTRST) == 0) {
+            // DWC_usb31 synchronization delay, measured from self-clear.
+            Delay.QuadPart = -((LONGLONG)B2L_DWC3_DEVICE_SYNC_MS * 10000LL);
+            (VOID)KeDelayExecutionThread(KernelMode, FALSE, &Delay);
+            ++Context->CoreResetCount;
+            return STATUS_SUCCESS;
+        }
+        KeStallExecutionProcessor(1);
+    }
+    return STATUS_IO_TIMEOUT;
 }
 
 static NTSTATUS
@@ -421,8 +429,7 @@ B2lUsb2PhyDisable(
 
 static NTSTATUS
 B2lUsb2PhyEnable(
-    PB2L_USB_CONTEXT Context,
-    B2L_USB_ROLE Role
+    PB2L_USB_CONTEXT Context
     )
 {
     ULONG Poll;
@@ -490,18 +497,11 @@ B2lUsb2PhyEnable(
     Value |= B2L_HSP_VBUSVLDEXTSEL | B2L_HSP_VBUSVLDEXT;
     B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP, Value);
 
-    // Stock beyond2lte.dts columns are device, host (tx_res=3/1, sqrx=3/5).
+    // Samsung's provider starts with zeroed tune_param values; later init
+    // reuses the last selected device/host column. Role tune runs after the
+    // device reset/synchronization, as in dwc3_core_init -> phy_tune.
     Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSP_TUNE);
-    Value &= ~(B2L_HSP_TUNE_TXVREF_MASK |
-               B2L_HSP_TUNE_TXRES_MASK |
-               B2L_HSP_TUNE_TXPREEMPA_MASK |
-               B2L_HSP_TUNE_SQRX_MASK |
-               B2L_HSP_TUNE_COMPDIS_MASK);
-    Value |= B2L_HSP_TUNE_TXVREF(12) |
-             B2L_HSP_TUNE_TXRES(Role == B2lUsbRoleHost ? 1UL : 3UL) |
-             B2L_HSP_TUNE_TXPREEMPA(3) |
-             B2L_HSP_TUNE_SQRX(Role == B2lUsbRoleHost ? 5UL : 3UL) |
-             B2L_HSP_TUNE_COMPDIS(7);
+    Value = (Value & ~B2L_HSP_TUNE_BOARD_MASK) | Context->PhyTuneValue;
     B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP_TUNE, Value);
 
     Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSP_TEST);
@@ -518,9 +518,7 @@ B2lUsb2PhyEnable(
     B2lWrite32(Context->PhyRegisters, B2L_PHY_CLKRST, Value);
     KeStallExecutionProcessor(75);
 
-    Value = B2lRead32(Context->PhyRegisters, B2L_PHY_DUALPHYSEL);
-    Value &= ~B2L_DUALPHYSEL_PORT_BITS;
-    B2lWrite32(Context->PhyRegisters, B2L_PHY_DUALPHYSEL, Value);
+    // has_other_phy=0: Samsung does not access DUALPHYSEL on this board.
 
     // Stock DT use_io_for_ovc=0.  Hide U3 until combo PCS/PMA is mapped.
     Value = B2lRead32(Context->PhyRegisters, B2L_PHY_LINK_PORT);
@@ -530,17 +528,31 @@ B2lUsb2PhyEnable(
     Value &= ~B2L_LINK_PORT_U2_DISABLE;
     B2lWrite32(Context->PhyRegisters, B2L_PHY_LINK_PORT, Value);
 
-    if (Role == B2lUsbRoleHost) {
-        // Samsung phy_exynos_usb_v3p1_config_host_mode. Device mode retains
-        // the normal v3p1 enable values above; URS alone authorizes this path.
-        Value = B2lRead32(Context->PhyRegisters, B2L_PHY_UTMI);
-        Value |= B2L_UTMI_DP_PULLDOWN | B2L_UTMI_DM_PULLDOWN;
-        Value &= ~(B2L_UTMI_FORCE_BVALID | B2L_UTMI_FORCE_VBUSVALID);
-        B2lWrite32(Context->PhyRegisters, B2L_PHY_UTMI, Value);
-        Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSP);
-        Value &= ~(B2L_HSP_VBUSVLDEXTSEL | B2L_HSP_VBUSVLDEXT);
-        B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP, Value);
-    }
+    // phy_exynos_usb3p1_rewa_ready: prepare the real retention block,
+    // keep it disabled and mask its six event sources. No wake IRQ is
+    // fabricated; enabling retention and its original IRQs remains separate.
+    Value = B2lRead32(Context->PhyRegisters, B2L_PHY_REWA_ENABLE);
+    B2lWrite32(Context->PhyRegisters, B2L_PHY_REWA_ENABLE,
+        Value & ~B2L_REWA_ENABLE_HS);
+    Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSREWA_CTRL);
+    B2lWrite32(Context->PhyRegisters, B2L_PHY_HSREWA_CTRL,
+        (Value & ~B2L_REWA_DPDM_MON_SEL) | B2L_REWA_DIG_BYPASS);
+    B2lWrite32(Context->PhyRegisters, B2L_PHY_HSREWA_HSTK, 1UL);
+    B2lWrite32(Context->PhyRegisters, B2L_PHY_HSREWA_REFTO, 0xFF00UL);
+    Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSREWA_INT1_MASK);
+    B2lWrite32(Context->PhyRegisters, B2L_PHY_HSREWA_INT1_MASK,
+        Value | B2L_REWA_EVENT_MASK);
+
+    // exynos_usbdrd_utmi_init ends with the stock PIPE override/PMA hold.
+    // Full PIPE3 init must later release this via g2_pma_ready, configure
+    // analog/PCS, prove PLL/CDR lock and select PCLK. This is not SS-ready.
+    Value = B2lRead32(Context->PhyRegisters, B2L_PHY_LINK_CTRL);
+    Value |= B2L_LINK_PIPE3_FORCE_EN | B2L_LINK_PIPE3_RX_ELEC_IDLE;
+    Value &= ~B2L_LINK_PIPE3_PHY_STATUS;
+    B2lWrite32(Context->PhyRegisters, B2L_PHY_LINK_CTRL, Value);
+    Value = B2lRead32(Context->PhyRegisters, B2L_PHY_COMBO_PMA_CTRL);
+    B2lWrite32(Context->PhyRegisters, B2L_PHY_COMBO_PMA_CTRL,
+        Value | B2L_PMA_LOW_PWRN);
 
     // Mirror the bounded readback gate used by the verified UEFI bring-up.
     // Do not hand a half-powered PHY to USBXHCI after the POR sequence.
@@ -582,6 +594,51 @@ B2lUsb2PhyDisable(
 
     Value = READ_REGISTER_ULONG((volatile ULONG *)Context->PmuUsbPhy);
     WRITE_REGISTER_ULONG((volatile ULONG *)Context->PmuUsbPhy, Value & ~1UL);
+}
+
+static VOID
+B2lUsb2PhyTuneRole(
+    PB2L_USB_CONTEXT Context,
+    B2L_USB_ROLE Role
+    )
+{
+    ULONG Value;
+
+    // Stock beyond2lte.dts columns are device, host (tx_res=3/1, sqrx=3/5).
+    Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSP_TUNE);
+    Value &= ~(B2L_HSP_TUNE_TXVREF_MASK |
+               B2L_HSP_TUNE_TXRES_MASK |
+               B2L_HSP_TUNE_TXPREEMPA_MASK |
+               B2L_HSP_TUNE_SQRX_MASK |
+               B2L_HSP_TUNE_COMPDIS_MASK);
+    Value |= B2L_HSP_TUNE_TXVREF(12) |
+             B2L_HSP_TUNE_TXRES(Role == B2lUsbRoleHost ? 1UL : 3UL) |
+             B2L_HSP_TUNE_TXPREEMPA(3) |
+             B2L_HSP_TUNE_SQRX(Role == B2lUsbRoleHost ? 5UL : 3UL) |
+             B2L_HSP_TUNE_COMPDIS(7);
+    B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP_TUNE, Value);
+    Context->PhyTuneValue = Value & B2L_HSP_TUNE_BOARD_MASK;
+}
+
+static VOID
+B2lUsb2PhySetDataRole(
+    PB2L_USB_CONTEXT Context,
+    B2L_USB_ROLE Role
+    )
+{
+    ULONG Value;
+
+    if (Role == B2lUsbRoleHost) {
+        // Samsung phy_exynos_usb_v3p1_config_host_mode. Device mode retains
+        // the normal v3p1 enable values above; URS alone authorizes this path.
+        Value = B2lRead32(Context->PhyRegisters, B2L_PHY_UTMI);
+        Value |= B2L_UTMI_DP_PULLDOWN | B2L_UTMI_DM_PULLDOWN;
+        Value &= ~(B2L_UTMI_FORCE_BVALID | B2L_UTMI_FORCE_VBUSVALID);
+        B2lWrite32(Context->PhyRegisters, B2L_PHY_UTMI, Value);
+        Value = B2lRead32(Context->PhyRegisters, B2L_PHY_HSP);
+        Value &= ~(B2L_HSP_VBUSVLDEXTSEL | B2L_HSP_VBUSVLDEXT);
+        B2lWrite32(Context->PhyRegisters, B2L_PHY_HSP, Value);
+    }
 }
 
 NTSTATUS
@@ -646,15 +703,21 @@ B2lUsbHardwareSetRole(
             }
         }
 
-        Status = B2lUsb2PhyEnable(Context, Role);
+        Status = B2lPrepareDwc3PhyReset(Context);
         if (!NT_SUCCESS(Status)) {
             return Status;
         }
-        Status = B2lResetDwc3RoleCore(Context);
+        Status = B2lUsb2PhyEnable(Context);
+        if (!NT_SUCCESS(Status)) {
+            return Status;
+        }
+        Status = B2lResetDwc3DeviceCore(Context);
         if (!NT_SUCCESS(Status)) {
             B2lUsb2PhyDisable(Context);
             return Status;
         }
+        B2lUsb2PhyTuneRole(Context, Role);
+        B2lUsb2PhySetDataRole(Context, Role);
         Gctl = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GCTL);
         Gctl &= ~B2L_DWC3_GCTL_PRTCAP_MASK;
         Gctl |= Role == B2lUsbRoleHost ?

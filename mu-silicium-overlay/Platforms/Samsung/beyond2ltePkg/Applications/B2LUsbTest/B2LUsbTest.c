@@ -14,8 +14,8 @@
   Address contract (merged stock beyond2lte DT):
     DWC3/xHCI       0x10C00000 + 0x10000, SPI 241 (GSIV 273)
     USB DRD PHY     0x10B00000 + 0x00200
-    combo PHY PCS   0x10AE0000 + 0x02800
-    combo PHY PMA   0x10AF0000 + 0x00800
+    combo PHY PMA   0x10AE0000 + 0x02800
+    combo PHY PCS   0x10AF0000 + 0x00800
     PMU syscon      0x15860000; USB PHY offsets 0x72C and 0x704
     FSYS0A PD       0x15862200 + 0x20
     HSI2C45         0x15D60000 + 0x1000, retained for the completed R8 probe
@@ -34,16 +34,16 @@
 
 #define B2L_DWC3_BASE               0x10C00000ULL
 #define B2L_USB_PHY_BASE            0x10B00000ULL
-#define B2L_USB_PCS_BASE            0x10AE0000ULL
-#define B2L_USB_PMA_BASE            0x10AF0000ULL
+#define B2L_USB_PMA_BASE            0x10AE0000ULL
+#define B2L_USB_PCS_BASE            0x10AF0000ULL
 #define B2L_PMU_BASE                0x15860000ULL
 #define B2L_PD_FSYS0A_BASE          0x15862200ULL
 
 #define B2L_PMU_USBDP_CTRL          0x0704
 #define B2L_PMU_USB_PHY_CTRL        0x072C
-#define B2L_USB_PCS_ABORT_OFFSET_0  0x0000
-#define B2L_USB_PCS_ABORT_OFFSET_C  0x000C
 #define B2L_USB_PMA_ABORT_OFFSET_0  0x0000
+#define B2L_USB_PMA_ABORT_OFFSET_C  0x000C
+#define B2L_USB_PCS_ABORT_OFFSET_0  0x0000
 
 #define DWC3_GSBUSCFG0              0xC100
 #define DWC3_GSBUSCFG1              0xC104
@@ -869,35 +869,35 @@ ShowDrdPhyWindow (
 
 STATIC
 VOID
-ShowSkippedComboPcs (
-  VOID
-  )
-{
-  gST->ConOut->ClearScreen (gST->ConOut);
-  Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA 6 COMBO PHY PCS ===\n",
-         B2L_USB_TEST_REVISION);
-  Print (L"BASE=%08x DT_LEN=2800 OKUMA YOK\n\n", B2L_USB_PCS_BASE);
-  Print (L"%03x: R5 cihaz testinde synchronous external abort\n",
-         B2L_USB_PCS_ABORT_OFFSET_0);
-  Print (L"%03x: R4 cihaz testinde synchronous external abort\n",
-         B2L_USB_PCS_ABORT_OFFSET_C);
-  Print (L"\nPCS penceresi mevcut power clock izolasyon durumunda atlandi.\n");
-  Print (L"Sebep kanitlanmadan bu pencerede baska MMIO okunmayacak.\n");
-}
-
-STATIC
-VOID
 ShowSkippedComboPma (
   VOID
   )
 {
   gST->ConOut->ClearScreen (gST->ConOut);
-  Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA 7 COMBO PHY PMA ===\n",
+  Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA 6 COMBO PHY PMA ===\n",
          B2L_USB_TEST_REVISION);
-  Print (L"BASE=%08x DT_LEN=800 OKUMA YOK\n\n", B2L_USB_PMA_BASE);
-  Print (L"%03x: R6 kablosuz cihaz testinde synchronous external abort\n",
+  Print (L"BASE=%08x DT_LEN=2800 OKUMA YOK\n\n", B2L_USB_PMA_BASE);
+  Print (L"%03x: R5 cihaz testinde synchronous external abort\n",
          B2L_USB_PMA_ABORT_OFFSET_0);
+  Print (L"%03x: R4 cihaz testinde synchronous external abort\n",
+         B2L_USB_PMA_ABORT_OFFSET_C);
   Print (L"\nPMA penceresi mevcut power clock izolasyon durumunda atlandi.\n");
+  Print (L"Sebep kanitlanmadan bu pencerede baska MMIO okunmayacak.\n");
+}
+
+STATIC
+VOID
+ShowSkippedComboPcs (
+  VOID
+  )
+{
+  gST->ConOut->ClearScreen (gST->ConOut);
+  Print (L"=== B2L USB SALT OKUMA TANI R%u - ASAMA 7 COMBO PHY PCS ===\n",
+         B2L_USB_TEST_REVISION);
+  Print (L"BASE=%08x DT_LEN=800 OKUMA YOK\n\n", B2L_USB_PCS_BASE);
+  Print (L"%03x: R6 kablosuz cihaz testinde synchronous external abort\n",
+         B2L_USB_PCS_ABORT_OFFSET_0);
+  Print (L"\nPCS penceresi mevcut power clock izolasyon durumunda atlandi.\n");
   Print (L"Kablo durumu once guvenli PMU DWC3 ve DRD ekranlarinda karsilastirilacak.\n");
 }
 
@@ -976,15 +976,15 @@ B2LUsbTestEntry (
   }
   ShowDrdPhyWindow ();
 
-  if (!PromptForNextStage (L"combo PHY PCS sonucu; MMIO okuma yok")) {
-    return EFI_SUCCESS;
-  }
-  ShowSkippedComboPcs ();
-
   if (!PromptForNextStage (L"combo PHY PMA sonucu; MMIO okuma yok")) {
     return EFI_SUCCESS;
   }
   ShowSkippedComboPma ();
+
+  if (!PromptForNextStage (L"combo PHY PCS sonucu; MMIO okuma yok")) {
+    return EFI_SUCCESS;
+  }
+  ShowSkippedComboPcs ();
 
   if (!PromptForNextStage (
          L"canli USB monitor; veri kablosu PC'ye TAKILI olsun"

@@ -22,7 +22,7 @@ grep -q 'DWC3_IP_DWC31[[:space:]]*0x33310000U' "$APP"
 grep -q 'DWC3_VER_NUMBER[[:space:]]*0xC1A0' "$APP"
 grep -q 'B2L_USB_TEST_REVISION[[:space:]]*16' "$PROBE_HEADER"
 grep -q 'B2L_USB_PCS_ABORT_OFFSET_0[[:space:]]*0x0000' "$APP"
-grep -q 'B2L_USB_PCS_ABORT_OFFSET_C[[:space:]]*0x000C' "$APP"
+grep -q 'B2L_USB_PMA_ABORT_OFFSET_C[[:space:]]*0x000C' "$APP"
 grep -q 'B2L_USB_PMA_ABORT_OFFSET_0[[:space:]]*0x0000' "$APP"
 grep -q 'ShowSkippedComboPcs' "$APP"
 grep -q 'ShowSkippedComboPma' "$APP"
@@ -147,8 +147,8 @@ grep -q 'max77705@66' \
 # granuler kapsama yuvarlanmalidir. DRAM/reserved-memory descriptor'lari bu
 # test tarafindan degistirilmez.
 grep -Eq '\{"USB DRD PHY",[[:space:]]*0x10B00000,[[:space:]]*0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,[[:space:]]*NS_DEVICE\}' "$MAP"
-grep -Eq '\{"USB Combo PCS",[[:space:]]*0x10AE0000,[[:space:]]*0x00003000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,[[:space:]]*NS_DEVICE\}' "$MAP"
-grep -Eq '\{"USB Combo PMA",[[:space:]]*0x10AF0000,[[:space:]]*0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,[[:space:]]*NS_DEVICE\}' "$MAP"
+grep -Eq '\{"USB Combo PMA",[[:space:]]*0x10AE0000,[[:space:]]*0x00003000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,[[:space:]]*NS_DEVICE\}' "$MAP"
+grep -Eq '\{"USB Combo PCS",[[:space:]]*0x10AF0000,[[:space:]]*0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,[[:space:]]*NS_DEVICE\}' "$MAP"
 grep -Eq '\{"USB DWC3 xHCI",[[:space:]]*0x10C00000,[[:space:]]*0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,[[:space:]]*NS_DEVICE\}' "$MAP"
 grep -Eq '\{"MAX77705 HSI2C45",[[:space:]]*0x15D60000,[[:space:]]*0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,[[:space:]]*NS_DEVICE\}' "$MAP"
 

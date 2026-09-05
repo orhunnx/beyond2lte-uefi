@@ -207,8 +207,8 @@ gMemoryDescriptor[] = {
   // kanitidir. Stock DT boyutlarini 4 KiB sayfa sinirina yukari yuvarlayarak
   // yalniz gereken dort pencereyi non-secure Device MMIO olarak esliyoruz.
   {"USB DRD PHY",        0x10B00000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
-  {"USB Combo PCS",      0x10AE0000, 0x00003000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
-  {"USB Combo PMA",      0x10AF0000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
+  {"USB Combo PMA",      0x10AE0000, 0x00003000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
+  {"USB Combo PCS",      0x10AF0000, 0x00001000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
   {"USB DWC3 xHCI",      0x10C00000, 0x00010000, AddDev, MMAP_IO, UNCACHEABLE, MmIO,   NS_DEVICE},
 
   // DT-enabled HSI2C45 carries MAX77705 (PMIC/charger at 0x66 and fuel gauge

@@ -50,7 +50,7 @@ typedef struct _B2L_USB_STATUS {
     B2L_USB_ROLE CurrentRole;
     LONG LastRoleStatus;
     ULONG Flags;
-    ULONG CoreResetCount;
+    ULONG CoreResetCount; // Successful DCTL.CSFTRST self-clear + sync; not role/USB success.
     ULONG GsnpsId;
     ULONG Dwc3VerNumber;
     ULONG Gctl;

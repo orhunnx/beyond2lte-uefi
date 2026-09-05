@@ -284,7 +284,7 @@ B2lShowStatus(
         wprintf(L"Denetleyici etkin degil; register okunmadi.\n");
         return 0;
     }
-    wprintf(L"DWC3 id=%08lX ver=%08lX resets=%lu\n",
+    wprintf(L"DWC3 id=%08lX ver=%08lX devrst=%lu\n",
         Status.GsnpsId, Status.Dwc3VerNumber, Status.CoreResetCount);
     wprintf(L"DWC3 gctl=%08lX gsts=%08lX dctl=%08lX dsts=%08lX\n",
         Status.Gctl, Status.Gsts, Status.Dctl, Status.Dsts);
