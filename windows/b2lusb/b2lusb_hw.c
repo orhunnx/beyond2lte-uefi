@@ -181,7 +181,8 @@ B2lUsbHardwareObserveXhci(
     ULONG DcbaapHigh;
     ULONG Config;
 
-    if (!Context->HardwareReady || (Context->Dwc3Registers == NULL)) {
+    if (!Context->HardwareReady || !Context->ClocksEnabled ||
+        (Context->Dwc3Registers == NULL)) {
         return;
     }
 
@@ -650,7 +651,7 @@ B2lUsbHardwareValidate(
 
     if ((Context->Dwc3Registers == NULL) ||
         (Context->PhyRegisters == NULL) ||
-        (Context->PmuUsbPhy == NULL)) {
+        (Context->PmuUsbPhy == NULL) || !Context->ClocksEnabled) {
         return STATUS_DEVICE_NOT_READY;
     }
 
@@ -669,6 +670,10 @@ B2lUsbHardwareSetRole(
     ULONG Gctl;
     NTSTATUS Status;
 
+    if (Role != B2lUsbRoleNone && Role != B2lUsbRoleHost && Role != B2lUsbRoleDevice)
+        return STATUS_NOT_SUPPORTED;
+    Status = B2lUsbPowerAcquire(Context);
+    if (!NT_SUCCESS(Status)) return Status;
     Status = B2lUsbHardwareValidate(Context);
     if (!NT_SUCCESS(Status)) {
         return Status;
@@ -687,7 +692,7 @@ B2lUsbHardwareSetRole(
             return Status;
         }
         B2lUsb2PhyDisable(Context);
-        return STATUS_SUCCESS;
+        return B2lUsbPowerRelease(Context);
     }
 
     if ((Role == B2lUsbRoleHost) || (Role == B2lUsbRoleDevice)) {
@@ -705,15 +710,18 @@ B2lUsbHardwareSetRole(
 
         Status = B2lPrepareDwc3PhyReset(Context);
         if (!NT_SUCCESS(Status)) {
+            (VOID)B2lUsbPowerRelease(Context);
             return Status;
         }
         Status = B2lUsb2PhyEnable(Context);
         if (!NT_SUCCESS(Status)) {
+            (VOID)B2lUsbPowerRelease(Context);
             return Status;
         }
         Status = B2lResetDwc3DeviceCore(Context);
         if (!NT_SUCCESS(Status)) {
             B2lUsb2PhyDisable(Context);
+            (VOID)B2lUsbPowerRelease(Context);
             return Status;
         }
         B2lUsb2PhyTuneRole(Context, Role);
@@ -727,6 +735,7 @@ B2lUsbHardwareSetRole(
             B2L_DWC3_GSTS_CURMOD_HOST : B2L_DWC3_GSTS_CURMOD_DEVICE);
         if (!NT_SUCCESS(Status)) {
             B2lUsb2PhyDisable(Context);
+            (VOID)B2lUsbPowerRelease(Context);
         }
         return Status;
     }
@@ -753,11 +762,23 @@ B2lUsbHardwareGetStatus(
                      B2L_USB_STATUS_USB2_ONLY |
                      B2L_USB_STATUS_UCM_URS;
     Status->CoreResetCount = Context->CoreResetCount;
+    // Cached transition observations only: diagnostics never wake a domain.
+    Status->PowerStage = Context->PowerStage;
+    Status->PowerStatus = Context->PowerStatus;
+    Status->PowerClocksEnabled = Context->ClocksEnabled;
+    Status->PowerReadMask = Context->PowerReadMask;
+    Status->PowerPmuStatus = Context->PowerPmuStatus;
+    Status->PowerFsys0Bus = Context->PowerFsys0Bus;
+    Status->PowerBus = Context->PowerBus;
+    Status->PowerSclk = Context->PowerSclk;
+    Status->BusIdleSamples = Context->BusIdleSamples;
+    Status->BusReadOutstanding = Context->BusReadOutstanding;
+    Status->BusWriteOutstanding = Context->BusWriteOutstanding;
     if (Context->CoreResetCount != 0) {
         Status->Flags |= B2L_USB_STATUS_CORE_RESET;
     }
     // NONE has no active controller/PHY; zero fields are not register reads.
-    if (!Context->RegistersValid) return;
+    if (!Context->RegistersValid || !Context->ClocksEnabled) return;
     Status->Flags |= B2L_USB_STATUS_REGISTERS_VALID;
     Status->GsnpsId = B2lRead32(Context->Dwc3Registers, B2L_DWC3_GSNPSID);
     Status->Dwc3VerNumber = B2lRead32(

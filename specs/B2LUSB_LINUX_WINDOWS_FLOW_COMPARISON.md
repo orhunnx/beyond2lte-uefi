@@ -1,5 +1,153 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: parent `.21` — gerçek FSYS0A güç/saat yaşam döngüsü
+
+Taban `d3303dd`; parent/host/function `0.1.0.21`, MAX `0.1.0.42`.
+USB durum IOCTL ABI'si **8**, USB FOTO **v4**, MAX FOTO **v15**.
+MAX olay ABI'si değişmedi. Kaynak işi yeni flaş beklemeden yürütüldü;
+Mac'te WDK/UEFI/WIM build yapılmadı. Bu bölüm aşağıdaki `.20` bölümündeki
+“parent boot'tan kalan erişilebilir saatlere dayanıyor” durumunu günceller.
+
+### Kaynak zinciri ve önemli ayrımlar
+
+Sabit cihaz kaynağı yine
+`corsicanu/android_kernel_samsung_universal9820@55f042627bb7030c93550faafa117674d32b21d1`.
+Stok birleşik DT'nin USB düğümünde `aclk=GATE_USB31DRD_SLV_LINK`,
+`sclk=USB31DRD`, güç alanı `pd-fsys0a@15862200`, `power-down-ok=3`
+bulunur. PHY aynı SLV_LINK saatine ikinci referansı ve sabit `fin_pll`
+26 MHz saatini kullanır; `phyclk_mux=none` olduğu için ek mux listesi yoktur.
+
+- [dwc3-exynos.c](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/usb/dwc3/dwc3-exynos.c#L155):
+  runtime resume `aclk`, sonra `sclk`; runtime suspend aynı liste sırasıyla
+  bırakır. PHY'nin ikinci SLV_LINK referansı, root referansı dururken ayrı
+  bir fiziksel gate yazısı üretmez.
+- [clk-exynos9820.c](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/clk/samsung/clk-exynos9820.c#L187)
+  ve [composite.c](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/clk/samsung/composite.c#L1368):
+  CCF parent zinciri `FSYS0_BUS_USER → FSYS0A_BUS_USER → SLV_LINK`.
+  SLV_LINK, `VCLK_GATE` taşır fakat `VCLK_QCH_DIS` taşımaz. Bu durumda
+  `cal_vclk_enable/disable` gate için register yazmadan döner. USB_REF,
+  SLV_CTRL, APB, PCS QCH'lerinin de tabloda bulunması, hepsine keyfi enable
+  yazılması gerektiği anlamına gelmez. `HWACG_VCLK` makrosu ek bir QCH_EN
+  bayrağı da üretmez.
+- [ra.c](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/soc/samsung/cal-if/ra.c#L195)
+  ve [cmucal-sfr.c](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/soc/samsung/cal-if/exynos9820/cmucal-sfr.c#L3178):
+  USER mux enable/disable `MUX_SEL` bit **4**'ü değiştirir, `BUSY` bit **7**'nin
+  temizlenmesini 100 × 1 us sınırıyla bekler. TOP PLL/rate/DVFS ayarı bunun
+  parçası değildir; geniş bir clock register dökümü yeniden oynatılmaz.
+- [exynos-pd.c](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/soc/samsung/exynos-pd.c)
+  → [pmucal_local.c](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/soc/samsung/cal-if/pmucal_local.c)
+  → [FSYS0A CAL tablosu](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/soc/samsung/cal-if/exynos9820/flexpmu_cal_local_exynos9820.h#L1064):
+  `15862200` bit0 konfigürasyonu, `15862204` bit0 gerçek durumunu bekleme,
+  önceki kapanışta saklanmış kayıtların geri yüklenmesi. Bu DT düğümünde
+  `need_smc` ve `devfreq-sync-voltage` yoktur. PMU status bitine yazılmaz.
+  `pmucal_rae_wait` 2001 başarısız örnekte timeout verir; koşul registerının
+  varlığı `PMUCAL_SAVE_RESTORE` işlemini `COND_SAVE_RESTORE` yapmaz.
+
+### Uygulanan başlangıç ve kapanış
+
+Yeni `b2lusb_power.c`, parent RoleLock altında gerçek USB tüketicisi için
+çalışır. PrepareHardware yalnız verilen PnP kaynaklarını eşler; hiçbir
+DWC3/PHY okuması yapmaz. Rol hazırlığındaki ilk GSNPSID okumasından önce:
+
+1. PMU'dan gerçek alan durumu okunur. Kapalıysa CONFIG bit0 set edilir ve
+   STATUS bit0 beklenir. Daha önceki off isteği timeout verdiyse önce on
+   isteği ile o istek iptal edilir; sonra snapshot geri yüklenir.
+2. Yalnız bu sürücünün gerçekten sakladığı 13 register varsa özgün sırada
+   geri yüklenir. İlk açılışa varsayımsal clock/QCH değerleri konmaz.
+3. `13000120` FSYS0_BUS_USER, `10a00100` FSYS0A_BUS_USER,
+   `10a00120` USB31DRD_USER sırayla seçilir. Her mux için BUSY ve seçilmiş
+   bit read-back'i doğrulanır. Başarısız saat önceki parent referanslarını
+   Linux enable rollback sırasıyla bırakır; DWC3/PHY'ye ilerlenmez.
+4. Bundan sonra `.20`deki denetleyici/PHY/reset akışı başlayabilir.
+   HALTED olmayan xHCI veya kimliği bilinmeyen core'da saatler zorla
+   kapatılmaz. Başarılı rol ile yalnız güç hazırlığı ayrı sonuçlardır.
+
+Kapanışta gerçek rol çocuğu durduktan ve PHY exit tamamlandıktan sonra
+[dwc3_otg_check_bus_act](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/usb/dwc3/otg.c#L253)
+eklenmiştir: `GDBGLSPMUX_HST c170` içine `3f<<16`, ana PHY `+0c` üzerinden
+22 bit outstanding read, `+10` üzerinden 22 bit outstanding write sayıları
+okunur. Düşük 10 kanal-durumu biti işlem sayısı değildir. 100 örnek/1 ms
+bekleme kullanılır. Windows pasif thread beklemesi zamanlama nedeniyle
+1 ms'den uzun sürebilir. Linux timeout'u loglayıp devam eder; Windows bu
+hatayı D-state başarısı yapmaz, saatleri açık bırakır ve hata döndürür.
+Bu açık hata davranışı farkıdır; işlem sayısı yazılımla sıfırlanmaz.
+
+Sonra root aclk bırakılır: önce FSYS0A_BUS, sonra CCF parent FSYS0_BUS;
+sonra sclk bırakılır. PHY'nin sabit OSCCLK ve ikinci SLV_LINK referansının
+ayrı fiziksel yazısı yoktur. `power-down-ok=USB`, **HOST sahipliğini**
+izleyen `otg_is_connect()` dalıdır; genel CC attach değildir. HWC1
+`CONFIG_SND_EXYNOS_USB_AUDIO=y` HOST-stop'ta bu sahipliği temizler.
+Windows'ta olağan HOST D0 çıkışı RequestedRole'ü koruyarak alanı açık tutar;
+gerçek URS HOST-stop veya son aygıt kaldırılması bu tutmayı bitirir.
+Function aynı HOST vetosunu üretmez.
+
+Son tüketicinin kapanışında CAL tablosundaki sırayla üç mux, sekiz QCH,
+CMU controller option ve FSYS0 DRCG saklanır. Aradaki sekiz DBG_NFO okuması
+yalnız tanıdır; geri yazılmaz. CONFIG bit0 clear → gerçek STATUS=0 bekleme
+uygulanır. Off timeout, snapshot'ı kaybetmez. Sonraki on gerçek tabloyu geri
+yükler. Yeni CC/PD/ID-pin olayı veya IRQ üretilmez. Özgün GSIV51/114/273
+sahipliği değişmemiştir.
+
+### PnP kaynakları ve mevcut kapsam
+
+| Yeni parent kaynağı | Kullanımı |
+|---|---|
+| `15862200 / 8` | FSYS0A CONFIG/STATUS |
+| `10a00000 / 8000` | Özgün CMU pencere boyu; USER mux ve CAL save/restore |
+| `13000120 / 4` | FSYS0_BUS_USER CCF parent |
+| `13020104 / 4` | CAL FSYS0_BUS_COMPONENT_DRCG_EN save/restore |
+
+Mevcut üç kaynağa bunlar eklenir; parent tam yedi memory kaynağı ister.
+Kaynak eksik, uzunluk/adres yanlış veya duplicate ise başlatılmaz. URS
+çocuklarına yalnız DWC3 penceresi geçer; clock/domain kaynakları parent'ta
+kalır. Aktif ACPI topolojisinde bu clock kaynaklarının tek Windows sahibi
+USB parent'tır. Gelecekte DP/PCIe tüketicileri eklendiğinde ortak FSYS0
+parent referansları merkezi sağlayıcı üzerinden paylaşılmalıdır; ikinci
+sürücü aynı registerlara bağımsız yazamaz. Şu an var olmayan bir DP
+sahibi, sahte referans veya manager READY kaydı eklenmedi.
+
+**Kapsam sınırı:** Bu gerçek FSYS0A domain/USB clock consumer işlemlerini
+uygular; bütün SoC clock/regulator sağlayıcısının tamamlandığı anlamına
+gelmez. TOP PLL/rate/DVFS ve S2MPS19 ACPM regulator ömrü ayrıca açıktır.
+USB/DP combo ortak sahipliği, USB3 isolation/GPIO/PMA/PCS/lane-lock zinciri,
+DWC3 kalan phy_setup/global ayarları, SOURCE Rp ve OS PD tüketicileri de
+aynı açık hedefin parçalarıdır. `USB2_ONLY` hâlâ bildirilmektedir.
+
+### Tanı ve doğrulama
+
+USB FOTO v4 artık güç/saat aşaması, ayrı NT sonucu, tamamlanmış clock
+açılış durumu, son okuma maskesi ve gerçek AXI sayaçlarını gösterir.
+`asama=6, NT=0, saat=1` yalnız clock hazırlığı; `11` alanın kapandığı,
+`8` HOST nedeniyle alanın tutulduğu, `12` AXI kontrol aşamasıdır. `okuma`
+maskesi `1=PD, 2=FSYS0, 4=aclk, 8=sclk`; olmayan bitin sıfır alanı ölçüm
+sayılmaz. Değerler **son geçişten saklanır**, tek canlı/atomik snapshot
+iddiası yoktur. `n=0` AXI okunmadı demektir. `status` ve foto komutları
+kapalı alanı uyandırmaz. Başarısız clock başlangıcında register erişimi yoktur.
+
+Üretim güç ve PHY C koduyla host fixture testleri; PMU/mux timeout, register
+sırası, BUSY, AXI timeout/idle, HOST retention, off timeout sonrası on,
+13 kayıt restore ve kapalı durumda tanının MMIO yapmaması doğrulandı.
+Yeni PnP fixture tüm yedi eşlemeyi, her adımda allocation hatasını,
+eksik/duplicate/yanlış adres/uzunlukları ve unwind'ı yürüttü. ASan/UBSan
+geçti. USB foto başarı/hata ve kalabalık PnP senaryoları 64 sütun / en fazla
+39 satır sınırında test edildi. MAX IRQ/lifecycle/connection/UCM ve Windows/
+UEFI kaynak kontrolleri geçti. Bu testler gerçek MMIO/GIC teslimi veya USB
+transferi değildir; WDK, ACPI derlemesi ve cihaz sonucu bu Mac'te üretilmedi.
+
+WSL'de aynı üretim yolu kullanılacak; yeni ACPI kaynakları nedeniyle UEFI
+ve WIM birlikte yenilenir, eski UEFI/yeni parent karışımı başlatılamaz:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+Bir sonraki gerçek cihaz ölçümünde saat aşamasının `6` olması, güç hatasının
+yeri ve AXI kapanışının gerçek sonucu görülebilecek. USB çalıştı ölçütü
+yine gerçek port bağlantısı, enumeration ve veri transferidir. Kaynak
+çalışması bu ölçümü beklemeksizin kalan Linux adımlarında devam eder.
+
+
 ## 5 Eylül 2026: parent `.20` — özgün DWC3 reseti ve ana PHY sırası
 
 Parent/host/function `0.1.0.20`, MAX `0.1.0.42`, IOCTL ABI `7`, MAX FOTO

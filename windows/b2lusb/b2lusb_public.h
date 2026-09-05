@@ -9,7 +9,20 @@ DEFINE_GUID(
     0x43eb6f1d, 0x81b9, 0x4e9a, 0x93, 0xd4, 0x76, 0xc7, 0xe0, 0x2c, 0x1b, 0xf4
     );
 
-#define B2L_USB_IOCTL_VERSION 7UL
+#define B2L_USB_IOCTL_VERSION 8UL
+
+#define B2L_USB_POWER_DOMAIN_ON       1UL
+#define B2L_USB_POWER_RESTORE         2UL
+#define B2L_USB_POWER_FSYS0_BUS        3UL
+#define B2L_USB_POWER_ACLK            4UL
+#define B2L_USB_POWER_SCLK            5UL
+#define B2L_USB_POWER_READY           6UL
+#define B2L_USB_POWER_CLOCKS_OFF      7UL
+#define B2L_USB_POWER_DOMAIN_RETAINED  8UL
+#define B2L_USB_POWER_SAVE            9UL
+#define B2L_USB_POWER_DOMAIN_OFF     10UL
+#define B2L_USB_POWER_OFF            11UL
+#define B2L_USB_POWER_BUS_IDLE       12UL
 
 typedef enum _B2L_USB_ROLE {
     B2lUsbRoleNone = 0,
@@ -100,6 +113,12 @@ typedef struct _B2L_USB_STATUS {
     ULONG PhyHsp;
     ULONG PhyHspTune;
     ULONG PmuUsbPhy;
+    ULONG PowerStage;
+    LONG PowerStatus;
+    ULONG PowerClocksEnabled;
+    ULONG PowerReadMask; // bit0 PMU, bit1 FSYS0 bus, bit2 aclk, bit3 sclk.
+    ULONG PowerPmuStatus, PowerFsys0Bus, PowerBus, PowerSclk;
+    ULONG BusIdleSamples, BusReadOutstanding, BusWriteOutstanding;
 } B2L_USB_STATUS;
 
 #define IOCTL_B2L_USB_GET_STATUS \

@@ -45,6 +45,34 @@ B2lUsbMapResource(
             PAGE_READWRITE | PAGE_NOCACHE
             );
         Context->PmuUsbPhy = (PULONG)Mapping;
+    } else if ((Start == B2L_FSYS0A_PMU_PHYSICAL_BASE) &&
+               (Resource->u.Memory.Length == B2L_FSYS0A_PMU_LENGTH) &&
+               (Context->Fsys0aPmu == NULL)) {
+        Mapping = (PUCHAR)MmMapIoSpaceEx(
+            Resource->u.Memory.Start, Resource->u.Memory.Length,
+            PAGE_READWRITE | PAGE_NOCACHE);
+        Context->Fsys0aPmu = (PUCHAR)Mapping;
+    } else if ((Start == B2L_FSYS0A_CMU_PHYSICAL_BASE) &&
+               (Resource->u.Memory.Length == B2L_FSYS0A_CMU_LENGTH) &&
+               (Context->Fsys0aCmu == NULL)) {
+        Mapping = (PUCHAR)MmMapIoSpaceEx(
+            Resource->u.Memory.Start, Resource->u.Memory.Length,
+            PAGE_READWRITE | PAGE_NOCACHE);
+        Context->Fsys0aCmu = (PUCHAR)Mapping;
+    } else if ((Start == B2L_FSYS0_BUS_PHYSICAL_BASE) &&
+               (Resource->u.Memory.Length == B2L_FSYS0_BUS_LENGTH) &&
+               (Context->Fsys0Bus == NULL)) {
+        Mapping = (PUCHAR)MmMapIoSpaceEx(
+            Resource->u.Memory.Start, Resource->u.Memory.Length,
+            PAGE_READWRITE | PAGE_NOCACHE);
+        Context->Fsys0Bus = (PULONG)Mapping;
+    } else if ((Start == B2L_FSYS0_DRCG_PHYSICAL_BASE) &&
+               (Resource->u.Memory.Length == B2L_FSYS0_DRCG_LENGTH) &&
+               (Context->Fsys0Drcg == NULL)) {
+        Mapping = (PUCHAR)MmMapIoSpaceEx(
+            Resource->u.Memory.Start, Resource->u.Memory.Length,
+            PAGE_READWRITE | PAGE_NOCACHE);
+        Context->Fsys0Drcg = (PULONG)Mapping;
     } else {
         return STATUS_DEVICE_CONFIGURATION_ERROR;
     }
@@ -57,6 +85,22 @@ B2lUsbUnmapResources(
     PB2L_USB_CONTEXT Context
     )
 {
+    if (Context->Fsys0Drcg != NULL) {
+        MmUnmapIoSpace(Context->Fsys0Drcg, B2L_FSYS0_DRCG_LENGTH);
+        Context->Fsys0Drcg = NULL;
+    }
+    if (Context->Fsys0Bus != NULL) {
+        MmUnmapIoSpace(Context->Fsys0Bus, B2L_FSYS0_BUS_LENGTH);
+        Context->Fsys0Bus = NULL;
+    }
+    if (Context->Fsys0aCmu != NULL) {
+        MmUnmapIoSpace(Context->Fsys0aCmu, B2L_FSYS0A_CMU_LENGTH);
+        Context->Fsys0aCmu = NULL;
+    }
+    if (Context->Fsys0aPmu != NULL) {
+        MmUnmapIoSpace(Context->Fsys0aPmu, B2L_FSYS0A_PMU_LENGTH);
+        Context->Fsys0aPmu = NULL;
+    }
     if (Context->PmuUsbPhy != NULL) {
         MmUnmapIoSpace(Context->PmuUsbPhy, B2L_USBPMU_LENGTH);
         Context->PmuUsbPhy = NULL;
@@ -256,10 +300,12 @@ B2lUsbEvtPrepareHardware(
         }
     }
 
-    if ((MemoryCount != 3) ||
+    if ((MemoryCount != 7) ||
         (Context->Dwc3Registers == NULL) ||
         (Context->PhyRegisters == NULL) ||
-        (Context->PmuUsbPhy == NULL)) {
+        (Context->PmuUsbPhy == NULL) ||
+        !Context->Fsys0aPmu || !Context->Fsys0aCmu ||
+        !Context->Fsys0Bus || !Context->Fsys0Drcg) {
         Status = STATUS_DEVICE_CONFIGURATION_ERROR;
         goto Failure;
     }
@@ -293,6 +339,7 @@ B2lUsbEvtReleaseHardware(
     Context->XhciObserveFlags &= ~B2L_XHCI_OBSERVE_ACTIVE;
     WdfSpinLockRelease(Context->XhciObserveLock);
     Context->HardwareReady = FALSE;
+    Context->ClocksEnabled = FALSE;
     Context->RoleInitialized = Context->RegistersValid = FALSE;
     Context->CurrentRole = B2lUsbRoleNone;
     B2lUsbUnmapResources(Context);
@@ -397,8 +444,6 @@ B2lUsbEvtD0Exit(
     PB2L_USB_CONTEXT Context;
     NTSTATUS Status;
 
-    UNREFERENCED_PARAMETER(TargetState);
-
     Context = B2lUsbGetContext(Device);
     WdfWaitLockAcquire(Context->RoleLock, NULL);
     (VOID)WdfTimerStop(Context->XhciObserveTimer, TRUE);
@@ -409,7 +454,12 @@ B2lUsbEvtD0Exit(
     // Even a failed shutdown may have changed hardware. Resume must run the
     // real transition again, not accept a stale CurrentRole as initialized.
     Context->RoleInitialized = FALSE;
-    Status = Context->HardwareReady && Context->CurrentRole != B2lUsbRoleNone ?
+    // Final removal ends the real host consumer; ordinary suspend retains
+    // its role so the original power-down-ok HOST veto can be honored.
+    if (TargetState == WdfPowerDeviceD3Final)
+        Context->RequestedRole = B2lUsbRoleNone;
+    Status = Context->HardwareReady &&
+        (Context->CurrentRole != B2lUsbRoleNone || Context->ClocksEnabled) ?
         B2lUsbHardwareSetRole(Context, B2lUsbRoleNone) : STATUS_SUCCESS;
     if (NT_SUCCESS(Status)) {
         Context->CurrentRole = B2lUsbRoleNone;

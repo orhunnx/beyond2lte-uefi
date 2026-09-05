@@ -1,15 +1,27 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
-## Güncel kaynak: parent `.20` / MAX `.42`
+## Güncel kaynak: parent `.21` / MAX `.42`
 
-MAX `0.1.0.42`, parent/host/function `0.1.0.20`, IOCTL ABI 7.
+MAX `0.1.0.42`, parent/host/function `0.1.0.21`, USB IOCTL ABI 8.
+USB FOTO v4, MAX FOTO v15; MAX olay ABI'si değişmedi.
 Parent artık Samsung OTG LINK reseti → SUSPHY temizliği → ana PHY hazırlığı
 → DCTL self-clear → 50 ms → role-tune sırasını uygular. Genel GCTL/100 ms
 reseti kaldırıldı. ReWA hazırlığı ve PIPE/PMA hold eklendi; DUALPHYSEL yazısı
 kaldırıldı. `devrst`, başarılı device reset/senkronizasyon sayısıdır;
-rol/USB başarısı değildir. Tam USB3 native clock/isolation/GPIO/lane zinciri
+rol/USB başarısı değildir. Tam USB3 isolation/GPIO/lane zinciri
 hâlâ açıktır; `USB2_ONLY` sınırlaması sürer. Ayrıntılı adım tablosu ve testler
 [Linux karşılaştırmasının başında](../../specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md).
+
+Parent FSYS0A alanını gerçek PMU durumuyla açar; FSYS0_BUS → FSYS0A_BUS
+→ USB31DRD USER mux sırasını tamamlamadan DWC3/PHY'ye erişmez. QCH kapıları
+Linux'un HWACG davranışında bırakılır. Kapanış önce gerçek AXI outstanding
+sayaçlarını kontrol eder; işlem sürüyorsa güç kapanışı hata döner. Sonra
+clock bırakma, HOST bağlılık vetosu ve CAL'nin 13 kayıt save/restore işlemi
+uygulanır. `asama=6/NT=0/saat=1` clock hazırlığıdır; USB başarısı değildir.
+USB foto güç aşaması, okuma maskesi ve son AXI sayaçlarını gösterir; kapalı
+alanda tanı MMIO yapmaz. Toplam parent kaynağı yedidir; yeni UEFI ve WIM
+birlikte WSL'de üretilmelidir. TOP PLL/DVFS, native ACPM regulator ömrü ve
+gelecek DP/PCIe ortak provider'ı bu USB tüketici koduyla tamamlanmış sayılmaz.
 
 Koşulsuz HOST kaldırıldı. Gerçek MAX CC/PD değişiklikleri ayrı pasif UCM
 kuyruğuna, oradan URS host/function yaşam döngüsüne gider. ACPI rol çocukları

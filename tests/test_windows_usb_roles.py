@@ -32,12 +32,13 @@ typedef int NTSTATUS,BOOLEAN,URS_ROLE,B2L_USB_ROLE,WDF_POWER_DEVICE_STATE;
 #define UrsRoleHost 1
 #define UrsRoleFunction 2
 #define B2L_XHCI_OBSERVE_ACTIVE 1
+#define WdfPowerDeviceD3Final 9
 #define B2L_DWC3_PHYSICAL_BASE 0x10c00000ULL
 #define B2L_DWC3_LENGTH 0x10000UL
 #define CmResourceTypeMemory 1
 #define UNREFERENCED_PARAMETER(x) ((void)(x))
 typedef struct {
- int HardwareReady,RoleInitialized,RegistersValid,RequestedRole,CurrentRole,LastRoleStatus,XhciObserveFlags;
+ int ClocksEnabled,HardwareReady,RoleInitialized,RegistersValid,RequestedRole,CurrentRole,LastRoleStatus,XhciObserveFlags;
  WDFTIMER XhciObserveTimer; WDFWAITLOCK RoleLock; WDFSPINLOCK XhciObserveLock;
 } B2L_USB_CONTEXT,*PB2L_USB_CONTEXT;
 static B2L_USB_CONTEXT c;
@@ -81,6 +82,10 @@ int main(void) {
  {int before=hardware_calls;
   hw_failure=0;assert(B2lUsbEvtD0Entry(&c,0)==0 && hardware_calls==before+1 && c.RegistersValid);}
  hw_failure=0;assert(B2lUsbEvtSetRole(&c,UrsRoleNone)==0 && c.CurrentRole==0 && !c.RegistersValid);
+ c.ClocksEnabled=1;{int before=hardware_calls;
+  assert(B2lUsbEvtD0Exit(&c,0)==0 && hardware_calls==before+1);}
+ assert(B2lUsbEvtSetRole(&c,UrsRoleHost)==0);
+ assert(B2lUsbEvtD0Exit(&c,WdfPowerDeviceD3Final)==0 && c.RequestedRole==0 && c.CurrentRole==0);
  req.Count=1;req.list.Count=3;
  req.list.entries[0].Type=1;req.list.entries[0].u.Memory.MinimumAddress.QuadPart=B2L_DWC3_PHYSICAL_BASE;
  req.list.entries[0].u.Memory.MaximumAddress.QuadPart=B2L_DWC3_PHYSICAL_BASE+B2L_DWC3_LENGTH-1;

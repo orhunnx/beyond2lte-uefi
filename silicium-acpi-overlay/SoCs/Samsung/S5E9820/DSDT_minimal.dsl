@@ -306,6 +306,12 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000006)
                 Memory32Fixed (ReadWrite, 0x10C00000, 0x00010000)
                 Memory32Fixed (ReadWrite, 0x10B00000, 0x00000200)
                 Memory32Fixed (ReadWrite, 0x1586072C, 0x00000004)
+                // Original FSYS0A genpd and CCF USB consumer resources.
+                // These stay on the parent; role children receive DWC3 only.
+                Memory32Fixed (ReadWrite, 0x15862200, 0x00000008)
+                Memory32Fixed (ReadWrite, 0x10A00000, 0x00008000)
+                Memory32Fixed (ReadWrite, 0x13000120, 0x00000004)
+                Memory32Fixed (ReadWrite, 0x13020104, 0x00000004)
                 // No ID-pin interrupt: MAX77705 owns Type-C GSIV51.
             })
             Device (USB0)

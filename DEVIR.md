@@ -18,6 +18,16 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / parent `.21` kaynak güncellemesi:** FSYS0A gerçek PMU
+> on/off, USER mux/CCF sırası, CAL kayıt saklama/geri yükleme ve gerçek AXI
+> idle kontrolü eklendi. DWC3 erişimi clock hazırlığını bekler. USB parent
+> yedi PnP memory kaynağı ister; UEFI ve WIM birlikte yenilenmelidir.
+> Parent/host/function `.21`, MAX `.42`, USB IOCTL ABI 8, USB FOTO v4,
+> MAX FOTO v15. Tanıda ayrı güç/saat NT sonucu ve geçerli okuma maskesi var.
+> TOP/native regulator, ortak DP/PCIe provider ve USB3 adımları açık;
+> ayrıntılı sınırlar Linux karşılaştırmasının başında. Mac'te build veya
+> yeni telefon sonucu yok; kaynak işi flaş beklemez.
+
 > **5 Eylül / parent `.20` kaynak güncellemesi:** Samsung OTG yolundaki
 > LINK reseti ve SUSPHY sırası düzeltildi; genel GCTL/100 ms reseti yerine
 > gerçek DCTL self-clear + 50 ms kullanılıyor. Ana PHY ReWA/PIPE hazırlığı,
@@ -200,12 +210,12 @@ kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikle
 
 ### 0.3 Güncel repo ve sürüm çıpası
 
-Parent `.20` / MAX `.42` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
+Parent `.21` / MAX `.42` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
 
 ```text
 dal:    codex/touch-from-8549bfa
-taban:  8095fcf  fix: wait for real MUIC completion before USB role notification
-önceki: 97fd527  fix: preserve Samsung RID-driven USB notification lifecycle
+taban:  d3303dd  fix: follow Samsung OTG device reset and main PHY sequence
+önceki: 8095fcf  fix: wait for real MUIC completion before USB role notification
 ```
 
 Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
@@ -213,8 +223,8 @@ Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
 | Bileşen | Sürüm | ACPI kimliği / işlev |
 |---|---:|---|
 | `b2ltouch.sys` | `0.2.0.1` | `ACPI\BYN0001`, Samsung sec_ts -> KMDF/VHF touch |
-| `b2lusb.sys` parent | `0.1.0.20` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
-| inbox host | `0.1.0.20` INF | `URS\BYN0002&HOST`, `USBXHCI` + GSIV 273 |
+| `b2lusb.sys` parent | `0.1.0.21` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
+| inbox host | `0.1.0.21` INF | `URS\BYN0002&HOST`, `USBXHCI` + GSIV 273 |
 | `b2lmax77705.sys` | `0.1.0.42` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG/PD |
 | `b2lufs.sys` | `0.0.4.5` kaynak sürümü | Deneysel Windows UFS miniport; güncel USB kapısı değil |
 

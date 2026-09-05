@@ -280,6 +280,14 @@ B2lShowStatus(
         B2lRoleName(Status.CurrentRole),
         (ULONG)Status.LastRoleStatus,
         Status.Flags);
+    wprintf(L"Guc/saat son islem: asama=%lu nt=%08lX etkin=%lu okuma=%lX\n",
+        Status.PowerStage, (ULONG)Status.PowerStatus,
+        Status.PowerClocksEnabled, Status.PowerReadMask);
+    wprintf(L"Kayitli degerler: PD=%08lX FSYS0=%08lX ACLK=%08lX SCLK=%08lX\n",
+        Status.PowerPmuStatus, Status.PowerFsys0Bus, Status.PowerBus, Status.PowerSclk);
+    wprintf(L"Okuma maskesi: 1=PD 2=FSYS0 4=ACLK 8=SCLK; yoksa deger gecersiz.\n");
+    wprintf(L"Son AXI bekleme: ornek=%lu kalan RD=%lu WR=%lu\n",
+        Status.BusIdleSamples, Status.BusReadOutstanding, Status.BusWriteOutstanding);
     if ((Status.Flags & B2L_USB_STATUS_REGISTERS_VALID) == 0UL) {
         wprintf(L"Denetleyici etkin degil; register okunmadi.\n");
         return 0;
@@ -1074,7 +1082,7 @@ B2lPrintUsbPhotoStatus(ULONG Cycle)
     DWORD Count;
     DWORD Error;
 
-    wprintf(L"USB FOTO v3 / tur %lu / PORT VE AYGITLAR\n", Cycle);
+    wprintf(L"USB FOTO v4 / tur %lu / PORT VE AYGITLAR\n", Cycle);
     Controller = B2lOpenController();
     if (Controller == INVALID_HANDLE_VALUE) {
         wprintf(L"USB_ARAYUZ_HATASI=%lu\n", GetLastError());
@@ -1091,6 +1099,16 @@ B2lPrintUsbPhotoStatus(ULONG Cycle)
             wprintf(L"Istenen=%ls simdiki=%ls NT=%08lX\n",
                 B2lRoleName(Status.RequestedRole), B2lRoleName(Status.CurrentRole),
                 (ULONG)Status.LastRoleStatus);
+            wprintf(L"GUC asama=%lu NT=%08lX saat=%lu okuma=%lX\n",
+                Status.PowerStage, (ULONG)Status.PowerStatus,
+                Status.PowerClocksEnabled, Status.PowerReadMask);
+            wprintf(L"PD=%08lX FSYS0=%08lX A=%08lX S=%08lX\n",
+                Status.PowerPmuStatus, Status.PowerFsys0Bus, Status.PowerBus, Status.PowerSclk);
+            wprintf(L"Son AXI: n=%lu RD=%lu WR=%lu (n=0: okunmadi)\n",
+                Status.BusIdleSamples, Status.BusReadOutstanding, Status.BusWriteOutstanding);
+            wprintf(L"GUC: 1=PD 3=FSYS0 4=A 5=S 6=acik 11=kapali 12=AXI\n");
+            wprintf(L"2=geri yukle 7=saat kapat 8=HOST tut 9=kaydet 10=PD kapat\n");
+            wprintf(L"Son okumalar: maske 1=PD 2=FSYS0 4=A 8=S; yoksa gecersiz.\n");
             if ((Status.Flags & B2L_USB_STATUS_REGISTERS_VALID) &&
                 Status.CurrentRole == B2lUsbRoleHost) {
                 wprintf(L"xHCI CMD=%08lX STS=%08lX CFG=%08lX\n",

@@ -130,7 +130,7 @@ New-Item -ItemType Directory -Path $StageRoot -Force | Out-Null
 
 try {
     foreach ($Name in @(
-            'b2lusb.h', 'b2lusb_public.h', 'b2lusb.c', 'b2lusb_hw.c',
+            'b2lusb.h', 'b2lusb_public.h', 'b2lusb.c', 'b2lusb_hw.c', 'b2lusb_power.c',
             'b2lusbmon.c', 'b2lusbctl.c', 'b2lmax77705.h',
             'b2lmax77705.c', 'b2lmax77705_hw.c', 'b2lmax77705_irq.c', 'b2lmax77705_ucm.c', 'b2lmax77705_pd.c', 'b2lmax77705_sysmsg.c', 'b2lmax77705_control.c', 'b2lmax77705_response.c', 'b2lmax77705_events.h')) {
         Copy-Item -LiteralPath (Join-Path $SourceDir $Name) -Destination (Join-Path $StageRoot $Name) -Force
@@ -150,7 +150,9 @@ try {
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $Flags /Fo`"b2lusb_hw.obj`" `"b2lusb_hw.c`"",
         'if errorlevel 1 exit /b 1',
-        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lusb.sys`" `"b2lusb.obj`" `"b2lusb_hw.obj`" UrsCxStub.lib WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
+        "`"$Compiler`" $Flags /Fo`"b2lusb_power.obj`" `"b2lusb_power.c`"",
+        'if errorlevel 1 exit /b 1',
+        "`"$Linker`" /nologo /kernel /driver /subsystem:native /entry:FxDriverEntry /machine:arm64 /nodefaultlib /libpath:`"$WdkLib`" /libpath:`"$KmdfLib`" /out:`"b2lusb.sys`" `"b2lusb.obj`" `"b2lusb_hw.obj`" `"b2lusb_power.obj`" UrsCxStub.lib WdfDriverEntry.lib WdfLdr.lib libcntpr.lib ntoskrnl.lib hal.lib BufferOverflowFastFailK.lib",
         'if errorlevel 1 exit /b 1',
         "`"$Compiler`" $Flags /Fo`"b2lusbmon.obj`" `"b2lusbmon.c`"",
         'if errorlevel 1 exit /b 1',

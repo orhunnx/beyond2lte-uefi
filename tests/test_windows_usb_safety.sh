@@ -10,10 +10,14 @@ MAX_INF="$WIN/b2lmax77705.inf.in"
 
 USB_BLOCK="$(sed -n '/Device (USBP)/,/^[[:space:]]*\/\/ Device (UFS0)/p' "$DSDT")"
 MAX_BLOCK="$(sed -n '/Device (USBC)/,/^[[:space:]]*\/\/ Exynos9820 DWC_usb31/p' "$DSDT")"
-test "$(printf '%s\n' "$USB_BLOCK" | rg -c 'Memory32Fixed')" -eq 3
+test "$(printf '%s\n' "$USB_BLOCK" | rg -c 'Memory32Fixed')" -eq 7
 printf '%s\n' "$USB_BLOCK" | grep -q '0x10C00000, 0x00010000'
 printf '%s\n' "$USB_BLOCK" | grep -q '0x10B00000, 0x00000200'
 printf '%s\n' "$USB_BLOCK" | grep -q '0x1586072C, 0x00000004'
+printf '%s\n' "$USB_BLOCK" | grep -q '0x15862200, 0x00000008'
+printf '%s\n' "$USB_BLOCK" | grep -q '0x10A00000, 0x00008000'
+printf '%s\n' "$USB_BLOCK" | grep -q '0x13000120, 0x00000004'
+printf '%s\n' "$USB_BLOCK" | grep -q '0x13020104, 0x00000004'
 printf '%s\n' "$USB_BLOCK" | grep -Fq 'Name (_HID, "BYN0002")'
 printf '%s\n' "$USB_BLOCK" | grep -Fq 'Name (_ADR, One)'
 printf '%s\n' "$USB_BLOCK" | grep -Fq 'Name (_DEP, Package (0x01)'
@@ -40,8 +44,8 @@ fi
 grep -Fq 'ACPI\BYN0002' "$PARENT_INF"
 grep -q 'KmdfLibraryVersion=1.15' "$PARENT_INF"
 grep -Fq 'URS\BYN0002&HOST' "$HOST_INF"
-grep -q 'DriverVer=09/05/2026,0.1.0.20' "$PARENT_INF"
-grep -q 'DriverVer=09/05/2026,0.1.0.20' "$HOST_INF"
+grep -q 'DriverVer=09/05/2026,0.1.0.21' "$PARENT_INF"
+grep -q 'DriverVer=09/05/2026,0.1.0.21' "$HOST_INF"
 grep -Fq 'ACPI\BYN0004' "$MAX_INF"
 grep -q 'DriverVer=09/05/2026,0.1.0.42' "$MAX_INF"
 grep -q 'KmdfLibraryVersion=1.15' "$MAX_INF"
@@ -65,8 +69,8 @@ grep -q 'B2lUsbEvtSetRole' "$WIN/b2lusb.c"
 if rg -n 'UrsReportHardwareEvent|UrsHardwareEventId' "$WIN"/*.[ch]; then
   echo 'HATA: Type-C olayi sahte ID-pin olarak sunulamaz' >&2; exit 1
 fi
-test "$(rg -c 'MmMapIoSpaceEx' "$WIN/b2lusb.c")" -eq 3
-grep -q 'MemoryCount != 3' "$WIN/b2lusb.c"
+test "$(rg -c 'MmMapIoSpaceEx' "$WIN/b2lusb.c")" -eq 7
+grep -q 'MemoryCount != 7' "$WIN/b2lusb.c"
 ! grep -q 'B2lUsbMapSharedDwc3' "$WIN/b2lusb.c"
 grep -q 'Resource->u.Memory.Length == B2L_DWC3_LENGTH' "$WIN/b2lusb.c"
 grep -q 'B2L_DWC3_LENGTH' "$WIN/b2lusb.c"
@@ -111,7 +115,7 @@ test "$(rg -c 'Status = B2lResetDwc3DeviceCore' "$WIN/b2lusb_hw.c")" -eq 1
 grep -q 'B2L_DWC3_GCTL_PRTCAP_DEVICE' "$WIN/b2lusb_hw.c"
 grep -q 'B2L_USB_STATUS_REGISTERS_VALID' "$WIN/b2lusb_hw.c"
 grep -q 'B2L_USB_STATUS_CORE_RESET' "$WIN/b2lusb_public.h"
-grep -q '#define B2L_USB_IOCTL_VERSION 7UL' "$WIN/b2lusb_public.h"
+grep -q '#define B2L_USB_IOCTL_VERSION 8UL' "$WIN/b2lusb_public.h"
 grep -q 'B2L_USB_STATUS_STATIC_HOST' "$WIN/b2lusb_public.h"
 grep -q 'XhciUsbCmd' "$WIN/b2lusb_public.h"
 grep -q 'XhciDcbaapLow' "$WIN/b2lusb_public.h"

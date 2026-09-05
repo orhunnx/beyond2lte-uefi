@@ -13,6 +13,14 @@
 #define B2L_USBPHY_LENGTH        0x00000200UL
 #define B2L_USBPMU_PHYSICAL_BASE 0x1586072CULL
 #define B2L_USBPMU_LENGTH        0x00000004UL
+#define B2L_FSYS0A_PMU_PHYSICAL_BASE 0x15862200ULL
+#define B2L_FSYS0A_PMU_LENGTH        0x00000008UL
+#define B2L_FSYS0A_CMU_PHYSICAL_BASE 0x10A00000ULL
+#define B2L_FSYS0A_CMU_LENGTH        0x00008000UL
+#define B2L_FSYS0_BUS_PHYSICAL_BASE  0x13000120ULL
+#define B2L_FSYS0_BUS_LENGTH         0x00000004UL
+#define B2L_FSYS0_DRCG_PHYSICAL_BASE 0x13020104ULL
+#define B2L_FSYS0_DRCG_LENGTH        0x00000004UL
 #define B2L_XHCI_OBSERVE_PERIOD_MS 20UL
 #define B2L_XHCI_OBSERVE_WINDOW_100NS (5ULL * 1000ULL * 10000ULL)
 
@@ -24,6 +32,13 @@ typedef struct _B2L_USB_CONTEXT {
     PUCHAR Dwc3Registers;
     PUCHAR PhyRegisters;
     PULONG PmuUsbPhy;
+    PUCHAR Fsys0aPmu, Fsys0aCmu;
+    PULONG Fsys0Bus, Fsys0Drcg;
+    BOOLEAN ClocksEnabled, DomainSaved;
+    ULONG DomainSave[13], DomainDebug[8];
+    ULONG PowerStage, PowerReadMask, PowerPmuStatus, PowerFsys0Bus, PowerBus, PowerSclk;
+    NTSTATUS PowerStatus;
+    ULONG BusIdleSamples, BusReadOutstanding, BusWriteOutstanding;
     ULONG Dwc3Length;
     ULONG PhyLength;
     ULONG CoreResetCount;
@@ -71,6 +86,9 @@ NTSTATUS B2lUsbHardwareSetRole(
 NTSTATUS B2lUsbHardwareValidate(
     PB2L_USB_CONTEXT Context
     );
+
+NTSTATUS B2lUsbPowerAcquire(PB2L_USB_CONTEXT Context);
+NTSTATUS B2lUsbPowerRelease(PB2L_USB_CONTEXT Context);
 
 VOID B2lUsbHardwareGetStatus(
     PB2L_USB_CONTEXT Context,

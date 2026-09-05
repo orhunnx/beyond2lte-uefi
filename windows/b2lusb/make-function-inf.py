@@ -54,7 +54,7 @@ Class={cls}
 ClassGuid={guid}
 Provider=%B2L%
 CatalogFile=b2lusb.cat
-DriverVer=09/05/2026,0.1.0.20
+DriverVer=09/05/2026,0.1.0.21
 PnpLockdown=1
 [Manufacturer]
 %B2L%=B2L,NTarm64
