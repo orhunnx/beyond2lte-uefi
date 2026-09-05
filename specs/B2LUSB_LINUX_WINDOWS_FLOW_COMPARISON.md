@@ -1,6 +1,46 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
 
+## 5 Eylül 2026: `.43` flaşı — MAX, role-switch ve URS HOST Started
+
+Kullanıcının son altı fotoğrafı iki ayrı paket sonucunu içerir. İlk üçünde
+MAX `.42` ve eski `Code 31 / C0200211` görülür. Son üçünde manifest MAX
+`.43` gösterir; bu görüntüler aynı hata devam ediyormuş gibi birleştirilemez.
+
+Yeni `.43` görüntülerinde doğrudan okunanlar:
+
+| Aygıt | Gözlenen PnP sonucu |
+|---|---|
+| `ACPI\BYN0002\0`, Exynos9820 USB Role Switch Platform | Started, oem3.inf |
+| URS altında Beyond2LTE USB xHCI Host Controller | Started, oem1.inf, USBXHCI |
+| `ACPI\BYN0004\0`, MAX77705 Type-C and OTG Controller | Started, oem0.inf, b2lmax77705 `.43` |
+
+Host stack'te b2lusbmon / USBXHCI / ACPI / b2lusb görünür; eşleşen platform
+kimliği `URS\BYN0002&HOST`, seçilen host INF sürümü `.21`dir. Host kaynağı
+IRQ `0x111 (273)`, MMIO `0x10C00000–0x10C0FFFF` olarak listelenir.
+MAX kaynakları önceki görüntüdeki iki IRQ ve beş MMIO aralığıdır.
+`.43` DeviceAdd düzeltmesi sonrasında önceki MAX Code 31 engelinin kalktığı
+artık cihaz görüntüsüyle doğrulanmıştır. Servis karşılaştırması düzeltmesi
+sonrası paket hazırlanıp açılabilmiştir; bu fotoğraflar hangi servis REG
+alanının değiştiğini açıklamaz.
+
+Son fotoğrafta host dökümü ile MAX dökümü arasındaki `No devices were found`
+satırı, `windows/startnet.cmd` sorgu sırasına göre
+`URS\BYN0002&FUNCTION` sorgusuna aittir. Fare/HID tarama sonucu değildir.
+Bu noktada function çocuğunun listelenmemesi, aktif host çocuğuyla birlikte
+tek başına yeni hata ya da UFX yükleme başarısızlığı kanıtı sayılamaz.
+Fotoğraflar function runtime'ın cihazda yüklenmesini de doğrulamaz.
+
+Henüz görüntülenmeyen ölçümler: gerçek CC/PD durumu, UCM attach kabulü,
+MUIC doğrulaması, OTG/VBUS durumu, xHCI PORTSC CCS/PED ve USB alıcısı/HID
+kayıtları. Dolayısıyla host'un Started olması fare/USB veri aktarımı
+başarısı sayılmaz. Yeni driver değişikliği veya yeni flaş gerektiren somut
+bir hata bu altı görüntüde görülmüyor. Aynı açılıştaki MAX FOTO v15 GENEL
+DURUM, WINDOWS ROL BILDIRIMI ve USB FOTO v4 PORT VE AYGITLAR sayfaları
+sonraki kanıt olmalıdır; bağlı alıcıyla ve çıkarıp takma sonrası turla
+karşılaştırılır. Görüntüler sayfa dönüşünün takıldığını ya da ne kadar
+beklendiğini tek başına göstermiyor.
+
 ## 5 Eylül 2026: Tekrar build — DISM öncesi servis kopyası son durum değildir
 
 Yeni WSL çıktısında bütün runtime dosya/build/INF kontrolleri geçiyor;

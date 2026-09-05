@@ -18,6 +18,14 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / `.43` cihaz doğrulaması:** Son fotoğraflarda MAX `.43`,
+> BYN0002 role-switch ve URS USBXHCI host aygıtı Started. Eski `.42` Code 31
+> engeli kalkmış; ilk üç fotoğraf eski, son üç fotoğraf yeni pakete ait.
+> Host ile MAX dökümü arasındaki “No devices” function çocuğu sorgusudur,
+> fare/HID sonucu değildir. CC/UCM/MUIC/PORTSC ve alıcı/HID verileri henüz
+> yok; USB veri aktarımı doğrulanmadı. Bu tur yalnız bulgu kaydıdır, yeni
+> driver/build/flaş gerektirmez. Aynı açılışın foto tanı sayfaları beklenir.
+
 > **5 Eylül / tekrar build servis karşılaştırması:** Runtime dosyaları geçip
 > `ufxsynopsys: hazirlanmis servis agaci degismis` hatası geldi. Hazırlayıcı
 > DISM öncesi kaynak REG kopyasını son WIM'de de değişmez sanıyordu.
