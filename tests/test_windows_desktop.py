@@ -40,12 +40,18 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
             'wimlib-imagex apply "$DESKTOP_WIM" 1 "$IMAGE"',
             "B2L_COMPACT=NONE",
             "Total Bytes:",
+            'ntfscat "$IMAGE" "$file"',
+            "/Windows/explorer.exe",
+            "ntfsls -a -p /Windows/System32",
             "SYSTEM bolumu tam 5700 MiB",
             "--target userdata",
             'if [ "$INDEX" = list ]',
         ):
             self.assertIn(gate, desktop)
         self.assertNotIn("--compact=XPRESS16K", desktop)
+        verify_start = desktop.index('say "Uygulanan Desktop dosyalari dogrulaniyor"')
+        verify_end = desktop.index('MARKER="$OUT/windows-desktop-target.txt"')
+        self.assertNotIn('rm -f "$IMAGE"', desktop[verify_start:verify_end])
 
         stage = read("windows/stage-winpe-driverstore.ps1")
         self.assertIn("[switch]$IncludeFramebuffer", stage)

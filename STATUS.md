@@ -30,6 +30,10 @@ WSL wimlib `--compact` uygulamasını desteklemediğinden Linux NTFS apply norma
 moddadır. Edition'ın açılmış `Total Bytes` değeri 512 MiB NTFS/OOBE payıyla
 işlem öncesinde ölçülür; sığmayan SYSTEM denemesi yarıda kalmak yerine gerekli
 USERDATA `--size-mib` değerini bildirir.
+İlk normal apply 188805 dosya/13 GiB ile tamamlandı. Sonraki “winload eksik”
+mesajı `ntfsls`in hidden/system dosyaları saklamasından kaynaklanan paketleme
+yanlış alarmıydı; dosya kontrolü artık `ntfscat` ile yapılır ve Explorer'ın
+doğru `/Windows/explorer.exe` yolu denetlenir.
 
 Desktop flash arşivi CACHE'i artık içermez. Mevcut CACHE ESP'deki BCD,
 çalışan WinPE içinden iki `bcdedit /store` işlemiyle yerinde Desktop profiline

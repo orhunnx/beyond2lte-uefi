@@ -171,13 +171,33 @@ if ! wimlib-imagex apply "$DESKTOP_WIM" 1 "$IMAGE"; then
   die "Windows Desktop USERDATA imajina uygulanamadi"
 fi
 
-if command -v ntfsls >/dev/null; then
-  for file in winload.efi ntoskrnl.exe explorer.exe; do
-    if ! ntfsls -p /Windows/System32 "$IMAGE" 2>/dev/null | grep -Fqi "$file"; then
-      rm -f "$IMAGE"
-      die "uygulanan Desktop imajinda eksik dosya: Windows/System32/$file"
+say "Uygulanan Desktop dosyalari dogrulaniyor"
+if command -v ntfscat >/dev/null; then
+  for file in \
+    /Windows/System32/winload.efi \
+    /Windows/System32/ntoskrnl.exe \
+    /Windows/explorer.exe; do
+    # ntfsls varsayilan olarak hidden/system dosyalarini gostermiyor;
+    # winload.efi bu nedenle basarili apply sonrasinda yanlislikla YOK
+    # sayilmisti. ntfscat dosyanin gercek veri akisini dogrudan okur.
+    if ntfscat "$IMAGE" "$file" >/dev/null 2>&1; then
+      echo "  + $file"
+    else
+      die "uygulanan Desktop imajinda dosya okunamadi: $file (imaj korundu: $IMAGE)"
     fi
   done
+elif command -v ntfsls >/dev/null; then
+  # -a hidden/system dosyalarini da listeler. Bu geri donus yolu yalniz
+  # isim dogrular; ntfscat kadar guclu degildir ama yanlis negatif uretmez.
+  ntfsls -a -p /Windows/System32 "$IMAGE" 2>/dev/null | grep -Fqi 'winload.efi' || \
+    die "winload.efi NTFS listesinde yok (imaj korundu: $IMAGE)"
+  ntfsls -a -p /Windows/System32 "$IMAGE" 2>/dev/null | grep -Fqi 'ntoskrnl.exe' || \
+    die "ntoskrnl.exe NTFS listesinde yok (imaj korundu: $IMAGE)"
+  ntfsls -a -p /Windows "$IMAGE" 2>/dev/null | grep -Fqi 'explorer.exe' || \
+    die "explorer.exe NTFS listesinde yok (imaj korundu: $IMAGE)"
+  echo "  + winload.efi, ntoskrnl.exe, explorer.exe (-a listesi)"
+else
+  echo "  UYARI: ntfscat/ntfsls yok; uygulanmis dosya dogrulamasi atlandi"
 fi
 
 MARKER="$OUT/windows-desktop-target.txt"

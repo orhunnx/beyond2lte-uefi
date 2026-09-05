@@ -59,6 +59,13 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > `\Windows\System32\winload.efi` yolunu yazar ve `winpe=Yes` yazmaz;
 > `tools_winboot.sh --desktop` iki koşulu da BCD'den geri okuyarak doğrular.
 > Cihaz üzerinde Desktop/OOBE henüz doğrulanmadı.
+> Tam Windows apply ilk denemede 188805 dosya ve 13 GiB veriyi başarıyla
+> yazdı; ardından doğrulama yanlış alarm verdi. Nedeni `ntfsls`in varsayılan
+> listede hidden/system `winload.efi` dosyasını göstermemesi ve
+> `explorer.exe` için yanlışlıkla `System32` yolunun aranmasıydı. Doğrulama
+> artık `ntfscat` ile gerçek veri akışını okur, doğru
+> `/Windows/explorer.exe` yolunu kullanır ve doğrulama hatasında başarıyla
+> uygulanmış imajı silmez.
 
 ### CACHE'e flash atmadan Desktop geçişi
 
