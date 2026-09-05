@@ -76,7 +76,10 @@ h+='\n'.join(re.findall(r'^#define B2L_MAX_.*',header,re.M))+'\n'+header[a:b]
 h+='\n'.join(re.findall(r'^#define MAX77705_.*',main.replace('\\\n',' '),re.M))+'\n'
 h+=r'''
 static NTSTATUS muic_sample_error;
-static unsigned connector_notifications;
+static unsigned connector_notifications, connector_path_wakes;
+static void B2lMaxConnectorPathChangedLocked(PB2L_MAX_CONTEXT c) {
+    (void)c; ++connector_path_wakes;
+}
 static BOOLEAN connector_usb[1024];
 static void B2lMaxQueueConnectorLocked(PB2L_MAX_CONTEXT c) {
     assert(connector_notifications < 1024);
@@ -283,7 +286,7 @@ static void reset(PB2L_MAX_CONTEXT c) {
     mailbox_error=muic_sample_error=0;response_override_length=0;memset(response_override,0,sizeof(response_override));
     memset(sys_reads,0,sizeof(sys_reads));
     c->Device=c->MaxInterrupt=c->PolicyWork=c->OpcodeDeadline=c;
-    timer_due=pd_due=0;otg_on=otg_off=0;otg_error=0;memset(pd_response,0,sizeof(pd_response));c->PdRecoveryTimer=(void *)2;muic_actual=0;muic_bad_read=trace_count=0;connector_notifications=0;memset(trace,0,sizeof(trace)); c->MfdLock=(void *)1;
+    timer_due=pd_due=0;otg_on=otg_off=0;otg_error=0;memset(pd_response,0,sizeof(pd_response));c->PdRecoveryTimer=(void *)2;muic_actual=0;muic_bad_read=trace_count=0;connector_notifications=connector_path_wakes=0;memset(trace,0,sizeof(trace)); c->MfdLock=(void *)1;
     c->AliveRegisters=(PUCHAR)regs; c->AliveLength=0x1000; c->MaxTranslatedIrq=0xa02;
     c->PolicyEnabled=TRUE; c->MfdReady=TRUE; c->MuicRid=7; c->RidRaw=c->PdRid=0xff; top=8;
     assert(B2lMaxPrepareGpio(c)==0);
@@ -421,6 +424,11 @@ int main(void) {
     WdfWaitLockAcquire(c.MfdLock,NULL);
     assert(B2lMaxReadCurrentAdvertisement(&c)==STATUS_IO_TIMEOUT && c.CcStatus0==0x11 && !connector_notifications);
     WdfWaitLockRelease(c.MfdLock);
+    reset(&c);WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxRequestMuicLocked(&c,9)==STATUS_PENDING);
+    WdfWaitLockRelease(c.MfdLock);
+    assert(!connector_path_wakes && deliver() && !connector_path_wakes && !c.MuicPathVerified);
+    assert(deliver() && connector_path_wakes==1 && c.MuicPathVerified && c.MuicControl1==9);
     // An old USB read-back cannot verify a newer detach request.
     reset(&c);c.PowerRoleValid=c.DataRoleValid=TRUE;c.PowerRole=2;c.DataRole=1;
     WdfWaitLockAcquire(c.MfdLock,NULL);
@@ -429,9 +437,9 @@ int main(void) {
     WdfWaitLockRelease(c.MfdLock);
     assert(c.MuicOutstanding==2 && commands==1);
     assert(deliver() && deliver() && !c.MuicPathVerified && c.MuicStatus==STATUS_PENDING);
-    assert(c.MuicControl1==9 && c.MuicOutstanding==1);
+    assert(c.MuicControl1==9 && c.MuicOutstanding==1 && connector_path_wakes==0);
     assert(deliver() && deliver() && c.MuicPathVerified && c.MuicControl1==0x3f);
-    assert(c.MuicOutstanding==0 && !c.OpcodeHead);
+    assert(c.MuicOutstanding==0 && !c.OpcodeHead && connector_path_wakes==1);
     // Actual CC detach discards the old physical command sequence before
     // queuing OPEN. A generation check alone would still send the old writes.
     reset(&c);c.PowerRoleValid=c.DataRoleValid=TRUE;c.PowerRole=2;c.DataRole=1;
@@ -974,7 +982,7 @@ int main(void) {
     response_override[0]=0x55;response_override_length=1;assert(deliver());
     assert(c.AltModeAcknowledged && !c.AltModeStartRequested && !c.MfdFault && commands==2);
     response_override_length=0;assert(deliver());
-    assert(c.MuicStatus==STATUS_DEVICE_PROTOCOL_ERROR && !c.MuicPathVerified && !c.MuicOutstanding && c.MuicControl1==9);
+    assert(c.MuicStatus==STATUS_DEVICE_PROTOCOL_ERROR && !c.MuicPathVerified && !c.MuicOutstanding && c.MuicControl1==9 && connector_path_wakes==1);
     // A missing consumer never masquerades as successful handling or a bus
     // failure. No guessed VDM/AFC action is sent for the actual packet.
     { static const UCHAR unhandled[]={0x21,0x22,0x31,0x48,0x4b,0xd1};

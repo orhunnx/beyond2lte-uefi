@@ -1,5 +1,130 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.42` — gerçek MUIC tamamlanmasından UCM bildirimine
+
+MAX `0.1.0.42`, parent/host/function `0.1.0.19`, ABI `7`, FOTO v15.
+`.41`de kaydedilen MUIC/OS sıralama açığının **MAX D+/D− anahtarı** kısmı
+kapatıldı. USB3 yönlendirme/PHY, source Rp ve diğer açık tüketiciler bu
+değişiklikle tamamlanmış sayılmaz. Kaynak çalışması flaş beklemeden sürdü;
+Mac üzerinde WDK/UEFI/WIM build veya yeni telefon testi yapılmadı.
+
+### Linux üreticisi ile Windows tüketicisinin birleştiği nokta
+
+Sabit beyond2lte commit'inin
+[notify_dr_status](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/ccic/max77705_cc.c#L189)
+yolu gerçek DATAROLE değişiminde MUIC bildirimini USB bildiriminden önce
+üretir. [max77705_switch_path / com_to_usb_ap](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/muic/max77705-muic.c#L314)
+`CONTROL1_WRITE=06` ile USB_AP `09` isteğini kuyruğa alır; Linux tarafında
+bu fonksiyon firmware yanıtını bekleyerek dönmez. Bu asenkronluk, Windows'a
+başarılı mux hazırlığı bildirildiği anlamına gelmez.
+
+Microsoft'un
+[UCM attach sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/bring-up-a-usb-type-c-connector-on-a-windows-system#2-report-the-partner-connector-attach-event)
+OS/URS rol başlangıcından önce mux'un doğru kurulmasını ister. Önceki
+Windows kodu gerçek DATAROLE ardından MUIC çiftini başlatıyor, fakat yanıt
+beklenirken UCM attach veya veri rolü değişimini gönderebiliyordu.
+
+`.42`, mevcut gerçek `06 WRITE → 05 READ` ve APCMD tüketim yolunu OS
+bildirim kuyruğuna bağlar. Yeni donanım komutu, ek mailbox okuması, sabit
+gecikme, polling, sahte CC/PD olayı veya elle HOST seçimi eklenmedi. Bu,
+Linux'un senkron bir READ bariyeri kullandığı iddiası değildir; Windows
+DDI çağrısının mevcut gerçek donanım tamamlanmasına bağlanmasıdır.
+
+### Hazırlık ve bildirim ömrü
+
+Yeni attach veya mevcut bağlantıdaki veri rolü değişimi için birlikte
+aranan kanıtlar: güncel istek yolu `09`, MUIC çift sonucu tam
+`STATUS_SUCCESS`, geçerli güncel readback ve okunan yol `09`. Su ve MFD
+hatası hazırlık başarısı sayılmaz. `STATUS_PENDING=103` ve pozitif
+`STATUS_TIMEOUT=102`, NT_SUCCESS makrosuyla yanlışlıkla hazır kabul edilmez.
+OPEN, eski `09` örneği veya WRITE hatasını izleyen doğru READ yeterli değildir.
+
+Hazır olmayan USB bildirimi kuyruğun başında kalır. Worker bekleme veya
+hata durumunu yayımlayıp döner; kendini tekrar kuyruğa alarak dönmez.
+Yalnız mevcut MUIC çiftinin son isteğinin emekli olması veya yeni gerçek
+bildirim işi uyandırır. Eski MUIC neslinin readback'i yeni nesli doğrulamaz
+ve uyandırma üretmez. WRITE yanıtı tek başına USB bildirimini ilerletmez.
+Çift hata ile tamamlanırsa bekleyen OS bildirimi başarılı gösterilmez;
+sonraki gerçek path işlemi veya detach kendi akışıyla ele alınır.
+
+USB bildirim kayıtları artık bağlantı nesli taşır. Yeni bağlantı, önceki
+bağlantının gecikmiş hazırlanmasını devralamaz. Kuyruktaki attach kaydı
+son gerçek USB bildirimiyle aynı bağlantı/veri/güç/akım durumuna ait değilse
+OS'de eski stack başlatılmadan elenir. **Detach kayıtları elenmez.**
+Örneğin henüz hazırlanmamış A → detach → B dizisinde A OS'ye açılmaz;
+varsa eski OS bağlantısı detach edilir ve B kendi hazırlığıyla ilerler.
+Bu eleme fiziksel IRQ/frame günlüğünü veya Linux nested handler sırasını
+değiştirmez; hazırlığı tamamlanmamış OS işinin iptalidir.
+
+Mevcut OS bağlantısında veri rolü değişmiyorsa bağımsız akım/güç
+bildirimleri MUIC tekrar yazımını beklemez; veri stack'i yeniden
+başlatılmıyordur. OS'nin aynı rol isteğine verilen callback de hazır yol
+yokken başarı bildirmez. Farklı rol için henüz uygulanmamış PD swap
+başarısı üretilmez. Bir UCM attach çağrısı hata aldıysa sonraki MUIC
+uyandırması o başarısız çağrıyı gizlice tekrarlamaz.
+
+### Gerçek KMDF eşzamanlılık açığı
+
+[WdfWorkItemEnqueue sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdfworkitem/nf-wdfworkitem-wdfworkitemenqueue)
+aynı work item yeniden kuyruğa alındığında ikinci callback'in birincisi
+bitmeden çalışabileceğini belirtir. `AutomaticSerialization=FALSE`
+kullanılan mevcut UCM worker'ı yalnız kuyruk erişiminde kilit tutuyordu;
+kilitsiz UCM çağrısı sürerken başka worker OS durumunu eski okuyabilirdi.
+Attach sürerken ikinci worker detach'i OS henüz attached değil diye
+atladıktan sonra ilk worker attached yazarsa USB bağlantısı açık kalırdı.
+
+Yeni `ConnectorWorkerActive`, MfdLock altında bütün drain'in sahibini
+belirler; kilitsiz UCM çağrısı sırasında da sahiplik korunur. Üreticiler
+kuyruğa yazabilir; çakışan callback işi tüketmeden döner, asıl sahip bir
+sonraki adımda işi görür. Hazırlık beklemesi, boş kuyruk, overflow ve
+64 kayıtlık tur sonu sahipliği aynı kilitle bırakır. Tur devamı aynı
+kilit altında planlanır. UCM çağrısı sırasında MfdLock tutulmaz; kilidi
+OS çağrısının etrafına genişleterek yeni bir deadlock oluşturulmadı.
+PnP stop üreticiyi kapatır ve worker'ları flush eder; bekleyen MUIC
+bildirimi için donanım cevabı bekleyerek kapanışı asılı bırakmaz.
+
+### Tanı ve doğrulama
+
+FOTO v15'in UCM sayfası **31 satırdır**. Yeni alanlar:
+
+| Alan | Anlamı |
+|---|---|
+| PATH_WAIT | Worker'ın baştaki USB bildirimini MUIC hazırlığı nedeniyle tutması |
+| PATH_NT | Son hazırlık kontrolünün sonucu; gerçek UCM çağrısının sonucu UCM_NT'dir |
+| PATH_WAITS | Yeni bekleme veya değişmiş bekleme sonucu sayısı; IRQ sayısı değildir |
+| STALE | OS'ye gönderilmeden geçersizleşen attach/rol snapshot sayısı; kayıp fiziksel IRQ değildir |
+
+`PATH_NT=0` son kontrolün başarılı olduğunu gösterir; tek başına güncel
+bağlantı, USB3 hazırlığı veya transfer kanıtı değildir. Detach sonrası
+son kontrol sonucu korunabilir, `PATH_WAIT` kapanır. Startnet aynı dört
+alanı içerir. Registry 236 alanı ardışık yayımlar; REG_BINARY IRQ günlüğü
+ve IOCTL ABI değişmedi. D0 yeni nesli ve bekleme sayaçlarını sıfırlar.
+
+Gerçek sürücü C işlevleriyle host kontrolleri geçti: pending/error/OPEN ve
+eski readback; gerçek son MUIC yanıtından uyandırma; WRITE hata + READ
+başarı; aynı rol ile yeniden takma; bekleme sırasında DR değişimi ve
+detach; bağlı portta bağımsız güç/akım; başarısız UCM çağrısının tekrar
+edilmemesi; kapanış ve D0. UCM attach çağrısının içinden ikinci worker
+çalıştırılan test, detach'in kaybolmadığını ve kilit tutulmadığını doğrular.
+IRQ ve UCM fixture'ları ASan/UBSan ile de geçti. Foto ölçüleri, CC/PD,
+lifecycle ve Windows USB/MAX kaynak kontrolleri geçti. Bunlar gerçek KMDF
+scheduling, GIC teslimi veya telefon USB transferi ölçümü değildir.
+
+WSL build yöntemi değişmedi:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+İleride cihaz çıktısında USB_NOTIFY sonrasında geçici PATH_WAIT/103,
+güncel USB_AP readback'i sonrasında PATH_WAIT=0 ve gerçek UCM/URS sonucu
+ayrı izlenebilir. Negatif PATH_NT varsa hangi MUIC isteğinin başarısız
+olduğu incelenir; başarılı OS bağlantısı yazılmaz. Kaynak çalışması bu
+ölçümü beklemez. Full USB3 orientation/clock/reset/PHY, SOURCE Rp, manager
+charger/UART, OS DR/PR swap ve RDO, battery/CHGINSEL, AFC/VDM/READY/RAM,
+function sınıfı ve uçtan uca transfer hedefi hâlâ açıktır.
+
 ## 5 Eylül 2026: `.41` — gerçek RID değişimi ve USB bildirim ömrü
 
 MAX `0.1.0.41`, parent/host/function `0.1.0.19`, ABI `7`, FOTO v14.

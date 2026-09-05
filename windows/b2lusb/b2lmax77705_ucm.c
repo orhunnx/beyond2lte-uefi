@@ -26,6 +26,32 @@ B2lMaxUcmCurrent(const B2L_MAX_CONNECTOR_EVENT *Event)
     return UcmTypeCCurrentInvalid;
 }
 
+static NTSTATUS
+B2lMaxConnectorPathStatus(PB2L_MAX_CONTEXT Context)
+{
+    // USB_AP CONTROL1 is shared by host/function. Only the current MUIC
+    // generation's successful WRITE and READ verify it. This checks the MAX
+    // D+/D- route; the platform's SuperSpeed orientation/PHY is separate.
+    // A request, positive STATUS_PENDING, or old 09 read is not completion.
+    // No I2C here.
+    if (!NT_SUCCESS(Context->MfdFault)) return Context->MfdFault;
+    if (Context->WaterDetected || Context->MuicPathRequested != 0x09U)
+        return STATUS_DEVICE_NOT_READY;
+    if (Context->MuicStatus != STATUS_SUCCESS) return Context->MuicStatus;
+    if (!Context->MuicPathVerified || Context->MuicControl1 != 0x09U)
+        return STATUS_DEVICE_NOT_READY;
+    return STATUS_SUCCESS;
+}
+
+VOID
+B2lMaxConnectorPathChangedLocked(PB2L_MAX_CONTEXT Context)
+{
+    // Wake only an already queued USB notification. Hardware completion must
+    // not manufacture a DATAROLE, replay an old attachment or retry a UCM call.
+    if (Context->ConnectorRunning && Context->ConnectorCount != 0UL)
+        WdfWorkItemEnqueue(Context->ConnectorWork);
+}
+
 NTSTATUS
 B2lMaxEvtSetDataRole(UCMCONNECTOR Connector, UCM_DATA_ROLE DataRole)
 {
@@ -37,7 +63,8 @@ B2lMaxEvtSetDataRole(UCMCONNECTOR Connector, UCM_DATA_ROLE DataRole)
     WdfWaitLockAcquire(Context->MfdLock, NULL);
     if (!Context->ConnectorRunning || !Context->UsbRoleAttached ||
         !NT_SUCCESS(Context->MfdFault) || !Context->DataRoleValid ||
-        !Context->PowerRoleValid || Context->WaterDetected) {
+        !Context->PowerRoleValid || Context->WaterDetected ||
+        B2lMaxConnectorPathStatus(Context) != STATUS_SUCCESS) {
         Status = STATUS_DEVICE_NOT_READY;
     } else {
         Current = B2lMaxUcmDataRole(Context->DataRole);
@@ -95,6 +122,9 @@ B2lMaxQueueConnectorLocked(PB2L_MAX_CONTEXT Context)
         (Event.DataRole == Context->ConnectorLast.DataRole) &&
         (Event.PowerRole == Context->ConnectorLast.PowerRole) &&
         ((Event.CcStatus0 & 0x30U) == (Context->ConnectorLast.CcStatus0 & 0x30U))) return;
+    if (Event.Attached != Context->ConnectorLast.Attached)
+        ++Context->ConnectorGeneration;
+    Event.Generation = Context->ConnectorGeneration;
     Context->ConnectorLast = Event;
     if (Context->ConnectorCount == B2L_MAX_CONNECTOR_EVENTS) {
         // Lost ordering cannot be reconstructed by status polling. Latch a
@@ -122,11 +152,22 @@ B2lMaxEvtConnectorWork(WDFWORKITEM WorkItem)
     BOOLEAN Attached, Overflow;
     ULONG Count;
 
+    WdfWaitLockAcquire(Context->MfdLock, NULL);
+    if (Context->ConnectorWorkerActive) {
+        WdfWaitLockRelease(Context->MfdLock);
+        return;
+    }
+    // KMDF may run a newly enqueued callback before an earlier callback
+    // returns. Own the entire drain, including the unlocked UCM calls. The
+    // owner sees work added by a concurrent producer on its next iteration.
+    Context->ConnectorWorkerActive = TRUE;
+    WdfWaitLockRelease(Context->MfdLock);
     for (Count = 0UL; Count < B2L_MAX_CONNECTOR_EVENTS; ++Count) {
         WdfWaitLockAcquire(Context->MfdLock, NULL);
         Overflow = Context->ConnectorOverflow;
         if (!Context->ConnectorRunning ||
             ((Context->ConnectorCount == 0UL) && !Overflow)) {
+            Context->ConnectorWorkerActive = FALSE;
             WdfWaitLockRelease(Context->MfdLock);
             return;
         }
@@ -136,9 +177,45 @@ B2lMaxEvtConnectorWork(WDFWORKITEM WorkItem)
             Context->ConnectorCount = 0UL;
         } else {
             Event = Context->ConnectorEvents[Context->ConnectorRead];
+            if (Event.Attached &&
+                (Event.Generation != Context->ConnectorGeneration ||
+                 !Context->ConnectorLast.Attached ||
+                 Event.DataRole != Context->ConnectorLast.DataRole ||
+                 Event.PowerRole != Context->ConnectorLast.PowerRole ||
+                 (Event.CcStatus0 & 0x30U) != (Context->ConnectorLast.CcStatus0 & 0x30U))) {
+                // While waiting for a real mux response the USB connection
+                // may have ended or changed role. Do not start an obsolete
+                // stack using the new connection's path completion. Detach
+                // records remain barriers and are never removed by this test.
+                Context->ConnectorRead = (Context->ConnectorRead + 1UL) % B2L_MAX_CONNECTOR_EVENTS;
+                --Context->ConnectorCount;
+                ++Context->ConnectorStaleEvents;
+                Context->ConnectorPathWaiting = FALSE;
+                Context->DiagnosticDirty = TRUE;
+                WdfWaitLockRelease(Context->MfdLock);
+                continue;
+            }
+            if (Event.Attached && (!Attached ||
+                Event.DataRole != Context->ConnectorReported.DataRole)) {
+                Status = B2lMaxConnectorPathStatus(Context);
+                if (Status != STATUS_SUCCESS) {
+                    if (!Context->ConnectorPathWaiting || Context->ConnectorPathStatus != Status)
+                        ++Context->ConnectorPathWaits;
+                    Context->ConnectorPathStatus = Status;
+                    Context->ConnectorPathWaiting = TRUE;
+                    Context->DiagnosticDirty = TRUE;
+                    Context->ConnectorWorkerActive = FALSE;
+                    WdfWaitLockRelease(Context->MfdLock);
+                    // Keep the head. Only actual MUIC completion or a new
+                    // real notification wakes this worker; no timer or spin.
+                    return;
+                }
+                Context->ConnectorPathStatus = STATUS_SUCCESS;
+            }
             Context->ConnectorRead = (Context->ConnectorRead + 1UL) % B2L_MAX_CONNECTOR_EVENTS;
             --Context->ConnectorCount;
         }
+        Context->ConnectorPathWaiting = FALSE;
         WdfWaitLockRelease(Context->MfdLock);
 
         Status = STATUS_SUCCESS;
@@ -188,11 +265,17 @@ B2lMaxEvtConnectorWork(WDFWORKITEM WorkItem)
             Overflow ? STATUS_BUFFER_OVERFLOW : Status;
         ++Context->ConnectorAttempts;
         Context->DiagnosticDirty = TRUE;
+        if (Overflow) Context->ConnectorWorkerActive = FALSE;
         WdfWaitLockRelease(Context->MfdLock);
         if (Overflow) return;
     }
-    // Bounded drain; a newly queued event remains ordered behind this batch.
-    WdfWorkItemEnqueue(WorkItem);
+    // Release ownership and schedule a bounded continuation under the same
+    // producer lock. An early competing callback cannot consume a wakeup.
+    WdfWaitLockAcquire(Context->MfdLock, NULL);
+    Context->ConnectorWorkerActive = FALSE;
+    if (Context->ConnectorRunning && Context->ConnectorCount != 0UL)
+        WdfWorkItemEnqueue(WorkItem);
+    WdfWaitLockRelease(Context->MfdLock);
 }
 
 VOID
@@ -208,5 +291,6 @@ B2lMaxStopConnector(PB2L_MAX_CONTEXT Context)
     if (NT_SUCCESS(Status)) Context->ConnectorAttached = FALSE;
     Context->ConnectorStatus = Status;
     Context->ConnectorCount = Context->ConnectorRead = 0UL;
+    Context->ConnectorPathWaiting = FALSE;
     WdfWaitLockRelease(Context->MfdLock);
 }

@@ -245,7 +245,11 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxPdRidChanges",
         L"B2LMaxRidUsbDetaches",
         L"B2LMaxRidUsbAttachBlocks",
-        L"B2LMaxUsbRoleAttached"
+        L"B2LMaxUsbRoleAttached",
+        L"B2LMaxConnectorPathWaiting",
+        L"B2LMaxConnectorPathStatus",
+        L"B2LMaxConnectorPathWaits",
+        L"B2LMaxConnectorStaleEvents"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -492,6 +496,10 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[229] = Context->RidUsbDetaches;
     Values[230] = Context->RidUsbAttachBlocks;
     Values[231] = Context->UsbRoleAttached ? 1UL : 0UL;
+    Values[232] = Context->ConnectorPathWaiting ? 1UL : 0UL;
+    Values[233] = (ULONG)Context->ConnectorPathStatus;
+    Values[234] = Context->ConnectorPathWaits;
+    Values[235] = Context->ConnectorStaleEvents;
     Context->DiagnosticDirty = FALSE;
     WdfWaitLockRelease(Context->MfdLock);
 
@@ -2179,6 +2187,11 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     WdfWaitLockAcquire(Context->BusLock, NULL);
     Context->ConnectorOverflow = FALSE;
     Context->ConnectorQueued = Context->ConnectorAttempts = 0UL;
+    Context->ConnectorGeneration = 0ULL;
+    Context->ConnectorPathWaiting = FALSE;
+    Context->ConnectorWorkerActive = FALSE;
+    Context->ConnectorPathStatus = STATUS_DEVICE_NOT_READY;
+    Context->ConnectorPathWaits = Context->ConnectorStaleEvents = 0UL;
     Context->ConnectorCount = Context->ConnectorRead = 0UL;
     RtlZeroMemory(&Context->ConnectorLast, sizeof(Context->ConnectorLast));
     Context->ConnectorStatus = Context->ConnectorSwapStatus = STATUS_DEVICE_NOT_READY;

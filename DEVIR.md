@@ -18,6 +18,15 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / `.42` kaynak güncellemesi:** UCM attach/veri rolü bildirimi
+> güncel MUIC USB_AP WRITE/READ tamamlanmasına bağlandı. Beklerken detach
+> veya yeni bağlantı eski OS işini iptal eder; IRQ üretilmez. Aynı KMDF
+> worker'ının eşzamanlı çağrılarında detach kaybolması da giderildi. MAX
+> `.42`, parent/host `.19`, FOTO v15 UCM sayfası 31 satırdır. PATH_WAIT/NT
+> ve STALE tanıları eklendi. Bu MAX D+/D− hazırlığıdır; USB3/source Rp ve
+> diğer tüketiciler açık. WSL/telefon sonucu yok; kaynak işi flaş beklemez.
+> Ayrıntı Linux karşılaştırmasının `.42` bölümündedir.
+
 > **5 Eylül / `.41` kaynak güncellemesi:** Linux'un ayrı PD RID → MUIC →
 > USB bildirim dalı tamamlandı. OPEN/UNKNOWN/523K/619K değişiminde USB
 > detach, UART RID'lerinde manager attach engeli uygulanır; gerçek CC/DR,
@@ -182,12 +191,12 @@ kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikle
 
 ### 0.3 Güncel repo ve sürüm çıpası
 
-`.41` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
+`.42` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
 
 ```text
 dal:    codex/touch-from-8549bfa
-taban:  0bd3cf2  fix: dispatch actual MAX77705 responses without false bus faults
-önceki: b8fa909  fix: clear stale MAX77705 commands on physical CC detach
+taban:  97fd527  fix: preserve Samsung RID-driven USB notification lifecycle
+önceki: 0bd3cf2  fix: dispatch actual MAX77705 responses without false bus faults
 ```
 
 Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
@@ -197,7 +206,7 @@ Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
 | `b2ltouch.sys` | `0.2.0.1` | `ACPI\BYN0001`, Samsung sec_ts -> KMDF/VHF touch |
 | `b2lusb.sys` parent | `0.1.0.19` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
 | inbox host | `0.1.0.19` INF | `URS\BYN0002&HOST`, `USBXHCI` + GSIV 273 |
-| `b2lmax77705.sys` | `0.1.0.41` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG/PD |
+| `b2lmax77705.sys` | `0.1.0.42` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG/PD |
 | `b2lufs.sys` | `0.0.4.5` kaynak sürümü | Deneysel Windows UFS miniport; güncel USB kapısı değil |
 
 Yalnız MAX77705 değiştiğinde parent/host sürümünün aynı kalması normaldir.

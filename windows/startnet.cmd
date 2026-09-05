@@ -369,6 +369,10 @@ call :B2LUsbAppendMax77705Summary RID_TRANS B2LMaxPdRidChanges
 call :B2LUsbAppendMax77705Summary RID_DETACH B2LMaxRidUsbDetaches
 call :B2LUsbAppendMax77705Summary RID_BLOCK B2LMaxRidUsbAttachBlocks
 call :B2LUsbAppendMax77705Summary USB_NOTIFY B2LMaxUsbRoleAttached
+call :B2LUsbAppendMax77705Summary PATH_WAIT B2LMaxConnectorPathWaiting
+call :B2LUsbAppendMax77705Summary PATH_NT B2LMaxConnectorPathStatus
+call :B2LUsbAppendMax77705Summary PATH_WAITS B2LMaxConnectorPathWaits
+call :B2LUsbAppendMax77705Summary UCM_STALE B2LMaxConnectorStaleEvents
 call :B2LUsbAppendMax77705Summary SYSMSG B2LMaxSysmsgValue
 call :B2LUsbAppendMax77705Summary SYS_NT B2LMaxSysmsgStatus
 call :B2LUsbAppendMax77705Summary SYS_VALID B2LMaxSysmsgValid

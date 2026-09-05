@@ -38,6 +38,7 @@ typedef int KEVENT, WDF_POWER_DEVICE_STATE;
 #define FALSE 0
 #define NT_SUCCESS(s) ((NTSTATUS)(s)>=0)
 #define STATUS_SUCCESS 0
+#define STATUS_PENDING 0x103
 #define STATUS_DEVICE_CONFIGURATION_ERROR (-1)
 #define STATUS_INSUFFICIENT_RESOURCES (-2)
 #define STATUS_NO_SUCH_DEVICE (-3)
@@ -195,7 +196,11 @@ int main(void) {
     reset(&c); c.HsI2cInterruptCount=100; c.HsI2cCompletionCount=99;c.DetachQueueClears=17;
     c.ResponseMismatches=3;c.ResponseLength=33;c.ResponseBytes[32]=0xab;
     c.Control3RawValid=c.SbuValid=c.SelftestValid=c.AltModeAcknowledged=c.PdRequestRetry=TRUE;
+    c.ConnectorPathWaiting=TRUE;c.ConnectorPathStatus=STATUS_PENDING;
+    c.ConnectorGeneration=42;c.ConnectorPathWaits=3;c.ConnectorStaleEvents=2;
     assert(B2lMaxEvtD0Entry(&c,0)==0 && starts==0 && !c.PolicyEnabled);
+    assert(!c.ConnectorPathWaiting && !c.ConnectorWorkerActive && !c.ConnectorGeneration);
+    assert(!c.ConnectorPathWaits && !c.ConnectorStaleEvents && c.ConnectorPathStatus==STATUS_DEVICE_NOT_READY);
     assert(c.HsI2cInterruptCount==0 && c.HsI2cCompletionCount==0 && !c.DetachQueueClears && c.PlatformPrepared);
     assert(!c.ResponseMismatches && !c.ResponseLength && !c.ResponseBytes[32] && c.ResponseExpected==0xff);
     assert(c.ResponseStatus==STATUS_DEVICE_NOT_READY && !c.Control3RawValid && !c.SbuValid && !c.SelftestValid);

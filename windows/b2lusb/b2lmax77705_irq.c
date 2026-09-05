@@ -123,6 +123,7 @@ B2lMaxRetireOpcodeLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_OPCODE_REQUEST Reque
         Context->DiagnosticStage = Pair->Path == 0x09U ?
             B2L_MAX_STAGE_MUIC_USB : B2L_MAX_STAGE_MUIC_OPEN;
         Context->DiagnosticStatus = Context->DataRoleValid ? Context->DataRoleStatus : Status;
+        B2lMaxConnectorPathChangedLocked(Context);
     }
     Pair->InUse = FALSE;
     --Context->MuicOutstanding;

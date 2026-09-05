@@ -82,6 +82,7 @@
 
 #define B2L_MAX_CONNECTOR_EVENTS 64UL
 typedef struct _B2L_MAX_CONNECTOR_EVENT {
+    ULONGLONG Generation;
     BOOLEAN Attached;
     UCHAR DataRole, PowerRole, CcStatus0;
 } B2L_MAX_CONNECTOR_EVENT;
@@ -152,6 +153,10 @@ typedef struct _B2L_MAX_CONTEXT {
     BOOLEAN ConnectorRunning, ConnectorAttached, ConnectorOverflow;
     ULONG ConnectorRead, ConnectorCount, ConnectorQueued, ConnectorAttempts;
     NTSTATUS ConnectorStatus, ConnectorSwapStatus;
+    ULONGLONG ConnectorGeneration;
+    BOOLEAN ConnectorPathWaiting, ConnectorWorkerActive;
+    NTSTATUS ConnectorPathStatus;
+    ULONG ConnectorPathWaits, ConnectorStaleEvents;
     WDFTIMER PdRecoveryTimer;
     B2L_MAX_PD_REQUEST PdRequests[B2L_MAX_PD_SLOTS];
     ULONGLONG PdGeneration, PdRecoveryDeadline;
@@ -380,6 +385,7 @@ EVT_UCM_CONNECTOR_SET_DATA_ROLE B2lMaxEvtSetDataRole;
 EVT_WDF_WORKITEM B2lMaxEvtConnectorWork;
 NTSTATUS B2lMaxCreateConnector(PB2L_MAX_CONTEXT Context);
 VOID B2lMaxQueueConnectorLocked(PB2L_MAX_CONTEXT Context);
+VOID B2lMaxConnectorPathChangedLocked(PB2L_MAX_CONTEXT Context);
 VOID B2lMaxStopConnector(PB2L_MAX_CONTEXT Context);
 NTSTATUS B2lMaxEnableOtg(PB2L_MAX_CONTEXT Context);
 NTSTATUS B2lMaxDisableOtg(PB2L_MAX_CONTEXT Context);
