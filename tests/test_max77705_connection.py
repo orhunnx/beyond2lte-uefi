@@ -32,6 +32,8 @@ typedef int BOOLEAN;
 #define TRUE 1
 #define FALSE 0
 #define STATUS_SUCCESS 0
+#define STATUS_DEVICE_NOT_READY (-100)
+#define STATUS_NOT_SUPPORTED (-101)
 #define NT_SUCCESS(x) ((x)>=0)
 #define RTL_NUMBER_OF(x) (sizeof(x)/sizeof(x[0]))
 typedef struct {
@@ -40,8 +42,12 @@ typedef struct {
     ULONG CcSampleCount, CcSourceEventCount, CcTransitionCount;
     int CcStatusValid, CcStateChanged, DiagnosticDirty;
     int OtgEnabled, OtgHardwareActive, MuicPathVerified;
+    int PowerRoleValid, DataRoleValid, WaterDetected;
+    UCHAR PowerRole, DataRole, PdStatus1, ChargerDetails[3];
+    ULONG DataRoleEvents, DataRoleChanges, OvercurrentEvents;
+    NTSTATUS DataRoleStatus;
 } CONTEXT, *PB2L_MAX_CONTEXT;
-static UCHAR raw[2];
+static UCHAR raw[2], pd_raw, byp_raw;
 static NTSTATUS read_error, power_error, muic_error;
 static char actions[32]; static size_t action_count;
 static ULONGLONG KeQueryInterruptTime(void) { return 123; }
@@ -51,6 +57,14 @@ static NTSTATUS B2lMaxReadBlock(PB2L_MAX_CONTEXT c,UCHAR addr,UCHAR reg,UCHAR *d
     if (read_error) return read_error;
     memcpy(data,raw,2); return 0;
 }
+static NTSTATUS B2lMaxReadByte(PB2L_MAX_CONTEXT c,UCHAR addr,UCHAR reg,UCHAR *v) {
+    (void)c;
+    if(addr==0x25 && reg==0x0d) {action('P');*v=pd_raw;}
+    else if(addr==0x25 && reg==0x0b) {action('W');*v=raw[1];}
+    else {assert(addr==0x69 && reg==0xb5);action('B');*v=byp_raw;}
+    return read_error;
+}
+static NTSTATUS B2lMaxUnlockCharger(PB2L_MAX_CONTEXT c) { (void)c;action('U');return 0; }
 static void B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT c, ULONG stage, NTSTATUS s) {
     (void)c; (void)stage; (void)s;
 }
@@ -71,8 +85,8 @@ static NTSTATUS B2lMaxSetMuicPath(PB2L_MAX_CONTEXT c,UCHAR path) {
 harness += '\n'.join(re.findall(r'^#define MAX77705_.*', source.replace('\\\n', ' '), re.M))+'\n'
 harness += '\n'.join(re.findall(r'^#define B2L_MAX_.*', header, re.M))+'\n'
 harness += function('B2lMaxReadCcStatus')+'\n'
-harness += 'static NTSTATUS B2lMaxReadStatus(PB2L_MAX_CONTEXT c) { return B2lMaxReadCcStatus(c); }\n'
-harness += function('B2lMaxEvaluateConnection')+'\n'
+for name in ('B2lMaxEvaluateConnection','B2lMaxReadWaterState','B2lMaxHandleDataRole','B2lMaxHandleBypass'):
+    harness += function(name)+'\n'
 harness += r'''
 static void reset(void) {
     memset(actions,0,sizeof(actions)); action_count=0;
@@ -80,40 +94,59 @@ static void reset(void) {
 }
 int main(void) {
     CONTEXT c; UCHAR state;
-    // Pin activity is not a source role. Include every non-source role.
     for(state=0;state<8;++state) {
         if(state==2) continue;
         reset(); memset(&c,0,sizeof(c)); raw[0]=(UCHAR)(0x80|state); raw[1]=0;
-        assert(B2lMaxEvaluateConnection(&c, FALSE)==0);
-        assert(strcmp(actions,"RO")==0 && c.CcState==state);
+        assert(B2lMaxEvaluateConnection(&c,FALSE)==0);
+        assert(strcmp(actions,state==1 ? "R" : "RO")==0 && c.CcState==state);
         assert(c.CcSourceEventCount==0 && !c.OtgEnabled);
     }
-    reset(); memset(&c,0,sizeof(c)); raw[0]=0x42;
-    assert(B2lMaxEvaluateConnection(&c, TRUE)==0);
-    assert(strcmp(actions,"R")==0 && !c.OtgEnabled && c.CcSourceEventCount==0);
-    reset(); memset(&c,0,sizeof(c)); raw[0]=0x42;
-    assert(B2lMaxEvaluateConnection(&c, FALSE)==0);
-    assert(strcmp(actions,"RVM")==0); // Linux: CC -> VBUS -> MUIC
-    assert(c.CcSourceEventCount==1 && c.OtgEnabled && c.MuicControl1==9);
-    reset(); assert(B2lMaxEvaluateConnection(&c, FALSE)==0);
-    assert(strcmp(actions,"R")==0); // stable source is idempotent
-    reset(); raw[0]=0x80;
-    assert(B2lMaxEvaluateConnection(&c, FALSE)==0);
-    assert(strcmp(actions,"RDO")==0); // source lost: power off before OPEN
-    assert(c.CcTransitionCount==1 && !c.OtgEnabled && c.MuicControl1==0x3f);
-    reset(); raw[0]=0x42; power_error=-10;
-    assert(B2lMaxEvaluateConnection(&c, FALSE)==-10 && strcmp(actions,"RV")==0);
-    reset(); muic_error=-20;
-    assert(B2lMaxEvaluateConnection(&c, FALSE)==-20 && strcmp(actions,"RVM")==0);
-    reset(); assert(B2lMaxEvaluateConnection(&c, FALSE)==0);
-    assert(strcmp(actions,"RM")==0); // retry failed MUIC without a second power-on
-    reset(); read_error=-30;
-    assert(B2lMaxEvaluateConnection(&c, FALSE)==-30 && strcmp(actions,"R")==0);
-    // A failed status read must not activate an inherited/stale SOURCE sample.
-    reset(); c.OtgEnabled=0; read_error=-30;
-    assert(B2lMaxEvaluateConnection(&c, FALSE)==-30 && strcmp(actions,"R")==0);
-    puts("MAX77705 CC/source/VBUS/MUIC ordering tests: PASS");
+    reset(); memset(&c,0,sizeof(c)); raw[0]=0x42; pd_raw=0x80;
+    assert(B2lMaxEvaluateConnection(&c,TRUE)==0 && strcmp(actions,"R")==0);
+    assert(!c.PowerRoleValid && c.CcSourceEventCount==0);
+    reset(); assert(B2lMaxHandleDataRole(&c,TRUE)==0 && strcmp(actions,"P")==0);
+    assert(!c.DataRoleValid); // initial SOURCE is not promoted to DFP
+    reset(); assert(B2lMaxHandleDataRole(&c,FALSE)==0 && strcmp(actions,"P")==0);
+    assert(!c.DataRoleValid); // no CC power-role event yet
+    reset(); assert(B2lMaxEvaluateConnection(&c,FALSE)==0 && strcmp(actions,"RV")==0);
+    assert(c.CcSourceEventCount==1 && c.OtgEnabled && !c.MuicPathVerified);
+    reset(); assert(B2lMaxHandleDataRole(&c,FALSE)==0 && strcmp(actions,"PM")==0);
+    assert(c.DataRole==1 && c.DataRoleValid && c.DataRoleEvents==1 && c.DataRoleChanges==1);
+    reset(); assert(B2lMaxHandleDataRole(&c,FALSE)==0 && strcmp(actions,"P")==0);
+    assert(c.DataRoleChanges==1); // stable DFP
+    reset(); raw[0]=0x41;assert(B2lMaxEvaluateConnection(&c,FALSE)==0);
+    assert(strcmp(actions,"RD")==0 && c.PowerRole==1 && c.DataRole==1 && c.MuicControl1==9);
+    reset(); assert(B2lMaxHandleDataRole(&c,FALSE)==0 && strcmp(actions,"P")==0); // SINK+DFP valid
+    reset(); raw[0]=0x80;assert(B2lMaxEvaluateConnection(&c,FALSE)==0);
+    assert(strcmp(actions,"RO")==0 && !c.PowerRoleValid && !c.DataRoleValid);
+    reset();raw[0]=0x42;assert(B2lMaxEvaluateConnection(&c,FALSE)==0);
+    reset();raw[0]=0;assert(B2lMaxEvaluateConnection(&c,FALSE)==0 && strcmp(actions,"RD")==0);
+    // OPEN is already verified here; power goes off without redundant opcode.
+    reset();memset(&c,0,sizeof(c));raw[0]=0x42;power_error=-10;
+    assert(B2lMaxEvaluateConnection(&c,FALSE)==-10 && strcmp(actions,"RV")==0 && !c.PowerRoleValid);
+    reset();assert(B2lMaxEvaluateConnection(&c,FALSE)==0);
+    reset();muic_error=-20;assert(B2lMaxHandleDataRole(&c,FALSE)==-20 && strcmp(actions,"PM")==0);
+    reset();assert(B2lMaxHandleDataRole(&c,FALSE)==0 && strcmp(actions,"PM")==0);
+    reset();read_error=-30;assert(B2lMaxHandleDataRole(&c,FALSE)==-30 && strcmp(actions,"P")==0);
+    assert(c.DataRoleStatus==-30);
+    reset();raw[1]=2;assert(B2lMaxReadWaterState(&c)==0 && c.WaterDetected);
+    reset();assert(B2lMaxHandleDataRole(&c,FALSE)==STATUS_DEVICE_NOT_READY && strcmp(actions,"P")==0);
+    reset();raw[1]=0;assert(B2lMaxReadWaterState(&c)==0 && !c.WaterDetected);
+    // A UFP observation cannot masquerade as a supported host/function path.
+    reset();pd_raw=0;assert(B2lMaxHandleDataRole(&c,FALSE)==STATUS_NOT_SUPPORTED);
+    assert(strcmp(actions,"PO")==0 && c.DataRole==0 && c.DataRoleValid);
+    assert(c.OtgEnabled); // data-role swap does not silently change source power
+    reset();byp_raw=1;assert(B2lMaxHandleBypass(&c)==0 && strcmp(actions,"UBD")==0);
+    assert(!c.OtgEnabled && c.OvercurrentEvents==1 && c.PowerRole==2);
+    reset();assert(B2lMaxEvaluateConnection(&c,FALSE)==0 && strcmp(actions,"R")==0);
+    // Same SRC IRQ must not restart OTG after BYP overcurrent (Linux current_pr).
+    reset();raw[0]=0;assert(B2lMaxEvaluateConnection(&c,FALSE)==0);
+    reset();raw[0]=0x42;assert(B2lMaxEvaluateConnection(&c,FALSE)==0 && strcmp(actions,"RV")==0);
+    reset();read_error=-40;assert(B2lMaxHandleBypass(&c)==-40 && strcmp(actions,"UB")==0 && c.OtgEnabled);
+    reset();read_error=-30;assert(B2lMaxEvaluateConnection(&c,FALSE)==-30 && strcmp(actions,"R")==0);
+    puts("MAX77705 CC/PD power-data roles, water and BYP tests: PASS");
 }
+
 '''
 with tempfile.TemporaryDirectory(prefix='b2l-connection-test-') as directory:
     temp=Path(directory); (temp/'test.c').write_text(harness)

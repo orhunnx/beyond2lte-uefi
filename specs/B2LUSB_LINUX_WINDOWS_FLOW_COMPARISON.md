@@ -1,5 +1,115 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.32` — CC güç rolü, PD veri rolü ve charger olayları
+
+`.31` commit'i `f01a40e` ile GPIO/opcode zinciri kaydedildikten sonra, flaş
+beklenmeden CC/PD karşılaştırmasına devam edildi. Bu bölüm `.31` kalan-iş
+listesinin aşağıdaki maddelerini günceller. **USB'nin bütünü tamamlanmadı:**
+MAX rol bilgisini Windows role-switch/UcmCx/DWC3/xHCI yaşam döngüsüne bağlama,
+SYSMSG/PD kurtarması ve function/USB3 tarafı açık işlerdir.
+
+### Güç ve veri rolünün birbirinden ayrılması
+
+Samsung `max77705_ccstat_irq_handler()` CC_STATUS0'dan güç rolünü çıkarır;
+SOURCE geçişinde VBUS'u açar. Ayrı `max77705_datarole_irq_handler()` ise
+PD_STATUS1 (`0x0d`) bit7'den UFP/DFP okur. CC güç rolü henüz atanmadıysa
+veri-rolü olayını işlemez; initial-detect yine yalnız SINK içindir.
+`max77705_notify_dr_status()` DFP için MUIC RpRd=1/attach bildirir;
+çalışan Linux kaydında bu OTG eşleşmesi `CONTROL1_WRITE 06 09` üretir.
+
+`.32` bu ayrımı uygular:
+
+- CC SOURCE artık yalnız VBUS/power-role işlemi yapar. MUIC USB_AP doğrudan
+  SOURCE dalından çıkarıldı; SOURCE, DFP yerine kullanılamaz.
+- Gerçek PD DATAROLE interrupt biti5 geldiğinde `0x0d` yeniden okunur.
+  PowerRoleValid olmadan DFP atanmaz. DFP doğrulanınca MUIC USB_AP kuyruk
+  komutu/read-back'i çalışır. Güç rolü SINK iken DFP de ayrı, geçerli bir
+  kombinasyondur; veri rolünden VBUS kaynak rolü çıkarılmaz.
+- SOURCE -> SINK güç geçişi OTG'yi kapatır, mevcut veri yolunu sırf güç rolü
+  değişti diye OPEN yapmaz. Gerçek disconnect veri rolünü de geçersiz kılar.
+- CC işlemi artık önce uzun charger/BC/status tanı okumalarının tamamlanmasını
+  beklemez. Kritik CC okumasını güç eylemi izler; kesmenin sekiz baytlık
+  gözlem kaydı zaten MFD'de tutulur.
+
+Kaynaklar: [CCSTAT](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_cc.c#L539),
+[DATAROLE](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_pd.c#L1260),
+[MUIC/USB bildirim ayrımı](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_cc.c#L190).
+
+**UFP henüz çalışan function bağlantısı değildir.** Gerçek UFP değeri tanıda
+korunur; eski host MUIC yolu OPEN'a alınır ve `DATA_NT=STATUS_NOT_SUPPORTED`
+döner. UFP'nin MUIC charger sınıflandırması ve Windows function stack'i
+uygulanmadığından bu yol başarı diye gösterilmez. Bu durum mailbox hatası
+sayılıp MAX GPIO maskelenmez; sonraki gerçek DFP/CC olayları işlenebilir.
+Bu geçici açık sınırın kaldırılması, tam rol zinciri çalışmasının parçasıdır.
+
+### Su ve BYP aşırı akım
+
+CC init ve VCONNSC bit4 olayında CC_STATUS1 bit1 ile WATER/DRY okunur.
+Linux `notify_dr_status()` gibi WATER iken yeni MUIC/USB attach uygulanmaz.
+`DATA_NT=STATUS_DEVICE_NOT_READY` ile bu engel ayrıca görünür. Battery/charger
+su bildiriminin tamamı ve aksesuar politikası henüz port edilmiş değildir.
+
+Gerçek CHG_INT BYP bit0, charger unlock -> DETAILS_02 (`0xb5`) okumasını
+çalıştırır. Samsung başlığında BYP_DTLS maskesi `0x0f`, shift=0; bit0 aşırı
+akımdır. OTG açıkken bu bit görülürse OTG kapatılır; charging alanları mevcut
+masked-update/off yolu ile korunur. `OvercurrentEvents` artar. Linux'taki
+`current_pr` davranışı gibi, aynı SOURCE rolünün tekrar kesme üretmesi OTG'yi
+yeniden açmaz. Yeni detach/güç-rolü geçişi ayrı işlenir. Başarısız off/read
+sonucu donanım kapandı diye kaydedilmez.
+
+BYP, politika işinde CC/PD eylemlerinden önce işlenir; mailbox hatası daha
+önce kaydedilmiş olsa da tüketilmiş BYP olayı atlanmaz. **Tam threaded-MFD
+sıralaması henüz aynı değildir:** APCMD yanıtı pasif ISR'de sonuçlandırılırken
+BYP/CC/PD politika işine aktarılır. Senkron MUIC isteğini bekleyen politika
+işi BYP eylemini geciktirebilir. Bu, kalan asenkron notifier/politika portunda
+çözülmesi gereken somut bağımlılıktır; “bütün nested handler'lar aynı” denmez.
+[Samsung BYP handler](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/battery_v2/max77705_charger.c#L2034),
+[BYP bit tanımı](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/battery_v2/include/charger/max77705_charger.h#L109).
+
+### Linux'un VBUSDet detach kontrolü
+
+PASS2+ MFD, gerçek VBUSDet interrupt'ı geldiğinde BC_STATUS ve CC_STATUS0
+okur. VBUS low + No Connection ise CCSTAT detach işlemini tekrar dispatch
+eder. `.32` aynı koşulu ayrı `DetachRecheck` alanıyla uygular. **Ham CC_INT
+baytı değiştirilmez**, yeni donanım interrupt'ı veya SOURCE üretilmez;
+`DetachRechecks` sayacı bunun Linux kuralından geldiğini ayırır. BC/CC okuması
+başarısızsa bu karar üretilmez. VBUS high veya SOURCE iken recheck yoktur.
+[Özgün MFD koşulu](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/mfd/max77705-irq.c#L324).
+
+### Foto ve test sonuçları
+
+MAX sürümü `0.1.0.32`, `MAX FOTO v5` genel sayfası 40 satır:
+`PWR_ROLE` 1=SINK, 2=SOURCE, ff=atanmamış; `DATA_ROLE` 0=UFP, 1=DFP,
+ff=atanmamış; `DATA_NT` son veri-rolü işleminin sonucu. Bunlar controller'ın
+başladığı veya USB transferinin tamamlandığı anlamına gelmez. Water, PD ham
+baytı, rol değişimi/BYP/recheck sayaçları kısa TXT özetinde/registry'de korunur.
+CHG-only kesmede yapılmayan USBC snapshot okuması artık `FAIL` sayacını
+artırmaz; gerçek başarısız snapshot hâlâ `v=0` ve NTSTATUS ile kaydedilir.
+
+Gerçek C fonksiyonlarıyla host testlerinde doğrulananlar: initial SOURCE'un
+VBUS/DFP başlatmaması; güç rolü yokken PD olayının host açmaması; SOURCE
+sonrası gerçek DFP ile MUIC açılması; SINK+DFP; PR değişiminde veri yolunun
+korunması; detach; UFP'nin açıkça desteklenmeyen sonucu; WATER kapısı; BYP
+off ve aynı SOURCE'tan kendiliğinden yeniden açılmama; başarısız I2C/off
+sonuçları; BYP -> WATER -> CC -> PD politika sırası; mailbox hatasında BYP ve
+kayıtların korunması; VBUSDet recheck'in raw interrupt'ı değiştirmemesi.
+Foto satır genişliği/yüksekliği, IRQ/transport/lifecycle ve kaynak kontrolleri
+de çalıştırıldı. **Bunlar WDK/WSL build veya cihaz testi değildir.**
+
+WSL build yöntemi değişmedi:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+`.30/.31` ACPI değişikliklerini de içeren aynı build'in boot.img/system.img
+çifti gerekir. Flaş sonrası gerçek zincirde I2C_GSIV=72, MAX_GSIV=33 ve
+artan gerçek IRQ/OP_DONE; ardından CC SOURCE, PD DFP, MUIC=09 beklenir.
+Bu ölçüm kaynak işlerinin önkoşulu değildir. Statik `.18` HOST başlangıcını
+MAX veri rolüne bağlayan işletim sistemi yaşam döngüsü sıradaki açık iştir.
+
+
 ## 5 Eylül 2026: `.31` — MAX77705 özgün GPIO kesmesi ve APCMD kuyruğu
 
 Bu bölüm `.30` durumunu günceller. **Flaş beklenmeden kaynak çalışmasına devam

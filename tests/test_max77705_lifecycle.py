@@ -71,7 +71,8 @@ static PB2L_MAX_CONTEXT current;
 static int held, starts, stops, off_calls, muic_calls, quiesces, unmaps, maps;
 static NTSTATUS init_status, off_status, muic_status, diagnostic;
 static ULONG diagnostic_stage;
-static ULONG recorded, cc_dispatches;
+static ULONG recorded, cc_dispatches, pd_dispatches, byp_dispatches, water_dispatches;
+static char dispatch_order[32];static int dispatch_count;
 static NTSTATUS service_status, cc_status;
 static WDFDEVICE WdfWorkItemGetParentObject(WDFWORKITEM w) { assert(w==current);return current; }
 static void B2lMaxRecordIrqFrame(PB2L_MAX_CONTEXT c,const B2L_MAX_IRQ_FRAME *f) {
@@ -83,9 +84,20 @@ static NTSTATUS B2lMaxServiceConnection(PB2L_MAX_CONTEXT c) {
     return service_status;
 }
 static NTSTATUS B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT c,BOOLEAN initial) {
-    assert(c==current && held==1 && !initial);++cc_dispatches;return cc_status;
+    assert(c==current && held==1 && !initial);++cc_dispatches;dispatch_order[dispatch_count++]='C';return cc_status;
+}
+static NTSTATUS B2lMaxHandleBypass(PB2L_MAX_CONTEXT c) {
+    assert(c==current && held==1);++byp_dispatches;dispatch_order[dispatch_count++]='B';return 0;
+}
+static NTSTATUS B2lMaxReadWaterState(PB2L_MAX_CONTEXT c) {
+    assert(c==current && held==1);++water_dispatches;dispatch_order[dispatch_count++]='W';return 0;
+}
+static NTSTATUS B2lMaxHandleDataRole(PB2L_MAX_CONTEXT c,BOOLEAN initial) {
+    assert(c==current && held==1 && !initial);++pd_dispatches;dispatch_order[dispatch_count++]='P';return 0;
 }
 #define MAX77705_CC_INT_STATE 1U
+#define MAX77705_CC_INT_WATER 0x10U
+#define MAX77705_PD_INT_DATAROLE 0x20U
 static PB2L_MAX_CONTEXT B2lMaxGetContext(WDFDEVICE d) { assert(d==current); return current; }
 static void WdfWaitLockAcquire(WDFWAITLOCK l, void *t) {
     int bit=(int)(uintptr_t)l; assert(bit && !(held&bit) && t==NULL); held|=bit;
@@ -145,7 +157,8 @@ h+=r'''
 static void reset(PB2L_MAX_CONTEXT c) {
     memset(c,0,sizeof(*c)); current=c; held=starts=stops=off_calls=muic_calls=quiesces=unmaps=maps=0;
     init_status=off_status=muic_status=diagnostic=service_status=cc_status=0;
-    recorded=cc_dispatches=0; diagnostic_stage=0;
+    recorded=cc_dispatches=pd_dispatches=byp_dispatches=water_dispatches=0;
+    memset(dispatch_order,0,sizeof(dispatch_order));dispatch_count=0; diagnostic_stage=0;
     c->BusLock=(void *)1; c->TransportLock=(void *)2; c->MfdLock=(void *)4;
     c->HardwareReady=c->PlatformPrepared=c->IdentityReady=TRUE;
     c->OtgEnabled=c->OtgHardwareActive=TRUE;
@@ -212,6 +225,14 @@ int main(void) {
     reset(&c);c.PolicyEnabled=c.UsbcInitialized=TRUE;c.IrqFrameCount=3;
     c.IrqFrames[0].Active[1]=1;cc_status=STATUS_NO_SUCH_DEVICE;
     B2lMaxEvtPolicyWork(&c);assert(recorded==3 && cc_dispatches==1 && diagnostic==STATUS_NO_SUCH_DEVICE);
+    reset(&c);c.PolicyEnabled=c.UsbcInitialized=TRUE;c.IrqFrameCount=1;
+    c.IrqFrames[0].Charger=1;c.IrqFrames[0].Active[1]=0x11;c.IrqFrames[0].Active[2]=0x20;
+    B2lMaxEvtPolicyWork(&c);assert(strcmp(dispatch_order,"BWCP")==0);
+    reset(&c);c.PolicyEnabled=c.UsbcInitialized=TRUE;c.MfdFault=STATUS_UNSUCCESSFUL;c.IrqFrameCount=1;
+    c.IrqFrames[0].Charger=1;c.IrqFrames[0].Active[1]=1;c.IrqFrames[0].Active[2]=0x20;
+    B2lMaxEvtPolicyWork(&c);assert(strcmp(dispatch_order,"B")==0 && recorded==1 && diagnostic<0);
+    reset(&c);c.PolicyEnabled=c.UsbcInitialized=TRUE;c.IrqFrameCount=1;c.IrqFrames[0].DetachRecheck=TRUE;
+    B2lMaxEvtPolicyWork(&c);assert(cc_dispatches==1 && c.CcInterruptCount==0 && c.DetachRechecks==1);
     puts("MAX77705 resource and power/IRQ lifecycle tests: PASS (KMDF/device unverified)");
 }
 '''

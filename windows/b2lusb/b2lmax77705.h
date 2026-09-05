@@ -26,6 +26,8 @@
 #define B2L_MAX_CC_NO_CONNECTION     0x00U
 #define B2L_MAX_CC_SINK              0x01U
 #define B2L_MAX_CC_SOURCE            0x02U
+#define B2L_MAX_DATA_UFP              0U
+#define B2L_MAX_DATA_DFP              1U
 
 #define B2L_MAX_STAGE_RESOURCES      0x10UL
 #define B2L_MAX_STAGE_BUS            0x20UL
@@ -42,6 +44,8 @@
 #define B2L_MAX_STAGE_OTG_OFF        0x60UL
 #define B2L_MAX_STAGE_MUIC_OPEN      0x64UL
 #define B2L_MAX_STAGE_CC             0x68UL
+#define B2L_MAX_STAGE_PD             0x69UL
+#define B2L_MAX_STAGE_BYP            0x6AUL
 #define B2L_MAX_STAGE_READY          0x70UL
 #define B2L_MAX_STAGE_GPIO_IRQ       0x24UL
 #define B2L_MAX_STAGE_MFD_IRQ        0x34UL
@@ -68,6 +72,8 @@ typedef struct _B2L_MAX_IRQ_FRAME {
     UCHAR Top, Raw[4], Active[4], Charger;
     UCHAR Status[8];
     NTSTATUS SnapshotStatus;
+    BOOLEAN SnapshotAttempted;
+    BOOLEAN DetachRecheck;
 } B2L_MAX_IRQ_FRAME, *PB2L_MAX_IRQ_FRAME;
 
 typedef struct _B2L_MAX_CONTEXT {
@@ -123,6 +129,11 @@ typedef struct _B2L_MAX_CONTEXT {
     BOOLEAN CcOpenNormalized;
     BOOLEAN MuicPathVerified;
     BOOLEAN BaselineValid;
+    BOOLEAN PowerRoleValid, DataRoleValid, WaterDetected;
+    UCHAR PowerRole, DataRole, PdStatus1;
+    ULONG DataRoleEvents, DataRoleChanges, OvercurrentEvents;
+    ULONG DetachRechecks;
+    NTSTATUS DataRoleStatus;
     BOOLEAN CcStatusValid;
     BOOLEAN CcStateChanged;
     BOOLEAN DiagnosticDirty;

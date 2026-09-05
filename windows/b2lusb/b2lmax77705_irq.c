@@ -253,6 +253,7 @@ B2lMaxEvtMaxInterruptIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
     ULONG Index;
     UCHAR Masks[4];
     UCHAR Sysmsg;
+    UCHAR BcStatus, CcStatus;
     NTSTATUS Status;
 
     UNREFERENCED_PARAMETER(MessageId);
@@ -286,6 +287,18 @@ B2lMaxEvtMaxInterruptIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
         if (!NT_SUCCESS(Status)) {
             goto Failed;
         }
+        // Stock PASS2+ VBUSDet handling: with VBUS low and CC disconnected,
+        // re-dispatch CCSTAT so detach is not lost. Retain RAW bytes exactly;
+        // a separate flag records this Linux rule, not an invented IRQ bit.
+        if ((Frame.Raw[0] & 0x20U) != 0U) {
+            Status = B2lMaxReadByte(Context, B2L_MAX_USBC_ADDRESS, 0x08U, &BcStatus);
+            if (NT_SUCCESS(Status)) {
+                Status = B2lMaxReadByte(Context, B2L_MAX_USBC_ADDRESS, 0x0AU, &CcStatus);
+            }
+            if (!NT_SUCCESS(Status)) goto Failed;
+            Frame.DetachRecheck = (BOOLEAN)(((BcStatus & 0x80U) == 0U) &&
+                ((CcStatus & B2L_MAX_CC_STATUS_MASK) == B2L_MAX_CC_NO_CONNECTION));
+        }
         // Linux irq_masks_cur tracks registered nested handlers. Direct
         // probe writes of PD=1c/VDM=ff do not change that software vector.
         Masks[0] = 0x00U;
@@ -295,6 +308,7 @@ B2lMaxEvtMaxInterruptIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
         for (Index = 0UL; Index < 4UL; ++Index) {
             Frame.Active[Index] = (UCHAR)(Frame.Raw[Index] & (UCHAR)~Masks[Index]);
         }
+        Frame.SnapshotAttempted = TRUE;
         Frame.SnapshotStatus = B2lMaxReadBlock(Context, B2L_MAX_USBC_ADDRESS,
             0x06U, Frame.Status, 8UL);
         if (!NT_SUCCESS(Frame.SnapshotStatus)) {

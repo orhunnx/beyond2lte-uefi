@@ -8,7 +8,7 @@ Class=System
 ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider=%B2L%
 CatalogFile=b2lusb.cat
-DriverVer=09/05/2026,0.1.0.31
+DriverVer=09/05/2026,0.1.0.32
 PnpLockdown=1
 
 [DestinationDirs]

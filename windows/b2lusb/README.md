@@ -1,5 +1,13 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
+**5 Eylül / MAX 0.1.0.32:** CC SOURCE yalnız güç rolünü/VBUS'u yönetir;
+MUIC USB_AP gerçek PD DATAROLE=DFP olayına bağlıdır. Güç/veri rolleri,
+WATER kapısı, BYP aşırı akım-off ve Linux VBUSDet detach kontrolü eklendi.
+`MAX FOTO v5` 40 satırda PWR_ROLE/DATA_ROLE/DATA_NT gösterir. UFP function
+yolu henüz uygulanmadığı için açıkça STATUS_NOT_SUPPORTED raporlanır.
+Dinamik DWC3/xHCI ve asenkron notifier/kurtarma işleri hâlâ açık; WSL/WDK
+ve telefon doğrulaması yapılmadı. Ayrıntılar karşılaştırmanın `.32` bölümünde.
+
 **5 Eylül / MAX 0.1.0.31:** Özgün GPA1-6 / GSIV51 pasif kesmesi ve APCMD
 istek/yanıt kuyruğu eklendi; bağlantı/opcode polling kaldırıldı. ACPI BYN0004
 beş MMIO + iki IRQ ister (HSI2C114, MAX51). `MAX FOTO v4` genel sayfası

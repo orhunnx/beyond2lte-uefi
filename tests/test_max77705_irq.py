@@ -226,7 +226,15 @@ int main(void) {
     B2lMaxRecordIrqFrame(&c,&c.IrqFrames[0]);
     assert(c.EventLog.SysmsgEvents==1 && c.EventLog.AttachErrorEvents==1);
     assert(c.EventLog.Events[0].Time==c.IrqFrames[0].Time && c.EventLog.Events[0].Valid);
+    reset(&c);raw[0]=0x20;assert(deliver() && c.IrqFrames[0].DetachRecheck);
+    assert(c.IrqFrames[0].Raw[1]==0 && c.IrqFrames[0].Active[1]==0 && c.MaxInterruptCount==1);
+    reset(&c);raw[0]=0x20;reg_values[0x25][0x08]=0x80;
+    assert(deliver() && !c.IrqFrames[0].DetachRecheck);
+    reset(&c);raw[0]=0x20;reg_values[0x25][0x0a]=2;
+    assert(deliver() && !c.IrqFrames[0].DetachRecheck);
     reset(&c);top=1;raw[0]=0x80;assert(deliver() && r2c_reads==0 && c.IrqFrames[0].Charger==1);
+    B2lMaxRecordIrqFrame(&c,&c.IrqFrames[0]);
+    assert(!c.EventLog.Events[0].Valid && c.EventLog.SnapshotFailures==0); // CHG-only: no USBC snapshot attempted
     reset(&c);c.IrqFrameCount=B2L_MAX_IRQ_FRAMES;assert(deliver());
     assert(c.IrqFrameOverflows==1 && c.MfdFault==STATUS_BUFFER_OVERFLOW);
     reset(&c);queue(&c,&a,0x1c);assert(B2lMaxEvtMaxInterruptDisable(&c,&c)==0);

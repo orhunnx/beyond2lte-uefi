@@ -360,6 +360,12 @@ call :B2LUsbAppendMax77705Summary MAX_IRQ B2LMaxMaxInterruptCount
 call :B2LUsbAppendMax77705Summary MAX_NT B2LMaxMaxLastInterruptStatus
 call :B2LUsbAppendMax77705Summary OP_DONE B2LMaxOpcodeCompletions
 call :B2LUsbAppendMax77705Summary MFD_FAULT B2LMaxMfdFault
+call :B2LUsbAppendMax77705Summary PWR_ROLE B2LMaxPowerRole
+call :B2LUsbAppendMax77705Summary DATA_ROLE B2LMaxDataRole
+call :B2LUsbAppendMax77705Summary DATA_NT B2LMaxDataRoleStatus
+call :B2LUsbAppendMax77705Summary WATER B2LMaxWaterDetected
+call :B2LUsbAppendMax77705Summary BYP_OCP B2LMaxOvercurrentEvents
+call :B2LUsbAppendMax77705Summary DET_RECHECK B2LMaxDetachRechecks
 call :B2LUsbAppendMax77705Summary I2C_DONE B2LMaxHsI2cCompletionCount
 rem Keep both automatic captures; print only the compact event summary.
 rem maxevents reads one registry value and works even if BYN0002 is absent.

@@ -141,20 +141,20 @@ grep -Fq 'Context->MuicControl1 != Path' "$MAIN"
 grep -Fq 'ReadBack != MAX77705_CCCTRL1_BEYOND2LTE' "$MAIN"
 grep -Fq 'InitialDetect && (CcState != B2L_MAX_CC_SINK)' "$MAIN"
 grep -Fq 'Frame.Active[1] & MAX77705_CC_INT_STATE' "$MAIN"
-grep -q 'DriverVer=09/05/2026,0.1.0.31' "$INF"
+grep -q 'DriverVer=09/05/2026,0.1.0.32' "$INF"
 # Probe ordering, response ownership, cancellation and masks execute in C
 # fixtures (test_max77705_irq.py), rather than line-order approximations.
 if rg -n 'B2lMaxReadAndClearUsbcInterrupts|B2lMaxConfigureRuntimeUsbcMasks|B2lMaxSendOpcode' "$MAIN"; then
   echo 'HATA: eski opcode polling/probe maskesi yolu geri geldi' >&2
   exit 1
 fi
-EVALUATE_SECTION="$(sed -n '/B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context,/,/B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
-MUIC_USB_LINE="$(printf '%s\n' "$EVALUATE_SECTION" | grep -n 'MAX77705_MUIC_COM_USB_AP' | tail -n1 | cut -d: -f1)"
-OTG_ON_LINE="$(printf '%s\n' "$EVALUATE_SECTION" | grep -n 'B2lMaxEnableOtg(Context)' | head -n1 | cut -d: -f1)"
-OTG_OFF_LINE="$(printf '%s\n' "$EVALUATE_SECTION" | grep -n 'B2lMaxDisableOtg(Context)' | head -n1 | cut -d: -f1)"
-MUIC_OPEN_LINE="$(printf '%s\n' "$EVALUATE_SECTION" | grep -n 'MAX77705_MUIC_COM_OPEN' | tail -n1 | cut -d: -f1)"
-test "$OTG_ON_LINE" -lt "$MUIC_USB_LINE"
-test "$OTG_OFF_LINE" -lt "$MUIC_OPEN_LINE"
+# Power/data role and BYP ordering executes in test_max77705_connection.py.
+grep -Fq 'MAX77705_USBC_PD_STATUS1   0x0DU' "$MAIN"
+grep -Fq 'MAX77705_PD_INT_DATAROLE   (1U << 5)' "$MAIN"
+grep -Fq 'B2lMaxHandleDataRole' "$MAIN"
+grep -Fq 'B2lMaxHandleBypass' "$MAIN"
+grep -Fq 'Context->PowerRole != B2L_MAX_CC_SOURCE' "$MAIN"
+grep -Fq 'Frame.DetachRecheck' "$IRQ"
 test "$(rg -c 'Status = B2lMaxUnlockCharger\(Context\);' "$MAIN")" -ge 3
 if rg -ni 'firmware.*(write|update|flash)|SW_RESET|USBC_RESET' "$MAIN" "$HDR"; then
   echo 'HATA: MAX77705 Windows yolu firmware/reset politikasina genislemis' >&2
