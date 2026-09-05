@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+#
+# Bir ARM64 Windows Desktop install.wim/install.esd indeksini SM-G975F UFS
+# bolumunde acilabilir NTFS imajina donusturur. UFS + touch paketleri ayni
+# DISM turunda, framebuffer ise boot-start servis olarak offline eklenir.
+#
+# Kullanim:
+#   bash tools_windesktop.sh <ARM64-ISO|install.wim|install.esd> list
+#   bash tools_windesktop.sh <ARM64-ISO|install.wim|install.esd> <indeks>
+#   bash tools_windesktop.sh <kaynak> <indeks> --target userdata --size-mib 16384
+#
+# SYSTEM tam 5700 MiB'dir. Varsayilan 5696 MiB imaj bu bolume sigar fakat
+# stok Windows Desktop genellikle sigmaz. Bu durumda betik temizce durur;
+# USERDATA'yi silmeyi bilerek kabul eden kullanici ikinci komutu kullanir.
+
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OUT="$HERE/out"
+TARGET="system"
+SIZE_MIB=""
+ARGS=()
+
+say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
+die() { printf '\nHATA: %s\n' "$*" >&2; exit 1; }
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target)
+      [ "$#" -ge 2 ] || die "--target degeri eksik"
+      TARGET="$2"; shift 2 ;;
+    --target=*) TARGET="${1#*=}"; shift ;;
+    --size-mib)
+      [ "$#" -ge 2 ] || die "--size-mib degeri eksik"
+      SIZE_MIB="$2"; shift 2 ;;
+    --size-mib=*) SIZE_MIB="${1#*=}"; shift ;;
+    --help|-h)
+      sed -n '2,15p' "$0"; exit 0 ;;
+    --*) die "bilinmeyen secenek: $1" ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+
+[ ${#ARGS[@]} -eq 2 ] || die "kullanim: bash tools_windesktop.sh <ISO|WIM|ESD> <indeks|list> [--target system|userdata] [--size-mib N]"
+SOURCE="${ARGS[0]}"
+INDEX="${ARGS[1]}"
+[ -s "$SOURCE" ] || die "Windows kaynagi yok ya da bos: $SOURCE"
+if [ "$INDEX" != list ]; then
+  [[ "$INDEX" =~ ^[1-9][0-9]*$ ]] || die "WIM indeksi pozitif tam sayi veya 'list' olmali: $INDEX"
+fi
+case "$TARGET" in
+  system)   : "${SIZE_MIB:=5696}" ;;
+  userdata) : "${SIZE_MIB:=16384}" ;;
+  *) die "hedef yalniz system veya userdata olabilir" ;;
+esac
+[[ "$SIZE_MIB" =~ ^[1-9][0-9]*$ ]] || die "--size-mib pozitif tam sayi olmali"
+if [ "$TARGET" = system ] && [ "$SIZE_MIB" -gt 5700 ]; then
+  die "SYSTEM bolumu tam 5700 MiB; ${SIZE_MIB} MiB imaj sigmaz"
+fi
+if [ "$TARGET" = userdata ] && [ "$SIZE_MIB" -lt 8192 ]; then
+  die "Windows Desktop USERDATA imaji en az 8192 MiB olmali"
+fi
+
+for tool in 7z wimlib-imagex; do
+  command -v "$tool" >/dev/null || die "$tool yok"
+done
+
+mkdir -p "$OUT"
+WORK="$(mktemp -d)"
+cleanup() { rm -rf "$WORK"; }
+trap cleanup EXIT
+
+INSTALL="$SOURCE"
+if ! wimlib-imagex info "$SOURCE" >/dev/null 2>&1; then
+  say "ISO icinde install.wim/install.esd araniyor"
+  LIST="$WORK/iso-list.txt"
+  7z l -slt "$SOURCE" > "$LIST"
+  INSTALL_PATH="$(grep -i '^Path = ' "$LIST" | sed 's/^Path = //' | grep -i -m1 -E '(^|[/\\])sources[/\\]install\.(wim|esd)$' || true)"
+  [ -n "$INSTALL_PATH" ] || die "ISO'da sources/install.wim veya install.esd yok"
+  7z e -y -o"$WORK/source" "$SOURCE" "$INSTALL_PATH" >/dev/null
+  INSTALL="$WORK/source/$(basename "${INSTALL_PATH//\\//}")"
+  [ -s "$INSTALL" ] || die "ISO'dan install goruntusu cikarilamadi"
+fi
+
+if [ "$INDEX" = list ]; then
+  say "Windows edition indeksleri"
+  wimlib-imagex info "$INSTALL"
+  exit 0
+fi
+
+for tool in mkntfs powershell.exe wslpath; do
+  command -v "$tool" >/dev/null || die "$tool yok"
+done
+WIMLIB_APPLY_HELP="$(wimlib-imagex apply --help 2>&1 || true)"
+printf '%s\n' "$WIMLIB_APPLY_HELP" | grep -q -- '--compact' || \
+  die "wimlib --compact desteklemiyor; guncel wimtools/ntfs-3g kur"
+
+INFO="$WORK/image-info.txt"
+wimlib-imagex info "$INSTALL" "$INDEX" > "$INFO" || die "WIM indeksi okunamadi: $INDEX"
+if ! grep -Eqi '^Architecture:[[:space:]]*(arm64|9)[[:space:]]*$' "$INFO"; then
+  sed -n '1,35p' "$INFO"
+  die "secilen Windows goruntusu ARM64 degil"
+fi
+NAME="$(sed -n 's/^Name:[[:space:]]*//p' "$INFO" | head -n1)"
+say "Windows Desktop kaynagi"
+echo "  indeks : $INDEX"
+echo "  ad     : ${NAME:-<okunamadi>}"
+echo "  hedef  : ${TARGET^^}.img (${SIZE_MIB} MiB)"
+
+for required in \
+  "$OUT/b2lufs/b2lufs.inf" "$OUT/b2lufs/b2lufs.sys" "$OUT/b2lufs/b2lufs.cat" \
+  "$OUT/b2ltouch/b2ltouch.inf" "$OUT/b2ltouch/b2ltouch.sys" "$OUT/b2ltouch/b2ltouch.cat" \
+  "$OUT/b2lfb/b2lfb.sys"; do
+  [ -s "$required" ] || die "hazir surucu paketi yok: ${required#$HERE/}"
+done
+
+DESKTOP_WIM="$WORK/desktop.wim"
+say "Secilen edition tek indeksli WIM'e aktariliyor"
+wimlib-imagex export "$INSTALL" "$INDEX" "$DESKTOP_WIM" --compress=LZX --rebuild
+wimlib-imagex info "$DESKTOP_WIM" 1 >/dev/null || die "tek indeksli Desktop WIM dogrulanamadi"
+
+say "UFS + touch + framebuffer offline servisleniyor"
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File "$(wslpath -w "$HERE/windows/stage-winpe-driverstore.ps1")" \
+  -ProjectRoot "$(wslpath -w "$HERE")" \
+  -WimPath "$(wslpath -w "$DESKTOP_WIM")" \
+  -Package TouchUfs -DisableUsb -IncludeFramebuffer || \
+  die "Windows Desktop offline driver servislemesi basarisiz"
+
+VERIFY="$WORK/verify"
+mkdir -p "$VERIFY/ufs" "$VERIFY/desktop"
+wimlib-imagex extract "$DESKTOP_WIM" 1 /Windows/B2LUFS/offline-driverstore.txt \
+  --dest-dir="$VERIFY/ufs" --no-acls >/dev/null
+wimlib-imagex extract "$DESKTOP_WIM" 1 /Windows/B2LDESKTOP/offline-drivers.txt \
+  --dest-dir="$VERIFY/desktop" --no-acls >/dev/null
+for expected in \
+  B2L_OFFLINE_PACKAGE=TOUCHUFS B2L_BOOT_START=1 \
+  'B2L_LOAD_ORDER_GROUP=SCSI Miniport' B2L_USB_TESTS=DISABLED; do
+  tr -d '\r' < "$VERIFY/ufs/offline-driverstore.txt" | grep -Fqx "$expected" || \
+    die "Desktop WIM UFS isareti eksik: $expected"
+done
+for expected in B2L_DESKTOP_STAGE=1 B2L_FRAMEBUFFER_BOOT_START=1; do
+  tr -d '\r' < "$VERIFY/desktop/offline-drivers.txt" | grep -Fqx "$expected" || \
+    die "Desktop WIM framebuffer isareti eksik: $expected"
+done
+
+IMAGE="$OUT/$TARGET.img"
+say "NTFS Windows birimi olusturuluyor"
+rm -f "$IMAGE"
+truncate -s "${SIZE_MIB}M" "$IMAGE"
+mkntfs -Q -F -s 4096 -c 4096 -L WINDOWS "$IMAGE" 2>&1 | \
+  grep -vi "not a block device\|has been set to 0\|was not specified\|will not be able to boot\|forced anyway" || true
+
+say "Windows Desktop NTFS'e CompactOS olarak aciliyor"
+echo "  Kaynak edition'a gore uzun surebilir."
+if ! wimlib-imagex apply "$DESKTOP_WIM" 1 "$IMAGE" --compact=XPRESS16K; then
+  rm -f "$IMAGE"
+  if [ "$TARGET" = system ]; then
+    die "Windows 5696 MiB SYSTEM'e sigmadi. USERDATA silmeyi kabul ediyorsan --target userdata kullan"
+  fi
+  die "Windows Desktop USERDATA imajina uygulanamadi"
+fi
+
+if command -v ntfsls >/dev/null; then
+  for file in winload.efi ntoskrnl.exe explorer.exe; do
+    if ! ntfsls -p /Windows/System32 "$IMAGE" 2>/dev/null | grep -Fqi "$file"; then
+      rm -f "$IMAGE"
+      die "uygulanan Desktop imajinda eksik dosya: Windows/System32/$file"
+    fi
+  done
+fi
+
+MARKER="$OUT/windows-desktop-target.txt"
+{
+  echo "B2L_WINDOWS_DESKTOP=1"
+  echo "B2L_TARGET=$TARGET"
+  echo "B2L_SIZE_MIB=$SIZE_MIB"
+  echo "B2L_IMAGE=$(basename "$IMAGE")"
+  echo "B2L_EDITION_INDEX=$INDEX"
+  echo "B2L_EDITION_NAME=$NAME"
+  echo "B2L_COMPACT=XPRESS16K"
+} > "$MARKER"
+
+say "Windows Desktop imaji hazir"
+ls -lh "$IMAGE" "$MARKER"
+cat <<EOF
+
+SONRAKI ADIMLAR:
+  1) Windows'ta yonetici CMD: windows\\bcd_olustur.cmd desktop
+  2) BCD'yi depoya kopyala.
+  3) bash tools_winboot.sh <ARM64-ISO> --desktop
+  4) bash cache_esp.sh --win --disk --baseline
+  5) bash tools_odin_winpe_bundle.sh --desktop --target $TARGET
+
+DIKKAT: --target userdata secildi ise flash USERDATA'daki mevcut veriyi siler.
+EOF

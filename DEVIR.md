@@ -45,6 +45,19 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > betiğinden çıkarıldı. `startnet.cmd` yalnız `wpeinit`, B2LUFS Start=0/grup
 > kapısı, Touch/VHF kısa durum kontrolü ve açık CMD kabuğunu korur.
 
+> **5 Eylül / Windows Desktop hattı hazır:** `tools_windesktop.sh`, ARM64 ISO
+> veya `install.wim/install.esd` içinden açıkça seçilen edition indeksini tek
+> indeksli WIM'e aktarır. B2LUFS+Touch tek DISM mount/commit turunda kurulur;
+> deneysel USB kaldırılır ve doğrulanmış `b2lfb.sys` ayrıca `Start=0`,
+> `ErrorControl=3`, `System Bus Extender` olarak offline SYSTEM hive'a yazılır.
+> Çıktı NTFS'e XPRESS16K CompactOS biçiminde uygulanır. Varsayılan SYSTEM
+> hedefi fiziksel 5700 MiB sınırını aşamaz; sığmayan stok Windows için ancak
+> mevcut veriyi sileceği bilinerek `--target userdata --size-mib 16384`
+> seçilir. `bcd_olustur.cmd desktop` normal
+> `\Windows\System32\winload.efi` yolunu yazar ve `winpe=Yes` yazmaz;
+> `tools_winboot.sh --desktop` iki koşulu da BCD'den geri okuyarak doğrular.
+> Cihaz üzerinde Desktop/OOBE henüz doğrulanmadı.
+
 > **5 Eylül / İlk gerçek offline UFS denemesi ve ACCESS_DENIED düzeltmesi:**
 > WSL denemesinde `b2lufs.inf` eklendi; `ControlSet001`, `Start=0`,
 > `SCSI Miniport`, `ErrorControl=3` ve kurulu SYS hash'i başarıyla doğrulandı.

@@ -1,6 +1,6 @@
 # beyond2lte UEFI — durum
 
-**Son güncelleme:** 5 Eylül 2026 — B2LUFS boot-start ile UFS/NTFS diskten WinPE açıldı.
+**Son güncelleme:** 5 Eylül 2026 — UFS disk boot kanıtlandı; Desktop imaj hattı hazırlandı.
 
 > Güncel dönüm noktası: özel ARM64 `b2lufs.sys` sürücüsü offline DriverStore'a
 > `Start=0`, `SCSI Miniport` olarak kuruldu. `bootmgfw` ve disk BCD'si CACHE
@@ -17,7 +17,15 @@
 | **Dahili depolama (UFS)** | **✅** | 5 LUN, DiskIO protokolü kurulu — `S5E9820Pkg/Library/PlatformUfsLib` yazıldı |
 | USB | ⏸️ | Deneysel sürücüler disk-boot profilinde devre dışı |
 | Windows UFS/NTFS disk boot | ✅ | B2LUFS `0.0.4.6` boot-start ile WinPE kabuğuna ulaşıldı |
-| Windows Desktop | 🚧 | Sıradaki aşama; WinPE yerine tam ARM64 Windows imajı hazırlanacak |
+| Windows Desktop | 🧪 | Tam ARM64 edition, UFS+touch DISM ve boot-start framebuffer hattı hazır; cihaz testi bekliyor |
+
+Desktop üretimi `tools_windesktop.sh` ile seçilen `install.wim/install.esd`
+indeksini tek imaja aktarır, UFS+touch paketlerini aynı DISM turunda ekler ve
+`b2lfb.sys` dosyasını `Start=0` olarak kaydeder. `bcd_olustur.cmd desktop`
+normal `\Windows\System32\winload.efi` yolunu kullanır ve WinPE bayrağı yazmaz.
+SYSTEM 5700 MiB ile sınırlıdır; sığmayan stok imaj için açıkça seçilen USERDATA
+hedefi desteklenir ve bu seçimin mevcut USERDATA'yı sileceği paketlemede tekrar
+uyarılır.
 
 Karşılaştırma: upstream `beyond1lte` (S10) Status.md'de Display ✅ ve tuşlar ✅
 diyor ama "Inactive" işaretli. **beyond2lte artık ondan ileride** — çünkü onun

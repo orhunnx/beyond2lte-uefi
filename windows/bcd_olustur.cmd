@@ -44,6 +44,10 @@ setlocal enabledelayedexpansion
 ::            baglanmazsa Windows acilis birimini tasiyamaz.
 ::            Once: bash tools_b2lufs.sh ve bash tools_windisk.sh
 ::
+::   desktop  Tam Windows'u UFS/NTFS bolumunden acar. WinPE bayragini
+::            YAZMAZ ve normal \Windows\System32\winload.efi yolunu kullanir.
+::            Once: bash tools_windesktop.sh <ISO/WIM/ESD> <indeks>
+::
 ::   menu     "disk" + ACILIS MENUSU + 30 saniye bekleme.
 ::            TEK ACILISTA IKI SORUYU BIRDEN AYIRIR.
 ::
@@ -110,6 +114,8 @@ if errorlevel 1 (
 set "VAR=%~1"
 if "%VAR%"=="" set "VAR=tani"
 echo   varyant: %VAR%
+set "DESKTOPMOD="
+if /i "%VAR%"=="desktop" set "DESKTOPMOD=1"
 
 set "BCD=%USERPROFILE%\Desktop\BCD"
 if exist "%BCD%" del /f /q "%BCD%"
@@ -152,7 +158,9 @@ bcdedit /store "%BCD%" /set {ramdiskoptions} ramdisksdidevice boot   >nul || got
 bcdedit /store "%BCD%" /set {ramdiskoptions} ramdisksdipath \boot\boot.sdi >nul || goto :hata
 
 :: --- isletim sistemi girdisi ---------------------------------------------
-for /f "tokens=2 delims={}" %%g in ('bcdedit /store "%BCD%" /create /d "beyond2lte WinPE" /application osloader') do set "G={%%g}"
+set "LOADERDESC=beyond2lte WinPE"
+if defined DESKTOPMOD set "LOADERDESC=beyond2lte Windows Desktop"
+for /f "tokens=2 delims={}" %%g in ('bcdedit /store "%BCD%" /create /d "%LOADERDESC%" /application osloader') do set "G={%%g}"
 if not defined G goto :hata
 echo   osloader GUID: %G%
 
@@ -174,6 +182,7 @@ echo   osloader GUID: %G%
 set "DISKMOD="
 if /i "%VAR%"=="disk" set "DISKMOD=1"
 if /i "%VAR%"=="menu" set "DISKMOD=1"
+if defined DESKTOPMOD set "DISKMOD=1"
 
 ::
 :: MENUMOD: acilis menusunu goster. "menu" (disk) ve "menuram" (RAM disk)
@@ -194,12 +203,20 @@ if defined DISKMOD (
   bcdedit /store "%BCD%" /set %G% device   ramdisk=[boot]\sources\boot.wim,{ramdiskoptions} >nul || goto :hata
   bcdedit /store "%BCD%" /set %G% osdevice ramdisk=[boot]\sources\boot.wim,{ramdiskoptions} >nul || goto :hata
 )
-bcdedit /store "%BCD%" /set %G% path       \windows\system32\boot\winload.efi >nul || goto :hata
+if defined DESKTOPMOD (
+  bcdedit /store "%BCD%" /set %G% path \windows\system32\winload.efi >nul || goto :hata
+) else (
+  bcdedit /store "%BCD%" /set %G% path \windows\system32\boot\winload.efi >nul || goto :hata
+)
 bcdedit /store "%BCD%" /set %G% systemroot \windows >nul || goto :hata
 bcdedit /store "%BCD%" /set %G% detecthal  Yes
 if errorlevel 1 echo   ! BASARISIZ: detecthal  Yes
-bcdedit /store "%BCD%" /set %G% winpe      Yes
-if errorlevel 1 echo   ! BASARISIZ: winpe      Yes
+if not defined DESKTOPMOD (
+  bcdedit /store "%BCD%" /set %G% winpe Yes
+  if errorlevel 1 echo   ! BASARISIZ: winpe Yes
+) else (
+  echo   AYAR: tam Windows yukleyicisi, WinPE bayragi YOK
+)
 bcdedit /store "%BCD%" /set %G% inherit {bootloadersettings}
 if errorlevel 1 echo   ! BASARISIZ: inherit {bootloadersettings}
 
@@ -377,9 +394,17 @@ echo.
 echo Simdi WSL'de:
 echo   cp "%BCD%" ~/beyond2lte-uefi/windows/BCD
 if defined DISKMOD (
-  echo   cd ~/beyond2lte-uefi ^&^& bash tools_winboot.sh --disk
+  if defined DESKTOPMOD (
+    echo   cd ~/beyond2lte-uefi ^&^& bash tools_winboot.sh --desktop
+  ) else (
+    echo   cd ~/beyond2lte-uefi ^&^& bash tools_winboot.sh --disk
+  )
   echo   bash cache_esp.sh --win --disk --baseline
-  echo   bash tools_odin_winpe_bundle.sh --disk
+  if defined DESKTOPMOD (
+    echo   bash tools_odin_winpe_bundle.sh --desktop
+  ) else (
+    echo   bash tools_odin_winpe_bundle.sh --disk
+  )
 ) else (
   echo   cd ~/beyond2lte-uefi ^&^& bash tools_winboot.sh ^&^& bash cache_esp.sh --win
 )

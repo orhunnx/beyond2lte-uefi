@@ -35,12 +35,14 @@ ESP="$HERE/esp"
 FORCE_WIM=0
 STOK_STARTNET=0
 DISK_MODU=0
+DESKTOP_MODU=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
     --wim-yenile) FORCE_WIM=1 ;;
     --stok)       STOK_STARTNET=1 ;;
     --disk)       DISK_MODU=1 ;;
+    --desktop)    DISK_MODU=1; DESKTOP_MODU=1 ;;
     *) ARGS+=("$a") ;;
   esac
 done
@@ -497,7 +499,11 @@ cp "$BM"  "$ESP/EFI/Microsoft/Boot/bootmgfw.efi"
 OWNBCD="$(dirname "$ESP")/windows/BCD"
 if [ "$DISK_MODU" = 1 ]; then
   [ -s "$OWNBCD" ] || {
-    echo "HATA: --disk icin windows/BCD yok. Windows'ta windows\\bcd_olustur.cmd disk calistir."
+    if [ "$DESKTOP_MODU" = 1 ]; then
+      echo "HATA: --desktop icin windows/BCD yok. Windows'ta windows\\bcd_olustur.cmd desktop calistir."
+    else
+      echo "HATA: --disk icin windows/BCD yok. Windows'ta windows\\bcd_olustur.cmd disk calistir."
+    fi
     exit 1
   }
   command -v bcdedit.exe >/dev/null || {
@@ -541,6 +547,18 @@ if [ "$DISK_MODU" = 1 ]; then
   if grep -Fqi 'ramdisk=' "$BCD_DUMP.txt"; then
     echo "HATA: --disk BCD osloader girdisinde ramdisk bulundu."
     exit 1
+  fi
+  if [ "$DESKTOP_MODU" = 1 ]; then
+    if grep -Eqi '^[[:space:]]*winpe[[:space:]]+Yes[[:space:]]*$' "$BCD_DUMP.txt"; then
+      echo "HATA: --desktop BCD hala winpe=Yes tasiyor."
+      echo "Windows'ta yeniden: windows\\bcd_olustur.cmd desktop"
+      exit 1
+    fi
+    grep -Eqi '^[[:space:]]*path[[:space:]]+\\windows\\system32\\winload\.efi[[:space:]]*$' "$BCD_DUMP.txt" || {
+      echo "HATA: --desktop BCD normal Windows winload.efi yolunu tasimiyor."
+      exit 1
+    }
+    echo "  BCD Desktop profili dogrulandi: winpe yok, normal winload.efi"
   fi
   echo "  BCD disk profili dogrulandi: locate=, ramdisk yok"
 fi

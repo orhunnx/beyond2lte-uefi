@@ -30,6 +30,7 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | Windows ARM64 UFS miniportu | ✅ `0.0.4.6` boot-start; UFS/NTFS diskten WinPE cihazda açıldı |
 | WinPE yerel ekran klavyesi | ⏸️ Microsoft OSK yükleniyor fakat 28000/26200 ortamında başlatılamıyor; ertelendi |
 | Windows WinPE / erken kullanıcı modu | ✅ RAM ve UFS/NTFS SYSTEM üzerinden cihazda açılıyor |
+| Windows Desktop imaj hattı | 🧪 ARM64 edition + UFS/touch/framebuffer offline stage hazır; cihaz testi bekliyor |
 
 Ayrıntı: [`STATUS.md`](STATUS.md)
 
@@ -42,7 +43,13 @@ bash yap.sh --clean          # DEBUG derle
 bash yap.sh --tar            # Odin için .tar da üret
 bash yap.sh --acpi           # ACPI tablolarını derle + etkinleştir
 bash yap.sh --touch --ufs-boot --clean  # diskten Windows; USB testleri kapali
+bash tools_windesktop.sh <ARM64-ISO> list               # edition indekslerini göster
+bash tools_windesktop.sh <ARM64-ISO> <edition-indeksi>  # tam Windows, SYSTEM hedefi
 ```
+
+Stok Desktop 5700 MiB SYSTEM'e sığmazsa, mevcut Android verisini sileceği
+bilinerek `--target userdata --size-mib 16384` seçilebilir. Tam Windows BCD'si
+`windows\bcd_olustur.cmd desktop` ile üretilir; bu profil `winpe=Yes` yazmaz.
 
 `yap.sh` overlay'i `~/Mu-Silicium`'a kopyalar, derler, çıktıyı Windows
 masaüstüne atar ve FV kullanımını raporlar.

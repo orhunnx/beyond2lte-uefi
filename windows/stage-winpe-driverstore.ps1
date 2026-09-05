@@ -5,7 +5,8 @@ param(
     [ValidateSet("Usb", "Touch", "UsbTouch", "Ufs", "TouchUfs")]
     [string]$Package,
     [string]$PreparedRoot,
-    [switch]$DisableUsb
+    [switch]$DisableUsb,
+    [switch]$IncludeFramebuffer
 )
 
 $ErrorActionPreference = "Stop"
@@ -257,6 +258,91 @@ function Test-B2LUfsOfflineBootService {
     }
 }
 
+function Set-B2LFramebufferOfflineService {
+    param(
+        [string]$MountPath,
+        [string]$DriverRoot
+    )
+
+    $sourceDriver = Join-Path $DriverRoot "b2lfb.sys"
+    $installedDriver = Join-Path $MountPath "Windows\System32\drivers\b2lfb.sys"
+    if (-not (Test-Path -LiteralPath $sourceDriver -PathType Leaf)) {
+        throw "B2L framebuffer SYS bulunamadi: $sourceDriver"
+    }
+    Copy-Item -LiteralPath $sourceDriver -Destination $installedDriver -Force
+
+    $systemHive = Join-Path $MountPath "Windows\System32\config\SYSTEM"
+    $hiveLeaf = "B2LFBOFFLINE_$PID"
+    $hiveName = "HKLM\$hiveLeaf"
+    $loaded = $false
+    $baseKey = $null
+    $offlineHive = $null
+    try {
+        Invoke-B2LReg -Arguments @("load", $hiveName, $systemHive)
+        $loaded = $true
+        $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+            [Microsoft.Win32.RegistryHive]::LocalMachine,
+            [Microsoft.Win32.RegistryView]::Default
+        )
+        $offlineHive = $baseKey.OpenSubKey($hiveLeaf, $true)
+        if ($null -eq $offlineHive) {
+            throw "B2L framebuffer offline SYSTEM hive acilamadi"
+        }
+        $selectKey = $offlineHive.OpenSubKey("Select")
+        if ($null -eq $selectKey) {
+            throw "B2L framebuffer offline SYSTEM Select anahtari yok"
+        }
+        try {
+            $controlSetNumbers = @(
+                [int](Get-B2LRequiredRegistryValue -Key $selectKey -Name "Current"),
+                [int](Get-B2LRequiredRegistryValue -Key $selectKey -Name "Default")
+            )
+            if ($selectKey.GetValueNames() -contains "LastKnownGood") {
+                $controlSetNumbers += [int]$selectKey.GetValue("LastKnownGood")
+            }
+        }
+        finally {
+            $selectKey.Close()
+        }
+
+        foreach ($controlSetNumber in @($controlSetNumbers | Where-Object { $_ -gt 0 } | Sort-Object -Unique)) {
+            $controlSet = "ControlSet{0:D3}" -f $controlSetNumber
+            $service = $offlineHive.CreateSubKey("$controlSet\Services\b2lfb")
+            try {
+                $service.SetValue("Type", 1, [Microsoft.Win32.RegistryValueKind]::DWord)
+                $service.SetValue("Start", 0, [Microsoft.Win32.RegistryValueKind]::DWord)
+                $service.SetValue("ErrorControl", 3, [Microsoft.Win32.RegistryValueKind]::DWord)
+                $service.SetValue("Group", "System Bus Extender", [Microsoft.Win32.RegistryValueKind]::String)
+                $service.SetValue("ImagePath", "\SystemRoot\System32\drivers\b2lfb.sys", [Microsoft.Win32.RegistryValueKind]::ExpandString)
+                $service.SetValue("DisplayName", "beyond2lte framebuffer", [Microsoft.Win32.RegistryValueKind]::String)
+                $service.Flush()
+            }
+            finally {
+                $service.Close()
+            }
+            Write-B2LStageLog "Offline B2L framebuffer servisi hazir: $controlSet\Services\b2lfb Start=0"
+        }
+    }
+    finally {
+        if ($null -ne $offlineHive) { $offlineHive.Close() }
+        if ($null -ne $baseKey) { $baseKey.Close() }
+        if ($loaded) { Dismount-B2LRegistryHive -HiveName $hiveName }
+    }
+
+    $sourceHash = (Get-FileHash -LiteralPath $sourceDriver -Algorithm SHA256).Hash
+    $installedHash = (Get-FileHash -LiteralPath $installedDriver -Algorithm SHA256).Hash
+    if ($sourceHash -ne $installedHash) {
+        throw "B2L framebuffer SYS hash'i paket girdisinden farkli"
+    }
+    $markerRoot = Join-Path $MountPath "Windows\B2LDESKTOP"
+    New-Item -ItemType Directory -Path $markerRoot -Force | Out-Null
+    @(
+        "B2L_DESKTOP_STAGE=1"
+        "B2L_FRAMEBUFFER_BOOT_START=1"
+        "B2L_FRAMEBUFFER_SHA256=$($installedHash.ToLowerInvariant())"
+    ) | Set-Content -LiteralPath (Join-Path $markerRoot "offline-drivers.txt") -Encoding ASCII
+}
+
 function Test-B2LRuntimeFiles {
     param([string]$MountPath, [object]$Record, [string]$Stage, [switch]$RequireMatch)
     $different = @()
@@ -284,7 +370,8 @@ function Invoke-B2LOfflineServicing {
     param(
         [string]$WorkRoot,
         [string]$SelectedPackage,
-        [switch]$DisableUsb
+        [switch]$DisableUsb,
+        [switch]$IncludeFramebuffer
     )
 
     Import-Module Dism -ErrorAction Stop
@@ -385,6 +472,10 @@ function Invoke-B2LOfflineServicing {
             Test-B2LUfsOfflineBootService -MountPath $mountRoot -DriverRoot $driverRoot
         }
 
+        if ($IncludeFramebuffer) {
+            Set-B2LFramebufferOfflineService -MountPath $mountRoot -DriverRoot $driverRoot
+        }
+
         $verified = @(Get-WindowsDriver -Path $mountRoot -All)
         foreach ($infName in $requiredInfs) {
             $match = @($verified | Where-Object {
@@ -455,7 +546,7 @@ if ($PreparedRoot) {
         exit 1
     }
     try {
-        Invoke-B2LOfflineServicing -WorkRoot $PreparedRoot -SelectedPackage $Package -DisableUsb:$DisableUsb
+        Invoke-B2LOfflineServicing -WorkRoot $PreparedRoot -SelectedPackage $Package -DisableUsb:$DisableUsb -IncludeFramebuffer:$IncludeFramebuffer
         exit 0
     }
     catch {
@@ -473,6 +564,7 @@ if (-not (Test-Path -LiteralPath $WimPath -PathType Leaf)) {
 $usbSourceDirectory = Join-Path $ProjectRoot "out\b2lusb"
 $touchSourceDirectory = Join-Path $ProjectRoot "out\b2ltouch"
 $ufsSourceDirectory = Join-Path $ProjectRoot "out\b2lufs"
+$framebufferSourceDirectory = Join-Path $ProjectRoot "out\b2lfb"
 $usbFiles = @(
     "b2lmax77705.inf", "b2lusb-host.inf", "b2lusb-function.inf", "b2lusb.inf",
     "b2lmax77705.sys", "b2lusb.sys", "b2lusbmon.sys", "b2lusb.cat"
@@ -526,9 +618,16 @@ try {
             Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $driverRoot $fileName) -Force
         }
     }
+    if ($IncludeFramebuffer) {
+        $sourceFile = Join-Path $framebufferSourceDirectory "b2lfb.sys"
+        if (-not (Test-Path -LiteralPath $sourceFile -PathType Leaf)) {
+            throw "Framebuffer surucusu bulunamadi: $sourceFile"
+        }
+        Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $driverRoot "b2lfb.sys") -Force
+    }
 
     if (Test-B2LAdministrator) {
-        Invoke-B2LOfflineServicing -WorkRoot $workRoot -SelectedPackage $Package -DisableUsb:$DisableUsb
+        Invoke-B2LOfflineServicing -WorkRoot $workRoot -SelectedPackage $Package -DisableUsb:$DisableUsb -IncludeFramebuffer:$IncludeFramebuffer
         $exitCode = 0
     }
     else {
@@ -536,7 +635,8 @@ try {
         $escapedScript = $localScript.Replace("'", "''")
         $escapedRoot = $workRoot.Replace("'", "''")
         $disableUsbSwitch = if ($DisableUsb) { " -DisableUsb" } else { "" }
-        $command = "& '$escapedScript' -PreparedRoot '$escapedRoot' -Package '$Package'$disableUsbSwitch"
+        $framebufferSwitch = if ($IncludeFramebuffer) { " -IncludeFramebuffer" } else { "" }
+        $command = "& '$escapedScript' -PreparedRoot '$escapedRoot' -Package '$Package'$disableUsbSwitch$framebufferSwitch"
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
         $powershell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
         try {

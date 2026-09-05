@@ -27,17 +27,32 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$HERE/out"
 DISK_MODE=0
+DESKTOP_MODE=0
+TARGET=system
 ARGS=()
-for Arg in "$@"; do
-  case "$Arg" in
-    --disk) DISK_MODE=1 ;;
-    *) ARGS+=("$Arg") ;;
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --disk) DISK_MODE=1; shift ;;
+    --desktop) DISK_MODE=1; DESKTOP_MODE=1; shift ;;
+    --target)
+      [ "$#" -ge 2 ] || { echo "HATA: --target degeri eksik" >&2; exit 1; }
+      TARGET="$2"; shift 2 ;;
+    --target=*) TARGET="${1#*=}"; shift ;;
+    *) ARGS+=("$1"); shift ;;
   esac
 done
+case "$TARGET" in system|userdata) ;; *) echo "HATA: hedef yalniz system veya userdata olabilir" >&2; exit 1 ;; esac
+if [ "$DESKTOP_MODE" = 0 ] && [ "$TARGET" != system ]; then
+  echo "HATA: --target userdata yalniz --desktop ile kullanilir" >&2
+  exit 1
+fi
 BOOT_TAR="${ARGS[0]:-$OUT/uefi-boot.tar}"
-SYSTEM_RAW="${ARGS[1]:-$OUT/system.img}"
+TARGET_ENTRY="$TARGET.img"
+SYSTEM_RAW="${ARGS[1]:-$OUT/$TARGET_ENTRY}"
 CACHE_RAW="${ARGS[2]:-$OUT/cache.img}"
-if [ "$DISK_MODE" = 1 ]; then
+if [ "$DESKTOP_MODE" = 1 ]; then
+  BUNDLE="$OUT/beyond2lte-windows-desktop-$TARGET.tar"
+elif [ "$DISK_MODE" = 1 ]; then
   BUNDLE="$OUT/beyond2lte-winpe-ufs-disk.tar"
 else
   BUNDLE="$OUT/beyond2lte-winpe-ufs.tar"
@@ -64,13 +79,22 @@ if [ "$DISK_MODE" = 1 ]; then
     fail "--disk CACHE ESP hala boot.wim tasiyor; RAM disk imaji reddedildi"
   fi
   say "DISK MODU dogrulandi"
-  echo "  SYSTEM: NTFS"
+  echo "  ${TARGET^^}: NTFS"
   echo "  CACHE: bootmgfw/BCD ESP, boot.wim yok"
+fi
+if [ "$DESKTOP_MODE" = 1 ]; then
+  MARKER="$OUT/windows-desktop-target.txt"
+  [ -s "$MARKER" ] || fail "Desktop hedef isareti yok: $MARKER"
+  grep -Fqx 'B2L_WINDOWS_DESKTOP=1' "$MARKER" || fail "Desktop hedef isareti gecersiz"
+  grep -Fqx "B2L_TARGET=$TARGET" "$MARKER" || fail "Desktop hedef isareti $TARGET ile uyusmuyor"
+  grep -Fqx "B2L_IMAGE=$TARGET_ENTRY" "$MARKER" || fail "Desktop imaj adi hedef isaretiyle uyusmuyor"
+  say "WINDOWS DESKTOP MODU dogrulandi"
+  echo "  Windows birimi: ${TARGET^^} ($TARGET_ENTRY)"
 fi
 
 say "Girdiler"
 printf '  BOOT arsivi: %s\n' "$BOOT_TAR"
-printf '  SYSTEM ham:   %s\n' "$SYSTEM_RAW"
+printf '  %-12s %s\n' "${TARGET^^} ham:" "$SYSTEM_RAW"
 printf '  CACHE ham:    %s\n' "$CACHE_RAW"
 
 WORK="$(mktemp -d)"
@@ -98,32 +122,32 @@ only_entry "$BOOT_TAR" boot.img
 tar -xf "$BOOT_TAR" -C "$WORK"
 [ -s "$WORK/boot.img" ] || fail "BOOT arsivinden boot.img cikarilamadi"
 
-say "SYSTEM ve CACHE Android sparse'e cevriliyor"
-img2simg "$SYSTEM_RAW" "$WORK/system.img"
+say "${TARGET^^} ve CACHE Android sparse'e cevriliyor"
+img2simg "$SYSTEM_RAW" "$WORK/$TARGET_ENTRY"
 img2simg "$CACHE_RAW" "$WORK/cache.img"
-require_sparse "$WORK/system.img"
+require_sparse "$WORK/$TARGET_ENTRY"
 require_sparse "$WORK/cache.img"
 
 say "Tek AP arsivi uretiliyor"
 rm -f "$BUNDLE"
 (
   cd "$WORK"
-  tar -H ustar -cf "$BUNDLE" boot.img system.img cache.img
+  tar -H ustar -cf "$BUNDLE" boot.img "$TARGET_ENTRY" cache.img
 )
 
 say "Dogrulama"
-EXPECTED=$'boot.img\nsystem.img\ncache.img'
+EXPECTED="$(printf 'boot.img\n%s\ncache.img' "$TARGET_ENTRY")"
 ACTUAL="$(tar -tf "$BUNDLE" | sed '/^$/d')"
 [ "$ACTUAL" = "$EXPECTED" ] || fail "cikti arsiv hedef listesi beklenenden farkli: $ACTUAL"
 mkdir "$CHECK"
 tar -xf "$BUNDLE" -C "$CHECK"
-for F in boot.img system.img cache.img; do
+for F in boot.img "$TARGET_ENTRY" cache.img; do
   BEFORE="$(sha256sum "$WORK/$F" | awk '{print $1}')"
   AFTER="$(sha256sum "$CHECK/$F" | awk '{print $1}')"
   [ "$BEFORE" = "$AFTER" ] || fail "tar icinde $F degismis"
   printf '  %-10s hash esit: %s\n' "$F" "$AFTER"
 done
-require_sparse "$CHECK/system.img"
+require_sparse "$CHECK/$TARGET_ENTRY"
 require_sparse "$CHECK/cache.img"
 tar -tvf "$BUNDLE"
 sha256sum "$BUNDLE"
@@ -145,8 +169,13 @@ echo "Hazir: ${BUNDLE#$HERE/}"
 echo "  Odin -> AP: bu TEK dosya"
 echo "  Re-Partition: KAPALI"
 echo
-echo "Arsiv yalnizca boot.img, system.img ve cache.img icerir."
-if [ "$DISK_MODE" = 1 ]; then
+echo "Arsiv yalnizca boot.img, $TARGET_ENTRY ve cache.img icerir."
+if [ "$DESKTOP_MODE" = 1 ]; then
+  echo "Windows Desktop ${TARGET^^} NTFS, CACHE Desktop-BCD ESP ve iki sparse imaj dogrulandi."
+  if [ "$TARGET" = userdata ]; then
+    echo "UYARI: Bu arsiv USERDATA bolumundeki mevcut veriyi siler."
+  fi
+elif [ "$DISK_MODE" = 1 ]; then
   echo "SYSTEM NTFS, CACHE disk-BCD ESP ve iki sparse imaj dogrulandi."
 else
   echo "SYSTEM ve CACHE'nin Android sparse oldugu dogrulandi."
