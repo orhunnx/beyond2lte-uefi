@@ -86,6 +86,10 @@ B2lMaxRetireOpcodeLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_OPCODE_REQUEST Reque
     PB2L_MAX_MUIC_PAIR Pair = Request->MuicPair;
     Request->Status = Status;
     Request->Complete = TRUE;
+    if (Request->ControlRequest != NULL) {
+        B2lMaxRetireControlLocked(Context, Request->ControlRequest, Status);
+        return;
+    }
     if (Request->PdRequest != NULL) {
         B2lMaxRetirePdRequestLocked(Context, Request->PdRequest, Status);
         return;
@@ -116,6 +120,31 @@ B2lMaxRetireOpcodeLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_OPCODE_REQUEST Reque
     }
     Pair->InUse = FALSE;
     --Context->MuicOutstanding;
+    Context->DiagnosticDirty = TRUE;
+}
+
+VOID
+B2lMaxClearOpcodesLocked(PB2L_MAX_CONTEXT Context)
+{
+    PB2L_MAX_OPCODE_REQUEST Request;
+    ++Context->QueueClears;
+    while ((Request = Context->OpcodeHead) != NULL) {
+        // Linux already removed the sent write node. Its remaining response
+        // node has opcode NONE and must not enter recover_opcode_list.
+        if (Request->SentAt == 0ULL) {
+            if (Request->Opcode == 0x0CU) Context->RecoverMask |= 1UL;
+            if (Request->Opcode == 0x54U) Context->RecoverMask |= 2UL;
+            if (Request->Opcode == 0x55U) Context->RecoverMask |= 4UL;
+        }
+        Context->OpcodeHead = Request->Next;
+        Request->Next = NULL;
+        ++Context->QueueDiscarded;
+        B2lMaxRetireOpcodeLocked(Context, Request, STATUS_CANCELLED);
+    }
+    Context->OpcodeTail = NULL;
+    (VOID)WdfTimerStop(Context->OpcodeDeadline, FALSE);
+    // A stock software queue clear is not a bus fault, physical detach,
+    // firmware clear command, successful reply, or reason to alter CC/PD.
     Context->DiagnosticDirty = TRUE;
 }
 
@@ -174,9 +203,17 @@ B2lMaxRetryOpcodeLocked(PB2L_MAX_CONTEXT Context)
     if (Request == NULL || Request->SentAt == 0ULL || Request->Complete)
         return STATUS_DEVICE_NOT_READY;
     // Stock GRL (0x70) and VDM request (0x48) have a dequeue path, not retry.
-    // Those command consumers are not implemented; never resend them here.
-    if (Request->Opcode == 0x70U || Request->Opcode == 0x48U)
-        return STATUS_NOT_SUPPORTED;
+    if (Request->Opcode == 0x70U || Request->Opcode == 0x48U) {
+        Context->OpcodeHead = Request->Next;
+        if (Context->OpcodeHead == NULL) Context->OpcodeTail = NULL;
+        Request->Next = NULL;
+        ++Context->QueueDiscarded;
+        B2lMaxRetireOpcodeLocked(Context, Request, STATUS_CANCELLED);
+        (VOID)WdfTimerStop(Context->OpcodeDeadline, FALSE);
+        // Stock dequeues just the failed response, without cmd_run. Keep an
+        // unsent successor unsent; do not read its reply or trim for GRL.
+        return STATUS_CANCELLED;
+    }
     ++Context->SysmsgRetries;
     // Head owns the sent bytes until APCMD retires it. Resend that same
     // request, keeping all waiters/slots and the subsequent queue in place.
@@ -275,7 +312,7 @@ B2lMaxEvtOpcodeDeadline(WDFTIMER Timer)
     ULONGLONG Now, Deadline;
 
     WdfWaitLockAcquire(Context->MfdLock, NULL);
-    if (Context->OpcodeHead != NULL) {
+    if (Context->OpcodeHead != NULL && Context->OpcodeHead->SentAt != 0ULL) {
         Now = KeQueryInterruptTime();
         Deadline = Context->OpcodeHead->SentAt + B2L_MAX_OPCODE_TIMEOUT_100NS;
         if (Now < Deadline) {
@@ -342,7 +379,16 @@ B2lMaxCompleteOpcodeLocked(PB2L_MAX_CONTEXT Context)
 
     if (Request == NULL) {
         ++Context->OpcodeUnexpected;
-        return STATUS_SUCCESS; // no request is completed by an unsolicited IRQ
+        // cmd_run can be empty while the stock post-APCMD recover list is not.
+        return B2lMaxRecoverControlsLocked(Context);
+    }
+    if (Request->SentAt == 0ULL) {
+        // A GRL/APCMD_FAIL dequeue may leave a write node at the front.
+        // Linux cmd_run sends that node on the next real APCMD; it cannot
+        // treat this interrupt as the response to an as-yet unsent command.
+        Status = B2lMaxStartOpcodeLocked(Context);
+        if (NT_SUCCESS(Status)) Status = B2lMaxRecoverControlsLocked(Context);
+        return Status;
     }
     Status = B2lMaxReadBlock(Context, B2L_MAX_USBC_ADDRESS,
         0x51U, Response, 1UL + Request->ReadLength);
@@ -364,8 +410,16 @@ B2lMaxCompleteOpcodeLocked(PB2L_MAX_CONTEXT Context)
     }
     ++Context->OpcodeCompletions;
     B2lMaxRetireOpcodeLocked(Context, Request, STATUS_SUCCESS);
+    if (!NT_SUCCESS(Context->MfdFault)) {
+        B2lMaxCancelOpcodesLocked(Context, Context->MfdFault);
+        return Context->MfdFault;
+    }
     // Samsung APCMD handler advances the queue; a timer never consumes 0x51.
-    return B2lMaxStartOpcodeLocked(Context);
+    // A response continuation may already have started a new head.
+    Status = (Context->OpcodeHead == NULL || Context->OpcodeHead->SentAt == 0ULL) ?
+        B2lMaxStartOpcodeLocked(Context) : STATUS_SUCCESS;
+    if (NT_SUCCESS(Status)) Status = B2lMaxRecoverControlsLocked(Context);
+    return Status;
 }
 
 NTSTATUS
@@ -443,10 +497,14 @@ B2lMaxEvtMaxInterruptIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
         if (!NT_SUCCESS(Status)) {
             goto Failed;
         }
+        Frame.UicReplay = Context->SavedUic;
+        Context->SavedUic = 0U;
+        Context->LastUicReplay = Frame.UicReplay;
+        if (Frame.UicReplay != 0U) ++Context->UicReplayCount;
         // Stock PASS2+ VBUSDet handling: with VBUS low and CC disconnected,
         // re-dispatch CCSTAT so detach is not lost. Retain RAW bytes exactly;
         // a separate flag records this Linux rule, not an invented IRQ bit.
-        if ((Frame.Raw[0] & 0x20U) != 0U) {
+        if (((Frame.Raw[0] | Frame.UicReplay) & 0x20U) != 0U) {
             Status = B2lMaxReadByte(Context, B2L_MAX_USBC_ADDRESS, 0x08U, &BcStatus);
             if (NT_SUCCESS(Status)) {
                 Status = B2lMaxReadByte(Context, B2L_MAX_USBC_ADDRESS, 0x0AU, &CcStatus);
@@ -464,6 +522,7 @@ B2lMaxEvtMaxInterruptIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
         for (Index = 0UL; Index < 4UL; ++Index) {
             Frame.Active[Index] = (UCHAR)(Frame.Raw[Index] & (UCHAR)~Masks[Index]);
         }
+        Frame.Active[0] |= (UCHAR)(Frame.UicReplay & (UCHAR)~Masks[0]);
         Frame.SnapshotAttempted = TRUE;
         Frame.SnapshotStatus = B2lMaxReadBlock(Context, B2L_MAX_USBC_ADDRESS,
             0x06U, Frame.Status, 8UL);
@@ -482,7 +541,10 @@ B2lMaxEvtMaxInterruptIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
                 Status = B2lMaxCompleteOpcodeLocked(Context);
             }
             if (!NT_SUCCESS(Status)) {
-                goto Failed;
+                // Nested handlers are independent in the stock MFD. A real
+                // SYSMSG POR/WDT in this same frame must still be examined
+                // after a failed mailbox response, rather than discarded.
+                B2lMaxCancelOpcodesLocked(Context, Status);
             }
         }
         // Original nested order: APCMD, SYSMSG, then MUIC/CC/PD. A status

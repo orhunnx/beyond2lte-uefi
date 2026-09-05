@@ -15,6 +15,7 @@ main=(DIR/'b2lmax77705.c').read_text()
 irq=(DIR/'b2lmax77705_irq.c').read_text().replace('#include "b2lmax77705.h"','')
 pd=(DIR/'b2lmax77705_pd.c').read_text().replace('#include "b2lmax77705.h"','')
 sysmsg=(DIR/'b2lmax77705_sysmsg.c').read_text().replace('#include "b2lmax77705.h"','')
+control=(DIR/'b2lmax77705_control.c').read_text().replace('#include "b2lmax77705.h"','')
 def function(name):
     pos=main.index(name+'(');start=main.rfind('\n\n',0,pos)+2
     brace=main.index('{',pos);end=brace+1;depth=1
@@ -86,7 +87,10 @@ static NTSTATUS otg_error;
 static UCHAR muic_actual;
 static int muic_bad_read, trace_count;
 static char trace[1024];
-static NTSTATUS read_error, write_error, opcode_write_error, snap_error, normalize_status;
+static NTSTATUS read_error, write_error, opcode_write_error, snap_error;
+static unsigned reset_writes, trim_writes, delay_100ms;
+static UCHAR reset_irq;
+static int reset_fail_stage, control3_bad, cc_bad;
 static int drop_irq, wrong_reply, stale_wakes, probe_test;
 static UCHAR sys_reads[8];
 static int sys_read_count, sys_read_length, sys_read_fail, afc_step, afc_fail, trace_sysmsg;
@@ -112,6 +116,13 @@ VOID B2lMaxResetPdConnectionLocked(PB2L_MAX_CONTEXT);
 VOID B2lMaxCancelPdRecoveryLocked(PB2L_MAX_CONTEXT,NTSTATUS);
 VOID B2lMaxRetirePdRequestLocked(PB2L_MAX_CONTEXT,PB2L_MAX_PD_REQUEST,NTSTATUS);
 VOID B2lMaxHandleSysmsgLocked(PB2L_MAX_CONTEXT);
+NTSTATUS B2lMaxQueueControlLocked(PB2L_MAX_CONTEXT,UCHAR);
+VOID B2lMaxRetireControlLocked(PB2L_MAX_CONTEXT,PB2L_MAX_CONTROL_REQUEST,NTSTATUS);
+NTSTATUS B2lMaxRecoverControlsLocked(PB2L_MAX_CONTEXT);
+NTSTATUS B2lMaxResetUsbcLocked(PB2L_MAX_CONTEXT,BOOLEAN);
+NTSTATUS B2lMaxSetGrlLocked(PB2L_MAX_CONTEXT);
+NTSTATUS B2lMaxWriteUsbcMasks(PB2L_MAX_CONTEXT,UCHAR,UCHAR,UCHAR,UCHAR);
+static VOID B2lMaxDelayMicroseconds(ULONG us) { assert(held && us==100000);++delay_100ms;ticks+=us*10ULL; }
 static NTSTATUS B2lMaxReapplyMuicLocked(PB2L_MAX_CONTEXT,UCHAR);
 static PB2L_MAX_CONTEXT B2lMaxGetContext(WDFDEVICE d) { assert(d==current); return current; }
 static WDFDEVICE WdfInterruptGetDevice(WDFINTERRUPT i) { assert(i==current); return current; }
@@ -131,6 +142,10 @@ static NTSTATUS B2lMaxReadByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v) {
     if(a==0x25 && r==0x0d) trace[trace_count++]='P';
     if(a==0x25 && r==0x0c) trace[trace_count++]='S';
     if(a==0x66 && r==0x22) *v=top;
+    else if(a==0x25 && r==0x02) {
+        if(reset_fail_stage==5)return STATUS_IO_TIMEOUT;
+        *v=reset_irq;reset_irq=0;
+    }
     else if(a==0x25 && r==0x07) {
         if(trace_sysmsg)trace[trace_count++]='Y';
         ++sys_read_count;
@@ -153,10 +168,13 @@ static NTSTATUS B2lMaxReadBlock(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v,ULON
         v[0]=wrong_reply ? reply_opcode : last_opcode;
         trace[trace_count++]='A';return 0;
     }
+    if(last_opcode==0x70) {assert(n==3);v[0]=wrong_reply ? reply_opcode : last_opcode;v[1]=0x12;v[2]=0x34;trace[trace_count++]='A';return 0;}
     assert(n<=2);
     trace[trace_count++]='A';
     v[0]=wrong_reply ? reply_opcode : last_opcode;
     if(n==2) v[1]=(last_opcode==0x0b || last_opcode==0x0c) ? 0x1f : 0x64;
+    if(last_opcode==0x0b && cc_bad) v[1]=0;
+    if(last_opcode==0x1c && n==2) v[1]=control3_bad ? 0x66 : 0x64;
     if(last_opcode==0x05 && n==2) v[1]=muic_bad_read ? 0x11 : muic_actual;
     return 0;
 }
@@ -177,12 +195,17 @@ static NTSTATUS B2lMaxWriteByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR v) {
         else { assert(v==4 || v==0);trace[trace_count++]=v ? '+' : '-'; }
         if(afc_step==afc_fail)return STATUS_IO_TIMEOUT;
     }
+    if(a==0x25 && r==0x80) { assert(v==0xf);++reset_writes; if(reset_fail_stage==3)return STATUS_IO_TIMEOUT;raw[0]=0; }
+    if(a==0x62 && r==0x1f) { assert(v==4);++trim_writes; if(reset_fail_stage==9)return STATUS_IO_TIMEOUT; }
     if(write_error) return write_error;
     reg_values[a][r]=v;
     if(a==0x25 && r==0x41) { assert(v==0); raw[0]|=0x80; top|=8; }
     return 0;
 }
 static NTSTATUS B2lMaxUpdateByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR value,UCHAR mask,UCHAR *back) {
+    if(reset_fail_stage==2 && a==0x66 && r==0x23 && value==8)return STATUS_IO_TIMEOUT;
+    if(reset_fail_stage==4 && a==0x25 && r==0x0f)return STATUS_IO_TIMEOUT;
+    if(reset_fail_stage==7 && a==0x66 && r==0x23 && value==0)return STATUS_IO_TIMEOUT;
     UCHAR old; NTSTATUS status=B2lMaxReadByte(c,a,r,&old); if(status) return status;
     status=B2lMaxWriteByte(c,a,r,(UCHAR)((old & ~mask)|(value & mask)));if(status) return status;
     *back=reg_values[a][r];
@@ -194,11 +217,6 @@ static NTSTATUS B2lMaxUpdateByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR value,
         assert(reg_values[0x25][0x10]==0x1c && reg_values[0x25][0x11]==0xff);
     }
     return 0;
-}
-static NTSTATUS B2lMaxNormalizeCcOpen(PB2L_MAX_CONTEXT c) {
-    assert(c==current && !held && c->OpcodeHead==NULL);
-    assert(responses==commands);
-    return normalize_status;
 }
 static NTSTATUS KeWaitForSingleObject(KEVENT *event,int r,int m,int alert,LARGE_INTEGER *t) {
     assert(!held && r==0 && m==0 && !alert && t->QuadPart<0);
@@ -233,14 +251,15 @@ for name in ('B2lMaxSetDiagnosticLocked','B2lMaxReadCcStatus','B2lMaxEvaluateCon
 # Match the forward prototype linkage of the real callback in this TU.
 h+=irq.replace('BOOLEAN\nB2lMaxEvtMaxInterruptIsr','static BOOLEAN\nB2lMaxEvtMaxInterruptIsr')
 h+='\n'+pd
-h+='\n'+sysmsg
+h+='\n'+sysmsg+'\n'+control
 h+='\n'+function('B2lMaxWriteUsbcMasks')+'\n'+function('B2lMaxInitializeUsbc')
 h+='\n'+function('B2lMaxRecordIrqFrame')
 h+=r'''
 static void reset(PB2L_MAX_CONTEXT c) {
     memset(c,0,sizeof(*c)); memset(regs,0xa5,sizeof(regs)); memset(reg_values,0,sizeof(reg_values));
     memset(raw,0,4); current=c; ticks=1234; held=queued=r2c_reads=responses=commands=cancels=0;
-    mmio_ack=0; read_error=write_error=opcode_write_error=snap_error=normalize_status=0;
+    mmio_ack=0; read_error=write_error=opcode_write_error=snap_error=0;
+    reset_writes=trim_writes=delay_100ms=0;reset_irq=0;reset_fail_stage=control3_bad=cc_bad=0;
     drop_irq=wrong_reply=stale_wakes=probe_test=0; last_opcode=last_payload=reply_opcode=0;
     sys_read_count=sys_read_length=sys_read_fail=afc_step=afc_fail=trace_sysmsg=retry_while_waiting=0;
     memset(sys_reads,0,sizeof(sys_reads));
@@ -260,6 +279,10 @@ static BOOLEAN deliver(void) {
 static void queue(PB2L_MAX_CONTEXT c,PB2L_MAX_OPCODE_REQUEST r,UCHAR op) {
     B2lMaxInitOpcodeRequest(r,op,0,0,1);
     WdfWaitLockAcquire(c->MfdLock,NULL);assert(B2lMaxQueueOpcodeLocked(c,r)==0);WdfWaitLockRelease(c->MfdLock);
+}
+static void finish_controls(void) {
+    for(unsigned n=0; current->OpcodeHead && n<64; ++n) assert(deliver());
+    assert(!current->OpcodeHead);
 }
 int main(void) {
     B2L_MAX_CONTEXT c; B2L_MAX_OPCODE_REQUEST a,b,d; ULONG i,other;
@@ -323,28 +346,31 @@ int main(void) {
     assert(a.Complete && a.Status==STATUS_DEVICE_NOT_READY && !c.OpcodeHead && !c.MfdReady);
     assert(!deliver());
     reset(&c);probe_test=1;c.MfdReady=FALSE;B2lMaxGpioMask(&c);
-    assert(B2lMaxInitializeUsbc(&c)==0);
-    assert(commands==4 && responses==4 && c.UsbcInitialized && c.CcControlConfigured);
+    assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);
+    assert(commands==1 && responses==0 && c.ProbeStarted && !c.UsbcInitialized);
+    finish_controls();
+    assert(commands==6 && responses==6 && c.UsbcInitialized && c.CcControlConfigured);
     assert(written_op[0]==0x57 && written_data[0]==1 && written_op[1]==0x54 && written_data[1]==0);
     assert(written_op[2]==0x0c && written_data[2]==0x1f && written_op[3]==0x0b);
     assert(reg_values[0x66][0x23]==6 && reg_values[0x25][0x10]==0x1c && reg_values[0x25][0x11]==0xff);
     assert(!c.UsbcRuntimeMasksConfigured && c.OpcodeHead==NULL);
-    reset(&c);probe_test=1;drop_irq=1;assert(B2lMaxInitializeUsbc(&c)==STATUS_IO_TIMEOUT);
+    reset(&c);probe_test=1;assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);
+    ticks=timer_due;B2lMaxEvtOpcodeDeadline(&c);assert(c.ControlStatus==STATUS_IO_TIMEOUT);
     assert(c.OpcodeHead==NULL && c.OpcodeTail==NULL && !c.AutoIbusConfigured && !c.UsbcInitialized);
     reset(&c);probe_test=1;c.MfdReady=FALSE;B2lMaxGpioMask(&c);
     reg_values[0x25][0x0a]=1;reg_values[0x25][0x0d]=0x80;
-    assert(B2lMaxInitializeUsbc(&c)==0 && c.UsbcInitialized);
-    assert(commands==6 && responses==6 && c.MuicPathVerified && c.MuicControl1==9);
+    assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);finish_controls();assert(c.UsbcInitialized);
+    assert(commands==8 && responses==8 && c.MuicPathVerified && c.MuicControl1==9);
     assert(written_op[0]==0x57 && written_op[1]==6 && written_op[2]==5 && written_op[3]==0x54);
     assert(c.PowerRole==1 && c.DataRole==1 && c.CcSourceEventCount==0);
     reset(&c);probe_test=1;c.MfdReady=FALSE;B2lMaxGpioMask(&c);
     reg_values[0x25][0x0a]=1;reg_values[0x25][0x0d]=0;
-    assert(B2lMaxInitializeUsbc(&c)==0 && c.UsbcInitialized && c.MfdFault==0);
-    assert(c.DataRoleStatus==STATUS_SUCCESS && commands==4 && c.MuicType==B2L_MAX_MUIC_NONE);
+    assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);finish_controls();assert(c.UsbcInitialized && c.MfdFault==0);
+    assert(c.DataRoleStatus==STATUS_SUCCESS && commands==6 && c.MuicType==B2L_MAX_MUIC_NONE);
     reset(&c);probe_test=1;c.MfdReady=FALSE;B2lMaxGpioMask(&c);
     reg_values[0x25][0x0a]=1;reg_values[0x25][0x0b]=2;reg_values[0x25][0x0d]=0x80;
-    assert(B2lMaxInitializeUsbc(&c)==0 && c.UsbcInitialized && c.MfdFault==0);
-    assert(commands==4 && c.WaterDetected && c.DataRoleStatus==STATUS_DEVICE_NOT_READY);
+    assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);finish_controls();assert(c.UsbcInitialized && c.MfdFault==0);
+    assert(commands==6 && c.WaterDetected && c.DataRoleStatus==STATUS_DEVICE_NOT_READY);
     // No publication worker runs below. BYP/CC/PD must still execute while
     // a previous MUIC command awaits APCMD, in the real passive ISR.
     reset(&c);c.PowerRoleValid=c.DataRoleValid=TRUE;c.PowerRole=2;c.DataRole=1;
@@ -445,7 +471,7 @@ int main(void) {
     // A live USB cable before CC/PD probe queues its path BEFORE AUTOIBUS.
     reset(&c);c.MfdReady=FALSE;B2lMaxGpioMask(&c);
     reg_values[0x25][8]=0x81;reg_values[0x25][0x0a]=1;reg_values[0x25][0x0d]=7;
-    assert(B2lMaxInitializeUsbc(&c)==0 && commands==6 && responses==6);
+    assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);finish_controls();assert(commands==8 && responses==8);
     assert(written_op[0]==6 && written_op[1]==5 && written_op[2]==0x57);
     assert(written_op[3]==0x54 && written_op[4]==0x0c && written_op[5]==0x0b);
     assert(c.MuicType==B2L_MAX_MUIC_USB && c.MuicControl1==9 && c.MuicPathVerified);
@@ -639,18 +665,151 @@ int main(void) {
     // Original GRL/VDM exceptions must never be blindly retransmitted.
     for(i=0;i<2;++i) {
         reset(&c);queue(&c,&a,i ? 0x70 : 0x48);raw[0]=0x40;reg_values[0x25][7]=0x33;
-        assert(deliver() && commands==1 && !a.Complete && c.SysmsgStatus==STATUS_NOT_SUPPORTED);
-        assert(c.SysmsgUnhandled==1 && !c.SysmsgRetries && afc_step==4);
+        assert(deliver() && commands==1 && a.Complete && a.Status==STATUS_CANCELLED);
+        assert(c.SysmsgStatus==STATUS_CANCELLED && !c.SysmsgUnhandled && !c.SysmsgRetries && afc_step==4 && !c.MfdFault);
     }
     // A real SYSMSG retry during a sleep moves the deadline, not its completion.
     reset(&c);queue(&c,&a,0x1c);retry_while_waiting=1;
     assert(B2lMaxWaitOpcode(&c,&a)==0 && c.SysmsgRetries==1 && c.OpcodeCompletions==1);
     assert(commands==2 && responses==1 && !c.MfdFault);
-    // Unsupported reset/GRL events remain visible; this is not a reset substitute.
-    reset(&c);raw[0]=0x40;reg_values[0x25][7]=3;
-    assert(deliver() && c.SysmsgValid && c.SysmsgValue==3 && c.SysmsgStatus==STATUS_NOT_SUPPORTED);
-    assert(c.SysmsgUnhandled==1 && !commands && !afc_step);
-    puts("MAX77705 IRQ/queue/MUIC/PD/SYSMSG retry and AFC cleanup: PASS (hardware delivery unverified)");
+    // Reset at each probe boundary retires all old durable requests. No
+    // timeout/probe retry reinitializes the bus or fabricates the lost replies.
+    for(i=0;i<=6;++i) {
+        reset(&c);assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);
+        for(unsigned n=0;n<i;++n) assert(deliver());
+        unsigned before=commands;
+        raw[0]=0x40;reg_values[0x25][7]=5;
+        assert(deliver() && c.PorResets==1 && c.ResetStatus==0 && c.ResetStage==8);
+        assert(c.ProbeStarted && !c.UsbcInitialized && !c.MfdFault && reset_writes==1 && delay_100ms==1);
+        assert(c.ControlStatus==STATUS_PENDING && c.ControlPending==2);
+        assert(c.RecoverMask==(i==0 ? 3U : i==1 ? 1U : 0U));
+        assert(written_op[before]==0x54 && written_data[before]==0 && !otg_off);
+        assert(reg_values[0x25][0xe]==4 && reg_values[0x25][0xf]==0x20);
+        assert(reg_values[0x25][0x10]==0 && reg_values[0x25][0x11]==0xf0);
+        assert(!(reg_values[0x66][0x23]&8));
+        finish_controls();
+        assert(c.UsbcInitialized && !c.ControlPending && c.ControlStatus==0 && !c.RecoverMask);
+        assert(written_op[before+1]==0x0c && written_data[before+1]==0x1f);
+        assert(commands==before+(i==0 ? 4U : i==1 ? 3U : 2U));
+        assert(!c.AutoIbusConfigured && !c.CcControlConfigured && !c.CcOpenNormalized);
+        for(unsigned n=0;n<B2L_MAX_CONTROL_SLOTS;++n) assert(!c.ControlRequests[n].InUse);
+        // No initial-only 57/0b/1c command is synthesized by reset recovery.
+        for(unsigned n=before;n<commands;++n) assert(written_op[n]==0x54 || written_op[n]==0x0c);
+    }
+    // WDT differs from POR: only a known real SOURCE powers VBUS off.
+    for(i=0;i<3;++i) {
+        reset(&c);c.PowerRoleValid=(i!=0);c.PowerRole=i==2 ? 2 : 1;c.OtgEnabled=1;
+        reg_values[0x25][7]=3;raw[0]=0x40;assert(deliver());
+        assert(otg_off==(i==2) && c.WatchdogResets==1 && !c.PorResets);
+        assert(!c.DataRoleValid && !connector_notifications);finish_controls();
+    }
+    // Each failed stage preserves its real failure and stops further init.
+    for(i=2;i<=7;++i) {
+        if(i==6)continue;
+        reset(&c);queue(&c,&a,0x1c);reset_fail_stage=(int)i;
+        reg_values[0x25][7]=5;raw[0]=0x40;assert(deliver());
+        assert(c.ResetStatus==STATUS_IO_TIMEOUT && c.ResetStage==i && c.MfdFault==STATUS_IO_TIMEOUT);
+        assert(!c.OpcodeHead && !c.ControlPending && a.Complete && a.Status<0);
+        assert(!c.UsbcInitialized && (regs[0x904/4]&(1U<<6)));
+        assert(!trim_writes && reset_writes==(i>=3));
+    }
+    reset(&c);c.PowerRoleValid=1;c.PowerRole=2;otg_error=STATUS_IO_TIMEOUT;
+    reg_values[0x25][7]=3;raw[0]=0x40;assert(deliver());
+    assert(c.ResetStage==1 && c.ResetStatus==STATUS_IO_TIMEOUT && !reset_writes);
+    reset(&c);reg_values[0x25][7]=5;raw[0]=0x40;opcode_write_error=STATUS_IO_TIMEOUT;assert(deliver());
+    assert(c.ResetStage==6 && c.ResetStatus==STATUS_IO_TIMEOUT && !c.ControlPending && !c.OpcodeHead);
+    // Saved reset UIC is actual read-to-clear data. CHG-only IRQ must not
+    // consume it; the next real USBC IRQ merges it without changing Raw[].
+    reset(&c);reset_irq=0x62;reg_values[0x25][7]=5;raw[0]=0x40;assert(deliver());
+    assert(c.ResetUicRaw==0x62 && c.SavedUic==0x22 && !c.LastUicReplay && c.UicReplayCount==0);
+    top=1;assert(deliver() && c.SavedUic==0x22);
+    top=8;raw[0]=0x80;assert(deliver());
+    assert(!c.SavedUic && c.LastUicReplay==0x22 && c.UicReplayCount==1);
+    assert(c.IrqFrames[2].Raw[0]==0x80 && c.IrqFrames[2].Active[0]==0xa2 && c.IrqFrames[2].UicReplay==0x22);
+    assert(c.SysmsgEvents==1 && c.PorResets==1);finish_controls();
+    // GRL clears software requests, preserves CC and MUIC/PD slot lifetimes,
+    // sends 70 01 / reads two bytes; trim requires the matching actual reply.
+    reset(&c);queue(&c,&a,0x1c);queue(&c,&b,0x0c);queue(&c,&d,0x54);
+    WdfWaitLockAcquire(c.MfdLock,NULL);assert(B2lMaxRequestMuicLocked(&c,9)==STATUS_PENDING);WdfWaitLockRelease(c.MfdLock);
+    c.PowerRoleValid=1;c.PowerRole=2;raw[0]=0x40;reg_values[0x25][7]=0x64;
+    assert(deliver() && c.GrlRequests==1 && c.GrlStatus==STATUS_PENDING && !trim_writes && !reset_writes);
+    assert(a.Complete && b.Complete && d.Complete && a.Status==STATUS_CANCELLED && b.Status==STATUS_CANCELLED);
+    assert(!c.MuicOutstanding && !c.MuicPathVerified && c.MuicStatus==STATUS_CANCELLED);
+    assert(!connector_notifications && c.PowerRole==2 && !c.MfdFault && c.RecoverMask==3);
+    assert(commands==2 && written_op[1]==0x70 && written_data[1]==1 && !responses);
+    assert(deliver() && trim_writes==1 && delay_100ms==1 && c.GrlStatus==0);
+    assert(written_op[2]==0x0c && !c.RecoverMask && c.ControlPending==2);
+    finish_controls();assert(written_op[3]==0x54 && c.UsbcInitialized && !c.ControlPending);
+    // Lost/mismatched response or failed trim cannot turn into GRL success.
+    for(i=0;i<3;++i) {
+        reset(&c);raw[0]=0x40;reg_values[0x25][7]=0x64;assert(deliver());
+        if(i==0) {ticks=timer_due;B2lMaxEvtOpcodeDeadline(&c);}
+        if(i==1) {wrong_reply=1;reply_opcode=0x54;assert(deliver());}
+        if(i==2) {reset_fail_stage=9;assert(deliver());}
+        assert(c.GrlStatus<0 && c.ControlStatus<0 && c.MfdFault<0);
+        assert(trim_writes==(i==2) && !c.ControlPending && !c.OpcodeHead && !c.UsbcInitialized);
+    }
+    // GRL APCMD_FAIL dequeues only its response. Successor stays unsent;
+    // its next APCMD sends it, a later APCMD reads its actual reply.
+    reset(&c);raw[0]=0x40;reg_values[0x25][7]=0x64;assert(deliver());queue(&c,&a,0x1c);
+    raw[0]=0x40;reg_values[0x25][7]=0x33;assert(deliver());
+    assert(c.GrlStatus==STATUS_CANCELLED && !trim_writes && commands==1 && !responses);
+    assert(c.OpcodeHead==&a && !a.SentAt && !c.MfdFault && !timer_due);
+    B2lMaxEvtOpcodeDeadline(&c);assert(commands==1 && !responses);
+    raw[0]=0x80;assert(deliver() && commands==2 && !responses && !a.Complete);
+    assert(deliver() && a.Complete && responses==1 && !trim_writes);
+    // Repeated reset/GRL cancels durable recovery slots too, with no old
+    // continuation firing, double retirement, or leaked queue links.
+    reset(&c);raw[0]=0x40;reg_values[0x25][7]=5;assert(deliver());
+    raw[0]=0x40;reg_values[0x25][7]=0x64;assert(deliver());
+    raw[0]=0x40;reg_values[0x25][7]=3;assert(deliver());finish_controls();
+    assert(c.PorResets==1 && c.WatchdogResets==1 && c.GrlRequests==1 && c.GrlStatus==STATUS_CANCELLED);
+    assert(c.UsbcInitialized && !c.ControlPending && !trim_writes && !c.MfdFault);
+    // Actual CONTROL3 read drives the optional LockErrorEn write. An
+    // unchanged sticky bit fails verification, never a fabricated readback.
+    reset(&c);control3_bad=1;assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);finish_controls();
+    assert(written_op[5]==0x1d && written_data[5]==0x64 && written_op[6]==0x1c);
+    assert(!c.CcOpenNormalized && c.ControlStatus==STATUS_DEVICE_DATA_ERROR && c.MfdFault<0);
+    reset(&c);cc_bad=1;assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);finish_controls();
+    assert(!c.CcControlConfigured && !c.UsbcInitialized && c.ControlStatus<0 && !c.ControlPending);
+    // Pending PD slots are retired too, without a synthetic PD detach or
+    // a successful PDO publication when GRL cancels their mailbox response.
+    reset(&c);c.PowerRoleValid=1;c.PowerRole=1;reg_values[0x25][0x0d]=0x10;
+    raw[2]=0x40;assert(deliver() && c.PdReadsPending==1);
+    raw[0]=0x40;reg_values[0x25][7]=0x64;assert(deliver());
+    assert(!c.PdReadsPending && !c.PdCapsValid && c.PdCapsStatus==STATUS_CANCELLED);
+    for(i=0;i<B2L_MAX_PD_SLOTS;++i) assert(!c.PdRequests[i].InUse);
+    finish_controls();
+    // Software START retains NOT_READY until a real alt-mode consumer exists.
+    reset(&c);queue(&c,&a,0x1c);queue(&c,&b,0x55);
+    raw[0]=0x40;reg_values[0x25][7]=0x64;assert(deliver());
+    assert(c.RecoverMask==4);finish_controls();
+    assert(!c.AltModeStartRequested && c.AltModeStatus==STATUS_DEVICE_NOT_READY && c.UsbcInitialized);
+    assert(commands==2 && written_op[1]==0x70);
+    // Shutdown can drain the actual sent response, but it must not start
+    // CONTROL3/recover continuations or execute delayed GRL policy writes.
+    reset(&c);raw[0]=0x40;reg_values[0x25][7]=0x64;assert(deliver());c.PolicyEnabled=FALSE;
+    assert(deliver() && c.GrlStatus==STATUS_CANCELLED && !trim_writes && !c.ControlPending);
+    reset(&c);control3_bad=1;assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);c.PolicyEnabled=FALSE;
+    finish_controls();assert(commands==5 && c.ControlStatus==STATUS_CANCELLED && !c.CcOpenNormalized);
+    // A bus error in AFC is not hidden by the earlier GRL response discard.
+    reset(&c);raw[0]=0x40;reg_values[0x25][7]=0x64;assert(deliver());
+    raw[0]=0x40;reg_values[0x25][7]=0x33;afc_fail=3;assert(deliver());
+    assert(c.GrlStatus==STATUS_CANCELLED && c.SysmsgStatus==STATUS_IO_TIMEOUT && c.MfdFault==STATUS_IO_TIMEOUT);
+    // A failed APCMD must not hide a genuine POR in the same raw frame.
+    // Fault history survives; only the actual reset sequence admits new work.
+    reset(&c);queue(&c,&a,0x1c);queue(&c,&b,0x05);
+    raw[0]=0xc0;reg_values[0x25][7]=5;wrong_reply=1;reply_opcode=0x54;assert(deliver());
+    assert(a.Complete && a.Status==STATUS_DEVICE_PROTOCOL_ERROR && b.Complete);
+    assert(c.ResetPriorFault==STATUS_DEVICE_PROTOCOL_ERROR && c.ResetStatus==0 && c.ResetStage==8);
+    assert(!c.MfdFault && c.ControlStatus==STATUS_PENDING && commands==2 && written_op[1]==0x54);
+    wrong_reply=0;finish_controls();assert(c.UsbcInitialized && c.ControlStatus==0);
+    // A failed reset never clears that earlier error as if recovery succeeded.
+    reset(&c);queue(&c,&a,0x1c);raw[0]=0xc0;reg_values[0x25][7]=5;
+    wrong_reply=1;reply_opcode=0x54;reset_fail_stage=4;assert(deliver());
+    assert(c.ResetPriorFault==STATUS_DEVICE_PROTOCOL_ERROR && c.ResetStatus==STATUS_IO_TIMEOUT);
+    assert(c.MfdFault==STATUS_IO_TIMEOUT && !c.ControlPending && !c.OpcodeHead && !c.UsbcInitialized);
+    puts("MAX77705 IRQ/queue/MUIC/PD/SYSMSG reset/GRL/recovery: PASS (hardware delivery unverified)");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='b2l-max-irq-test-') as directory:

@@ -54,6 +54,7 @@
 #define B2L_MAX_STAGE_PD_CAPS        0x6EUL
 #define B2L_MAX_STAGE_SYSMSG         0x6FUL
 #define B2L_MAX_STAGE_READY          0x70UL
+#define B2L_MAX_STAGE_CONTROL        0x71UL
 #define B2L_MAX_STAGE_GPIO_IRQ       0x24UL
 #define B2L_MAX_STAGE_MFD_IRQ        0x34UL
 
@@ -85,12 +86,13 @@ typedef struct _B2L_MAX_CONNECTOR_EVENT {
     UCHAR DataRole, PowerRole, CcStatus0;
 } B2L_MAX_CONNECTOR_EVENT;
 
-// Requests belong to a waiting probe/shutdown caller or a fixed MUIC slot.
+// Requests belong to a waiting shutdown caller or a durable MUIC/PD/control slot.
 // Queue ownership and slot reuse are protected by the passive ISR MfdLock.
 typedef struct _B2L_MAX_OPCODE_REQUEST {
     struct _B2L_MAX_OPCODE_REQUEST *Next;
     struct _B2L_MAX_MUIC_PAIR *MuicPair;
     struct _B2L_MAX_PD_REQUEST *PdRequest;
+    struct _B2L_MAX_CONTROL_REQUEST *ControlRequest;
     KEVENT Completion;
     ULONGLONG SentAt;
     NTSTATUS Status;
@@ -98,6 +100,21 @@ typedef struct _B2L_MAX_OPCODE_REQUEST {
     UCHAR Opcode, WriteLength, ReadLength, WriteData, ResponseData;
     UCHAR Response[33]; // opcode plus up to 32 bytes, MAX77705 mailbox limit
 } B2L_MAX_OPCODE_REQUEST, *PB2L_MAX_OPCODE_REQUEST;
+
+#define B2L_MAX_CONTROL_SLOTS 16UL
+#define B2L_MAX_CONTROL_AUTOIBUS 1U
+#define B2L_MAX_CONTROL_AUTO_VBUS 2U
+#define B2L_MAX_CONTROL_CC_WRITE 3U
+#define B2L_MAX_CONTROL_CC_READ 4U
+#define B2L_MAX_CONTROL_OPEN_READ 5U
+#define B2L_MAX_CONTROL_OPEN_WRITE 6U
+#define B2L_MAX_CONTROL_OPEN_VERIFY 7U
+#define B2L_MAX_CONTROL_GRL 8U
+typedef struct _B2L_MAX_CONTROL_REQUEST {
+    B2L_MAX_OPCODE_REQUEST Request;
+    BOOLEAN InUse;
+    UCHAR Kind;
+} B2L_MAX_CONTROL_REQUEST, *PB2L_MAX_CONTROL_REQUEST;
 
 #define B2L_MAX_PD_SLOTS 16UL
 typedef struct _B2L_MAX_PD_REQUEST {
@@ -121,6 +138,7 @@ typedef struct _B2L_MAX_IRQ_FRAME {
     NTSTATUS SnapshotStatus;
     BOOLEAN SnapshotAttempted;
     BOOLEAN DetachRecheck;
+    UCHAR UicReplay; // actual UIC_INT captured during reset; never changes Raw[]
 } B2L_MAX_IRQ_FRAME, *PB2L_MAX_IRQ_FRAME;
 
 typedef struct _B2L_MAX_CONTEXT {
@@ -147,6 +165,12 @@ typedef struct _B2L_MAX_CONTEXT {
     ULONG SysmsgEvents, SysmsgMismatches, SysmsgUnhandled, SysmsgRetries;
     ULONG AfcClockAttempts;
     NTSTATUS SysmsgStatus, SysmsgRetryStatus, AfcClockStatus, AfcRelockStatus;
+    B2L_MAX_CONTROL_REQUEST ControlRequests[B2L_MAX_CONTROL_SLOTS];
+    BOOLEAN ProbeStarted, AltModeStartRequested;
+    ULONG ControlPending, QueueClears, QueueDiscarded, RecoverMask;
+    ULONG WatchdogResets, PorResets, GrlRequests, UicReplayCount;
+    UCHAR ResetStage, ResetUicRaw, SavedUic, LastUicReplay;
+    NTSTATUS ControlStatus, ResetStatus, ResetPriorFault, GrlStatus, AltModeStatus;
     WDFTIMER OpcodeDeadline;
     B2L_MAX_MUIC_PAIR MuicPairs[B2L_MAX_MUIC_SLOTS];
     ULONGLONG MuicGeneration;
@@ -358,5 +382,17 @@ VOID B2lMaxCancelPdRecoveryLocked(PB2L_MAX_CONTEXT Context, NTSTATUS Status);
 EVT_WDF_TIMER B2lMaxEvtPdRecoveryTimer;
 NTSTATUS B2lMaxRetryOpcodeLocked(PB2L_MAX_CONTEXT Context);
 VOID B2lMaxHandleSysmsgLocked(PB2L_MAX_CONTEXT Context);
+NTSTATUS B2lMaxUpdateByte(PB2L_MAX_CONTEXT Context, UCHAR Address, UCHAR Register,
+    UCHAR Value, UCHAR Mask, UCHAR *ReadBack);
+VOID B2lMaxDelayMicroseconds(ULONG Microseconds);
+NTSTATUS B2lMaxWriteUsbcMasks(PB2L_MAX_CONTEXT Context, UCHAR UicMask,
+    UCHAR CcMask, UCHAR PdMask, UCHAR VdmMask);
+VOID B2lMaxClearOpcodesLocked(PB2L_MAX_CONTEXT Context);
+NTSTATUS B2lMaxQueueControlLocked(PB2L_MAX_CONTEXT Context, UCHAR Kind);
+VOID B2lMaxRetireControlLocked(PB2L_MAX_CONTEXT Context,
+    PB2L_MAX_CONTROL_REQUEST Control, NTSTATUS Status);
+NTSTATUS B2lMaxRecoverControlsLocked(PB2L_MAX_CONTEXT Context);
+NTSTATUS B2lMaxResetUsbcLocked(PB2L_MAX_CONTEXT Context, BOOLEAN Watchdog);
+NTSTATUS B2lMaxSetGrlLocked(PB2L_MAX_CONTEXT Context);
 
 #endif

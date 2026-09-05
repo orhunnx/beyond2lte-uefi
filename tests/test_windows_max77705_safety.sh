@@ -134,14 +134,14 @@ grep -q 'MAX77705_USBC_INT_APCMDRES' "$MAIN"
 grep -Fq 'Response[0] != Request->Opcode' "$IRQ"
 grep -Fq 'B2lMaxQueueOpcodeLocked' "$MAIN"
 grep -Fq 'B2lMaxWaitOpcode' "$MAIN"
-grep -Fq 'B2lMaxNormalizeCcOpen' "$MAIN"
+grep -Fq 'B2L_MAX_CONTROL_OPEN_READ' "$MAIN"
 grep -Fq 'B2lMaxReadCcStatus' "$MAIN"
 grep -Fq 'B2lMaxSetMuicPath' "$MAIN"
 grep -Fq 'Context->MuicControl1 != Path' "$MAIN"
-grep -Fq 'ReadBack != MAX77705_CCCTRL1_BEYOND2LTE' "$MAIN"
+grep -Fq 'Context->CcControlConfigured = (BOOLEAN)(Data == 0x1FU)' "$WIN/b2lmax77705_control.c"
 grep -Fq 'InitialDetect && (CcState != B2L_MAX_CC_SINK)' "$MAIN"
 grep -Fq 'Frame->Active[1] & MAX77705_CC_INT_STATE' "$MAIN"
-grep -q 'DriverVer=09/05/2026,0.1.0.37' "$INF"
+grep -q 'DriverVer=09/05/2026,0.1.0.38' "$INF"
 # Probe ordering, response ownership, cancellation and masks execute in C
 # fixtures (test_max77705_irq.py), rather than line-order approximations.
 if rg -n 'B2lMaxReadAndClearUsbcInterrupts|B2lMaxConfigureRuntimeUsbcMasks|B2lMaxSendOpcode' "$MAIN"; then
@@ -156,8 +156,8 @@ grep -Fq 'B2lMaxHandleBypass' "$MAIN"
 grep -Fq 'Context->PowerRole != B2L_MAX_CC_SOURCE' "$MAIN"
 grep -Fq 'Frame.DetachRecheck' "$IRQ"
 test "$(rg -c 'Status = B2lMaxUnlockCharger\(Context\);' "$MAIN")" -ge 3
-if rg -ni 'firmware.*(write|update|flash)|SW_RESET|USBC_RESET' "$MAIN" "$HDR"; then
-  echo 'HATA: MAX77705 Windows yolu firmware/reset politikasina genislemis' >&2
+if rg -ni 'firmware.*(update|flash)' "$MAIN" "$HDR"; then
+  echo 'HATA: MAX77705 Windows yolu firmware guncellemesine genislemis' >&2
   exit 1
 fi
 

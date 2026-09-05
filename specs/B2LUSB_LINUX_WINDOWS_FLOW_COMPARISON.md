@@ -1,5 +1,168 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.38` — asenkron başlangıç, POR/WDT ve GRL kurtarması
+
+MAX `0.1.0.38`, parent/host/function `0.1.0.19`, ABI `7`. Kaynak eksikleri
+flaş beklenmeden kapatılmaya devam edildi. **Bu bölüm cihazda çalışmış USB
+veya yeni telefon ölçümü değildir.** `.28` fotoğraflarındaki `C00000B5`
+status okuma hataları, kendi başına reset veya ForceError gerekçesi değildir.
+Yeni reset yolu yalnız gerçek SYSMSG kesmesinin üç uyumlu canlı okumasından
+çıkan `03` veya `05` için çalışır. GSIV114 HSI2C ve GPA1-6/GSIV51 MAX
+kesmeleri korunur; bir timer attach, IRQ veya başarılı opcode yanıtı üretmez.
+
+### Aynı cihazın kaynağında izlenen sıra
+
+Referans, `.37`de gerçek HWC1 IKCONFIG'iyle GRL/AFC dalı doğrulanan
+`corsicanu/android_kernel_samsung_universal9820` sabit
+`55f042627bb7030c93550faafa117674d32b21d1` commit'idir:
+
+- [USBC başlangıç ve SYSMSG işleyicisi](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/ccic/max77705_usbc.c):
+  `max77705_usbc_probe`, `max77705_init_opcode`, `max77705_reset_ic`,
+  `max77705_usbc_check_sysmsg`, `max77705_usbc_clear_queue`,
+  `max77705_recover_opcode`, `max77705_set_forcetrimi` birlikte izlendi.
+- [MFD kesme dağıtıcısı](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/mfd/max77705-irq.c):
+  PASS2+ dalındaki `enable_nested_irq/usbc_irq` tüketimi doğrulandı. D2s ortak
+  kaynağında görülmeyen bu beyond kurtarma ayrıntısı atlanmadı.
+- [Alt mod hazır olma koşulu](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/ccic/max77705_alternate.c):
+  `check_is_driver_loaded`, `ALTERNATE_MODE_READY`, `is_first_booting` ve
+  START ayrı koşullardır. START isteği tek başına opcode `55` göndermez.
+
+| Gerçek olay / aşama | Stok sıra ve Windows karşılığı |
+|---|---|
+| `SYSMSG=03`, WDT | Gerçek güç rolü SOURCE ise VBUS off; ardından aşağıdaki ortak reset sırası |
+| `SYSMSG=05`, POR | Ortak reset; WDT'nin koşullu VBUS-off adımı POR'a eklenmez |
+| Ortak reset | TOP `66:23` bit3 maskelenir → USBC `25:80=0f` → pasif 100 ms bekleme |
+| Reset maskeleri | USBC `0e=04, 0f=20, 10=00, 11=f0`; normal probe'un `00/20/1c/ff` maskeleriyle karıştırılmaz |
+| Reset UIC kaydı | Gerçek `25:02` okunur; tam bayt `RESET_UIC`, SYSMSG çıkarılmış `raw & bf` değeri bekleyen kayıt olarak tutulur |
+| Komutların yeniden kurulması | Yazılım kuyruğu iptal edilir → `54 00 / R1` → audio destekli kart için `0c 1f / R1` → TOP bit3 açılır |
+| `SYSMSG=64`, GRL | Yazılım kuyruğu iptal edilir → `70 01 / R2`; reset register'ı yazılmaz |
+| Gerçek GRL yanıtı | Opcode eşleşen APCMD okumasından sonra DEBUG `62:1f=04` → 100 ms; yorum satırındaki unlock/b3 yazıları eklenmez |
+| `SYSMSG=33`, GRL/VDM istisnası | `70`/`48` bekleyen yanıtı iptal edilir; retry, trim veya sonraki komut için sahte tamamlanma yapılmaz |
+
+Resetin her I2C aşaması kontrol edilir. Hata varsa sonraki init adımı
+çalıştırılmaz, eski ve yeni bağlı istekler gerçek hatayla sonlandırılır,
+GPIO normal çalışmaya dönmüş sayılmaz. WDT'nin VBUS-off hatası da reset
+başarısı olarak gizlenmez. AFC hatası, daha önceki GRL iptal sonucunun
+arkasına saklanmaz; ilk MFD aktarım hatası korunur.
+
+APCMD yanıt hatasıyla POR/WDT aynı ham kesme frame'inde geldiğinde nested
+SYSMSG işleyicisi atlanmaz. Hatalı istekler kendi hata sonucuyla emekli
+edilir; `PRIOR_FAULT` önceki MFD hatasını saklar. Yalnız gerçek reset yazısı,
+100 ms bekleme, maskeler ve reset-sonu UIC okuması başarılıysa yeni mailbox
+kullanımı açılır. Bir SYSMSG'nin görülmesi, GRL ya da timer eski hatayı
+kendiliğinden silmez. Reset başarısızsa yeni init gönderilmez.
+
+### Başlangıç ömrü ve yazılım kuyruğu düzeltmesi
+
+Önceki Windows başlangıcı stack üzerinde dört opcode isteği tutup sırasıyla
+bekliyordu. Reset bunları temizlerse dönen başlangıç hatası, yeni reset
+komutlarını da kalıcı MFD hatasıyla iptal edebiliyordu. Linux'ta normal
+probe/init komutları asenkron kuyruğa girer. `.38` bunları sürücüye ait sabit
+slotlara taşıdı: başlangıç artık `STATUS_PENDING` döner; politika işçisi
+foto/registry için uyandığında probe'u yeniden başlatmaz. `ProbeStarted`
+ile `UsbcInitialized` farklı alanlardır.
+
+Normal sıra korunur: MUIC ilk örneği → başlangıç CC/water/RID → `57 01`
+AUTOIBUS → başlangıç PD veri rolü → normal probe maskeleri → `54 00`,
+`0c 1f`, mevcut salt-okuma `0b` doğrulaması → TOP unmask → probe-sonu
+CONTROL3 isteği. Gerçek `1c` yanıtında LockErrorEn varsa yalnız bit1
+silinerek `1d` yazılır; mevcut ikinci `1c` tanı doğrulaması korunur.
+Bir yanıtın oluşturduğu devam isteği sıranın başında zaten gönderildiyse
+APCMD çıkışı aynı komutu ikinci kez göndermez.
+
+Yeni `B2lMaxClearOpcodesLocked`, stok GRL derlemesindeki **yazılım**
+queue-clear karşılığıdır. Her bağlı istemci `STATUS_CANCELLED` alır;
+MUIC çiftleri ve PDO slotları son istekleri emekli edilmeden yeniden
+kullanılmaz. Bu işlem MFD arızası, kablo detach bildirimi veya başarılı
+yanıt değildir. `70/write_length=0` firmware-clear üretilmez.
+
+Stok listede yalnız henüz gönderilmemiş `0c`, `54`, `55` yazı düğümleri
+kurtarılır. Gönderilmiş baş isteğin Linux karşılığı artık bir response
+node'dur; aynı komut recover listesine yanlışlıkla eklenmez. Sonraki gerçek
+APCMD önce mevcut yanıtı ve sıradaki komutu işler; sonra recover listesi
+opcode sırasıyla eklenir: `0c`, `54`, koşullu alt mod isteği. Örneğin probe
+`57` yanıtını beklerken reset gelirse başlangıçtaki bekleyen `54/0c`
+yazıları recover listesine girer; resetin yeni `54/0c` init çiftinden sonra
+stok kaynak gibi ayrıca geri eklenir. Bu tekrar ile yanlış çift gönderme
+aynı durum değildir.
+
+GRL/APCMD_FAIL özel dequeue yolu yalnız başarısız baş yanıtı düşürür;
+sonraki henüz gönderilmemiş isteği otomatik başlatmaz. Sonraki gerçek APCMD
+o yazıyı gönderir; **bir sonraki** gerçek APCMD onun yanıtını okur. Timer
+park etmiş düğümü ilerletmez. Kapanış sırasında mevcut yanıtlar alınabilir,
+fakat yeni CONTROL3/recover devam işi veya GRL trim politikası başlatılmaz.
+
+### Yakalanmış UIC biti, yeni ham IRQ değildir
+
+Beyond MFD, reset sırasında read-to-clear ile tüketilen UIC bitlerini
+**sonraki gerçek USBC üst kesmesinde** tekrar nested dağıtıma katar.
+Windows'ta `Frame.Raw[]` son IRQ okumasını aynen tutar; `Frame.UicReplay`
+ayrı saklanır ve sadece aktif dağıtımda birleştirilir. CHG-only IRQ bu
+kaydı tüketmez. SYSMSG biti çıkarıldığından eski reset mesajı yeniden
+çalıştırılmaz. VBUSDet varsa aynı stok canlı BC/CC detach kontrolü yapılır.
+
+`RESET_UIC`, `UIC_PENDING`, `UIC_REPLAY`, `REPLAY_COUNT` alanları bu ayrımı
+gösterir. Mevcut REG_BINARY olay sayfasının `irq` alanı hâlâ yalnız kendi
+frame'inin ham okumasıdır; replay bilgisi o ham baytın içine yazılmaz.
+Yeni genel tanı alanları ardışık registry değerleridir, atomik olay kaydı
+olarak yorumlanmamalıdır.
+
+### Başarı alanlarının anlamı ve açık alt mod adımı
+
+`RESET_PHASE=8 / RESET_NT=0` reset-mask-enqueue-unmask sırasının bittiğini
+söyler; komut yanıtlarının gelmiş olduğunu söylemez. `INIT_NT=103` ve
+`INIT_Q>0` gerçek yanıtların beklendiğini gösterir. `INIT_DONE=1` ancak
+mevcut başlangıç/kurtarma komut grubunun gerçek yanıtları tamamlandığında
+oluşur. `GRL_NT=0` ayrıca gerçek `70` yanıtı ve trim yazısı gerektirir.
+
+Reset eski AUTOIBUS, CCCTRL1 readback, CONTROL3 ve MUIC doğrulamalarını
+geçersiz kılar. Stok reset init'i `57`, `0b` veya `1c`yi otomatik tekrar
+etmediği için bu eski doğrulama bayrakları yeniden başarılı yapılmaz.
+`0c` yanıtı kendi `CcControlResponse` alanında tutulur; eski ayrı `0b`
+readback'iymiş gibi sunulmaz. MUIC yolu ancak yeni gerçek olayın komut ve
+readback akışıyla yeniden doğrulanır; CC güç/veri rolleri reset nedeniyle
+SOURCE/DFP veya detach olarak uydurulmaz.
+
+Alt mod tarafı **tamamlanmış değildir**: gerçek Windows alt mod/VDM
+tüketicisi henüz yoktur. Stok READY koşulu yerine `ALT_START_REQ=1` ile
+istek, `ALT_NT=STATUS_DEVICE_NOT_READY` ile karşılanmamış koşul gösterilir.
+`CONFIG_CCIC_ALTERNATE_MODE` kapalı diye MAX'ın kendi alternate dosyasındaki
+bu yol yok kabul edilemez. READY üreticisi, `55`, koşullu SINK+DFP identity
+`48`, VDM tüketicileri ve ilk-boot geçişi birlikte tamamlanmalıdır.
+`INIT_DONE` tam alt mod, OS PD sözleşmesi veya USB transfer başarısı değildir.
+
+### Tanı, kontroller ve WSL
+
+`MAX FOTO v11` ayrı **30 satırlık başlangıç/reset/GRL sayfası** ekler.
+Genel → USB → MUIC → UCM → PD → SYSMSG → kurtarma → olaylar sırası,
+20 saniyelik klavyesiz sayfa geçişi ve 64 sütun altı metin korunur. Startnet
+özeti aynı yeni alanları içerir. Ek `b2lmax77705_control.c` dosyası WSL WDK
+paketinin kopyalama, derleme ve link listelerine eklendi.
+
+Gerçek C ile host testleri: normal asenkron probe, probe'un yedi farklı
+noktasında POR, SOURCE/SINK/bilinmeyen rol WDT ayrımı, reset aşamalarında
+aktarımı kesme, gerçek UIC replay ve CHG-only koruması, GRL yanıtı/trim,
+GRL yanlış/kayıp yanıtı, trim hatası, tekrar reset, MUIC/PD slot iptali,
+GRL özel dequeue, CONTROL3 devamı, CC readback hatası ve kapanış. CC/PD,
+UCM, PnP lifecycle, foto genişliği/satır sayısı ve Windows USB/MAX kaynak
+kontrolleri de geçti. **WDK/UEFI/WIM build bu Mac'te yapılmadı.**
+
+WSL girişleri DEVIR ile aynı:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+Flaş yapıldığında ölçülecekler: yeni paketin MAX `.38` olması, normal probe
+sonunda `INIT_Q=0 / INIT_NT=0`, geçerli status snapshot'ları, gerçek attach
+sonrasında CC SOURCE ve ayrı DATAROLE DFP → VBUS/MUIC → UCM/URS → USB
+root-hub/HID veya depolama zinciri. **Reset/GRL sayaçlarının sıfır olması
+normaldir; test için zorla reset üretilmez.** Bu olaylar gerçekten gelirse
+ayrı kurtarma alanları değerlendirilir. Kaynak işinin devamı bu ölçümü
+beklemez: source Rp, OS DR/PR swap, PD/battery tüketicileri, alt mod/VDM,
+USB3 PHY ve gerçek function/transfer zinciri halen açıktır.
+
 ## 5 Eylül 2026: `.37` — stok kernel yapılandırması, SYSMSG ve APCMD_FAIL
 
 MAX `0.1.0.37`, parent/host/function `0.1.0.19`, ABI `7`. Ayrı SYSMSG

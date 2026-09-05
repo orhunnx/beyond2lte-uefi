@@ -18,6 +18,16 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / `.38` kaynak güncellemesi:** Başlangıç asenkron, sürücüye ait
+> opcode slotlarına taşındı. Gerçek SYSMSG POR/WDT için stok reset/mask/init
+> sırası; GRL için gerçek `70 01` yanıtından sonra trim; beyond'a özgü gerçek
+> UIC bitlerinin sonraki fiziksel IRQ'da yeniden dağıtımı eklendi. İptal,
+> resetin tamamlanması ve opcode yanıtlarının tamamlanması ayrı sonuçlardır.
+> `MAX FOTO v11` ayrı 30 satırlık kurtarma sayfası içerir. MAX `.38`,
+> parent/host `.19`. Alt mod READY tüketicisi, source Rp, OS swap/PD,
+> USB3 ve uçtan uca transfer hâlâ açık. WSL/telefon sonucu yok; ayrıntılar
+> Linux karşılaştırmasının `.38` bölümünde. Kaynak işi flaş beklemeden sürer.
+
 > **5 Eylül / `.37` kaynak güncellemesi:** Ayrı SYSMSG IRQ'sinde üç canlı
 > okuma doğrulaması, `APCMD_FAIL=33` aynı komut retry'si ve stok AFC clock
 > düzeltmesi eklendi. `MAX FOTO v10` ayrı 24 satırlık SYSMSG sayfası içerir.
@@ -111,8 +121,9 @@ Bugün itibarıyla:
   cihaz sonucu yoktur. `.35` UCM/URS tüketicisini ekler; akım/PD ve gerçek
   Windows doğrulaması hâlâ eksiktir. `.36` gerçek PDMSG/PS_RDY ve ham PDO
   yanıtı ile stok gecikmeli VBUS işlemini ekler; tam OS PD sözleşmesi değildir.
-  `.37` gerçek SYSMSG/APCMD_FAIL ve AFC hata yolunu ekler. Reset/GRL ve
-  OS rol takası halen kaynakta tamamlanması gereken işlerdir.
+  `.37` gerçek SYSMSG/APCMD_FAIL ve AFC hata yolunu ekler. `.38` asenkron
+  başlangıç, POR/WDT temel reset ve GRL kuyruğunu ekler. Alt mod READY
+  tüketicisi ve OS rol takası kaynakta tamamlanması gereken işlerdir.
 - Yeni fotoğraflar aynı D0 oturumunda 13 -> 15 olayı gösteriyor; tamamının
   status snapshot'ı geçersiz. ForceError veya firmware reset gerektiği bu
   kayıtlardan çıkarılamaz. Eksik `findstr` ve seri registry sorguları tanı
@@ -143,12 +154,12 @@ kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikle
 
 ### 0.3 Güncel repo ve sürüm çıpası
 
-`.37` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
+`.38` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
 
 ```text
 dal:    codex/touch-from-8549bfa
-taban:  a945151  feat: handle MAX77705 PD power events and current PDO replies
-önceki: f9a001d  feat: connect MAX77705 Type-C roles to UCM and URS
+taban:  917d4d5  feat: handle MAX77705 SYSMSG retries and AFC clock recovery
+önceki: a945151  feat: handle MAX77705 PD power events and current PDO replies
 ```
 
 Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
@@ -158,7 +169,7 @@ Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
 | `b2ltouch.sys` | `0.2.0.1` | `ACPI\BYN0001`, Samsung sec_ts -> KMDF/VHF touch |
 | `b2lusb.sys` parent | `0.1.0.19` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
 | inbox host | `0.1.0.19` INF | `URS\BYN0002&HOST`, `USBXHCI` + GSIV 273 |
-| `b2lmax77705.sys` | `0.1.0.37` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG/PD |
+| `b2lmax77705.sys` | `0.1.0.38` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG/PD |
 | `b2lufs.sys` | `0.0.4.5` kaynak sürümü | Deneysel Windows UFS miniport; güncel USB kapısı değil |
 
 Yalnız MAX77705 değiştiğinde parent/host sürümünün aynı kalması normaldir.

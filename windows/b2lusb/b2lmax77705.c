@@ -95,7 +95,7 @@
 #define MAX77705_MODE_BUCK_OTG     0x0EU
 #define MAX77705_MODE_BUCK_CHG_OTG 0x0FU
 
-static VOID
+VOID
 B2lMaxDelayMicroseconds(ULONG Microseconds)
 {
     LARGE_INTEGER Interval;
@@ -198,7 +198,27 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxSysmsgSampleCount", L"B2LMaxSysmsgEvents", L"B2LMaxSysmsgMismatches",
         L"B2LMaxSysmsgUnhandled", L"B2LMaxSysmsgRetryOpcode", L"B2LMaxSysmsgRetryStatus",
         L"B2LMaxSysmsgRetries", L"B2LMaxAfcClockAttempts", L"B2LMaxAfcClockStatus",
-        L"B2LMaxAfcRelockStatus"
+        L"B2LMaxAfcRelockStatus",
+        L"B2LMaxProbeStarted",
+        L"B2LMaxControlStatus",
+        L"B2LMaxControlPending",
+        L"B2LMaxUsbcInitialized",
+        L"B2LMaxResetStage",
+        L"B2LMaxResetStatus",
+        L"B2LMaxWatchdogResets",
+        L"B2LMaxPorResets",
+        L"B2LMaxResetUicRaw",
+        L"B2LMaxSavedUic",
+        L"B2LMaxLastUicReplay",
+        L"B2LMaxUicReplayCount",
+        L"B2LMaxQueueClears",
+        L"B2LMaxQueueDiscarded",
+        L"B2LMaxRecoverMask",
+        L"B2LMaxGrlRequests",
+        L"B2LMaxGrlStatus",
+        L"B2LMaxAltModeStartRequested",
+        L"B2LMaxAltModeStatus",
+        L"B2LMaxResetPriorFault"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -398,6 +418,26 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[182] = Context->AfcClockAttempts;
     Values[183] = (ULONG)Context->AfcClockStatus;
     Values[184] = (ULONG)Context->AfcRelockStatus;
+    Values[185] = (ULONG)Context->ProbeStarted;
+    Values[186] = (ULONG)Context->ControlStatus;
+    Values[187] = (ULONG)Context->ControlPending;
+    Values[188] = (ULONG)Context->UsbcInitialized;
+    Values[189] = (ULONG)Context->ResetStage;
+    Values[190] = (ULONG)Context->ResetStatus;
+    Values[191] = (ULONG)Context->WatchdogResets;
+    Values[192] = (ULONG)Context->PorResets;
+    Values[193] = (ULONG)Context->ResetUicRaw;
+    Values[194] = (ULONG)Context->SavedUic;
+    Values[195] = (ULONG)Context->LastUicReplay;
+    Values[196] = (ULONG)Context->UicReplayCount;
+    Values[197] = (ULONG)Context->QueueClears;
+    Values[198] = (ULONG)Context->QueueDiscarded;
+    Values[199] = (ULONG)Context->RecoverMask;
+    Values[200] = (ULONG)Context->GrlRequests;
+    Values[201] = (ULONG)Context->GrlStatus;
+    Values[202] = (ULONG)Context->AltModeStartRequested;
+    Values[203] = (ULONG)Context->AltModeStatus;
+    Values[204] = (ULONG)Context->ResetPriorFault;
     Context->DiagnosticDirty = FALSE;
     WdfWaitLockRelease(Context->MfdLock);
 
@@ -668,7 +708,7 @@ B2lMaxSetMuicPath(PB2L_MAX_CONTEXT Context, UCHAR Path)
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS
+NTSTATUS
 B2lMaxUpdateByte(
     PB2L_MAX_CONTEXT Context,
     UCHAR SlaveAddress,
@@ -811,7 +851,7 @@ B2lMaxReadCcStatus(PB2L_MAX_CONTEXT Context)
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS
+NTSTATUS
 B2lMaxWriteUsbcMasks(
     PB2L_MAX_CONTEXT Context,
     UCHAR UicMask,
@@ -863,68 +903,6 @@ B2lMaxWriteUsbcMasks(
         0xFFU,
         &Context->VdmInterruptMask
         );
-}
-
-static NTSTATUS
-B2lMaxNormalizeCcOpen(PB2L_MAX_CONTEXT Context)
-{
-    UCHAR Wanted;
-    NTSTATUS Status;
-
-    Context->CcOpenNormalized = FALSE;
-    Context->Control3Before = 0xFFU;
-    Context->Control3After = 0xFFU;
-
-    // Samsung finishes max77705_usbc_probe() by issuing the manual CC-open
-    // release request.  Its off path reads CONTROL3 and clears only
-    // LockErrorEn; it does not force VBUS or synthesize a SOURCE role.
-    Status = B2lMaxExchangeOpcode(
-        Context,
-        MAX77705_OPCODE_CONTROL3_READ,
-        NULL,
-        0UL,
-        1UL,
-        &Context->Control3Before
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-
-    // Use an explicit 8-bit mask: MSVC /W4 diagnoses casting the promoted
-    // bitwise complement (~0x02 == 0xfffffffd) back to UCHAR as C4310.
-    Wanted = (UCHAR)(Context->Control3Before &
-                     MAX77705_CONTROL3_LOCK_ERROR_EN_CLEAR_MASK);
-    if (Wanted != Context->Control3Before) {
-        Status = B2lMaxExchangeOpcode(
-            Context,
-            MAX77705_OPCODE_CONTROL3_WRITE,
-            &Wanted,
-            1UL,
-            0UL,
-            NULL
-            );
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-    }
-
-    Status = B2lMaxExchangeOpcode(
-        Context,
-        MAX77705_OPCODE_CONTROL3_READ,
-        NULL,
-        0UL,
-        1UL,
-        &Context->Control3After
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-    if ((Context->Control3After & MAX77705_CONTROL3_LOCK_ERROR_EN) != 0U) {
-        return STATUS_DEVICE_DATA_ERROR;
-    }
-
-    Context->CcOpenNormalized = TRUE;
-    return STATUS_SUCCESS;
 }
 
 static NTSTATUS
@@ -1640,19 +1618,11 @@ B2lMaxDispatchCcPdLocked(PB2L_MAX_CONTEXT Context, const B2L_MAX_IRQ_FRAME *Fram
 static NTSTATUS
 B2lMaxInitializeUsbc(PB2L_MAX_CONTEXT Context)
 {
-    B2L_MAX_OPCODE_REQUEST Requests[4];
-    UCHAR ReadBack;
+    static const UCHAR Kinds[] = {
+        B2L_MAX_CONTROL_AUTO_VBUS, B2L_MAX_CONTROL_CC_WRITE, B2L_MAX_CONTROL_CC_READ
+    };
     ULONG Index;
     NTSTATUS Status;
-
-    B2lMaxInitOpcodeRequest(&Requests[0], MAX77705_OPCODE_FW_AUTOIBUS,
-        1U, MAX77705_AUTOIBUS_AT_OFF, 0U);
-    B2lMaxInitOpcodeRequest(&Requests[1], MAX77705_OPCODE_FACTORY_TEST,
-        1U, MAX77705_FACTORY_AUTO_VBUS_OFF, 1U);
-    B2lMaxInitOpcodeRequest(&Requests[2], MAX77705_OPCODE_CCCTRL1_WRITE,
-        1U, MAX77705_CCCTRL1_BEYOND2LTE, 1U);
-    B2lMaxInitOpcodeRequest(&Requests[3], MAX77705_OPCODE_CCCTRL1_READ,
-        0U, 0U, 1U);
 
     WdfWaitLockAcquire(Context->MfdLock, NULL);
     Status = Context->MfdFault;
@@ -1660,6 +1630,8 @@ B2lMaxInitializeUsbc(PB2L_MAX_CONTEXT Context)
         if (NT_SUCCESS(Status)) Status = STATUS_DEVICE_NOT_READY;
         goto Failed;
     }
+    Context->ProbeStarted = TRUE;
+    Context->ControlStatus = STATUS_PENDING;
     B2lMaxGpioMask(Context);
     // MFD starts with all nested sources masked, then installs its clients.
     Status = B2lMaxUpdateByte(Context, B2L_MAX_TOP_ADDRESS, 0x23U,
@@ -1693,7 +1665,7 @@ B2lMaxInitializeUsbc(PB2L_MAX_CONTEXT Context)
     Status = B2lMaxReadRidLocked(Context);
     if (!NT_SUCCESS(Status)) goto Failed;
     // PD init queues AUTOIBUS before the final probe masks/init opcodes.
-    Status = B2lMaxQueueOpcodeLocked(Context, &Requests[0]);
+    Status = B2lMaxQueueControlLocked(Context, B2L_MAX_CONTROL_AUTOIBUS);
     if (!NT_SUCCESS(Status)) goto Failed;
     Status = B2lMaxHandleDataRole(Context, TRUE);
     // Function-stack support is a separate consumer, not a mailbox failure.
@@ -1705,8 +1677,8 @@ B2lMaxInitializeUsbc(PB2L_MAX_CONTEXT Context)
         MAX77705_VDM_INT_MASK_PROBE);
     if (!NT_SUCCESS(Status)) goto Failed;
     Context->UsbcMasksConfigured = TRUE;
-    for (Index = 1UL; Index < RTL_NUMBER_OF(Requests); ++Index) {
-        Status = B2lMaxQueueOpcodeLocked(Context, &Requests[Index]);
+    for (Index = 0UL; Index < RTL_NUMBER_OF(Kinds); ++Index) {
+        Status = B2lMaxQueueControlLocked(Context, Kinds[Index]);
         if (!NT_SUCCESS(Status)) goto Failed;
     }
     // cc_booting_complete -> unmask top USBC bit; no pre-unmask response wait.
@@ -1714,40 +1686,12 @@ B2lMaxInitializeUsbc(PB2L_MAX_CONTEXT Context)
         0U, 0x08U, &Context->TopInterruptSourceMask);
     if (!NT_SUCCESS(Status)) goto Failed;
     B2lMaxGpioUnmask(Context);
+    // Probe schedules manual CC-open release after top unmask. Its actual
+    // CONTROL3 reply queues the conditional write and verification read.
+    Status = B2lMaxQueueControlLocked(Context, B2L_MAX_CONTROL_OPEN_READ);
+    if (!NT_SUCCESS(Status)) goto Failed;
     WdfWaitLockRelease(Context->MfdLock);
-    for (Index = 0UL; Index < RTL_NUMBER_OF(Requests); ++Index) {
-        Status = B2lMaxWaitOpcode(Context, &Requests[Index]);
-        if (!NT_SUCCESS(Status)) return Status; // cancellation retired all links
-        WdfWaitLockAcquire(Context->MfdLock, NULL);
-        switch (Index) {
-        case 0:
-            Context->AutoIbusMode = MAX77705_AUTOIBUS_AT_OFF;
-            Context->AutoIbusConfigured = TRUE;
-            break;
-        case 1:
-            Context->OpcodeResponse = Requests[Index].ResponseData;
-            Context->AutoVbusDisabled = TRUE;
-            break;
-        case 2:
-            Context->CcControlResponse = Requests[Index].ResponseData;
-            break;
-        case 3:
-            ReadBack = Requests[Index].ResponseData;
-            Context->CcControlReadBack = ReadBack;
-            if (ReadBack != MAX77705_CCCTRL1_BEYOND2LTE) {
-                WdfWaitLockRelease(Context->MfdLock);
-                return STATUS_DEVICE_DATA_ERROR;
-            }
-            Context->CcControlConfigured = TRUE;
-            break;
-        }
-        WdfWaitLockRelease(Context->MfdLock);
-    }
-    // Do not replace normal probe masks by reset-recovery mask constants.
-    // Alternate-mode/PD mask transitions need their actual Linux handlers.
-    Status = B2lMaxNormalizeCcOpen(Context);
-    if (NT_SUCCESS(Status)) Context->UsbcInitialized = TRUE;
-    return Status;
+    return STATUS_PENDING;
 
 Failed:
     B2lMaxCancelOpcodesLocked(Context, Status);
@@ -1774,8 +1718,8 @@ B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
     if (!NT_SUCCESS(Status)) return Status;
     Status = B2lMaxInitializeUsbc(Context);
     B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_MFD_IRQ, Status);
-    if (!NT_SUCCESS(Status)) return Status;
-    return STATUS_SUCCESS;
+    return Status; // pending is not an initialized controller
+
 }
 
 static VOID
@@ -2166,6 +2110,14 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     Context->SysmsgRetries = Context->AfcClockAttempts = 0UL;
     Context->SysmsgStatus = Context->SysmsgRetryStatus = STATUS_DEVICE_NOT_READY;
     Context->AfcClockStatus = Context->AfcRelockStatus = STATUS_DEVICE_NOT_READY;
+    RtlZeroMemory(Context->ControlRequests, sizeof(Context->ControlRequests));
+    Context->ProbeStarted = Context->AltModeStartRequested = FALSE;
+    Context->ControlPending = Context->QueueClears = Context->QueueDiscarded = Context->RecoverMask = 0UL;
+    Context->WatchdogResets = Context->PorResets = Context->GrlRequests = Context->UicReplayCount = 0UL;
+    Context->ResetStage = Context->SavedUic = Context->LastUicReplay = 0U;
+    Context->ResetUicRaw = 0xFFU;
+    Context->ControlStatus = Context->ResetStatus = Context->GrlStatus = Context->AltModeStatus = STATUS_DEVICE_NOT_READY;
+    Context->ResetPriorFault = STATUS_DEVICE_NOT_READY;
     RtlZeroMemory(Context->MuicPairs, sizeof(Context->MuicPairs));
     Context->MuicOutstanding = 0UL;
     Context->MuicGeneration = 0ULL;
@@ -2370,14 +2322,14 @@ B2lMaxEvtPolicyWork(WDFWORKITEM WorkItem)
     WdfWaitLockAcquire(Context->MfdLock, NULL);
     Status = Context->MfdFault;
     WdfWaitLockRelease(Context->MfdLock);
-    if (!Context->UsbcInitialized && NT_SUCCESS(Status)) {
+    if (!Context->ProbeStarted && NT_SUCCESS(Status)) {
         Status = B2lMaxServiceConnection(Context);
         WdfWaitLockAcquire(Context->MfdLock, NULL);
         if (!NT_SUCCESS(Status) && !Context->UsbcInitialized) {
             B2lMaxCancelOpcodesLocked(Context, Status);
             B2lMaxGpioMask(Context);
             B2lMaxSetDiagnosticLocked(Context, B2L_MAX_STAGE_MFD_IRQ, Status);
-        } else if (NT_SUCCESS(Context->MfdFault)) {
+        } else if (Context->UsbcInitialized && NT_SUCCESS(Context->MfdFault)) {
             B2lMaxSetDiagnosticLocked(Context, B2L_MAX_STAGE_READY, Status);
         }
         WdfWaitLockRelease(Context->MfdLock);

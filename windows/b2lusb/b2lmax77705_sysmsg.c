@@ -58,6 +58,13 @@ B2lMaxHandleSysmsgLocked(PB2L_MAX_CONTEXT Context)
     Context->SysmsgValue = Context->SysmsgSamples[0];
     Context->SysmsgValid = TRUE;
     switch (Context->SysmsgValue) {
+    case 0x03U: // SYSERROR_BOOT_WDT
+    case 0x05U: // SYSMSG_BOOT_POR
+        Status = B2lMaxResetUsbcLocked(Context, (BOOLEAN)(Context->SysmsgValue == 0x03U));
+        break;
+    case 0x64U: // SYSMSG_SET_GRL (verified stock CONFIG_MAX77705_GRL_ENABLE)
+        Status = B2lMaxSetGrlLocked(Context);
+        break;
     case 0x33U: // SYSERROR_APCMD_FAIL
         HadRequest = Context->OpcodeHead != NULL;
         Context->SysmsgRetryStatus = B2lMaxRetryOpcodeLocked(Context);
@@ -68,8 +75,9 @@ B2lMaxHandleSysmsgLocked(PB2L_MAX_CONTEXT Context)
         if (HadRequest && !NT_SUCCESS(Context->SysmsgRetryStatus)) {
             if (Context->SysmsgRetryStatus == STATUS_NOT_SUPPORTED)
                 ++Context->SysmsgUnhandled;
-            Status = Context->SysmsgRetryStatus;
+            if (NT_SUCCESS(Status)) Status = Context->SysmsgRetryStatus;
         }
+        if (!NT_SUCCESS(Context->MfdFault)) Status = Context->MfdFault;
         break;
     case 0x00U: case 0x04U:
     case 0x10U: case 0x11U: case 0x12U: case 0x13U: case 0x14U: case 0x15U:
@@ -78,8 +86,7 @@ B2lMaxHandleSysmsgLocked(PB2L_MAX_CONTEXT Context)
         // Explicit no-action branches in max77705_usbc_check_sysmsg.
         break;
     default:
-        // POR/WDT, GRL and short/battery/VDM consumers still require their
-        // actual reset/recovery/notification paths. Never report them handled.
+        // Short/battery/VDM consumers require their actual notification paths.
         ++Context->SysmsgUnhandled;
         Status = STATUS_NOT_SUPPORTED;
         break;

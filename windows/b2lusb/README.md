@@ -1,8 +1,8 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
-## Güncel kaynak: `.37` / SYSMSG ve APCMD_FAIL
+## Güncel kaynak: `.38` / asenkron başlangıç ve reset kurtarması
 
-MAX `0.1.0.37`, parent/host/function `0.1.0.19`, IOCTL ABI 7.
+MAX `0.1.0.38`, parent/host/function `0.1.0.19`, IOCTL ABI 7.
 Koşulsuz HOST kaldırıldı. Gerçek MAX CC/PD değişiklikleri ayrı pasif UCM
 kuyruğuna, oradan URS host/function yaşam döngüsüne gider. ACPI rol çocukları
 `_ADR=0/1`, PnP kimlikleri `URS\BYN0002&HOST/FUNCTION`; özgün GSIV273.
@@ -23,22 +23,33 @@ gerçek retry'nin uzattığı deadline'ı yanlışlıkla bitirmez.
 
 HWC1 stok kernelinin gömülü IKCONFIG'i doğrulandı: GRL/AFC açık, PDIC_PD30
 kapalı. GRL dalındaki `70`, genel firmware queue-clear olarak kullanılamaz.
-Reset ve OS swap portu cihazın bu kaynak dalını izlemelidir.
+POR/WDT, gerçek SYSMSG ile stok reset/mask/init sırasını uygular. Probe
+istekleri artık sürücüye ait slotlardadır; reset bunları iptal ederken dönen
+bir stack isteği yeni kuyruğu bozamaz. `54/0c` init yanıtları asenkron alınır.
+GRL `70 01` yanıtından sonra `62:1f=04` trim yazılır. Reset sırasında
+okunan gerçek UIC bitleri sonraki USBC IRQ'da, ham frame'den ayrı dağıtılır.
+Yazılım queue-clear, bekleyen MUIC/PD isteklerini iptal eder; başarılı yanıt
+veya detach üretmez. Recover listesi yalnız gönderilmemiş `0c/54/55`
+yazılarını içerir; GRL derlemesinde firmware queue-clear gönderilmez.
 
-`MAX FOTO v10` genel/USB/MUIC/UCM, 35 satırlık PD/PDO ve 24 satırlık
-SYSMSG sayfasını gösterir. SYS_VALID/READ_N, retry sonucu ve AFC relock
-alanları farklı kanıt katmanlarıdır.
+`MAX FOTO v11` genel/USB/MUIC/UCM, 35 satırlık PD/PDO, 24 satırlık
+SYSMSG ve 30 satırlık başlangıç/reset/GRL sayfasını gösterir. SYS_VALID/READ_N,
+retry sonucu ve AFC relock alanları farklı kanıt katmanlarıdır.
 `CAPS_VALID` ham PDO okuması ve sayı/seçim başlığının geçerliliğidir; RDO,
 PDO güç semantiği veya OS PD sözleşmesi doğrulaması değildir. UCM kabulü de
 enumeration kanıtı değildir. Source Rp, OS PD swap/sözleşmeleri,
-POR/WDT/GRL recovery, battery/CHGINSEL, function sınıfı ve USB3 hâlâ açık.
+alt mod READY/VDM tüketicisi, battery/CHGINSEL, function sınıfı ve USB3
+hâlâ açık. `RESET_NT=0` reset sırasının, `INIT_NT=0 / INIT_Q=0` mevcut
+init/kurtarma grubunun tamamlanmasıdır. `ALT_START_REQ=1` alt modun
+hazır olması değildir. Reset eski readback doğrulamalarını geçersiz kılar;
+`57/0b/1c` tekrar gönderilmediğinde önceki başarı bayrakları geri üretilmez.
 Bu sürüm USB çalıştı iddiası taşımaz; kaynak işi flaş beklemeden devam eder.
 
 Build yalnız WSL: `bash yap.sh --touch --usb-test --clean`, ardından
 `bash cache_esp.sh --win --system --baseline`. Hedef WIM'de aynı Windows
 build'inin ARM64 UCM/URS/UFX bileşenleri gerekir. Function INF gerçek inbox
 bölümlerinden üretilir; eski Mobile runtime veya tahmini INF adı kullanılmaz.
-Ayrıntı ve test kapsamı: `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md`, `.37`.
+Ayrıntı ve test kapsamı: `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md`, `.38`.
 
 **Aşağıdaki `.34` ve statik `.18` bölümleri önceki ölçüm/tasarım günlüğüdür;
 statik HOST komutları ve BYN0003 kimliği güncel build için kullanılmaz.**
