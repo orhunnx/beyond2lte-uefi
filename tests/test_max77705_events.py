@@ -157,6 +157,7 @@ harness += "\n".join(function(name, control) for name in (
 harness += "\n" + re.search(r"^#define B2L_MAX_PHOTO_ROWS .*", control, re.M)[0] + "\n"
 harness += function("B2lPrintMaxEventPage", control)
 harness += function("B2lPrintMaxPhotoOverview", control)
+harness += function("B2lPrintMuicPhotoOverview", control)
 
 harness += r"""
 typedef int HANDLE;
@@ -281,8 +282,14 @@ int main(void) {
     output_lines=max_width=0;
     B2lPrintMaxPhotoOverview(2);
     assert(output_lines == 40 && max_width < 64);
+    output_lines=max_width=0;
+    B2lPrintMuicPhotoOverview(2);
+    assert(output_lines == 34 && max_width < 64);
     output_lines=max_width=0; registry_error=2;
     B2lPrintMaxPhotoOverview(3);
+    assert(output_lines == 3 && max_width < 64);
+    output_lines=max_width=0;
+    B2lPrintMuicPhotoOverview(3);
     assert(output_lines == 3 && max_width < 64);
     for (usb_failure=0; usb_failure<=5; ++usb_failure) {
         output_lines=max_width=0; pnp_count=100;

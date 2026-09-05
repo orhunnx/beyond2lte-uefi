@@ -1,5 +1,162 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.34` — gerçek MUIC/BC sınıflandırması ve FCTID/RID
+
+Flaş beklenmeden kaynak karşılaştırmasına devam edildi. `.33`ün UFP dalı
+her durumda `OPEN` istiyordu; Samsung MUIC ise USB/CDP/OTG ve şarj
+adaptörünü farklı değerlendiriyor. `.34` bu eksik analog-yol kararını
+kapatır. **UCM → URS → DWC3 host/function zinciri henüz uygulanmadı**;
+parent/host INF hâlâ `.18`, MAX INF `0.1.0.34` olmuştur. Bu bölüm kaynak ve
+host-fixture kanıtıdır; yeni WSL build veya telefon sonucu değildir.
+
+### İncelenen özgün kaynak ve gözden kaçan ayrıntılar
+
+Referans yine `ianmacd/d2s`, commit
+`d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39`:
+
+- [MUIC VPS tablosu ve switch işlemleri](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/muic/max77705-muic.c):
+  `muic_vps_table`, `max77705_muic_check_new_dev`, `max77705_resolve_chgtyp`,
+  `max77705_muic_detect_dev`, `max77705_muic_logically_detach`,
+  `max77705_muic_handle_attach`, `write_vps_regs`.
+- [CCIC → MUIC bildirim durumu](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/muic/max77705-muic-ccic.c):
+  `max77705_muic_handle_ccic_ATTACH`, `max77705_muic_handle_ccic_RID`.
+- [PD RID ve DATAROLE işleyicileri](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_pd.c):
+  `max77705_check_rid`, `max77705_pd_rid`, `max77705_datarole_irq_handler`.
+- [MFD nested IRQ sırası](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/mfd/max77705-irq.c).
+
+Sadece VPS tablosunun `muic_switch` alanını kopyalamak doğru port değildir:
+
+1. `CHGTYP_TIMEOUT_OPEN=0xfb` bir Linux sınıflandırma değeridir, donanımdaki
+   iki bitlik CHGTYP değildir. Normal runtime attach dalı USB_AP kullanır.
+   İsimden yola çıkarak `OPEN=3f` göndermek yanlış olur. Firmware-update/erken
+   boot özel DP-reset/charger-detection kolu bu sürümde uygulanmış sayılmaz.
+2. `write_vps_regs()` içinde TA/unofficial TA için register yazan dal
+   **`#if 0`** altındadır. İlk charger eşleşmesi Windows'ta da yeni OPEN
+   komutu üretmez ve OPEN doğrulandı sayılmaz. Önceki kablo sınıfından
+   logical detach gerekiyorsa OPEN o aşamada kuyruğa girer.
+3. Duplicate OTG, diğer duplicate kablo türlerinin tersine switch komutunu
+   yeniden gönderir. `.33`ün genel aynı-yol dedup işlemini burada kullanmak
+   bu Linux workaround'unu düşürürdü. `.34` OTG/switch attach işlemi için
+   yeniden uygulama yolunu kullanır; her yeni istek kendi gerçek APCMD ve
+   READ yanıtıyla doğrulanır.
+4. USB/CDP/timeout → OTG logical geçişinde araya OPEN girmez. USB_AP yeniden
+   yazılır. Diğer desteklenen sınıf değişimlerinde önce logical OPEN gelir.
+5. Samsung CCIC MUIC attach callback'i RpRd=1'de cached override'ı set eder;
+   RpRd=0 olan attach onu temizlemez. Fiziksel CC detach temizler. `.34`
+   bu kaynak davranışını korur; kendi DR-swap sezgisini eklemez. Windows OS
+   detach/attach bildirimlerinin tamamı yine ayrı eksiktir.
+
+### Eklenen yürütme yolu
+
+`B2lMaxDetectMuicLocked()` gerçek USBC `0x06..0x0a` aralığını **beş bayt**
+olarak okur. MFD'nin sekiz baytlık foto snapshot'ından karar çıkarmaz ve
+read-to-clear `0x02..0x05` veya opcode response `0x51` tüketmez. `MfdLock`
+altında çalışır; opcode yanıtını beklemeden mevcut asenkron kuyruğa istek
+verir. UIC nested handler'ları APCMD'den sonra, CC/PD'den önce şu sırada
+çalışır: VBUSDet, VBADC, DCD, FAKVB, CHGTYP, UIADC. Her aktif handler yeni
+status okuması yapar. FAKVB burada gerçek donanım bayrağıdır; VBUS veya
+CC/DFP olayı üretilmez. SYSMSG ve AFC/hiccup'ın kalan kolları açık kalır.
+
+OPMODE_CCIC için ham UIADC, Linux'taki gibi son kabul edilmiş RID ile
+sınıflandırılır; gerçek PD DATAROLE=DFP'den gelen RpRd override'ı sonra
+uygulanır. `RID_OPEN=7` başlangıcı stok notifier başlangıcıdır. FCTID
+`PD_STATUS1[3:0]` alanından probe ve gerçek PD FCTID bit0 olayında okunur.
+Runtime sırası DATAROLE ardından FCTID'dir. Tanıda `FCT_RAW` ile MUIC'nin
+kabul ettiği `RID_CACHED` ayrı tutulur: tanımsız FCT bildirimi MUIC'nin son
+RID'sini silmez; 1K RID cache'i günceller ama tek başına detect işi başlatmaz.
+Bu, RID'nin USB OS-detach/UART/batarya tarafının port edildiği anlamına gelmez.
+
+| Gerçek girdiler / Linux kararı | `.34` analog yol davranışı |
+|---|---|
+| RID OPEN, VBUS high, CHGTYP USB | USB_AP WRITE/READ; gerçek eşleşme ile PATH_OK |
+| RID OPEN, VBUS high, CDP | USB_AP WRITE/READ |
+| RID GND veya gerçek DFP RpRd override'ı | OTG sınıfı; USB_AP; bundan güç rolü/VBUS kararı türetilmez |
+| DCD+USB, yalnız init veya CHGTYP nedeni | Timeout sınıfı, normal runtime USB_AP |
+| DCD+USB fakat DCD interrupt nedeni | DCD timeout dönüşümü yapılmaz; kalan özel-charger kuralları uygulanır |
+| Samsung/Apple özel imza 1..5 + USB/CDP | Unofficial TA; USB olarak kabul edilmez |
+| Özel imza 6 veya 7 | 1..5 kuralına yanlışlıkla dahil edilmez |
+| TA/unofficial TA ilk eşleşmesi | Yeni switch yazısı yok; OPEN doğrulanmış varsayılmaz |
+| RID 255K/301K ve VBUS high | USB jig sınıfı ve USB_AP; OS jig/function desteği iddiası yok |
+| RID 523K/619K UART jig eşleşmesi | Sınıf görünür, DETECT_NT=NOT_SUPPORTED; UART AP/CP yönlendirmesi açık iş |
+
+VBADC IRQ'sındaki stok `3.8..4.5 V + CC disconnected` kontrolü yalnız
+çalışma kopyasının VBUS bitini temizler. Beş ham bayt değişmeden saklanır.
+Diğer VBADC olayları sınıflandırma yapmadan döner. TA'nın VBUS high iken
+CHGTYP=0 geçici sonucunda tutulması da korunur. Sıradan BC geçici sonucu
+tek başına fiziksel CC detach veya yeni güç/veri rolü oluşturmaz.
+
+Probe'da MUIC initial-detect, CC/PD init'ten önce yapılır. Ardından ilk
+CC/SINK ve WATER okuması, RID kontrolü, AUTOIBUS, ilk PD veri rolü ve normal
+init opcodes gelir. Başlangıçta gerçek USB/BC sonucu varsa `06/05`,
+AUTOIBUS'tan önce kuyrukta olabilir. Hiçbir probe yanıt bekleyişi GPIO
+unmask öncesine alınmaz. DATAROLE değişmediyse Linux gibi attach tekrar
+üretilmez; yeni BC kararını kendi UIC olayı çalıştırır.
+
+Linux'un ayrı CCIC notifier workqueue/USB tüketicisinin tamamı henüz bu
+koda taşınmadı. Bu sürümde MUIC karar tüketicisi pasif MFD kilidi altında
+çalışır; canlı status okuması yapar ve asenkron switch isteği verir. UCM
+çağrılarının bu kilit altında yapılması planlanmaz: OS bildirimlerinin
+sıralı, ayrı ömür/kilit yönetimi hâlâ yapılacak iştir.
+
+### Tanı ve doğrulama
+
+`MAX FOTO v7` genel sayfayı 40 satırda korur; USB/PnP sayfasından sonra ayrı
+**34 satırlık MUIC/RID sayfası** gelir. Yirmi saniyede otomatik geçiş ve
+klavyesiz döngü korunur. Alanlar tek açık registry anahtarından sırayla
+okunur; atomik kernel snapshot oldukları iddia edilmez.
+
+- `RAW_VALID=0`: son beş baytlık okuma başarısız; gösterilen ham baytlar
+  önceki okumaya ait olabilir. Yeni kablo/anahtar kararı çıkarılmaz.
+- `CLASS_VALID=0`: bu olay yeni sınıflandırma yapmadı; örneğin ilgisiz
+  VBADC olayı. `RAW_VALID=1` tek başına yeni CABLE kararı anlamına gelmez.
+- `RAW08_BC` donanım okuması; `BC_USED` yalnız stok VBADC/RID kurallarının
+  uygulandığı çalışma kopyasıdır. `CHARGER_USED=fb/fc` yazılmış register
+  değeri değil Linux yazılım sınıfıdır.
+- `DETECT_NT` okuma/sınıflandırma sonucu; `PATH_NT/Q/OK` gerçek opcode
+  isteği ve read-back sonucu; `DATA_NT` ayrı veri-rolü tüketicisi sonucu.
+  UFP'de USB_AP doğrulansa bile function stack uygulanmadığından DATA_NT
+  `STATUS_NOT_SUPPORTED` kalır. Bunlardan hiçbiri enumeration kanıtı değildir.
+
+133 registry adı/değeri, TXT kısa özeti ve foto sayfası aynı sürümle
+kaydedildi. Gerçek C işleyicilerini çalıştıran fixture'da 24 bağımsız kablo
+vektörü, beş bayt hata/stale-data, VBADC çalışma kopyası, özel şarj/DCD
+önceliği, RID cache ve tanımsız FCT, CC/DR üretmeden UIC işleme, ilk USB'nin
+AUTOIBUS öncesi opcode sırası, logical switch sırası ve gerçek APCMD
+read-back test edildi. Transport, IRQ, connection, lifecycle, events ve
+üç kaynak kontrolü olmak üzere sekiz suite geçti. Foto genişliği `<64`,
+40/34 satır ve eksik registry anahtarı görünürlüğü de test edildi.
+Bu testler WDK/KMDF veya gerçek GPIO teslimini doğrulamaz.
+
+WSL build yöntemi değişmedi; bu Mac'te WDK/UEFI/WIM build yapılmadı:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+Flaş daha sonra yapıldığında `.34` ve aynı ACPI'yi içeren boot/system çifti
+kullanılır. USB/CDP bağlantısında `CABLE=1/2`, `PATH_REQ/READ=09`, gerçek
+APCMD sonrasında `PATH_NT=0/PATH_OK=1`; OTG'de `CABLE=3` ve ayrı gerçek
+CC SOURCE/VBUS kararı aranır. İlk TA'da `CABLE=4` tek başına PATH_OK=1
+beklentisi doğurmaz. Flaş beklemek kaynak çalışmasının önkoşulu değildir.
+
+### Açık kalan işler ve sonraki bağlantı
+
+UCM/URS belgeleri, firmware'in çözdüğü gerçek Type-C rolünün UCM'ye
+bildirilmesini ve URS'nin eski host/function stack'ini kapatıp yenisini
+başlatmasını tarif eder. Type-C olayını Micro-AB ID-pin olayı diye sunmak
+bu yolun parçası değildir. Kaynaklar:
+[UCM client akışı](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/bring-up-a-usb-type-c-connector-on-a-windows-system),
+[URS Type-C olay sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/urstypes/ne-urstypes-_urs_hardware_event).
+Bu turda UCM/URS kodu veya ACPI rol sahipliği değiştirilmedi.
+
+Kalan işler: UCM/URS ve function yaşam döngüsü; RID USB-detach ve UART/CP
+consumer'ları; SYSMSG POR/WDT/APCMD_FAIL, PDMSG/PS_RDY ve swap/hard-reset;
+short/VCONN/accessory/alt-mode; AFC/hiccup/batarya ve iki saniyelik özgün
+VBUS workaround'u; kanıtlı PHY/USB3 clock/reset akışı. Normal MUIC tablosu
+port edildi diye bu özel kollar kapatılmış sayılmaz. Kaynakta ilerlenebilir;
+kullanıcıdan yeni flaş gerektiren bir durdurma koşulu yoktur.
+
 ## 5 Eylül 2026: `.33` — nested IRQ sırası ve asenkron MUIC
 
 `.32` sonundaki somut gecikme kapatıldı: MUIC opcode yanıtını bekleyen

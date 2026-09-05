@@ -1,5 +1,14 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
+**5 Eylül / MAX 0.1.0.34:** Gerçek UIC/BC ve PD FCTID/RID sonuçlarıyla
+USB/CDP/OTG/şarj sınıflandırması eklendi. UFP artık koşulsuz OPEN yapmaz;
+USB/CDP analog yolu gerçek APCMD/read-back ile doğrulanır. Stok duplicate
+OTG yeniden yazısı ve TA `write_vps_regs` no-op davranışı korunur.
+`MAX FOTO v7`: genel 40 satır, ayrı MUIC/RID sayfası 34 satır. RAW_VALID,
+CLASS_VALID, DETECT_NT, PATH_NT ve DATA_NT farklı kanıt katmanlarıdır.
+UCM/URS/function ve özel PD/charger/USB3 kolları hâlâ eksik; WSL/telefon
+sonucu yoktur. Ayrıntı Linux karşılaştırmasının `.34` bölümündedir.
+
 **5 Eylül / MAX 0.1.0.33:** BYP/APCMD/WATER/CC/PD uygulanan işleyicileri
 özgün MAX pasif ISR sırasında çalışır. Runtime MUIC komutları asenkron;
 tanı işi veya APCMD yanıtı BYP/CC/PD'yi bekletmez. İlk CC/su/PD kontrolü

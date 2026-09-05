@@ -42,7 +42,8 @@ typedef struct {
     ULONG CcSampleCount, CcSourceEventCount, CcTransitionCount;
     int CcStatusValid, CcStateChanged, DiagnosticDirty;
     int OtgEnabled, OtgHardwareActive, MuicPathVerified;
-    int PowerRoleValid, DataRoleValid, WaterDetected;
+    int PowerRoleValid, DataRoleValid, WaterDetected, MuicRprd;
+    ULONG MuicType;
     UCHAR PowerRole, DataRole, PdStatus1, ChargerDetails[3];
     ULONG DataRoleEvents, DataRoleChanges, OvercurrentEvents;
     NTSTATUS DataRoleStatus;
@@ -84,6 +85,14 @@ static NTSTATUS B2lMaxRequestMuicLocked(PB2L_MAX_CONTEXT c,UCHAR path) {
 '''
 harness += '\n'.join(re.findall(r'^#define MAX77705_.*', source.replace('\\\n', ' '), re.M))+'\n'
 harness += '\n'.join(re.findall(r'^#define B2L_MAX_.*', header, re.M))+'\n'
+harness += r'''
+// MUIC classification/real opcode queue runs in test_max77705_irq.py.
+// This fixture isolates CC/PD notifications and failure propagation.
+static NTSTATUS B2lMaxDetectMuicLocked(PB2L_MAX_CONTEXT c, ULONG cause) {
+    assert(cause==B2L_MAX_MUIC_CC_NOTIFY);
+    return B2lMaxRequestMuicLocked(c,9);
+}
+'''
 harness += function('B2lMaxReadCcStatus')+'\n'
 for name in ('B2lMaxEvaluateConnection','B2lMaxReadWaterState','B2lMaxHandleDataRole','B2lMaxHandleBypass'):
     harness += function(name)+'\n'
@@ -125,16 +134,18 @@ int main(void) {
     reset();memset(&c,0,sizeof(c));raw[0]=0x42;power_error=-10;
     assert(B2lMaxEvaluateConnection(&c,FALSE)==-10 && strcmp(actions,"RV")==0 && !c.PowerRoleValid);
     reset();assert(B2lMaxEvaluateConnection(&c,FALSE)==0);
-    reset();muic_error=-20;assert(B2lMaxHandleDataRole(&c,FALSE)==-20 && strcmp(actions,"PM")==0);
-    reset();assert(B2lMaxHandleDataRole(&c,FALSE)==0 && strcmp(actions,"PM")==0);
+    reset();c.DataRoleValid=0;muic_error=-20;assert(B2lMaxHandleDataRole(&c,FALSE)==-20 && strcmp(actions,"PM")==0);
+    reset();assert(B2lMaxHandleDataRole(&c,FALSE)==-20 && strcmp(actions,"P")==0);
+    c.DataRoleValid=0;
+    assert(B2lMaxHandleDataRole(&c,FALSE)==0);
     reset();read_error=-30;assert(B2lMaxHandleDataRole(&c,FALSE)==-30 && strcmp(actions,"P")==0);
     assert(c.DataRoleStatus==-30);
     reset();raw[1]=2;assert(B2lMaxReadWaterState(&c)==0 && c.WaterDetected);
-    reset();assert(B2lMaxHandleDataRole(&c,FALSE)==STATUS_DEVICE_NOT_READY && strcmp(actions,"P")==0);
+    reset();c.DataRoleValid=0;assert(B2lMaxHandleDataRole(&c,FALSE)==STATUS_DEVICE_NOT_READY && strcmp(actions,"P")==0);
     reset();raw[1]=0;assert(B2lMaxReadWaterState(&c)==0 && !c.WaterDetected);
     // A UFP observation cannot masquerade as a supported host/function path.
     reset();pd_raw=0;assert(B2lMaxHandleDataRole(&c,FALSE)==STATUS_NOT_SUPPORTED);
-    assert(strcmp(actions,"PO")==0 && c.DataRole==0 && c.DataRoleValid);
+    assert(strcmp(actions,"PM")==0 && c.DataRole==0 && c.DataRoleValid);
     assert(c.OtgEnabled); // data-role swap does not silently change source power
     reset();byp_raw=1;assert(B2lMaxHandleBypass(&c)==0 && strcmp(actions,"UBD")==0);
     assert(!c.OtgEnabled && c.OvercurrentEvents==1 && c.PowerRole==2);

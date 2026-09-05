@@ -179,15 +179,15 @@ B2lMaxQueueOpcodeLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_OPCODE_REQUEST Reques
     return Context->OpcodeHead == Request ? B2lMaxStartOpcodeLocked(Context) : STATUS_SUCCESS;
 }
 
-NTSTATUS
-B2lMaxRequestMuicLocked(PB2L_MAX_CONTEXT Context, UCHAR Path)
+static NTSTATUS
+B2lMaxRequestMuicInternal(PB2L_MAX_CONTEXT Context, UCHAR Path, BOOLEAN Reapply)
 {
     PB2L_MAX_MUIC_PAIR Pair = NULL;
     ULONG Index;
     NTSTATUS Status;
     BOOLEAN Start;
 
-    if (Context->MfdReady && NT_SUCCESS(Context->MfdFault) &&
+    if (!Reapply && Context->MfdReady && NT_SUCCESS(Context->MfdFault) &&
         (Context->MuicPathRequested == Path) &&
         ((Context->MuicStatus == STATUS_PENDING) || Context->MuicPathVerified)) {
         return Context->MuicStatus;
@@ -230,6 +230,20 @@ B2lMaxRequestMuicLocked(PB2L_MAX_CONTEXT Context, UCHAR Path)
     Context->OpcodeTail = &Pair->Read;
     Status = Start ? B2lMaxStartOpcodeLocked(Context) : STATUS_SUCCESS;
     return NT_SUCCESS(Status) ? STATUS_PENDING : Status;
+}
+
+NTSTATUS
+B2lMaxRequestMuicLocked(PB2L_MAX_CONTEXT Context, UCHAR Path)
+{
+    return B2lMaxRequestMuicInternal(Context, Path, FALSE);
+}
+
+NTSTATUS
+B2lMaxReapplyMuicLocked(PB2L_MAX_CONTEXT Context, UCHAR Path)
+{
+    // Samsung switch_path writes CONTROL1 even for duplicate OTG detection.
+    // A new generation still needs its own actual APCMD/read-back completion.
+    return B2lMaxRequestMuicInternal(Context, Path, TRUE);
 }
 
 VOID
@@ -453,6 +467,7 @@ B2lMaxEvtMaxInterruptIsr(WDFINTERRUPT Interrupt, ULONG MessageId)
             BypassStatus = B2lMaxDispatchBypassLocked(Context);
             BypassDispatched = TRUE;
         }
+        if (NT_SUCCESS(Context->MfdFault)) B2lMaxDispatchMuicLocked(Context, &Frame);
         if (NT_SUCCESS(Context->MfdFault)) B2lMaxDispatchCcPdLocked(Context, &Frame);
     }
     Status = Context->MfdFault;

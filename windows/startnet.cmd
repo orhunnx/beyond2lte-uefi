@@ -346,6 +346,15 @@ call :B2LUsbAppendMax77705Summary MUIC_CTL1 B2LMaxMuicControl1
 call :B2LUsbAppendMax77705Summary MUIC_OK B2LMaxMuicPathVerified
 call :B2LUsbAppendMax77705Summary MUIC_NT B2LMaxMuicStatus
 call :B2LUsbAppendMax77705Summary MUIC_Q B2LMaxMuicOutstanding
+call :B2LUsbAppendMax77705Summary MUIC_DET_NT B2LMaxMuicDetectStatus
+call :B2LUsbAppendMax77705Summary MUIC_CABLE B2LMaxMuicType
+call :B2LUsbAppendMax77705Summary MUIC_CAUSE B2LMaxMuicCause
+call :B2LUsbAppendMax77705Summary MUIC_VALID B2LMaxMuicSampleValid
+call :B2LUsbAppendMax77705Summary MUIC_BC B2LMaxMuicEffectiveBc
+call :B2LUsbAppendMax77705Summary MUIC_CHGTYP B2LMaxMuicChargerType
+call :B2LUsbAppendMax77705Summary RID_RAW B2LMaxRidRaw
+call :B2LUsbAppendMax77705Summary RID_CACHED B2LMaxMuicRid
+call :B2LUsbAppendMax77705Summary MUIC_RPRD B2LMaxMuicRprd
 call :B2LUsbAppendMax77705Summary CHG_UNLOCK B2LMaxChargerUnlocked
 call :B2LUsbAppendMax77705Summary CHG_CFG06 B2LMaxChgConfig06
 call :B2LUsbAppendMax77705Summary CHG_MODE B2LMaxChgMode

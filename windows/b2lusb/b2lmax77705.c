@@ -171,7 +171,14 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxPowerRole", L"B2LMaxDataRole", L"B2LMaxPdStatus1",
         L"B2LMaxDataRoleStatus", L"B2LMaxDataRoleEvents", L"B2LMaxDataRoleChanges",
         L"B2LMaxWaterDetected", L"B2LMaxOvercurrentEvents", L"B2LMaxDetachRechecks",
-        L"B2LMaxMuicStatus", L"B2LMaxMuicOutstanding"
+        L"B2LMaxMuicStatus", L"B2LMaxMuicOutstanding",
+        L"B2LMaxMuicDetectStatus", L"B2LMaxMuicType", L"B2LMaxMuicCause",
+        L"B2LMaxMuicSamples", L"B2LMaxMuicSampleValid",
+        L"B2LMaxMuicRaw06", L"B2LMaxMuicRaw07", L"B2LMaxMuicRaw08",
+        L"B2LMaxMuicRaw09", L"B2LMaxMuicRaw0A", L"B2LMaxMuicAdc",
+        L"B2LMaxMuicEffectiveBc", L"B2LMaxMuicChargerType",
+        L"B2LMaxRidRaw", L"B2LMaxMuicRid", L"B2LMaxRidChanges", L"B2LMaxMuicRprd",
+        L"B2LMaxMuicClassified"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -307,6 +314,24 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[112] = Context->DetachRechecks;
     Values[113] = (ULONG)Context->MuicStatus;
     Values[114] = Context->MuicOutstanding;
+    Values[115] = (ULONG)Context->MuicDetectStatus;
+    Values[116] = Context->MuicType;
+    Values[117] = Context->MuicCause;
+    Values[118] = Context->MuicSamples;
+    Values[119] = Context->MuicSampleValid ? 1UL : 0UL;
+    Values[120] = Context->MuicSample[0];
+    Values[121] = Context->MuicSample[1];
+    Values[122] = Context->MuicSample[2];
+    Values[123] = Context->MuicSample[3];
+    Values[124] = Context->MuicSample[4];
+    Values[125] = Context->MuicAdc;
+    Values[126] = Context->MuicEffectiveBc;
+    Values[127] = Context->MuicChargerType;
+    Values[128] = Context->RidRaw;
+    Values[129] = Context->MuicRid;
+    Values[130] = Context->RidChanges;
+    Values[131] = Context->MuicRprd ? 1UL : 0UL;
+    Values[132] = Context->MuicClassified ? 1UL : 0UL;
     Context->DiagnosticDirty = FALSE;
     WdfWaitLockRelease(Context->MfdLock);
 
@@ -1188,6 +1213,8 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
     Context->PowerRoleValid = Context->DataRoleValid = FALSE;
     Context->PowerRole = Context->DataRole = 0xFFU;
     Context->DataRoleStatus = STATUS_DEVICE_NOT_READY;
+    Context->MuicRprd = FALSE;
+    Context->MuicType = B2L_MAX_MUIC_NONE;
     // Mirror Samsung detach/logical-detach: remove VBUS first, then isolate
     // D+/D-.  Also establish a verified OPEN baseline on the first no-cable
     // sample so boot-firmware switch state is never assumed.
@@ -1216,10 +1243,166 @@ B2lMaxReadWaterState(PB2L_MAX_CONTEXT Context)
 }
 
 static NTSTATUS
+B2lMaxDetectMuicLocked(PB2L_MAX_CONTEXT Context, ULONG Cause)
+{
+    UCHAR Sample[5], Adc, Bc, Charger, Special;
+    ULONG Type, PreviousType;
+    NTSTATUS Status;
+    BOOLEAN UsbPath;
+
+    // Samsung max77705_muic_detect_dev: live USBC1..CC_STATUS0, five bytes.
+    // This is separate from the IRQ's eight-byte diagnostic snapshot and
+    // never reads UIC_INT/APCMDRES. Raw bytes remain unchanged by workarounds.
+    Context->MuicCause = Cause;
+    Context->MuicSampleValid = FALSE;
+    Context->MuicClassified = FALSE;
+    Context->DiagnosticDirty = TRUE;
+    Status = B2lMaxReadBlock(Context, B2L_MAX_USBC_ADDRESS, 0x06U, Sample, 5UL);
+    Context->MuicDetectStatus = Status;
+    if (!NT_SUCCESS(Status)) return Status;
+    RtlCopyMemory(Context->MuicSample, Sample, sizeof(Sample));
+    Context->MuicSampleValid = TRUE;
+    ++Context->MuicSamples;
+    Bc = Sample[2];
+    if (Cause == 0x10UL) {
+        // Original VBADC IRQ: only 3.8..4.5 V with CC disconnected rechecks
+        // MUIC detach. Other voltage changes do not reclassify a USB cable.
+        if (((Sample[0] >> 4) != 1U) || ((Sample[4] & 7U) != 0U)) {
+            return STATUS_SUCCESS;
+        }
+        Bc &= (UCHAR)~0x80U;
+    }
+    Context->MuicEffectiveBc = Bc;
+    Charger = (UCHAR)(Bc & 3U);
+    Special = (UCHAR)((Bc >> 3) & 7U);
+    // resolve_chgtyp prioritizes DCD timeout over the special-charger code.
+    // TIMEOUT_OPEN is the Linux cable name; its normal runtime path is USB.
+    if (((Bc & 4U) != 0U) && (Charger == 1U) &&
+        ((Cause == 0x02UL) || (Cause == B2L_MAX_MUIC_INITIAL))) {
+        Charger = 0xFBU;
+    } else if ((Special >= 1U) && (Special <= 5U) &&
+               ((Charger == 1U) || (Charger == 2U))) {
+        Charger = 0xFCU;
+    }
+    Context->MuicChargerType = Charger;
+    // OPMODE_CCIC: the RID notifier replaces UIADC; RpRd then overrides RID.
+    // No physical CC pin or VBUS observation is promoted to DFP/OTG here.
+    Adc = 7U;
+    if (Context->MuicRid == 1U) Adc = 0U;
+    else if ((Context->MuicRid >= 3U) && (Context->MuicRid <= 6U)) Adc = Context->MuicRid;
+    if (Context->MuicRprd) Adc = 0U;
+    Context->MuicAdc = Adc;
+    if (Adc == 5U) Bc &= (UCHAR)~0x80U; // stock 523K ignores VBUS
+    Context->MuicEffectiveBc = Bc;
+
+    Type = B2L_MAX_MUIC_NONE;
+    if ((Adc == 5U) && (Charger == 0U)) Type = B2L_MAX_MUIC_JIG_UART_OFF;
+    else if ((Adc == 6U) && (((Bc & 0x80U) != 0U) || (Charger == 0U))) Type = B2L_MAX_MUIC_JIG_UART_ON;
+    else if ((Adc == 3U) && ((Bc & 0x80U) != 0U)) Type = B2L_MAX_MUIC_JIG_USB_OFF;
+    else if ((Adc == 4U) && ((Bc & 0x80U) != 0U)) Type = B2L_MAX_MUIC_JIG_USB_ON;
+    else if (Adc == 0U) Type = B2L_MAX_MUIC_OTG;
+    else if ((Adc == 7U) && ((Bc & 0x80U) != 0U)) {
+        switch (Charger) {
+        case 1U: Type = B2L_MAX_MUIC_USB; break;
+        case 2U: Type = B2L_MAX_MUIC_CDP; break;
+        case 3U: Type = B2L_MAX_MUIC_TA; break;
+        case 0xFBU: Type = B2L_MAX_MUIC_DCD_TIMEOUT; break;
+        case 0xFCU: Type = B2L_MAX_MUIC_UNOFFICIAL_TA; break;
+        }
+    }
+    PreviousType = Context->MuicType;
+    Context->MuicClassified = TRUE;
+    // Samsung keeps a charger classification during a CHGTYP=0 transient
+    // while VBUS remains high. This does not create a USB data connection.
+    if ((Type == B2L_MAX_MUIC_NONE) && ((Bc & 0x80U) != 0U) &&
+        ((PreviousType == B2L_MAX_MUIC_TA) || (PreviousType == B2L_MAX_MUIC_UNOFFICIAL_TA))) {
+        return STATUS_SUCCESS;
+    }
+    Context->MuicType = Type;
+    if (Context->WaterDetected) {
+        Context->MuicDetectStatus = STATUS_DEVICE_NOT_READY;
+        return STATUS_SUCCESS;
+    }
+    UsbPath = (BOOLEAN)((Type == B2L_MAX_MUIC_USB) || (Type == B2L_MAX_MUIC_CDP) ||
+        (Type == B2L_MAX_MUIC_OTG) || (Type == B2L_MAX_MUIC_DCD_TIMEOUT) ||
+        (Type == B2L_MAX_MUIC_JIG_USB_OFF) || (Type == B2L_MAX_MUIC_JIG_USB_ON));
+    if ((Type == B2L_MAX_MUIC_JIG_UART_OFF) || (Type == B2L_MAX_MUIC_JIG_UART_ON)) {
+        // RID is classified, but the board UART AP/CP consumer is not ported.
+        // Do not substitute USB_AP for the original UART path.
+        Context->MuicDetectStatus = STATUS_NOT_SUPPORTED;
+        return STATUS_SUCCESS;
+    }
+    if (Type == B2L_MAX_MUIC_NONE) {
+        // A charger/BC transient is not a CC detach. CC's own detach handler
+        // requests OPEN; do not disconnect an attached USB data path here.
+        return STATUS_SUCCESS;
+    }
+    if ((PreviousType == Type) && (Type != B2L_MAX_MUIC_OTG)) {
+        return UsbPath ? Context->MuicStatus : STATUS_SUCCESS;
+    }
+    // logical-detach before a different cable type; USB/CDP/timeout -> OTG
+    // is the explicit Linux data-role-swap exception that preserves USB_AP.
+    if ((PreviousType != Type) && (PreviousType != B2L_MAX_MUIC_NONE) &&
+        !((Type == B2L_MAX_MUIC_OTG) &&
+          ((PreviousType == B2L_MAX_MUIC_USB) || (PreviousType == B2L_MAX_MUIC_CDP) ||
+           (PreviousType == B2L_MAX_MUIC_DCD_TIMEOUT)))) {
+        Status = B2lMaxRequestMuicLocked(Context, MAX77705_MUIC_COM_OPEN);
+        if (!NT_SUCCESS(Status)) return Status;
+    }
+    // write_vps_regs(TA/unofficial TA) has its register-write branch #if 0
+    // in this Samsung revision. Only a preceding logical detach wrote OPEN;
+    // a first charger classification must not pretend OPEN was verified.
+    if (!UsbPath) return STATUS_SUCCESS;
+    return B2lMaxReapplyMuicLocked(Context, MAX77705_MUIC_COM_USB_AP);
+}
+
+static NTSTATUS
+B2lMaxReadRidLocked(PB2L_MAX_CONTEXT Context)
+{
+    UCHAR Value, Rid;
+    NTSTATUS Status = B2lMaxReadByte(Context, B2L_MAX_USBC_ADDRESS,
+        MAX77705_USBC_PD_STATUS1, &Value);
+    if (!NT_SUCCESS(Status)) return Status;
+    Rid = (UCHAR)(Value & 0x0FU);
+    Context->PdStatus1 = Value;
+    Context->RidRaw = Rid;
+    // max77705_pd_rid sends RID_UNDEFINED for other FCT values; MUIC ignores
+    // that notification instead of replacing its last recognized RID.
+    if ((Rid >= 1U) && (Rid <= 7U) && (Rid != Context->MuicRid)) {
+        Context->MuicRid = Rid;
+        ++Context->RidChanges;
+        if (Rid != 2U) {
+            return B2lMaxDetectMuicLocked(Context, B2L_MAX_MUIC_RID_NOTIFY);
+        }
+    }
+    Context->DiagnosticDirty = TRUE;
+    return STATUS_SUCCESS;
+}
+
+VOID
+B2lMaxDispatchMuicLocked(PB2L_MAX_CONTEXT Context, const B2L_MAX_IRQ_FRAME *Frame)
+{
+    ULONG Bit;
+    NTSTATUS Status, FirstFailure = STATUS_SUCCESS;
+    // Original nested ordering after APCMD/SYSMSG: VBUS, VBADC, DCD, FAKVB,
+    // CHGTYP, UIADC. Every handler obtains a fresh status block.
+    for (Bit = 0x20UL; Bit != 0UL; Bit >>= 1) {
+        if ((Frame->Active[0] & Bit) == 0UL) continue;
+        Status = B2lMaxDetectMuicLocked(Context, Bit);
+        if (!NT_SUCCESS(Status) && NT_SUCCESS(FirstFailure)) FirstFailure = Status;
+        if (!NT_SUCCESS(Context->MfdFault)) break;
+    }
+    if (!NT_SUCCESS(FirstFailure)) {
+        B2lMaxSetDiagnosticLocked(Context, B2L_MAX_STAGE_MUIC_DETECT, FirstFailure);
+    }
+}
+
+static NTSTATUS
 B2lMaxHandleDataRole(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
 {
     UCHAR Value, Role;
     NTSTATUS Status;
+    BOOLEAN Changed;
 
     // Samsung PD DATAROLE: read the real PD_STATUS1, then require a CC power
     // role. Initial-detect only processes SINK. No source -> DFP inference.
@@ -1236,29 +1419,26 @@ B2lMaxHandleDataRole(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
     }
     if (!InitialDetect) ++Context->DataRoleEvents;
     Role = (UCHAR)((Value >> 7) & 1U);
-    if (!Context->DataRoleValid || (Context->DataRole != Role)) {
+    Changed = (BOOLEAN)(!Context->DataRoleValid || (Context->DataRole != Role));
+    if (Changed) {
         ++Context->DataRoleChanges;
     }
     Context->DataRole = Role;
     Context->DataRoleValid = TRUE;
+    if (!Changed) return Context->DataRoleStatus;
     // notify_dr_status blocks MUIC/USB attach while current_connstat=WATER.
     // This is read from CC_STATUS1 by CC init and the VCONNSC handler.
     if (Context->WaterDetected) {
         Context->DataRoleStatus = STATUS_DEVICE_NOT_READY;
         return STATUS_DEVICE_NOT_READY;
     }
-    if (Role == B2L_MAX_DATA_DFP) {
-        // DFP -> MUIC RpRd=1 -> OTG -> COM_USB_AP in the stock notification
-        // chain. DWC3/xHCI notification is a separate consumer still to port.
-        Status = (Context->MuicPathVerified &&
-            (Context->MuicControl1 == MAX77705_MUIC_COM_USB_AP)) ? STATUS_SUCCESS :
-            B2lMaxRequestMuicLocked(Context, MAX77705_MUIC_COM_USB_AP);
-    } else {
-        // UFP needs the MUIC charger classification and Windows function
-        // stack. Retire any old host path; do not present UFP as DFP success.
-        Status = B2lMaxRequestMuicLocked(Context, MAX77705_MUIC_COM_OPEN);
-        if (Status == STATUS_SUCCESS) Status = STATUS_NOT_SUPPORTED;
-    }
+    // CCIC MUIC attach: RpRd=1 sets the cached OTG override. An attach with
+    // RpRd=0 does not clear it in Samsung; physical CC detach clears it.
+    if (Role == B2L_MAX_DATA_DFP) Context->MuicRprd = TRUE;
+    Status = B2lMaxDetectMuicLocked(Context, B2L_MAX_MUIC_CC_NOTIFY);
+    // Analog USB_AP for a real USB/CDP UFP is now supported. The independent
+    // Windows function-stack consumer is still unimplemented, not successful.
+    if ((Status == STATUS_SUCCESS) && (Role == B2L_MAX_DATA_UFP)) Status = STATUS_NOT_SUPPORTED;
     Context->DataRoleStatus = Status;
     B2lMaxSetDiagnosticLocked(Context, B2L_MAX_STAGE_PD, Status);
     return Status;
@@ -1331,6 +1511,16 @@ B2lMaxDispatchCcPdLocked(PB2L_MAX_CONTEXT Context, const B2L_MAX_IRQ_FRAME *Fram
         Stage = B2L_MAX_STAGE_PD;
         Handled = TRUE;
     }
+    // FCTID is after DATAROLE in the Samsung nested-IRQ table. A USB data
+    // role read must not consume or invent a RID notification on its behalf.
+    if ((Frame->Active[2] & 0x01U) != 0U) {
+        NTSTATUS RidStatus = B2lMaxReadRidLocked(Context);
+        if (NT_SUCCESS(Status)) {
+            Status = RidStatus;
+            Stage = B2L_MAX_STAGE_RID;
+        }
+        Handled = TRUE;
+    }
     if (Handled) B2lMaxSetDiagnosticLocked(Context, Stage, Status);
 }
 
@@ -1378,11 +1568,17 @@ B2lMaxInitializeUsbc(PB2L_MAX_CONTEXT Context)
         MAX77705_CC_INT_MASK_LINUX, MAX77705_PD_INT_MASK_RUNTIME,
         MAX77705_VDM_INT_MASK_RUNTIME);
     if (!NT_SUCCESS(Status)) goto Failed;
+    Context->MfdReady = TRUE;
+    // MUIC initial detection precedes CC/PD init. A boot-attached USB cable
+    // can queue its analog path here; GPIO is unmasked before any response wait.
+    Status = B2lMaxDetectMuicLocked(Context, B2L_MAX_MUIC_INITIAL);
+    if (!NT_SUCCESS(Status)) goto Failed;
     Status = B2lMaxEvaluateConnection(Context, TRUE);
     if (!NT_SUCCESS(Status)) goto Failed;
     Status = B2lMaxReadWaterState(Context);
     if (!NT_SUCCESS(Status)) goto Failed;
-    Context->MfdReady = TRUE;
+    Status = B2lMaxReadRidLocked(Context);
+    if (!NT_SUCCESS(Status)) goto Failed;
     // PD init queues AUTOIBUS before the final probe masks/init opcodes.
     Status = B2lMaxQueueOpcodeLocked(Context, &Requests[0]);
     if (!NT_SUCCESS(Status)) goto Failed;
@@ -1808,6 +2004,14 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     Context->MuicOutstanding = 0UL;
     Context->MuicGeneration = 0ULL;
     Context->MuicStatus = STATUS_DEVICE_NOT_READY;
+    RtlZeroMemory(Context->MuicSample, sizeof(Context->MuicSample));
+    Context->MuicSampleValid = Context->MuicClassified = Context->MuicRprd = FALSE;
+    Context->MuicType = B2L_MAX_MUIC_NONE;
+    Context->MuicCause = Context->MuicSamples = Context->RidChanges = 0UL;
+    Context->RidRaw = 0xFFU;
+    Context->MuicRid = Context->MuicAdc = 7U; // stock notifier starts at RID_OPEN
+    Context->MuicEffectiveBc = Context->MuicChargerType = 0U;
+    Context->MuicDetectStatus = STATUS_DEVICE_NOT_READY;
     Context->PowerRoleValid = Context->DataRoleValid = Context->WaterDetected = FALSE;
     Context->PowerRole = Context->DataRole = 0xFFU;
     Context->PdStatus1 = 0xFFU;

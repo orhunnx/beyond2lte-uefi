@@ -93,6 +93,7 @@ static NTSTATUS B2lMaxEnableOtg(PB2L_MAX_CONTEXT c) {assert(held);c->OtgEnabled=
 static NTSTATUS B2lMaxDisableOtg(PB2L_MAX_CONTEXT c) {assert(held);c->OtgEnabled=c->OtgHardwareActive=0;return 0;}
 static NTSTATUS B2lMaxUnlockCharger(PB2L_MAX_CONTEXT c) {(void)c;assert(held);return 0;}
 static NTSTATUS B2lMaxRequestMuicLocked(PB2L_MAX_CONTEXT,UCHAR);
+static NTSTATUS B2lMaxReapplyMuicLocked(PB2L_MAX_CONTEXT,UCHAR);
 static PB2L_MAX_CONTEXT B2lMaxGetContext(WDFDEVICE d) { assert(d==current); return current; }
 static WDFDEVICE WdfInterruptGetDevice(WDFINTERRUPT i) { assert(i==current); return current; }
 static void WdfInterruptGetInfo(WDFINTERRUPT i,WDF_INTERRUPT_INFO *p) { assert(i==current);p->Vector=0xa02; }
@@ -119,7 +120,7 @@ static NTSTATUS B2lMaxReadBlock(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v,ULON
     if(read_error) return read_error;
     if(r==0x0a) { assert(n==2);trace[trace_count++]='C';v[0]=reg_values[a][r];v[1]=reg_values[a][r+1];return 0; }
     if(r==0x02) { assert(n==4); ++r2c_reads; memcpy(v,raw,4); memset(raw,0,4); return 0; }
-    if(r==0x06) { assert(n==8); memset(v,0x81,n); return snap_error; }
+    if(r==0x06) { if(n==5) { trace[trace_count++]='M'; memcpy(v,&reg_values[a][r],5); return 0; } assert(n==8); memset(v,0x81,n); return snap_error; }
     assert(r==0x51 && n>=1 && n<=2); ++responses;
     trace[trace_count++]='A';
     v[0]=wrong_reply ? reply_opcode : last_opcode;
@@ -148,7 +149,7 @@ static NTSTATUS B2lMaxUpdateByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR value,
     if(probe_test && a==0x66 && r==0x23 && mask==8 && !value) {
         PB2L_MAX_OPCODE_REQUEST q=c->OpcodeHead;int count=0;
         while(q) { ++count;q=q->Next; }
-        assert(count==(reg_values[0x25][0x0a]==1 && !(reg_values[0x25][0x0b]&2) ? 6 : 4));
+        assert(count==(reg_values[0x25][0x0a]==1 && !(reg_values[0x25][0x0b]&2) && (reg_values[0x25][0x0d]&0x80) ? 6 : 4));
         assert(commands==1 && responses==0 && last_opcode==0x57);
         assert(reg_values[0x25][0x10]==0x1c && reg_values[0x25][0x11]==0xff);
     }
@@ -156,7 +157,7 @@ static NTSTATUS B2lMaxUpdateByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR value,
 }
 static NTSTATUS B2lMaxNormalizeCcOpen(PB2L_MAX_CONTEXT c) {
     assert(c==current && !held && c->OpcodeHead==NULL);
-    assert(responses==(reg_values[0x25][0x0a]==1 && !(reg_values[0x25][0x0b]&2) ? 6U : 4U));
+    assert(responses==commands);
     return normalize_status;
 }
 static NTSTATUS KeWaitForSingleObject(KEVENT *event,int r,int m,int alert,LARGE_INTEGER *t) {
@@ -178,7 +179,7 @@ static NTSTATUS KeWaitForSingleObject(KEVENT *event,int r,int m,int alert,LARGE_
     ticks+=(ULONGLONG)-t->QuadPart;return STATUS_TIMEOUT;
 }
 '''
-for name in ('B2lMaxSetDiagnosticLocked','B2lMaxReadCcStatus','B2lMaxEvaluateConnection','B2lMaxReadWaterState','B2lMaxHandleDataRole','B2lMaxHandleBypass','B2lMaxDispatchBypassLocked','B2lMaxObserveIrqLocked','B2lMaxDispatchCcPdLocked'):
+for name in ('B2lMaxSetDiagnosticLocked','B2lMaxReadCcStatus','B2lMaxEvaluateConnection','B2lMaxReadWaterState','B2lMaxDetectMuicLocked','B2lMaxReadRidLocked','B2lMaxDispatchMuicLocked','B2lMaxHandleDataRole','B2lMaxHandleBypass','B2lMaxDispatchBypassLocked','B2lMaxObserveIrqLocked','B2lMaxDispatchCcPdLocked'):
     h+='\n'+function(name)+'\n'
 # Match the forward prototype linkage of the real callback in this TU.
 h+=irq.replace('BOOLEAN\nB2lMaxEvtMaxInterruptIsr','static BOOLEAN\nB2lMaxEvtMaxInterruptIsr')
@@ -193,7 +194,7 @@ static void reset(PB2L_MAX_CONTEXT c) {
     c->Device=c->MaxInterrupt=c->PolicyWork=c->OpcodeDeadline=c;
     timer_due=0;muic_actual=0;muic_bad_read=trace_count=0;memset(trace,0,sizeof(trace)); c->MfdLock=(void *)1;
     c->AliveRegisters=(PUCHAR)regs; c->AliveLength=0x1000; c->MaxTranslatedIrq=0xa02;
-    c->PolicyEnabled=TRUE; c->MfdReady=TRUE; top=8;
+    c->PolicyEnabled=TRUE; c->MfdReady=TRUE; c->MuicRid=7; c->RidRaw=0xff; top=8;
     assert(B2lMaxPrepareGpio(c)==0);
     assert(B2lMaxEvtMaxInterruptEnable(c,c)==0);
     B2lMaxGpioUnmask(c);
@@ -286,7 +287,7 @@ int main(void) {
     reset(&c);probe_test=1;c.MfdReady=FALSE;B2lMaxGpioMask(&c);
     reg_values[0x25][0x0a]=1;reg_values[0x25][0x0d]=0;
     assert(B2lMaxInitializeUsbc(&c)==0 && c.UsbcInitialized && c.MfdFault==0);
-    assert(c.DataRoleStatus==STATUS_NOT_SUPPORTED && c.MuicControl1==0x3f);
+    assert(c.DataRoleStatus==STATUS_NOT_SUPPORTED && commands==4 && c.MuicType==B2L_MAX_MUIC_NONE);
     reset(&c);probe_test=1;c.MfdReady=FALSE;B2lMaxGpioMask(&c);
     reg_values[0x25][0x0a]=1;reg_values[0x25][0x0b]=2;reg_values[0x25][0x0d]=0x80;
     assert(B2lMaxInitializeUsbc(&c)==0 && c.UsbcInitialized && c.MfdFault==0);
@@ -294,7 +295,7 @@ int main(void) {
     // No publication worker runs below. BYP/CC/PD must still execute while
     // a previous MUIC command awaits APCMD, in the real passive ISR.
     reset(&c);c.PowerRoleValid=c.DataRoleValid=TRUE;c.PowerRole=2;c.DataRole=1;
-    c.OtgEnabled=c.OtgHardwareActive=TRUE;reg_values[0x25][0x0a]=2;
+    c.DataRoleStatus=STATUS_PENDING; c.OtgEnabled=c.OtgHardwareActive=TRUE;reg_values[0x25][0x0a]=2;
     reg_values[0x25][0x0d]=0x80;reg_values[0x69][0xb5]=1;
     WdfWaitLockAcquire(c.MfdLock,NULL);
     assert(B2lMaxRequestMuicLocked(&c,9)==STATUS_PENDING && commands==1);
@@ -345,7 +346,90 @@ int main(void) {
     WdfWaitLockRelease(c.MfdLock);
     assert(!c.OpcodeHead && !c.MuicOutstanding && !c.MuicPathVerified);
     for(i=0;i<B2L_MAX_MUIC_SLOTS;++i) assert(!c.MuicPairs[i].InUse);
-    puts("MAX77705 GPIO IRQ, queue, asynchronous roles, deadline and probe order: PASS (hardware delivery unverified)");
+    // Independent cable vectors from Samsung's VPS table/resolve_chgtyp.
+    // Raw UIDADC is deliberately GND in every case: OPMODE_CCIC must use RID.
+    {
+        static const struct { UCHAR bc,rid; ULONG cause,type,path; } cases[] = {
+            {0x00,7,0x100,0,0}, {0x81,7,0x100,1,9}, {0x82,7,0x02,2,9},
+            {0x83,7,0x02,4,0}, {0x85,7,0x02,5,9}, {0x85,7,0x08,1,9},
+            {0x8d,7,0x100,5,9}, {0x8d,7,0x08,6,0},
+            {0x89,7,0x02,6,0}, {0x92,7,0x02,6,0},
+            {0xa9,7,0x02,6,0}, {0xb1,7,0x02,1,9},
+            {0xb2,7,0x02,2,9}, {0x83,1,0x200,3,9}, {0,1,0x400,3,9},
+            {0x81,2,0x02,1,9}, {0x80,3,0x02,7,9}, {0,3,0x02,0,0},
+            {0x80,4,0x02,8,9}, {0x80,5,0x02,9,0}, {0x83,5,0x02,0,0},
+            {0x83,6,0x02,10,0}, {0,6,0x02,10,0}, {3,6,0x02,0,0}
+        };
+        for(i=0;i<RTL_NUMBER_OF(cases);++i) {
+            reset(&c);c.MuicRid=cases[i].rid;reg_values[0x25][8]=cases[i].bc;
+            WdfWaitLockAcquire(c.MfdLock,NULL);
+            assert(NT_SUCCESS(B2lMaxDetectMuicLocked(&c,cases[i].cause)));
+            WdfWaitLockRelease(c.MfdLock);
+            assert(c.MuicSampleValid && c.MuicClassified && c.MuicSamples==1);
+            assert(c.MuicSample[2]==cases[i].bc && c.MuicType==cases[i].type);
+            assert(!c.PowerRoleValid && !c.DataRoleValid && !c.OtgEnabled);
+            if(cases[i].path) {
+                assert(commands==1 && !c.MuicPathVerified);
+                assert(deliver() && deliver() && c.MuicPathVerified);
+                assert(c.MuicControl1==cases[i].path && c.MuicStatus==0);
+            } else assert(commands==0);
+            if(cases[i].type==9 || cases[i].type==10) assert(c.MuicDetectStatus==STATUS_NOT_SUPPORTED);
+        }
+    }
+    // A live USB cable before CC/PD probe queues its path BEFORE AUTOIBUS.
+    reset(&c);c.MfdReady=FALSE;B2lMaxGpioMask(&c);
+    reg_values[0x25][8]=0x81;reg_values[0x25][0x0a]=1;reg_values[0x25][0x0d]=7;
+    assert(B2lMaxInitializeUsbc(&c)==0 && commands==6 && responses==6);
+    assert(written_op[0]==6 && written_op[1]==5 && written_op[2]==0x57);
+    assert(written_op[3]==0x54 && written_op[4]==0x0c && written_op[5]==0x0b);
+    assert(c.MuicType==B2L_MAX_MUIC_USB && c.MuicControl1==9 && c.MuicPathVerified);
+    assert(c.DataRole==0 && c.DataRoleStatus==STATUS_NOT_SUPPORTED); // OS function still absent
+    // UIC handlers precede CC/PD; their BC status never manufactures CC/DR events.
+    reset(&c);reg_values[0x25][8]=0x82;raw[0]=0x22;
+    assert(deliver() && strcmp(trace,"MM")==0 && c.MuicSamples==2);
+    assert(c.MuicCause==2 && c.MuicType==B2L_MAX_MUIC_CDP && !c.DataRoleValid && !c.PowerRoleValid);
+    assert(c.IrqFrames[0].Raw[0]==0x22 && c.IrqFrames[0].Active[1]==0);
+    // VBADC working-value adjustment retains raw bytes. An unrelated voltage
+    // notification has a valid sample but must not claim a new classification.
+    reset(&c);reg_values[0x25][6]=0x17;reg_values[0x25][8]=0x83;raw[0]=0x10;
+    assert(deliver() && c.MuicSample[2]==0x83 && c.MuicEffectiveBc==3 && c.MuicType==0);
+    reg_values[0x25][6]=0x27;raw[0]=0x10;assert(deliver());
+    assert(c.MuicSampleValid && !c.MuicClassified && commands==0);
+    // Failed five-byte reads do not turn zeros/stale status into a new cable.
+    reset(&c);reg_values[0x25][8]=0x81;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxDetectMuicLocked(&c,2)==STATUS_PENDING);
+    read_error=STATUS_IO_TIMEOUT;
+    assert(B2lMaxDetectMuicLocked(&c,0x20)==STATUS_IO_TIMEOUT);
+    assert(!c.MuicSampleValid && !c.MuicClassified && c.MuicSample[2]==0x81);
+    assert(c.MuicType==B2L_MAX_MUIC_USB && commands==1);
+    WdfWaitLockRelease(c.MfdLock);
+    // Current RID is read only at probe/FCTID. Undefined FCT does not erase
+    // MUIC's last accepted RID, and the 1K notification alone schedules no path.
+    reset(&c);reg_values[0x25][0x0d]=3;reg_values[0x25][8]=0x80;raw[2]=1;
+    assert(deliver() && c.RidRaw==3 && c.MuicRid==3 && c.RidChanges==1);
+    assert(c.MuicType==B2L_MAX_MUIC_JIG_USB_OFF && !c.DataRoleValid);
+    reg_values[0x25][0x0d]=0x0f;raw[2]=1;assert(deliver());
+    assert(c.RidRaw==0x0f && c.MuicRid==3 && c.RidChanges==1);
+    reset(&c);reg_values[0x25][0x0d]=2;raw[2]=1;assert(deliver());
+    assert(c.MuicRid==2 && c.MuicSamples==0 && commands==0);
+    // USB -> OTG logical role swap writes USB_AP without an intervening OPEN.
+    reset(&c);c.MuicType=B2L_MAX_MUIC_USB;c.MuicPathVerified=TRUE;
+    c.MuicPathRequested=c.MuicControl1=9;c.MuicRprd=TRUE;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxDetectMuicLocked(&c,0x200)==STATUS_PENDING && c.MuicType==B2L_MAX_MUIC_OTG && commands==1);
+    assert(c.OpcodeHead->Opcode==6 && c.OpcodeHead->WriteData==9);
+    assert(B2lMaxDetectMuicLocked(&c,0x20)==STATUS_PENDING);
+    assert(c.MuicOutstanding==2 && c.MuicGeneration==2 && commands==1);
+    assert(!c.MuicPathVerified); // duplicate OTG also requires a fresh response
+    // A distinct charger class opens the previous data path via real opcodes.
+    c.MuicRprd=FALSE;reg_values[0x25][8]=0x83;
+    assert(B2lMaxDetectMuicLocked(&c,2)==0);
+    assert(c.MuicType==B2L_MAX_MUIC_TA && c.MuicPathRequested==0x3f && commands==1);
+    reg_values[0x25][8]=0x80;
+    assert(B2lMaxDetectMuicLocked(&c,2)==0 && c.MuicType==B2L_MAX_MUIC_TA && commands==1);
+    WdfWaitLockRelease(c.MfdLock);
+    puts("MAX77705 IRQ, queue, MUIC/RID cable vectors and probe order: PASS (hardware delivery unverified)");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='b2l-max-irq-test-') as directory:

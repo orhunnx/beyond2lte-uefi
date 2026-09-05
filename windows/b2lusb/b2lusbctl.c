@@ -461,7 +461,7 @@ B2lPrintMaxPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v6 / tur %lu / GENEL DURUM\n", Cycle);
+    wprintf(L"MAX FOTO v7 / tur %lu / GENEL DURUM\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -491,6 +491,69 @@ B2lPrintMaxPhotoOverview(ULONG Cycle)
 }
 
 static VOID
+B2lPrintMuicPhotoOverview(ULONG Cycle)
+{
+    static const WCHAR *Names[] = {
+        L"B2LMaxMuicDetectStatus", L"B2LMaxMuicType", L"B2LMaxMuicCause",
+        L"B2LMaxMuicSamples", L"B2LMaxMuicSampleValid", L"B2LMaxMuicClassified",
+        L"B2LMaxMuicRaw06", L"B2LMaxMuicRaw07", L"B2LMaxMuicRaw08",
+        L"B2LMaxMuicRaw09", L"B2LMaxMuicRaw0A", L"B2LMaxMuicAdc",
+        L"B2LMaxMuicEffectiveBc", L"B2LMaxMuicChargerType",
+        L"B2LMaxRidRaw", L"B2LMaxMuicRid", L"B2LMaxRidChanges", L"B2LMaxMuicRprd",
+        L"B2LMaxMuicPathRequested", L"B2LMaxMuicControl1", L"B2LMaxMuicPathVerified",
+        L"B2LMaxMuicStatus", L"B2LMaxMuicOutstanding", L"B2LMaxDataRoleStatus"
+    };
+    static const WCHAR *Labels[] = {
+        L"DETECT_NT", L"CABLE", L"CAUSE", L"SAMPLES", L"RAW_VALID", L"CLASS_VALID",
+        L"RAW06_USBC1", L"RAW07_SYS", L"RAW08_BC", L"RAW09", L"RAW0A_CC0",
+        L"ADC_USED", L"BC_USED", L"CHARGER_USED", L"FCT_RAW", L"RID_CACHED",
+        L"RID_CHANGES", L"RPRD", L"PATH_REQ", L"PATH_READ", L"PATH_OK",
+        L"PATH_NT", L"PATH_Q", L"DATA_NT"
+    };
+    HKEY Key;
+    LSTATUS Error;
+    DWORD Value;
+    DWORD Size;
+    DWORD Type;
+    ULONG Index;
+
+    C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
+    wprintf(L"MAX FOTO v7 / tur %lu / MUIC / RID\n", Cycle);
+    wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
+    Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+        L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
+    if (Error != ERROR_SUCCESS) {
+        wprintf(L"MUIC_OVERVIEW_READ_ERROR=%ld\n", Error);
+        return;
+    }
+    // One key, no reg.exe processes. Fields are sequential reads, not one
+    // atomic policy snapshot; event pages carry their own snapshot identity.
+    for (Index = 0UL; Index < ARRAYSIZE(Names); ++Index) {
+        Size = (DWORD)sizeof(Value);
+        Type = 0;
+        Value = 0;
+        Error = RegQueryValueExW(Key, Names[Index], NULL, &Type,
+            (LPBYTE)&Value, &Size);
+        if ((Error == ERROR_SUCCESS) && (Type == REG_DWORD) &&
+            (Size == (DWORD)sizeof(Value))) {
+            wprintf(L"%-14ls = %08lX\n", Labels[Index], Value);
+        } else {
+            wprintf(L"%-14ls = YOK / hata=%ld tip=%lu boyut=%lu\n",
+                Labels[Index], Error, Type, Size);
+        }
+    }
+    RegCloseKey(Key);
+    wprintf(L"CABLE: 0 none, 1 USB, 2 CDP, 3 OTG, 4 TA\n");
+    wprintf(L"5 DCD timeout, 6 unofficial TA, 7/8 USB jig\n");
+    wprintf(L"9/A UART jig: UART tuketicisi henuz eksik.\n");
+    wprintf(L"CAUSE: 1..20 UIC bit, 100 init, 200 CC, 400 RID\n");
+    wprintf(L"RAW_VALID=0: ham baytlar onceki okumaya ait.\n");
+    wprintf(L"CLASS_VALID=0: bu olay yeni sinif karari vermedi.\n");
+    wprintf(L"DETECT_NT: okuma/sinif. PATH_NT: gercek opcode.\n");
+    wprintf(L"PATH_OK=1 USB aktarimini kanitlamaz. Q/Esc: cikis.\n");
+}
+
+static VOID
 B2lPrintMaxEventPage(const B2L_MAX_EVENT_LOG *Log, ULONG Page, ULONG Cycle)
 {
     ULONG Pages = (Log->Count + B2L_MAX_PHOTO_ROWS - 1UL) / B2L_MAX_PHOTO_ROWS;
@@ -502,7 +565,7 @@ B2lPrintMaxEventPage(const B2L_MAX_EVENT_LOG *Log, ULONG Page, ULONG Cycle)
     }
     // At most 33 lines on the WinPE 64x41 console. One immutable registry
     // snapshot for the whole cycle: new events cannot reorder later pages.
-    wprintf(L"MAX FOTO v6 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
+    wprintf(L"MAX FOTO v7 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
     wprintf(L"Bu ekrani fotograflayin. Sonraki sayfa: 20 sn\n");
     wprintf(L"D0=%llu count=%lu total=%llu\n", Log->StartTime, Log->Count, Log->Total);
     wprintf(L"kayip=%llu UIC=%02lX SYS=%lu ERR=%lu FAIL=%lu\n",
@@ -661,9 +724,9 @@ B2lShowMaxPhotoScreen(VOID)
         if (Pages == 0UL) {
             Pages = 1UL;
         }
-        // Current policy, current USB/PnP state, then frozen event pages.
+        // Current policy, USB/PnP, MUIC classification, then frozen event pages.
         // Repeat indefinitely so photos never require a keyboard.
-        for (Page = 0UL; Page <= Pages + 1UL; ++Page) {
+        for (Page = 0UL; Page <= Pages + 2UL; ++Page) {
             if ((Page != 0UL) && !B2lClearPhotoConsole(Output)) {
                 return 1;
             }
@@ -671,8 +734,10 @@ B2lShowMaxPhotoScreen(VOID)
                 B2lPrintMaxPhotoOverview(Cycle);
             } else if (Page == 1UL) {
                 B2lPrintUsbPhotoStatus(Cycle);
+            } else if (Page == 2UL) {
+                B2lPrintMuicPhotoOverview(Cycle);
             } else if (Result == 0) {
-                B2lPrintMaxEventPage(&Log, Page - 2UL, Cycle);
+                B2lPrintMaxEventPage(&Log, Page - 3UL, Cycle);
             } else {
                 // Read errors were initially printed before the overview;
                 // repeat the actual error on this page after clearing it.

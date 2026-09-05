@@ -18,6 +18,14 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / `.34` kaynak güncellemesi:** UFP'nin koşulsuz OPEN dalı
+> yerine özgün MUIC BC/RID sınıflandırması ve gerçek UIC/FCTID işleyicileri
+> eklendi. USB/CDP USB_AP kullanır; ilk TA eşleşmesinde stok `write_vps_regs`
+> yeni yazı yapmaz. Duplicate OTG yeniden USB_AP gönderir. `MAX FOTO v7`
+> genel 40 + ayrı MUIC/RID 34 satır; ham veri/karar/path sonucu ayrıdır.
+> UCM/URS/function, PD/SYSMSG ve USB3 hâlâ açık. Ayrıntılar karşılaştırmanın
+> `.34` bölümünde; kaynak çalışması flaş beklemeden sürer.
+
 > **5 Eylül / `.33` kaynak güncellemesi:** Runtime BYP/APCMD/WATER/CC/PD
 > uygulanan sırası gerçek pasif MAX ISR'ye taşındı; MUIC WRITE/READ isteği
 > asenkron. Foto/registry işi artık nested handler'ları bekletmez. İlk
@@ -74,7 +82,7 @@ Bugün itibarıyla:
 - En erken doğrulanmış hata artık **3. adım: sekiz baytlık I2C okuması**.
   `.30` HSI2C GSIV114 aktarımını, `.31` MAX GPIO GSIV51/opcode kuyruğunu,
   `.32` CC güç rolü/PD veri rolü ayrımını, `.33` asenkron MUIC ve nested
-  kesme sırasını kaynakta uygular. Bu yeni sürümlerin
+  kesme sırasını, `.34` MUIC BC/RID sınıflandırmasını kaynakta uygular. Bu yeni sürümlerin
   cihaz sonucu yoktur. MAX -> Windows role-switch/DWC3 bildirimi eksiktir.
 - Yeni fotoğraflar aynı D0 oturumunda 13 -> 15 olayı gösteriyor; tamamının
   status snapshot'ı geçersiz. ForceError veya firmware reset gerektiği bu
@@ -106,12 +114,12 @@ kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikle
 
 ### 0.3 Güncel repo ve sürüm çıpası
 
-`.33` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
+`.34` kaynak sürümü (bu güncellemenin commit'i için `git log -1`):
 
 ```text
 dal:    codex/touch-from-8549bfa
-taban:  7313c9d  docs: clarify remaining Type-C role-switch dependencies
-önceki: 13e96fe  fix: separate MAX77705 power and data role events
+taban:  44a5037  fix: dispatch MAX77705 roles without blocking on MUIC replies
+önceki: 7313c9d  docs: clarify remaining Type-C role-switch dependencies
 ```
 
 Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
@@ -121,7 +129,7 @@ Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
 | `b2ltouch.sys` | `0.2.0.1` | `ACPI\BYN0001`, Samsung sec_ts -> KMDF/VHF touch |
 | `b2lusb.sys` parent | `0.1.0.18` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
 | inbox host | `0.1.0.18` INF | `ACPI\BYN0003`, `USBXHCI` + GSIV 273 |
-| `b2lmax77705.sys` | `0.1.0.33` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG |
+| `b2lmax77705.sys` | `0.1.0.34` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG |
 | `b2lufs.sys` | `0.0.4.5` kaynak sürümü | Deneysel Windows UFS miniport; güncel USB kapısı değil |
 
 Yalnız MAX77705 değiştiğinde parent/host sürümünün aynı kalması normaldir.

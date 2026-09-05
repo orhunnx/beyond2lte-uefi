@@ -46,6 +46,8 @@
 #define B2L_MAX_STAGE_CC             0x68UL
 #define B2L_MAX_STAGE_PD             0x69UL
 #define B2L_MAX_STAGE_BYP            0x6AUL
+#define B2L_MAX_STAGE_MUIC_DETECT    0x6BUL
+#define B2L_MAX_STAGE_RID            0x6CUL
 #define B2L_MAX_STAGE_READY          0x70UL
 #define B2L_MAX_STAGE_GPIO_IRQ       0x24UL
 #define B2L_MAX_STAGE_MFD_IRQ        0x34UL
@@ -55,6 +57,22 @@
 #define B2L_MAX_HSI2C_PHASE_BUS_IDLE 0x10UL
 #define B2L_MAX_HSI2C_PHASE_WRITE    0x20UL
 #define B2L_MAX_HSI2C_PHASE_READ     0x30UL
+
+// Diagnostic IDs, not Samsung's muic_attached_dev_t ABI.
+#define B2L_MAX_MUIC_NONE             0UL
+#define B2L_MAX_MUIC_USB              1UL
+#define B2L_MAX_MUIC_CDP              2UL
+#define B2L_MAX_MUIC_OTG              3UL
+#define B2L_MAX_MUIC_TA               4UL
+#define B2L_MAX_MUIC_DCD_TIMEOUT      5UL
+#define B2L_MAX_MUIC_UNOFFICIAL_TA    6UL
+#define B2L_MAX_MUIC_JIG_USB_OFF      7UL
+#define B2L_MAX_MUIC_JIG_USB_ON       8UL
+#define B2L_MAX_MUIC_JIG_UART_OFF     9UL
+#define B2L_MAX_MUIC_JIG_UART_ON     10UL
+#define B2L_MAX_MUIC_INITIAL       0x100UL
+#define B2L_MAX_MUIC_CC_NOTIFY     0x200UL
+#define B2L_MAX_MUIC_RID_NOTIFY    0x400UL
 
 // Requests belong to a waiting probe/shutdown caller or a fixed MUIC slot.
 // Queue ownership and slot reuse are protected by the passive ISR MfdLock.
@@ -93,6 +111,11 @@ typedef struct _B2L_MAX_CONTEXT {
     ULONGLONG MuicGeneration;
     ULONG MuicOutstanding;
     NTSTATUS MuicStatus;
+    UCHAR MuicSample[5], MuicAdc, MuicEffectiveBc, MuicChargerType;
+    UCHAR RidRaw, MuicRid;
+    BOOLEAN MuicSampleValid, MuicClassified, MuicRprd;
+    ULONG MuicType, MuicCause, MuicSamples, RidChanges;
+    NTSTATUS MuicDetectStatus;
     WDFWAITLOCK TransportLock;
     WDFWAITLOCK MfdLock;
     WDFINTERRUPT MaxInterrupt;
@@ -246,9 +269,11 @@ EVT_WDF_INTERRUPT_DISABLE B2lMaxEvtMaxInterruptDisable;
 
 EVT_WDF_TIMER B2lMaxEvtOpcodeDeadline;
 NTSTATUS B2lMaxRequestMuicLocked(PB2L_MAX_CONTEXT Context, UCHAR Path);
+NTSTATUS B2lMaxReapplyMuicLocked(PB2L_MAX_CONTEXT Context, UCHAR Path);
 NTSTATUS B2lMaxDispatchBypassLocked(PB2L_MAX_CONTEXT Context);
 VOID B2lMaxObserveIrqLocked(PB2L_MAX_CONTEXT Context, const B2L_MAX_IRQ_FRAME *Frame);
 VOID B2lMaxDispatchCcPdLocked(PB2L_MAX_CONTEXT Context, const B2L_MAX_IRQ_FRAME *Frame);
+VOID B2lMaxDispatchMuicLocked(PB2L_MAX_CONTEXT Context, const B2L_MAX_IRQ_FRAME *Frame);
 NTSTATUS B2lMaxPrepareGpio(PB2L_MAX_CONTEXT Context);
 VOID B2lMaxGpioMask(PB2L_MAX_CONTEXT Context);
 VOID B2lMaxGpioUnmask(PB2L_MAX_CONTEXT Context);
