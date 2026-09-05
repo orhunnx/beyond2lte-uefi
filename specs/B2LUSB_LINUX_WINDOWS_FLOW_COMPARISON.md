@@ -1,6 +1,168 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
 
+## 5 Eylül 2026: USB geliştirmesine ara — MAX FOTO v15, tur 29
+
+**Kullanıcı USB geliştirmesine ara verdi. Bu kayıt son durumun devridir;
+aktif geliştirme, yeni build veya yeni flaş talebi değildir.** Önceki tarihli
+bölümlerdeki “bekleniyor / sıradaki iş” ifadeleri tarihsel bağlamdır.
+Bu tur sürücü veya donanım akışı değiştirilmedi.
+
+Önceki `.43` fotoğraflarında MAX77705, BYN0002 role-switch ve URS USBXHCI
+HOST için **Started** doğrulandı. Yeni altı sayfada ise MAX başlangıç komut
+akışı, geçerli MUIC/PD/opcode verisi ve UCM attach bildirimi görülmüyor.
+**USB veri aktarımı hâlâ doğrulanmış değildir.** PnP başarısı korunur;
+bunun MAX firmware komutlarının tamamlandığı anlamına gelmediği artık
+bu ek tanı sayfalarıyla daha açık görülüyor.
+
+### Fotoğraflardan aktarılan değerler
+
+Altı ekranın başlığı `MAX FOTO v15 / tur 29`. Alanlar sırayla okunur;
+sayfalar tek atomik kayıt değildir. Tur 29, görüntüleme döngüsüdür; 29
+başlatma hatası veya kesin açılış süresi değildir. Bu sayfalarda paket
+manifesti yoktur; `.43` bağlamı önceki fotoğraflardan gelir, bu altı ekran
+tek başına binary hash/sürüm veya aynı D0 oturumunu kanıtlamaz.
+Aşağıdaki sayılar ekranın onaltılık gösterimiyle kısaltılmıştır.
+
+1. **MUIC / RID** — `codex-clipboard-79800d63-9879-47f6-8652-9d211af3c76d.jpg`
+
+   ```text
+   DETECT_NT=C00000A3 CABLE=0 CAUSE=0 SAMPLES=0 RAW_VALID=0 CLASS_VALID=0
+   RAW06_USBC1=0 RAW07_SYS=0 RAW08_BC=0 RAW09=0 RAW0A_CC0=0
+   ADC_USED=7 BC_USED=0 CHARGER_USED=0 FCT_RAW=FF RID_CACHED=7 RID_CHANGES=0
+   RPRD=0 PATH_REQ=FF PATH_READ=FF PATH_OK=0 PATH_NT=C00000A3 PATH_Q=0
+   DATA_NT=C00000A3
+   ```
+
+   Geçerli ham örnek veya kablo sınıflandırması yok. `CABLE=0` fiziksel
+   kablonun çıkarılmış olduğunu kanıtlamaz. `RID_CACHED=7 / ADC_USED=7`
+   başlangıç RID_OPEN değerleriyle aynıdır; ölçülmüş RID kabul edilmez.
+   Yol isteği/okuması FF ve PATH_OK=0: USB_AP yolunun açıldığı doğrulanmadı.
+
+2. **Windows rol bildirimi** — `codex-clipboard-9c313bc7-320a-4d2a-b7f7-df9d7763f709.jpg`
+
+   ```text
+   UCM_NT=C00000A3 SWAP_NT=C00000A3 UCM_RUN=1 UCM_ATTACHED=0
+   QUEUED=0 ATTEMPTS=0 PENDING=0 OVERFLOW=0 PD_RID=FF
+   RID_TRANS=0 RID_DETACH=0 RID_BLOCK=0 USB_NOTIFY=0
+   PATH_WAIT=0 PATH_NT=C00000A3 PATH_WAITS=0 STALE=0
+   ```
+
+   Çalışma bayrağı açık; attach kabulü veya denenmiş bildirim yok.
+   `ATTEMPTS=0` iken UCM_NT, Windows'un gerçekten çağrılmış bir attach
+   isteğini reddettiğinin kanıtı değildir. Kuyruk taşması/yol bekleme
+   birikimi de görülmüyor. UCM_RUN, fiziksel Type-C bağlantısı değildir.
+
+3. **PD olayları ve PDO** — `codex-clipboard-ac1a9381-89c4-46c7-867a-c8594d7f42ae.jpg`
+
+   ```text
+   PD_MSG=FF PD_NT=C00000A3 PD_EVENTS=0 UNHANDLED=0
+   PSRDY_RAW=0 PSRDY_NT=C00000A3 PSRDY_EVENTS=0 PD_SEEN=0
+   CAPS_VALID=0 CAPS_NT=C00000A3 CAPS_HEADER=0 PDO_COUNT=0 CURRENT_PDO=0
+   READ_QUEUED=0 READ_PENDING=0 READ_DONE=0 STALE_DONE=0
+   REC_PENDING=0 REC_NT=C00000A3 REC_ATTEMPTS=0 PR_SWAP=FF
+   PDO1=0 PDO2=0 PDO3=0 PDO4=0 PDO5=0 PDO6=0 PDO7=0
+   ```
+
+   Geçerli PD olayı, PS_RDY veya kaynak PDO okuması yok. UNHANDLED=0,
+   olay sayısı da sıfırken PD işleyicilerinin çalıştığını kanıtlamaz.
+
+4. **SYSMSG / opcode hatası** — `codex-clipboard-85aeadc2-c138-401f-9fc7-a82a29b00c74.jpg`
+
+   ```text
+   SYSMSG=FF SYS_NT=C00000A3 SYS_VALID=0 READ0=0 READ1=0 READ2=0 READ_N=0
+   SYS_EVENTS=0 MISMATCHES=0 UNHANDLED=0 RETRY_OP=FF RETRY_NT=C00000A3
+   RETRY_TRIES=0 AFC_TRIES=0 AFC_NT=C00000A3 RELOCK_NT=C00000A3
+   ```
+
+   Doğrulanmış SYSMSG okuması veya retry/AFC işlemi yok. Sıfır hata
+   sayacı burada firmware'in sağlıklı çalıştığına ilişkin test değildir.
+
+5. **Başlangıç / reset / GRL** — `codex-clipboard-073be4c7-fa7a-402a-8763-1cf30b76dcf6.jpg`
+
+   ```text
+   INIT_STARTED=0 INIT_NT=C00000A3 INIT_Q=0 INIT_DONE=0
+   RESET_PHASE=0 RESET_NT=C00000A3 PRIOR_FAULT=C00000A3
+   WDT_COUNT=0 POR_COUNT=0 RESET_UIC=FF UIC_PENDING=0 UIC_REPLAY=0
+   REPLAY_COUNT=0 QUEUE_CLEARS=0 DETACH_CLEARS=0 QUEUE_DROPS=0 RECOVER_MASK=0
+   GRL_COUNT=0 GRL_NT=C00000A3 ALT_START_REQ=0 ALT_NT=C00000A3
+   ```
+
+   En belirgin bulgu: yayınlanan tanıda başlangıç **başlamamış** görünüyor;
+   tamamlanma veya kuyrukta bekleyen başlangıç komutu da yok. Bu durum
+   `INIT_NT=103` ile gösterilen komut yanıtı bekleme durumu değildir.
+   PRIOR_FAULT da başlangıç değeri olabilir; geçmiş somut arıza sayılmaz.
+
+6. **Gerçek opcode yanıtı** — `codex-clipboard-9fb848f2-6daf-4b56-b1e0-a0173b7adb51.jpg`
+
+   ```text
+   RX_MISMATCH=0 RX_UNHANDLED=0 RX_SHORT=0 EXPECTED=FF RECEIVED=FF RX_LEN=0
+   DISPATCH_NT=C00000A3 REQ_NT=C00000A3 RAW0=0 RAW1=0
+   CTRL3_VALID=0 CTRL3_RAW=0 ALT_ACK=0 PDO_RETRY=0
+   SBU_VALID=0 SBU1_RAW=0 SBU2_RAW=0
+   SELF_VALID=0 SELF_CC=0 SELF_SBU1=0 SELF_SBU2=0
+   ```
+
+   Geçerli opcode yanıtı yok. FF, bu kayıtta gönderilmiş/alınmış opcode
+   olarak yorumlanamaz; RX_LEN=0 ve başlangıç belirteçleriyle birlikte
+   değerlendirilir. Sıfır mismatch/short sayacı başarılı alışveriş değildir.
+
+### Kaynak kodla karşılaştırma ve teşhisin sınırı
+
+`windows/b2lusb/b2lusbctl.c` içinde INIT_STARTED, `B2LMaxProbeStarted`;
+INIT_DONE, `B2LMaxUsbcInitialized` kaydına karşılık gelir.
+`windows/b2lusb/b2lmax77705.c` D0Entry sıfırlaması; ProbeStarted=false,
+UsbcInitialized=false, sayaçlar=0, opcode/RID belirteçleri=FF,
+MuicRid/MuicAdc=7 ve ilgili durumları `STATUS_DEVICE_NOT_READY` yapar.
+Fotoğraflardaki `C00000A3` ve diğer değerler bu başlangıç durumuyla uyumludur.
+Bunları altı bağımsız başarısız donanım işlemi gibi saymak yanlış olur.
+
+Aynı kaynakta `B2lMaxEvtD0EntryPostInterruptsEnabled`, PolicyEnabled ve
+ConnectorRunning bayraklarını açıp PolicyWork'ü kuyruğa verir. UCM_RUN=1,
+bu yazılım etkinleştirme adımıyla uyumludur; PolicyWork'ün başarıyla
+çalıştığını, MFD'nin hazır olduğunu veya init komutlarının gönderildiğini
+kanıtlamaz. Mevcut kanıtla durulan callback/kapı kesin belirlenemez.
+
+Yeni sette GENEL DURUM ve USB FOTO port/aygıt sayfaları yok: STAGE/STATUS,
+PMIC_ID, I2C/IRQ/tamamlama sayaçları, MFD_FAULT, geçerli CC durumu,
+OTG/VBUS, PORTSC CCS/PED ve USB/HID envanteri eksik. Fiziksel kablo/alıcı
+ve takma sırası da bu fotoğraflarla belirlenemez. I2C, IRQ, firmware,
+kablo veya karışık runtime ABI'sinden biri kök neden olarak ilan edilmez.
+
+### Ara verme noktası ve ileride devam sırası
+
+- Cihazda doğrulanan: `.43` MAX, role-switch ve URS host PnP Started.
+- Henüz doğrulanmayan: MAX init komut tamamlanması, gerçek MUIC/CC/PD
+  işlenmesi, UCM attach, USB_AP/VBUS ve USB aygıtı/veri aktarımı.
+- Yeniden başlandığında önce mevcut tanının tazeliği ve D0/PostInterrupts
+  → PolicyWork → MFD hazırlığı → init kuyruğu/yayın zinciri incelenmeli.
+  Sonra Linux/Android'in gerçek CC/MUIC → rol bildirimi → URS → port
+  enumeration sırası izlenmeli. Varsayılan alanlar başarıya çevrilmemeli,
+  sabit host veya uydurulmuş attach ile eksik adım atlanmamalı.
+- Bilinen Linux karşılaştırması açıkları ve USB3/Combo PHY sınırlaması
+  aşağıdaki tarihsel teknik bölümlerde korunur; bu kayıt onları kapatmaz.
+- Kullanıcı yeniden başlatana kadar USB geliştirmesi durdurulmuştur.
+  Bu kayıt için ek fotoğraf, build veya flaş beklenmez.
+
+Sürüm dondurma: MAX `.43`, parent/host `.21`, deneysel function `.22`
+(strict function `.21`), MAX FOTO v15 / USB FOTO v4. Kaynak başlangıcı
+`26c1061`; son sürücü düzeltmesi `015a738`. Bu belgeleme binary değiştirmez.
+Deneysel runtime'da kernel/UCM 28000, kaynak URS/UFX/Synopsys 26100 kalır;
+PnP Started, function yükleyici/ABI uyumunu kanıtlamaz.
+
+Build ileride yalnız kullanıcının WSL makinesinde, mevcut yöntemle:
+
+```bash
+B2L_USB_RUNTIME_PROFILE=experimental-ufx \
+B2L_WINDOWS_ARM64_SOURCE=/mnt/c/Users/orhun/Downloads/Windows11_25H2_ARM64.iso \
+bash yap.sh --touch --usb-test --clean &&
+bash cache_esp.sh --win --system --baseline
+```
+
+Bu komut ara verme sırasında çalıştırılmadı. Değişiklikler yerelde commit
+edilir, kullanıcı push eder; bundle kullanılmaz. Fotoğrafların okunabilen
+bulguları yukarıya aktarıldı; orijinal JPEG'ler bu belge commit'ine eklenmedi.
+
 ## 5 Eylül 2026: `.43` flaşı — MAX, role-switch ve URS HOST Started
 
 Kullanıcının son altı fotoğrafı iki ayrı paket sonucunu içerir. İlk üçünde

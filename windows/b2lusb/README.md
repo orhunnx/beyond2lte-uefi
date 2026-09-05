@@ -1,5 +1,28 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
+## USB geliştirmesine ara verildi — 5 Eylül 2026
+
+Kullanıcının isteğiyle USB geliştirmesi durduruldu. Son `.43` flaşında
+MAX77705, BYN0002 role-switch ve URS USBXHCI host **Started** doğrulandı.
+Ek MAX FOTO v15 / tur 29 ekranlarında INIT_STARTED/INIT_DONE=0,
+RX_LEN=0, MUIC örnek/geçerlilik sayaçları=0; UCM_RUN=1 olmasına rağmen
+UCM_ATTACHED/ATTEMPTS/USB_NOTIFY=0. Çoğu alan D0 başlangıç değerleriyle
+aynı: USB aktarımı veya gerçek init/attach başarısı henüz doğrulanmadı.
+Kesin durma nedeni bu sayfalardan belirlenemiyor.
+
+Altı ekranın değerleri, yorum sınırları ve devam noktası
+[Linux karşılaştırmasında](../../specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md),
+projenin güncel özeti [DEVIR.md](../../DEVIR.md) içindedir. İleride önce
+tanının tazeliği ve PostInterrupts/PolicyWork/MFD/init zinciri incelenmeli.
+Linux/Android'in gerçek olay sırası korunur; başlangıç değerleri gerçek
+kablo/rol ölçümü yerine kullanılmaz.
+
+Bu ara verme kaydı sürücü değiştirmez ve yeni build/flaş gerektirmez.
+MAX `.43`, parent/host `.21`, deneysel function `.22` ve mevcut WSL build
+akışı korunur. Karışık deneysel runtime'ın function/ABI uyumu kanıtlanmadı.
+Aşağıdaki “bekleniyor / sonraki cihaz ölçütü” notları tarihsel kayıttır.
+
+
 ## Servislenmiş WIM ile yeniden build
 
 Runtime kontrolü geçtikten sonra servis ağacı kaynak kopyadan farklıysa,

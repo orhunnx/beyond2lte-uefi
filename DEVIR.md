@@ -18,13 +18,29 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / USB geliştirmesine ara verildi — güncel son durum:** Kullanıcı
+> USB çalışmasını durdurdu; yeni build/flaş veya veri beklenmiyor. `.43`
+> ile MAX, BYN0002 ve URS host PnP Started doğrulanmıştı. Ek MAX FOTO v15
+> tur 29 sayfalarında INIT_STARTED/INIT_DONE/INIT_Q=0, RX_LEN=0,
+> MUIC SAMPLES/RAW_VALID/CLASS_VALID=0, UCM_RUN=1 fakat UCM_ATTACHED=0,
+> ATTEMPTS/USB_NOTIFY=0. Çoğu durum C00000A3 ve D0 başlangıç değerleriyle
+> aynı; bunlar ayrı ayrı başarısız donanım işlemleri veya kablo yokluğu
+> kanıtı değildir. USB veri aktarımı doğrulanmadı; kesin kök neden açık.
+> İleride ilk inceleme tanının tazeliği ve PostInterrupts → PolicyWork →
+> MFD → init kuyruğu olmalı; Linux/Android sırası korunacak. Ayrıntılı
+> altı fotoğraf dökümü karşılaştırma dosyasının başındadır. Sürücü değişmedi:
+> MAX `.43`, parent/host `.21`, deneysel function `.22`, foto v15/v4.
+> Build yalnız WSL; mevcut deneysel profil ve kaynak ISO yöntemi korunuyor.
+> Bu kayıt yalnız belgeleri günceller. Kullanıcı push eder, bundle yok.
+> Aşağıdaki tarihli bekleme/sonraki adım notları tarihsel kayıttır.
+
 > **5 Eylül / `.43` cihaz doğrulaması:** Son fotoğraflarda MAX `.43`,
 > BYN0002 role-switch ve URS USBXHCI host aygıtı Started. Eski `.42` Code 31
 > engeli kalkmış; ilk üç fotoğraf eski, son üç fotoğraf yeni pakete ait.
 > Host ile MAX dökümü arasındaki “No devices” function çocuğu sorgusudur,
 > fare/HID sonucu değildir. CC/UCM/MUIC/PORTSC ve alıcı/HID verileri henüz
 > yok; USB veri aktarımı doğrulanmadı. Bu tur yalnız bulgu kaydıdır, yeni
-> driver/build/flaş gerektirmez. Aynı açılışın foto tanı sayfaları beklenir.
+> driver/build/flaş gerektirmez. Ek foto tanı sayfalarının sonucu yukarıdaki ara verme kaydındadır.
 
 > **5 Eylül / tekrar build servis karşılaştırması:** Runtime dosyaları geçip
 > `ufxsynopsys: hazirlanmis servis agaci degismis` hatası geldi. Hazırlayıcı
