@@ -1,5 +1,111 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+
+## 5 Eylül 2026: DISM sonrasında Synopsys 28000 — kaynak function paketinin sahipliği
+
+**Yeni kanıt:** Kullanıcı tam aşama sırasını paylaştı. MSVC/imzalama/DriverStore
+akışından sonra `B2LUSB hazir` yazılmış; kendi dokuz paket dosyamızın hash'leri
+geçmiş. `cache_esp.sh --win --system --baseline`, WIM optimize ve bütünlük
+kontrolünden sonra runtime kontrolünde durmuştur:
+
+| Dosya | Son WIM'de okunan ARM64 PE build |
+|---|---:|
+| ntoskrnl.exe | 28000 |
+| UcmCx.sys | 28000 |
+| Urscx01000.sys | 26100 |
+| Ufx01000.sys | 26100 |
+| ufxsynopsys.sys | 28000 |
+
+WIM bütünlük kontrolünün geçmesi, runtime grubunun seçilen kaynakla aynı
+olduğunu göstermez. Bu tablo sürücü yükleme/telefon USB testi değildir.
+Eski build sonu kontrolü yalnız B2LUSB dosyalarını doğruladığından
+`B2LUSB hazir` satırı Microsoft runtime'larının korunduğunu kanıtlamıyordu.
+
+**Kaynakta bulunan kurulum açığı:** `make-function-inf.py` deneysel profilde de
+`Include=ufxsynopsys.inf` / `Needs=<generic install>` üretiyordu. Hazırlayıcı
+26100 SYS/INF ve kaynak DriverStore dizinini kopyalıyor, fakat bu kopyalama
+kaynak inbox paketini Windows'a kaydetmiyordu. Windows'un mevcut native
+28000 Synopsys paketi ile bu yönlendirme aynı anda kalıyordu. Bu tasarım
+seçilen SYS'nin gerçek kurulum kaynağını sabitlemiyordu. Son tablo bu
+servisleme sorunuyla uyumludur; önce/sonra aşama hash'leri olmadığı için
+hangi Remove/Add adımının dosyayı değiştirdiği henüz ölçülmüş değildir.
+WIM optimize işlemini kesin neden ilan etmiyoruz.
+
+**Düzeltme:** Yalnız açıkça seçilen `experimental-ufx` profilinde üretilen
+`b2lusb-function.inf` artık `.22` sürümündedir. Kaynak INF'nin gerçek genel
+`URS\PNP0CA1&FUNCTION` modelinden seçilen kurulum kendi paketine alınır:
+
+- Gerçek `CopyFiles`, DIRID12, `AddService=ufxsynopsys,2,...` ve kaynak
+  servis ayarları korunur: kernel driver, demand start, Base,
+  `ServiceBinary=%12%\ufxsynopsys.sys`, `Dependencies=ufx01000`.
+- Genel HW SecurityAddReg ve `pci.inf/PciD3ColdSupported.HW` bağımlılığı
+  korunur. Qualcomm bölümleri/LowerFilters alınmaz. Tanınmayan genel bölüm,
+  kopya directive veya bağımlılık düzeninde üretim durur.
+- Platform kimliği yine `URS\BYN0002&FUNCTION` olur. Kaynak Microsoft INF
+  kanıtı değişmez; yalnız bizim üretilmiş platform INF'miz değişir.
+- Seçilen 26100 `ufxsynopsys.sys` **birebir** platform paketine eklenir.
+  Microsoft binary patch edilmez ve embedded imzası yeniden yazılmaz.
+  Test imzalı platform kataloğu artık dört INF + dört SYS içerir ve
+  kaynak SYS'nin manifest hash'i ile katalog üyeliği ayrıca doğrulanır.
+  Ham tanı INF'leri yine katalog girdisi değildir.
+- Gerçek DISM kurulumu bu platform paketini SYS'siyle kaydeder. Son kontrol
+  kayıtlı function INF'nin DriverStore kopyasını ve yanındaki SYS hash'ini
+  de doğrular. Telefonun `Windows/B2LUSB` drvload kopyasına aynı SYS eklenir;
+  ESP aşamasında bu kopya da manifest ile denetlenir.
+- Strict profil mevcut inbox Include/Needs yöntemini ve üç SYS paketini
+  kullanır. Parent/host `.21`, MAX `.42`, Linux/Android register/rol akışı,
+  IRQ/CC/PD işleme ve sürücü ABI'leri değişmez.
+
+Bu gerçek platform INF kurulumudur; kaynak ISO'nun CBS paketinin tam aktarımı
+olduğu iddia edilmez. Dosya sürümünü zorla kopyalama bayrağı eklenmez,
+DISM sonrasında eski dosya üzerine tekrar SYS kopyalanmaz ve hash/build kapısı
+gevşetilmez. [Microsoft DDInstall sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-ddinstall-section)
+Include/Needs ile başka INF'ye yönlenmeyi;
+[CopyFiles sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-copyfiles-directive)
+bir dosyanın paketle birlikte DriverStore'a alınmasını açıklar.
+
+**Yayımlama ve tanı:** Windows geçici WIM'i mount ettikten sonra manifest
+hash'lerini doğrular. Her eski paket kaldırma ve yeni paket ekleme sonrasında
+altı runtime dosyasının hash'i `RUNTIME [Remove-...]` / `RUNTIME [Add-...]`
+satırlarıyla kaydedilir. Son runtime hash'i farklıysa `Dismount -Save`
+yapılmaz; geçici WIM discard edilir, servislenmiş WIM asıl WSL dosyasına
+kopyalanmaz. Log hata halinde de `out/b2lusb/offline-driverstore.log` olarak
+korunur. Ardından WSL tarafında `DISM sonrasi USB runtime dogrulamasi` ayrı
+kontrolü çalışır ve `winpe-usb-runtime-post-dism.txt` raporu oluşur.
+Ancak bu kontroller geçerse `B2LUSB hazir` aşamasına ulaşılır.
+
+**Mevcut bozulmuş v2 WIM ile tekrar build:** Aynı ISO hash/index şartı sürer.
+Yalnız Synopsys SYS/INF değişmiş ve değişen dosya eski manifestin `replaced`
+alanındaki özgün native hash ile birebir aynıysa kaynak katmanı geçici WIM'de
+tekrar hazırlanır. Diğer dört runtime dosyası hâlâ manifestle aynı olmalıdır.
+Bilinmeyen dosya değişimi kabul edilmez. İlk rollback WIM korunur; yeniden
+hazırlama hatasında mevcut hedef değişmez. Kullanıcıdan elle dosya silmesi
+veya WIM üzerine rastgele dosya kopyalaması istenmez.
+
+**Doğrulama sınırı:** Host testleri gerçek 26100 INF fixture'ından genel
+paket üretimini, SYS'nin birebir aktarılmasını, hatalı kaynak bölümlerinin
+reddini, katalog kaynak hash kapısını, bilinen native dosyaya sınırlı
+kurtarmayı ve başarısız hazırlamada WIM/backup korunmasını geçirdi.
+Python runtime/URS/INF testleri, Bash USB safety ve sözdizimi kontrolleri
+geçti. PowerShell/DISM/Inf2Cat ve Windows build bu Mac'te çalıştırılmadı.
+26100/28000 loader/ABI uyumu ve gerçek USB işlevi henüz doğrulanmış değildir.
+
+WSL'de güncel commit'i aldıktan sonra aynı build yöntemi:
+
+```bash
+B2L_USB_RUNTIME_PROFILE=experimental-ufx \
+B2L_WINDOWS_ARM64_SOURCE=/mnt/c/Users/orhun/Downloads/Windows11_25H2_ARM64.iso \
+bash yap.sh --touch --usb-test --clean &&
+bash cache_esp.sh --win --system --baseline
+```
+
+Beklenti: katalog sekiz dosya, geçici WIM'de kaynak function paketi + 26100
+Synopsys SYS, DISM öncesi/sonrası değişmeyen kayıtlı runtime hash'leri,
+URS/UFX/Synopsys 26100 ve kernel/UCM 28000; ardından ESP üretiminin geçmesi.
+Bu aşama için flaş gerekmez. Sonradan cihazda gerçek attach → UCM → URS
+çocuğu → USB enumeration zinciri ayrıca ölçülecek; paketleme başarısı USB'nin
+çalıştığına eşitlenmeyecek.
+
 ## 5 Eylül 2026: Inf2Cat paket ayrımı çalıştı; WSL UNC staging yerel Windows TEMP'e taşındı
 
 Yeni WSL çıktısı `Inf2Cat: yalniz B2LUSB paketi (4 INF, 3 SYS)` satırını

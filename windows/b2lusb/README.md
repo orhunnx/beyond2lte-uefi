@@ -1,8 +1,26 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
+## DISM sonrası runtime koruması (5 Eylül 2026)
+
+`experimental-ufx` function paketi kaynak Synopsys genel kurulumunu ve
+orijinal SYS'yi birlikte DriverStore'a kurar. Native `ufxsynopsys.inf`
+Include/Needs yönlendirmesi bu profilde kaldırıldı; gerçek kaynak servis/HW
+ayarları korunur. Katalog dört INF + dört SYS içerir; Microsoft binary
+üzerinde patch veya yeniden embedded imzalama yapılmaz. Strict profil aynı.
+
+DISM'in her Remove/Add adımı altı runtime hash'ini kaydeder. Son farkta
+geçici WIM kaydedilmez. Kalıcı raporlar: `out/b2lusb/offline-driverstore.log`
+ve başarılı DISM dönüşünden sonra `out/b2lusb/winpe-usb-runtime-post-dism.txt`.
+Özgün manifestin native Synopsys hash'ine dönen eski v2 WIM, aynı ISO ile
+tekrar hazırlanabilir; diğer değişiklikler reddedilir. Son WIM doğrulanmadan
+`B2LUSB hazir` yazılmaz. Ayrıntılar ve WSL build komutu
+[Linux karşılaştırmasının başında](../../specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md).
+Host testleri geçti; gerçek Windows servisleme ve cihaz sonucu bekleniyor.
+
 ## Güncel kaynak: parent `.21` / MAX `.42`
 
-MAX `0.1.0.42`, parent/host/function `0.1.0.21`, USB IOCTL ABI 8.
+MAX `0.1.0.42`, parent/host `0.1.0.21`, strict function `.21`,
+deneysel kaynak function `.22`, USB IOCTL ABI 8.
 USB FOTO v4, MAX FOTO v15; MAX olay ABI'si değişmedi.
 Parent artık Samsung OTG LINK reseti → SUSPHY temizliği → ana PHY hazırlığı
 → DCTL self-clear → 50 ms → role-tune sırasını uygular. Genel GCTL/100 ms

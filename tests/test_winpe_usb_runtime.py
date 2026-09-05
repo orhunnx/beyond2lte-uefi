@@ -240,3 +240,38 @@ with tempfile.TemporaryDirectory() as temp:
         assert m['check']('v2.wim', 1, lambda _: None, run=wim.run,
                           experimental_ufx_manifest=manifest) == (1 if bad else 0), bad
 print('Observed partial WIM and v2 source URS/UFX/Synopsys cohort: PASS')
+
+# Experimental output must actually own its source SYS, preserving bytes and
+# source generic service/HW settings. Strict mode keeps the inbox wrapper.
+with tempfile.TemporaryDirectory() as temp:
+    root = Path(temp)
+    manifest, output = root/'runtime.json', root/'b2lusb-function.inf'
+    wim = Wim()
+    original = (ROOT/'tests/fixtures/ufxsynopsys-26100.inf').read_bytes()
+    wim.files[REQUIRED[-1]] = original
+    for path in REQUIRED[2:5]:
+        wim.files[path] = pe(26100)
+    record = {'profile': 'experimental-ufx-overlay-v2', 'target_build': [10, 0, 28000],
+              'source_build': [10, 0, 26100],
+              'files': {p: hashlib.sha256(b).hexdigest() for p, b in wim.files.items()}}
+    manifest.write_text(json.dumps(record))
+    assert m['check']('source.wim', 1, print, output, wim.run,
+                      experimental_ufx_manifest=manifest) == 0
+    generated = output.read_text().lower()
+    assert 'include=ufxsynopsys.inf' not in generated
+    assert 'qcusbfnssfilter' not in generated
+    assert 'copyfiles = ufxsynopsys.copyfiles' in generated
+    assert 'dependencies    = ufx01000' in generated
+    assert 'include=pci.inf' in generated and 'needs=pcid3coldsupported.hw' in generated
+    assert (root/'ufxsynopsys.sys').read_bytes() == wim.files[REQUIRED[4]]
+    assert wim.files[REQUIRED[-1]] == original
+    for broken in (original.replace(b'Dependencies    = ufx01000', b'Dependencies = foreign'),
+                   original.replace(b'CopyFiles = ufxsynopsys.CopyFiles', b'CopyFiles = missing'),
+                   original.replace(b'Include=pci.inf', b'Include=foreign.inf'),
+                   original.replace(b'StartType       = 3', b'StartType = 3\nStartType = 0')):
+        try:
+            m['VALIDATOR']['make_packaged_inf'](broken)
+            raise AssertionError('unverified source layout accepted')
+        except ValueError:
+            pass
+print('Source-owned generic function INF and byte-identical SYS packaging: PASS')

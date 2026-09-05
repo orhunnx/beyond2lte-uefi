@@ -542,6 +542,23 @@ verify_winpe_b2lusb_package() {
         echo "HATA: UFX deneme manifesti eksik veya degismis."
         return 1
       fi
+      # The function INF now owns this source binary as a real driver payload.
+      # Verify the local drvload copy as well as the installed runtime below.
+      if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
+          /Windows/B2LUSB/ufxsynopsys.sys --dest-dir="$VerifyDir" --no-acls >/dev/null || \
+          ! python3 - "$VerifyDir" <<'PYUFX'
+import hashlib, json, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+record = json.loads((root/'experimental-ufx.json').read_text())
+expected = record['files']['/Windows/System32/drivers/ufxsynopsys.sys']
+if hashlib.sha256((root/'ufxsynopsys.sys').read_bytes()).hexdigest() != expected:
+    raise SystemExit('HATA: function paket SYS hash farkli')
+PYUFX
+      then
+        rm -rf "$VerifyDir"
+        return 1
+      fi
       if ! python3 "$PROJ/windows/b2lusb/check-winpe-runtime.py" "$PROJ/esp/sources/boot.wim" \
           --experimental-ufx-manifest "$VerifyDir/experimental-ufx.json"; then
         rm -rf "$VerifyDir"

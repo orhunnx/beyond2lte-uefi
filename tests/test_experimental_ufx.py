@@ -172,3 +172,29 @@ for fail_readback in (True, False):
             assert record['replaced'][m['REQUIRED'][4]]  # existing native Synopsys was replaced
             assert set(record['services']) == set(m['SERVICES'])
 print('UFX WIM staging: publish after read-back; failed read-back preserves original and rollback: PASS')
+
+# Only the original manifest's exact native Synopsys can be recovered. A newer
+# build number alone is not sufficient; all other files remain hash-bound.
+record = {'profile': m['PROFILE'], 'files': {p: 'source-' + p for p in m['REQUIRED']},
+          'replaced': {p: 'native-' + p for p in m['REQUIRED']}}
+for path in m['REQUIRED'][4:]:
+    actual = dict(record['files'])
+    actual[path] = record['replaced'][path]
+    assert m['known_servicing_drift'](record, actual) == [path]
+for path in m['REQUIRED']:
+    actual = dict(record['files'])
+    actual[path] = 'unrecorded'
+    try:
+        m['known_servicing_drift'](record, actual)
+        raise AssertionError('unrecorded change accepted')
+    except ValueError:
+        pass
+for path in m['REQUIRED'][:4]:
+    actual = dict(record['files'])
+    actual[path] = record['replaced'][path]
+    try:
+        m['known_servicing_drift'](record, actual)
+        raise AssertionError('non-Synopsys rollback accepted')
+    except ValueError:
+        pass
+print('Servicing recovery: only recorded native Synopsys, no arbitrary runtime acceptance: PASS')

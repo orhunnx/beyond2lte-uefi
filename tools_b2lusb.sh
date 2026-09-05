@@ -34,6 +34,7 @@ mkdir -p "$OUT"
 RUNTIME_PROFILE="${B2L_USB_RUNTIME_PROFILE:-strict}"
 say "USB runtime hazirlayici v2 / profil: $RUNTIME_PROFILE"
 RUNTIME_ARGS=()
+CATALOG_ARGS=()
 case "$RUNTIME_PROFILE" in
   strict) ;;
   experimental-ufx)
@@ -44,6 +45,7 @@ case "$RUNTIME_PROFILE" in
       --index "${B2L_WINDOWS_ARM64_SOURCE_INDEX:-1}" --target-wim "$WIM" \
       --manifest "$OUT/experimental-ufx.json" || die "UFX deneme katmani hazirlanamadi"
     RUNTIME_ARGS=(--experimental-ufx-manifest "$OUT/experimental-ufx.json")
+    CATALOG_ARGS=("$OUT/experimental-ufx.json")
     ;;
   *) die "B2L_USB_RUNTIME_PROFILE strict veya experimental-ufx olmali" ;;
 esac
@@ -181,7 +183,7 @@ inf_driver_version() {
 PARENT_DRIVER_VERSION="$(inf_driver_version "$OUT/b2lusb.inf")"
 HOST_DRIVER_VERSION="$(inf_driver_version "$OUT/b2lusb-host.inf")"
 MAX77705_DRIVER_VERSION="$(inf_driver_version "$OUT/b2lmax77705.inf")"
-bash "$SRC/build-catalog.sh" "$OUT" "$INF2CAT"
+bash "$SRC/build-catalog.sh" "$OUT" "$INF2CAT" "${CATALOG_ARGS[@]}"
 [ -s "$OUT/b2lusb.cat" ] || die "Inf2Cat b2lusb.cat uretmedi"
 
 PFX="$OUT/b2l-test.pfx"
@@ -219,6 +221,10 @@ verify_test_signature() {
 verify_test_signature "b2lusb.cat" /v /pa "$(wslpath -w "$OUT/b2lusb.cat")"
 verify_test_signature "b2lusb.sys katalog eslesmesi" /v /pa /c \
   "$(wslpath -w "$OUT/b2lusb.cat")" "$(wslpath -w "$OUT/b2lusb.sys")"
+if [ "$RUNTIME_PROFILE" = "experimental-ufx" ]; then
+  verify_test_signature "kaynak ufxsynopsys.sys katalog eslesmesi" /v /pa /c \
+    "$(wslpath -w "$OUT/b2lusb.cat")" "$(wslpath -w "$OUT/ufxsynopsys.sys")"
+fi
 verify_test_signature "b2lusbmon.sys katalog eslesmesi" /v /pa /c \
   "$(wslpath -w "$OUT/b2lusb.cat")" "$(wslpath -w "$OUT/b2lusbmon.sys")"
 verify_test_signature "b2lmax77705.sys katalog eslesmesi" /v /pa /c \
@@ -304,8 +310,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -WimPath "$(wslpath -w "$WIM")" \
   -Package "$OFFLINE_PACKAGE" || die "B2LUSB offline DriverStore servislemesi basarisiz"
 
+say "DISM sonrasi USB runtime dogrulamasi"
+python3 "$SRC/check-winpe-runtime.py" "$WIM" "${RUNTIME_ARGS[@]}" \
+  --report "$OUT/winpe-usb-runtime-post-dism.txt" || \
+  die "DISM sonrasi runtime degisti; ESP uretilmez. Rapor: $OUT/winpe-usb-runtime-post-dism.txt"
+
+USB_PAYLOAD=(b2lusb.inf b2lusb-host.inf b2lusb-function.inf b2lmax77705.inf
+             b2lusb.sys b2lusbmon.sys b2lmax77705.sys b2lusb.cat b2lusbctl.exe)
+if [ "$RUNTIME_PROFILE" = "experimental-ufx" ]; then
+  USB_PAYLOAD+=(ufxsynopsys.sys)
+fi
 say "B2LUSB paketi boot.wim'e ekleniyor"
-for Item in b2lusb.inf b2lusb-host.inf b2lusb-function.inf b2lmax77705.inf b2lusb.sys b2lusbmon.sys b2lmax77705.sys b2lusb.cat b2lusbctl.exe; do
+for Item in "${USB_PAYLOAD[@]}"; do
   wimlib-imagex update "$WIM" 1 \
     --command="delete --force /Windows/B2LUSB/$Item" >/dev/null 2>&1 || true
   wimlib-imagex update "$WIM" 1 \
@@ -331,7 +347,7 @@ wimlib-imagex update "$WIM" 1 \
 
 rm -rf "$CHECK"
 CHECK="$(mktemp -d)"
-for Item in b2lusb.inf b2lusb-host.inf b2lusb-function.inf b2lmax77705.inf b2lusb.sys b2lusbmon.sys b2lmax77705.sys b2lusb.cat b2lusbctl.exe; do
+for Item in "${USB_PAYLOAD[@]}"; do
   wimlib-imagex extract "$WIM" 1 "/Windows/B2LUSB/$Item" \
     --dest-dir="$CHECK" --no-acls >/dev/null
   Want="$(sha256sum "$OUT/$Item" | awk '{print $1}')"

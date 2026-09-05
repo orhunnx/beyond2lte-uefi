@@ -18,6 +18,19 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / DISM sonrası Synopsys sürümü ve function paket sahipliği:**
+> Son hata `B2LUSB hazir` sonrasında ESP kontrolündedir: kernel/UCM 28000,
+> URS/UFX 26100, Synopsys 28000. Önceki deneysel wrapper INF native Synopsys
+> paketine Include/Needs ile yönleniyordu; kaynak dosyayı kopyalamak paketi
+> kaydetmiyordu. Deneysel function `.22` kaynak genel kurulum/servis/HW
+> bölümlerini ve değişmemiş SYS'yi kendi paketinde taşır; katalog 4 INF/4 SYS.
+> Strict function/parent/host `.21`, MAX `.42` ve donanım akışı aynı.
+> DISM her adımın runtime hash'ini loglar; son farkta geçici WIM discard edilir.
+> WSL'de ayrıca DISM sonrası runtime kontrolü vardır. Bilinen native Synopsys
+> geri dönüşü eski manifest hash'iyle sınırlı olarak yeniden hazırlanabilir.
+> Host testleri geçti; gerçek DISM/Inf2Cat ve loader/USB sonucu henüz yok.
+> Build yalnız WSL'de; ayrıntılı kanıt ve aynı build komutu karşılaştırmanın başında.
+
 > **5 Eylül / Inf2Cat WSL UNC erişimi:** Paket ayrımı gerçek WSL'de devreye
 > girdi; sonraki hata `.inf2cat.../b2lusb.sys` dosyasının WSL UNC yolunda
 > bulunamamasıydı. Katalog girdileri artık Windows'un kendi `%TEMP%` dizininde

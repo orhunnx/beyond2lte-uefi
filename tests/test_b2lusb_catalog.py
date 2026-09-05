@@ -133,6 +133,30 @@ if os.environ['CAT_MODE'] == 'empty':
             if not (mode == 'missing' and name == 'b2lusb.sys'):
                 assert (out/name).read_text() == content
 
+    # A manifest explicitly adds the unmodified source SYS. Diagnostics still
+    # stay excluded, and an altered binary must fail before Inf2Cat runs.
+    import hashlib
+    payload['b2lusb-function.inf'] = '; B2L_PACKAGED_SYNOPSYS=1\nsource generic INF'
+    payload['ufxsynopsys.sys'] = 'original Microsoft source bytes'
+    for name, content in payload.items():
+        (out/name).write_text(content)
+    manifest = out/'experimental-ufx.json'
+    manifest.write_text(json.dumps({'profile': 'experimental-ufx-overlay-v2', 'files': {
+        '/Windows/System32/drivers/ufxsynopsys.sys': hashlib.sha256(payload['ufxsynopsys.sys'].encode()).hexdigest()}}))
+    for corrupt in (False, True):
+        log.unlink(missing_ok=True)
+        if corrupt:
+            (out/'ufxsynopsys.sys').write_bytes(b'wrong version')
+        run = subprocess.run(['bash', str(ROOT/'windows/b2lusb/build-catalog.sh'),
+                              str(out), str(inf2cat), str(manifest)],
+                             env=dict(env, CAT_MODE='ok', EXPECTED_PAYLOAD=json.dumps(payload)),
+                             capture_output=True, text=True)
+        assert (run.returncode == 0) == (not corrupt), run.stderr
+        assert log.exists() == (not corrupt)
+        assert not list(native.iterdir())
+        if corrupt:
+            assert not (out/'b2lusb.cat').exists()
+
 script = (ROOT/'tools_b2lusb.sh').read_text()
 assert 'bash "$SRC/build-catalog.sh" "$OUT" "$INF2CAT"' in script
 assert '/driver:"$(wslpath -w "$OUT")"' not in script

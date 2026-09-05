@@ -147,6 +147,25 @@ def quote_wim(path):
     return "'" + value + "'"
 
 
+def known_servicing_drift(installed, actual_hashes):
+    """Only recover the recorded native Synopsys SYS/INF, never arbitrary bytes.
+    All other runtime hashes must still match the original prepared manifest.
+    """
+    changed = []
+    if installed.get('profile') != PROFILE:
+        raise ValueError('Eski profil icin otomatik servisleme kurtarmasi yok')
+    for path in REQUIRED:
+        actual = actual_hashes[path]
+        if actual == installed['files'][path]:
+            continue
+        if path not in REQUIRED[4:] or actual != installed.get('replaced', {}).get(path):
+            raise ValueError(f'Kayitli native Synopsys disinda runtime degisikligi: {path}')
+        changed.append(path)
+    if not changed:
+        raise ValueError('Hash degisikligi olmayan runtime kontrol hatasi; otomatik kurtarma yok')
+    return changed
+
+
 def prepare(source, index, target, manifest, emit=print):
     source, target = source.resolve(), target.resolve()
     if source == target:
@@ -160,6 +179,7 @@ def prepare(source, index, target, manifest, emit=print):
     # Same directory permits atomic publication; a failed experiment never edits target.
     with tempfile.TemporaryDirectory(prefix='.b2l-ufx-', dir=target.parent) as temp:
         work = Path(temp)
+        repair_servicing = False
         installed_record = extract(target, 1, MARKER, work, optional=True)
         if installed_record is not None:
             installed = json.loads(installed_record.read_text(encoding='utf-8'))
@@ -169,8 +189,11 @@ def prepare(source, index, target, manifest, emit=print):
                     installed.get('source_index') != index):
                 raise ValueError('Mevcut UFX denemesi baska kaynaga ait; once yedek WIM geri yuklenmeli')
             if AUDIT['check'](target, 1, emit, experimental_ufx_manifest=installed_record):
-                raise ValueError('Mevcut UFX deneme dosyalari degismis')
-        if installed_record is not None and installed['profile'] == PROFILE:
+                actual = {path: sha(extract(target, 1, path, work)) for path in REQUIRED}
+                changed = known_servicing_drift(installed, actual)
+                repair_servicing = True
+                emit('Kayitli native Synopsys geri gelmis; kaynak katmani yeniden hazirlanacak: ' + ', '.join(changed))
+        if installed_record is not None and installed['profile'] == PROFILE and not repair_servicing:
             hive = extract(target, 1, SYSTEM, work)
             cs = control_set(hive)
             for service in SERVICES:
@@ -202,6 +225,10 @@ def prepare(source, index, target, manifest, emit=print):
             existing = extract(target, 1, path, work, optional=True)
             record['replaced'][path] = sha(existing) if existing is not None else None
             emit(f'RUNTIME: {path}: {record["replaced"][path] or "YOK"} -> {sha(file)}')
+        if repair_servicing:
+            # Keep the original pre-overlay identity across repeated repairs.
+            for path in REQUIRED[4:]:
+                record['replaced'][path] = installed['replaced'].get(path)
         for path, file in zip(REQUIRED, target_files + source_files):
             record['files'][path] = sha(file)
 

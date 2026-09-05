@@ -92,6 +92,79 @@ Needs={base}.services
     result += '[Strings]\nB2L="beyond2lte"\nB2L.Function="Beyond2LTE USB Function Controller"\n'
     return result
 
+def make_packaged_inf(raw: bytes) -> str:
+    """Own the selected generic source installation instead of Include-binding
+    whichever inbox package servicing chooses. Preserve source service/HW data.
+    Only the audited generic layout is accepted; unknown directives fail closed.
+    """
+    wrapper = make_inf(raw)
+    base = re.search(r'^Needs=(.+)$', wrapper, re.M).group(1)
+    text = raw.decode('utf-16' if raw.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig')
+    sections = {}
+    current = None
+    for line in text.splitlines():
+        line = line.split(';', 1)[0].strip()
+        if line.startswith('[') and line.endswith(']'):
+            current = line[1:-1].lower()
+            sections.setdefault(current, [])
+        elif line and current:
+            sections[current].append(line)
+
+    def values(name):
+        result = {}
+        for line in sections.get(name, []):
+            key, sep, value = line.partition('=')
+            key = key.strip().lower()
+            if not sep or key in result:
+                raise ValueError(f'Unsupported/duplicate source directive: {name}: {line}')
+            result[key] = value.strip()
+        return result
+
+    def need(condition, message):
+        if not condition:
+            raise ValueError('Packaged Synopsys INF: ' + message)
+
+    install = values(base)
+    need(set(install) == {'copyfiles'}, 'unexpected generic DDInstall')
+    copy = install['copyfiles'].lower()
+    need(sections.get(copy) == ['ufxsynopsys.sys'], 'unexpected source CopyFiles')
+    need(values('destinationdirs').get(copy) == '12', 'source destination is not drivers')
+    services = values(base + '.services')
+    need(set(services) == {'addservice'}, 'unexpected Services directives')
+    parts = [part.strip().lower() for part in services['addservice'].split(',')]
+    need(len(parts) == 3 and parts[:2] == ['ufxsynopsys', '2'], 'unexpected service binding')
+    service = parts[2]
+    settings = values(service)
+    need(set(settings) == {'displayname', 'servicetype', 'starttype', 'errorcontrol',
+                           'servicebinary', 'loadordergroup', 'dependencies'}, 'unknown service settings')
+    need(settings['servicebinary'].lower() == r'%12%\ufxsynopsys.sys', 'unexpected ImagePath')
+    need(settings['dependencies'].lower() == 'ufx01000', 'unexpected class dependency')
+    hw = values(base + '.hw')
+    need(set(hw) == {'addreg', 'include', 'needs'} and
+         hw['include'].lower() == 'pci.inf' and
+         hw['needs'].lower() == 'pcid3coldsupported.hw', 'unknown generic HW dependencies')
+    registry = hw['addreg'].lower()
+    need(registry in sections and len(sections[registry]) == 1 and
+         re.sub(r'\s+', '', sections[registry][0]).lower() ==
+         'hkr,,devicecharacteristics,0x10001,0x100', 'unknown generic HW registry data')
+    need('b2l' not in values('strings') and 'b2l.function' not in values('strings'), 'string collision')
+    # Bind our actual URS child to the source sections. No Synopsys Include/Needs,
+    # version override flags, source INF edits, binary patches or guessed services.
+    header = wrapper.split('[B2LFunction.NT]')[0].replace('0.1.0.21', '0.1.0.22')
+    result = '; B2L_PACKAGED_SYNOPSYS=1\n' + header
+    for destination, origin in (('B2LFunction.NT', base),
+                                ('B2LFunction.NT.Services', base + '.services'),
+                                ('B2LFunction.NT.HW', base + '.hw'),
+                                (copy, copy), (service, service), (registry, registry)):
+        result += '[' + destination + ']\n' + '\n'.join(sections[origin]) + '\n'
+    result += ('[SourceDisksNames]\n1="B2LUSB source runtime"\n'
+               '[SourceDisksFiles]\nufxsynopsys.sys=1\n'
+               '[DestinationDirs]\n' + copy + '=12\n[Strings]\n' +
+               '\n'.join(sections.get('strings', [])) +
+               '\nB2L="beyond2lte"\nB2L.Function="Beyond2LTE USB Function Controller"\n')
+    return result
+
+
 def arm64_build(raw: bytes) -> tuple[int, int, int]:
     if raw[:2] != b'MZ' or len(raw) < 64:
         raise ValueError('Runtime is not PE')

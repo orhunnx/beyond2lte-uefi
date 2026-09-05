@@ -81,6 +81,29 @@ function Set-B2LVhfOfflineService {
     }
 }
 
+function Test-B2LRuntimeFiles {
+    param([string]$MountPath, [object]$Record, [string]$Stage, [switch]$RequireMatch)
+    $different = @()
+    foreach ($entry in $Record.files.PSObject.Properties) {
+        # Manifest keys must be the fixed runtime paths, never arbitrary paths.
+        if ($entry.Name -notmatch '^/Windows/(System32/(ntoskrnl\.exe|drivers/(UcmCx|Urscx01000|Ufx01000|ufxsynopsys)\.sys)|INF/ufxsynopsys\.inf)$') {
+            throw "Beklenmeyen runtime manifest yolu: $($entry.Name)"
+        }
+        $path = Join-Path $MountPath $entry.Name.TrimStart('/').Replace('/', '\')
+        $actual = if (Test-Path -LiteralPath $path -PathType Leaf) {
+            (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+        } else { "MISSING" }
+        Write-B2LStageLog "RUNTIME [$Stage] $($entry.Name) SHA256=$actual"
+        if ($actual -ne $entry.Value) { $different += $entry.Name }
+    }
+    if ($Record.files.PSObject.Properties.Name.Count -ne 6) {
+        throw "Runtime manifest alti dosya icermeli"
+    }
+    if ($RequireMatch -and $different.Count -gt 0) {
+        throw "Runtime degisti [$Stage]: $($different -join ', '); gecici WIM kaydedilmeyecek"
+    }
+}
+
 function Invoke-B2LOfflineServicing {
     param(
         [string]$WorkRoot,
@@ -112,12 +135,29 @@ function Invoke-B2LOfflineServicing {
         Mount-WindowsImage -ImagePath $localWim -Index 1 -Path $mountRoot -CheckIntegrity | Out-Null
         $mounted = $true
 
+        $runtime = $null
+        $runtimeManifest = Join-Path $WorkRoot "experimental-ufx.json"
+        if ($SelectedPackage -ne "Touch" -and (Test-Path -LiteralPath $runtimeManifest)) {
+            $runtime = Get-Content -LiteralPath $runtimeManifest -Raw | ConvertFrom-Json
+            if ($runtime.profile -ne "experimental-ufx-overlay-v2") {
+                throw "Bilinmeyen runtime paket profili"
+            }
+            $wimManifest = Join-Path $mountRoot "Windows\B2LUSB\experimental-ufx.json"
+            if ((Get-FileHash -LiteralPath $runtimeManifest).Hash -ne (Get-FileHash -LiteralPath $wimManifest).Hash) {
+                throw "Paket/WIM runtime manifestleri farkli"
+            }
+            Test-B2LRuntimeFiles -MountPath $mountRoot -Record $runtime -Stage "DISM-oncesi" -RequireMatch
+        }
+
         $installed = @(Get-WindowsDriver -Path $mountRoot -All)
         foreach ($driver in $installed) {
             $originalName = [IO.Path]::GetFileName([string]$driver.OriginalFileName)
             if ($requiredInfs -contains $originalName) {
                 Write-B2LStageLog "Eski offline paket kaldiriliyor: $originalName ($($driver.Driver))"
                 Remove-WindowsDriver -Path $mountRoot -Driver $driver.Driver | Out-Null
+                if ($null -ne $runtime) {
+                    Test-B2LRuntimeFiles -MountPath $mountRoot -Record $runtime -Stage "Remove-$originalName"
+                }
             }
         }
 
@@ -128,6 +168,9 @@ function Invoke-B2LOfflineServicing {
             }
             Write-B2LStageLog "Offline DriverStore ekleniyor: $infName"
             Add-WindowsDriver -Path $mountRoot -Driver $infPath -ForceUnsigned | Out-Null
+            if ($null -ne $runtime) {
+                Test-B2LRuntimeFiles -MountPath $mountRoot -Record $runtime -Stage "Add-$infName"
+            }
         }
 
         if ($SelectedPackage -ne "Usb") {
@@ -143,6 +186,21 @@ function Invoke-B2LOfflineServicing {
                 throw "Offline DriverStore dogrulamasi basarisiz: $infName sayi=$($match.Count)"
             }
             Write-B2LStageLog "Offline DriverStore dogrulandi: $infName -> $($match[0].Driver)"
+        }
+
+        if ($null -ne $runtime) {
+            # Verify the registered platform package really owns the selected SYS.
+            $storeRoot = Join-Path $mountRoot "Windows\System32\DriverStore\FileRepository"
+            $sourceInfHash = (Get-FileHash -LiteralPath (Join-Path $driverRoot "b2lusb-function.inf")).Hash
+            $stores = @(Get-ChildItem -LiteralPath $storeRoot -Filter "b2lusb-function.inf" -Recurse -File |
+                Where-Object { (Get-FileHash -LiteralPath $_.FullName).Hash -eq $sourceInfHash })
+            if ($stores.Count -ne 1) { throw "Kaynak function DriverStore paketi belirsiz/eksik" }
+            $storeSys = Join-Path $stores[0].DirectoryName "ufxsynopsys.sys"
+            $expected = $runtime.files.'/Windows/System32/drivers/ufxsynopsys.sys'
+            if ((Get-FileHash -LiteralPath $storeSys).Hash -ne $expected) {
+                throw "Function DriverStore SYS kaynaktan farkli"
+            }
+            Test-B2LRuntimeFiles -MountPath $mountRoot -Record $runtime -Stage "DISM-sonrasi" -RequireMatch
         }
 
         foreach ($markerDirectory in $markerDirectories) {
@@ -200,6 +258,12 @@ $usbFiles = @(
     "b2lmax77705.sys", "b2lusb.sys", "b2lusbmon.sys", "b2lusb.cat"
 )
 $touchFiles = @("b2ltouch.inf", "b2ltouch.sys", "b2ltouch.cat")
+$packagedSynopsys = $false
+if ($Package -ne "Touch") {
+    $functionInf = Get-Content -LiteralPath (Join-Path $usbSourceDirectory "b2lusb-function.inf") -Raw
+    $packagedSynopsys = ($functionInf -split "`r?`n")[0] -eq "; B2L_PACKAGED_SYNOPSYS=1"
+    if ($packagedSynopsys) { $usbFiles += "ufxsynopsys.sys" }
+}
 
 $workRoot = Join-Path $env:TEMP ("B2LWinPE-{0}" -f [Guid]::NewGuid().ToString("N"))
 $driverRoot = Join-Path $workRoot "drivers"
@@ -211,6 +275,9 @@ try {
     $localWim = Join-Path $workRoot "boot.wim"
     Copy-Item -LiteralPath $WimPath -Destination $localWim -Force
     (Get-Item -LiteralPath $localWim).IsReadOnly = $false
+    if ($packagedSynopsys) {
+        Copy-Item -LiteralPath (Join-Path $usbSourceDirectory "experimental-ufx.json") -Destination $workRoot
+    }
     if ($Package -ne "Touch") {
         foreach ($fileName in $usbFiles) {
             $sourceFile = Join-Path $usbSourceDirectory $fileName
@@ -267,5 +334,11 @@ try {
     Write-Host "Offline DriverStore boot.wim'e yazildi: $Package"
 }
 finally {
+    # Keep stage hashes even on failure/UAC errors; do not lose the evidence
+    # when the native Windows temporary directory is cleaned up.
+    $logDestination = if ($Package -eq "Touch") { $touchSourceDirectory } else { $usbSourceDirectory }
+    if (Test-Path -LiteralPath $script:LogPath) {
+        Copy-Item -LiteralPath $script:LogPath -Destination (Join-Path $logDestination "offline-driverstore.log") -Force
+    }
     Remove-Item -LiteralPath $workRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

@@ -173,6 +173,15 @@ def check(wim, index, emit, out_inf=None, run=subprocess.run, evidence_inf=None,
         if failed:
             return 1
         if out_inf is not None:
+            if experimental_ufx_manifest is not None:
+                # Preserve the Microsoft binary exactly; the platform catalog
+                # will bind it to this independently staged function package.
+                try:
+                    generated = VALIDATOR['make_packaged_inf'](files[-1].read_bytes())
+                except ValueError as error:
+                    emit(f'HATA: kaynak function paketi: {error}')
+                    return 1
+                Path(out_inf).with_name('ufxsynopsys.sys').write_bytes(files[4].read_bytes())
             Path(out_inf).write_text(generated, encoding='ascii')
         emit('Incelenen imajin kendi ARM64 runtime/build/INF kontrolleri gecti.')
         return 0

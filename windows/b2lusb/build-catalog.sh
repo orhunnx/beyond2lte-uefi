@@ -2,7 +2,7 @@
 # WSL: keep diagnostic inbox INFs outside Inf2Cat's package directory.
 set -euo pipefail
 
-[ "$#" -eq 2 ] || { echo "Kullanim: build-catalog.sh OUT INF2CAT" >&2; exit 1; }
+[ "$#" -ge 2 ] && [ "$#" -le 3 ] || { echo "Kullanim: build-catalog.sh OUT INF2CAT [RUNTIME_MANIFEST]" >&2; exit 1; }
 OUT="$(cd "$1" && pwd)"
 INF2CAT="$2"
 # Never leave a previous catalog looking like this run's successful output.
@@ -31,8 +31,25 @@ WINDOWS_STAGE="$(wslpath -w "$STAGE")"
 
 # Exact distribution payload. Do not glob *.inf or copy the output tree:
 # check-winpe-runtime.py intentionally preserves original inbox INF evidence.
-for Item in b2lusb.inf b2lusb-host.inf b2lusb-function.inf b2lmax77705.inf \
-            b2lusb.sys b2lusbmon.sys b2lmax77705.sys; do
+PAYLOAD=(b2lusb.inf b2lusb-host.inf b2lusb-function.inf b2lmax77705.inf \
+            b2lusb.sys b2lusbmon.sys b2lmax77705.sys)
+if [ "$#" -eq 3 ]; then
+  # An explicit manifest selects this payload; a stale SYS in OUT cannot do so.
+  python3 - "$OUT" "$3" <<'PYVERIFY'
+import hashlib, json, sys
+from pathlib import Path
+out, manifest = map(Path, sys.argv[1:])
+record = json.loads(manifest.read_text())
+if record['profile'] != 'experimental-ufx-overlay-v2':
+    raise SystemExit('HATA: kaynak SYS icin profil v2 gerekli')
+if not (out/'b2lusb-function.inf').read_text().startswith('; B2L_PACKAGED_SYNOPSYS=1\n'):
+    raise SystemExit('HATA: kaynak SYS function INF tarafindan sahiplenilmiyor')
+if hashlib.sha256((out/'ufxsynopsys.sys').read_bytes()).hexdigest() != record['files']['/Windows/System32/drivers/ufxsynopsys.sys']:
+    raise SystemExit('HATA: kaynak Synopsys SYS hash farkli')
+PYVERIFY
+  PAYLOAD+=(ufxsynopsys.sys)
+fi
+for Item in "${PAYLOAD[@]}"; do
   [ -s "$OUT/$Item" ] || { echo "HATA: Katalog paket dosyasi yok/bos: $Item" >&2; exit 1; }
   cp "$OUT/$Item" "$STAGE/$Item"
   cmp -s "$OUT/$Item" "$STAGE/$Item" || {
@@ -40,7 +57,7 @@ for Item in b2lusb.inf b2lusb-host.inf b2lusb-function.inf b2lmax77705.inf \
   }
 done
 
-echo "Inf2Cat: yalniz B2LUSB paketi (4 INF, 3 SYS)"
+echo "Inf2Cat: yalniz B2LUSB paketi (${#PAYLOAD[@]} dosya)"
 echo "Inf2Cat yerel Windows dizini: $WINDOWS_STAGE"
 # Use the local staging directory as the process working directory as well.
 (cd "$STAGE" && "$INF2CAT" /driver:"$WINDOWS_STAGE" /os:10_GE_ARM64)
