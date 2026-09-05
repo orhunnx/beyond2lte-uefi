@@ -110,6 +110,27 @@ Bu ölçüm kaynak işlerinin önkoşulu değildir. Statik `.18` HOST başlangı
 MAX veri rolüne bağlayan işletim sistemi yaşam döngüsü sıradaki açık iştir.
 
 
+### Sonraki rol bağlantısının doğrulanan Windows sözleşmesi
+
+Önceki URS kodu (`4124852` içindeki `b2lusb.c`), kullanıcı HOST isteğini
+`UrsHardwareEventIdGround` olarak raporluyordu. Bu gerçek MAX Type-C olayı
+olmadığından yeniden kullanılacak bir bildirim yolu değildir. Microsoft'un
+Type-C sözleşmesinde connector client CC/PD sonucunu UCM'ye bildirir;
+UCM rolü URS'ye iletir. URS eski host/function stack'i kaldırıp uygun yeni
+stack'i başlatır. ACPI `_ADR=0/1` bu stack'lerin controller rolleriyle
+ilişkilendirilmesidir; tek başına sahte donanım değildir. Eski belgelerdeki
+“sentetik PDO” ifadesi, URS'nin bütününün hatalı olduğunu kanıtlamaz.
+
+Ancak önceki Code 10 ölçümünde farklı Windows build'ine ait UrsCx runtime
+kullanılmıştı. Yeni port, bu yabancı runtime'ı geri getirmemeli; hedef WIM'in
+kendi sürümündeki gerekli bileşenleri doğrulamalıdır. Mevcut statik parent'ın
+PrepareHardware/D0Entry içindeki HOST çağrılarını yalnız bir registry
+bayrağıyla kapılamak da OS'nin gerçek remove/start sırasının yerine geçmez.
+Bu bölüm bir uygulanmış URS/UCM değişikliği değil, sonraki portun doğrulanmış
+bağımlılığıdır.
+[Microsoft Type-C bring-up](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/dual-role-controller-bringup-for-a-usb-type-c-system),
+[rol/ACPI stack sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/usbcon/usb-dual-role-driver-stack-architecture).
+
 ## 5 Eylül 2026: `.31` — MAX77705 özgün GPIO kesmesi ve APCMD kuyruğu
 
 Bu bölüm `.30` durumunu günceller. **Flaş beklenmeden kaynak çalışmasına devam

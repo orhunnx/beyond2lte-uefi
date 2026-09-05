@@ -63,8 +63,9 @@ Bugün itibarıyla:
   Bu yüzden güvenlik gereği VBUS kapalı, MUIC analog yolu `OPEN=0x3f` ve xHCI
   portu `RxDetect/CCS=0` kalıyor. Fare/HID katmanına henüz gelinmedi.
 - En erken doğrulanmış hata artık **3. adım: sekiz baytlık I2C okuması**.
-  `.30` HSI2C'nin gerçek GSIV114/ISR/DPC aktarımını uygular; cihaz sonucu
-  bekleniyor. MAX GPIO IRQ işleme ve MAX CC/PD -> DWC3 rol bildirimi eksiktir.
+  `.30` HSI2C GSIV114 aktarımını, `.31` MAX GPIO GSIV51/opcode kuyruğunu,
+  `.32` CC güç rolü/PD veri rolü ayrımını kaynakta uygular. Bu yeni sürümlerin
+  cihaz sonucu yoktur. MAX -> Windows role-switch/DWC3 bildirimi eksiktir.
 - Yeni fotoğraflar aynı D0 oturumunda 13 -> 15 olayı gösteriyor; tamamının
   status snapshot'ı geçersiz. ForceError veya firmware reset gerektiği bu
   kayıtlardan çıkarılamaz. Eksik `findstr` ve seri registry sorguları tanı
@@ -95,12 +96,12 @@ kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikle
 
 ### 0.3 Güncel repo ve sürüm çıpası
 
-`.32` çalışma değişikliğinin commit tabanı (güncel commit için `git log -1`):
+`.32` kaynak commit'i (son belge güncellemesi için `git log -1`):
 
 ```text
 dal:    codex/touch-from-8549bfa
+commit: 13e96fe  fix: separate MAX77705 power and data role events
 taban:  f01a40e  feat: service MAX77705 commands through the original GPIO IRQ
-önceki: 5b73b6a  docs: pin MAX77705 IRQ and opcode probe dependencies
 ```
 
 Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
@@ -145,10 +146,11 @@ sürücü yazma yoluna alınmaz. `LINK_PORT.U3_DISABLE` açıktır. Rastgele com
 okuması/yazması eklenmemelidir.
 
 Şu anda ACPI `_DEP`, BYN0002'nin BYN0004 sürücüsünün başlamasını beklemesini
-sağlar; ancak BYN0004 gerçek MAX probe/CC kararı bitmeden timer kurup D0Entry'den
-başarı döner. Sonuç olarak xHCI çalışabilirken konektör tarafı hazır olmayabilir.
-Bu yapısal ayrım, CC `SOURCE` güvenilir hale geldikten sonra ayrı bir READY
-kapısıyla düzeltilmelidir.
+sağlar; ancak MAX probe/politika işi PostInterruptsEnabled sonrasında ayrı
+çalışır. `_DEP` gerçek CC/PD rolünü beklemez. Statik `.18` parent bu nedenle
+konektör DFP olmadan xHCI başlatabilir. Doğru eşdeğerlik yalnız READY kontrolü
+değildir: gerçek Type-C/UCM veri rolü bildirimi ve OS'nin host/function start-stop
+yaşam döngüsü kurulmalıdır. Bu kaynak işi için kullanıcıdan flaş beklenmiyor.
 
 ### 0.5 Sıfırdan ortam hazırlama
 
