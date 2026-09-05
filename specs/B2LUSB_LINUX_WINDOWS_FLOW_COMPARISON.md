@@ -1,5 +1,164 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.33` — nested IRQ sırası ve asenkron MUIC
+
+`.32` sonundaki somut gecikme kapatıldı: MUIC opcode yanıtını bekleyen
+politika işi artık BYP/CC/PD işleyicilerini durdurmuyor. Bu kaynak çalışması
+flaş beklenmeden yapıldı. `.33` **tam USB tamamlandı anlamına gelmez**;
+aşağıdaki açık OS rolü/PD/function/USB3 maddeleri hâlâ hedefin parçasıdır.
+
+### Önceki gecikme ve gerçek kesmedeki yeni sıra
+
+`.32` pasif MAX ISR'si APCMDRES'i tamamlıyor, BYP/CC/PD'yi daha sonra
+`PolicyWork` içinde işliyordu. İş, `CONTROL1_WRITE`/`CONTROL1_READ` yanıtını
+senkron beklerken yeni aşırı akım veya detach kaydı aynı işi bekliyordu.
+Samsung MFD tablosunda CHG BYP, USBC APCMD'den önce; CC WATER/CCSTAT ve PD
+DATAROLE ise bunlardan sonra dispatch edilir. Linux notifier/opcode kuyruğu
+komut yanıtını aynı nested handler içinde beklemez.
+
+`.33` uygulanan alt küme için aynı kesme sırasını kullanır:
+
+1. Özgün GPA1-6 / GSIV51 pasif ISR TOP, CHG ve USBC read-to-clear
+   kaynaklarını alır; ham baytlar korunur. VBUSDet recheck ve status snapshot
+   okumaları MFD'de kalır.
+2. CHG BYP varsa unlock/details/off işlemi **APCMD yanıtından önce** çalışır.
+   Bu işlem politika işi veya MUIC yanıtı beklemez. Sonradan USBC okuması ya
+   da opcode yanıtı hata verse bile önceden alınmış BYP kaybolmaz.
+3. Gerçek APCMDRES kuyruğun başını tamamlar ve sonraki komutu gönderir.
+4. WATER, gerçek CCSTAT (ve stok VBUSDet detach recheck), gerçek PD DATAROLE
+   mevcut canlı register'ları okuyarak aynı pasif ISR'de işlenir. Eski foto
+   snapshot'ı rol kararı yerine kullanılmaz.
+5. `PolicyWork` çalışma zamanında yalnız kayıtları foto günlüğüne geçirir ve
+   registry yayımlar. CC/PD/BYP'yi tekrar dispatch etmez. Başlangıç probe işi
+   aynı work item'da kalır; probe yanıt bekleyişi pasif ISR'yi kilitlemez.
+
+Bu, bütün Samsung nested handler'ları port edildi demek değildir. SYSMSG,
+PDMSG, PS_RDY, VCONN/accessory/alt-mode ve batarya bildirimlerinin kalan
+kolları henüz aynı kapsamda uygulanmadı.
+
+Kaynaklar: [Samsung MFD IRQ tablosu](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/mfd/max77705-irq.c#L75),
+[CC/MUIC/USB bildirimleri](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_cc.c#L190),
+[PD DATAROLE](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_pd.c#L1260).
+
+### MUIC komut ömrü ve gerçek tamamlanma
+
+`B2lMaxRequestMuicLocked()` `06 <path>` ve `05` read-back komutunu tek
+kilit altında peş peşe bağlar; `STATUS_PENDING` döner. Yalnız gerçek
+APCMDRES, `0x51` yanıtını tüketir. `MuicPathVerified` ancak hedef yol ile
+read-back eşleştiğinde true olur. Mevcut doğrulanmış yol veya aynı bekleyen
+istek gereksiz tekrar komut üretmez.
+
+Windows nesne ömrü için context içinde 32 sabit istek çifti vardır. Kuyruk
+callback döndükten sonra stack adresi tutmaz, IRQ içinde bellek ayırmaz.
+WRITE ardından READ tamamlanmadan slot yeniden kullanılamaz. Her yeni yol
+isteği bir nesil numarası taşır: eski `USB_AP` read-back'i daha yeni `OPEN`
+isteğini doğrulayamaz. Eski ham okuma `MUIC_CTL1` olarak görülebilir ama
+`MUIC_OK=0`, `MUIC_NT=103` kalır. Slot kapasitesi dolarsa önceki istekler
+başarısız iptal edilir; detach sessizce düşürülüp eski attach kuyruğu
+çalışmaya bırakılmaz. Bu kapasite donanım register'ı değil Windows bellek
+sınırıdır; tükenme gerçek hata olarak yayımlanır.
+
+Su durumu, tamamlanma callback'inde de veri-rolü sonucunda korunur: su
+olayı eski isteğin yanıtından önce geldiyse başarılı analog switch read-back'i
+`DATA_NT` engelini başarıya çeviremez. UFP'de OPEN tamamlanması hâlâ
+`DATA_NT=STATUS_NOT_SUPPORTED` olur; function stack tamamlandı denmez.
+
+### Süre sınırı ve kilit sahipliği
+
+`MfdLock` pasif MAX ISR, opcode kuyruğu ve CC/PD/charger durumunu korur.
+`TransportLock` bağımsız HSI2C aktarım çiftini; `BusLock` probe, shutdown ve
+tanı yayımlayan işin ömrünü seri hale getirir. Runtime nested handler
+`BusLock` almaz, APCMD completion beklemez ve registry yazmaz. Registry
+alanları MFD kilidiyle kopyalanır, kilit bırakıldıktan sonra yayımlanır.
+Foto günlüğü work item'a aittir; kernel stack'e büyük log kopyası eklenmedi.
+
+Yanıtı bekleyen bir runtime thread kalmadığından Samsung'un 10*HZ opcode
+süre sınırı, pasif **tek atımlık hata timer'ı** ile gözetilir. Timer:
+
+- USBC status/yanıtı okumaz; `0x02..0x05` veya `0x51` tüketmez.
+  Hata halinde yalnız GPIO maskesinin read/modify/write işlemi yapılır.
+- SOURCE/DFP kararı, başarı veya sonraki opcode'u üretmez.
+- Gerçek baş isteğin `SentAt` süresini denetler. Eski komuta ait gecikmiş
+  callback yeni başı iptal edemez; yeni başın kalan süresine kurulur.
+- Süre dolduğunda kuyruğu `STATUS_IO_TIMEOUT` ile iptal eder, GPIO'yu
+  maskeler ve hatayı yayımlar. Bu, Linux SYSMSG/POR/WDT kurtarmasının
+  uygulandığı anlamına gelmez; recovery hâlâ eksiktir.
+
+Bu timer kesmenin alternatifi değildir. Linux kuyruğunun süre aşımı kontrolü
+ile Windows callback ömrünü eşler; Linux'taki bütün retry/reset kararları
+henüz port edilmedi. KMDF pasif timer periyodik değildir; shutdown, kilidi
+bıraktıktan sonra timer'ın bitmesini bekler. IRQ'lar kapanmadan VBUS off ve
+son OPEN komutu tamamlanır/negatif sonuçlanır; sonrasında kuyruk emekliye
+ayrılıp HSI2C susturulur.
+[Microsoft pasif IRQ](https://learn.microsoft.com/en-us/windows-hardware/drivers/wdf/supporting-passive-level-interrupts),
+[pasif tek atımlık timer sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/wdf/using-timers).
+
+### Probe sırasındaki ek düzeltme
+
+Önceki ilk CC/su/PD kontrolü opcode init ve GPIO unmask sonrasındaydı.
+Artık handler kayıt/maskeleri ardından ilk CC (yalnız SINK), WATER,
+AUTOIBUS kuyruğu, ilk PD veri rolü, normal PD/VDM probe maskeleri ve
+54/0c/0b init kuyruğu gelir; sonra TOP USBC/GPA1 açılır. Böylece ilk durum
+okuması gerçek kesmelerin ardından gelip yeni bir rolü eski probe işlemiyle
+ezmez. Initial SOURCE yine VBUS açmaz. İlk SINK+DFP'de MUIC isteği kuyrukta
+kalabilir; probe GPIO'yu açmadan yanıt beklemez. UFP/WATER tüketici engelleri
+MFD taşıma hatasıyla bir tutulmaz.
+
+[Özgün probe](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_usbc.c#L3539),
+[CC initial-detect](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_cc.c#L855),
+[PD init](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_pd.c#L1389).
+RID/short kontrolü ve diğer PD init işlemleri hâlâ ayrı açık maddelerdir.
+
+### Tanı, doğrulama ve build
+
+MAX INF `0.1.0.33`, `MAX FOTO v6` genel sayfası 40 satırdır. Yeni alanlar:
+
+| Alan | Anlam |
+|---|---|
+| `MUIC_NT` | `103` kuyrukta/yanıt bekliyor; `0` son yolun read-back'i eşleşti; negatif NTSTATUS hata |
+| `MUIC_Q` | Henüz tamamlanmamış WRITE/READ çifti sayısı; donanım IRQ sayısı değildir |
+| `MUIC_OK` | Son istenen analog yol gerçekten doğrulandı mı |
+| `DATA_NT` | Veri rolü tüketicisinin sonucu; WATER/UFP engeli analog yol başarısından ayrı |
+
+Foto açıklaması CC SOURCE'u DFP'nin yerine koymaz. `MUIC=09/OK=1` yalnız
+analog yolun kanıtıdır; OS host stack'i veya USB transferi kanıtı değildir.
+115 registry adı/alanı, olay günlüğü ve TXT kısa özeti birlikte korunur.
+
+Host testleri gerçek IRQ/CC/PD/opcode C fonksiyonlarını birlikte yürütür.
+Hiç publication work item çalıştırmadan bekleyen MUIC sırasında
+`BYP -> APCMD -> WATER -> CC -> PD` sırası; overcurrent off; eski yanıt/yeni
+OPEN; read-back mismatch; WATER/yanıt yarışı; timer'da I2C/başarı olmaması;
+slot tükenmesinde iptal; SINK+DFP/UFP/WATER probe kuyruğu; ham hata kaydı;
+PnP shutdown ve 40 satırlık foto sınırı doğrulandı. IRQ, connection,
+lifecycle, events, transport ve üç kaynak kontrolü olmak üzere sekiz suite
+çalıştırıldı. **Bunlar WDK build veya telefon IRQ/USB kanıtı değildir.**
+
+WSL yöntemi değişmedi; bu Mac'te WDK/UEFI/WIM build yapılmadı:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+Flaş yapılacağı zaman `.30/.31` ACPI'yi de içeren aynı build'in
+boot.img/system.img çifti kullanılmalı. Beklenen ölçüm: gerçek I2C/MAX IRQ ve
+APCMD sayıları, güç/veri rollerinin ayrı değişmesi, MUIC `103 -> 0/OK=1`,
+detach'te VBUS off + doğrulanmış OPEN. Flaş bu kaynak işlerinin önkoşulu değildir.
+
+### Hedefte kalan işler
+
+- Gerçek MAX Type-C rolünün UcmCx -> URS -> DWC3 host/function yaşam döngüsüne
+  bağlanması; mevcut `.18` statik HOST başlangıcının kaldırılması.
+- UFP'nin özgün MUIC/charger sınıflandırması ve Windows function yolu.
+- SYSMSG POR/WDT/APCMD_FAIL; PDMSG/PS_RDY, power/data-role swap, hard-reset,
+  VCONN/RID/short/alt-mode ve batarya/charger akışlarının kalan kolları.
+- Linux PHY/USB3 akışının kanıtlı MMIO/clock/reset adımları; daha önce abort
+  veren combo registerlarına doğrulanmamış erişim eklenmemesi.
+
+Bu liste uygulanmamış parçaları başarılı saymamak içindir; kullanıcıdan yeni
+flaş gelmesini bekleyen bir durdurma koşulu değildir.
+
+
 ## 5 Eylül 2026: `.32` — CC güç rolü, PD veri rolü ve charger olayları
 
 `.31` commit'i `f01a40e` ile GPIO/opcode zinciri kaydedildikten sonra, flaş

@@ -440,7 +440,8 @@ B2lPrintMaxPhotoOverview(ULONG Cycle)
         L"B2LMaxHsI2cRawIrq", L"B2LMaxHsI2cInterruptCount", L"B2LMaxHsI2cCompletionCount",
         L"B2LMaxMaxRawIrq", L"B2LMaxMaxInterruptCount", L"B2LMaxMaxLastInterruptStatus",
         L"B2LMaxOpcodeCompletions", L"B2LMaxMfdFault",
-        L"B2LMaxPowerRole", L"B2LMaxDataRole", L"B2LMaxDataRoleStatus"
+        L"B2LMaxPowerRole", L"B2LMaxDataRole", L"B2LMaxDataRoleStatus",
+        L"B2LMaxMuicStatus", L"B2LMaxMuicOutstanding", L"B2LMaxMuicPathVerified"
     };
     static const WCHAR *Labels[] = {
         L"STAGE", L"STATUS", L"PMIC_ID", L"FW", L"FW_MINOR",
@@ -450,7 +451,7 @@ B2lPrintMaxPhotoOverview(ULONG Cycle)
         L"RX_FAIL", L"RX_NT", L"RX_WANTED", L"RX_READ",
         L"I2C_GSIV", L"I2C_IRQ", L"I2C_DONE",
         L"MAX_GSIV", L"MAX_IRQ", L"MAX_NT", L"OP_DONE", L"MFD_FAULT",
-        L"PWR_ROLE", L"DATA_ROLE", L"DATA_NT"
+        L"PWR_ROLE", L"DATA_ROLE", L"DATA_NT", L"MUIC_NT", L"MUIC_Q", L"MUIC_OK"
     };
     HKEY Key;
     LSTATUS Error;
@@ -460,8 +461,8 @@ B2lPrintMaxPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v5 / tur %lu / GENEL DURUM\n", Cycle);
-    wprintf(L"Fotograf cekin. Sonraki sayfa: 20 sn.\n");
+    wprintf(L"MAX FOTO v6 / tur %lu / GENEL DURUM\n", Cycle);
+    wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
     if (Error != ERROR_SUCCESS) {
@@ -485,11 +486,8 @@ B2lPrintMaxPhotoOverview(ULONG Cycle)
         }
     }
     RegCloseKey(Key);
-    wprintf(L"Takma/cikarma sonrasi bir sonraki turu da cekin.\n");
-    wprintf(L"Genel alanlar sirayla okunur; atomik kayit degildir.\n");
-    wprintf(L"STAGE=70: MAX init hazir; USB baglandi anlamina gelmez.\n");
-    wprintf(L"HOST zinciri: CC_STATE=2 -> OTG=1 -> MUIC_CTL1=09\n");
-    wprintf(L"Klavye gerekmez. Varsa Q/Esc: cikis.\n");
+    wprintf(L"MUIC_NT=103 bekler; 0/OK=1: analog yol dogrulandi.\n");
+    wprintf(L"STAGE=70: MAX init, USB baglantisi degil. Q/Esc: cikis.\n");
 }
 
 static VOID
@@ -504,7 +502,7 @@ B2lPrintMaxEventPage(const B2L_MAX_EVENT_LOG *Log, ULONG Page, ULONG Cycle)
     }
     // At most 33 lines on the WinPE 64x41 console. One immutable registry
     // snapshot for the whole cycle: new events cannot reorder later pages.
-    wprintf(L"MAX FOTO v5 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
+    wprintf(L"MAX FOTO v6 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
     wprintf(L"Bu ekrani fotograflayin. Sonraki sayfa: 20 sn\n");
     wprintf(L"D0=%llu count=%lu total=%llu\n", Log->StartTime, Log->Count, Log->Total);
     wprintf(L"kayip=%llu UIC=%02lX SYS=%lu ERR=%lu FAIL=%lu\n",

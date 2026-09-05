@@ -32,13 +32,15 @@ typedef int64_t LONGLONG;
 typedef int32_t NTSTATUS;
 typedef int BOOLEAN;
 typedef void VOID;
-typedef void *WDFDEVICE,*WDFWORKITEM,*WDFWAITLOCK,*WDFINTERRUPT;
+typedef void *WDFDEVICE,*WDFWORKITEM,*WDFWAITLOCK,*WDFINTERRUPT,*WDFTIMER;
 typedef struct { int signaled; } KEVENT;
 typedef struct { LONGLONG QuadPart; } LARGE_INTEGER;
 typedef struct { ULONG Vector; } WDF_INTERRUPT_INFO;
 #define TRUE 1
 #define FALSE 0
 #define STATUS_SUCCESS 0
+#define STATUS_NOT_SUPPORTED (-9)
+#define STATUS_INSUFFICIENT_RESOURCES (-10)
 #define STATUS_PENDING 0x103
 #define STATUS_TIMEOUT 0x102
 #define STATUS_DEVICE_NOT_READY (-1)
@@ -70,7 +72,10 @@ static PB2L_MAX_CONTEXT current;
 static ULONG regs[0x1000/4], mmio_ack, held, queued, r2c_reads, responses, commands, cancels;
 static UCHAR top, raw[4], reg_values[128][256], last_opcode, last_payload, reply_opcode;
 static UCHAR written_op[64], written_data[64];
-static ULONGLONG ticks;
+static ULONGLONG ticks, timer_due;
+static UCHAR muic_actual;
+static int muic_bad_read, trace_count;
+static char trace[1024];
 static NTSTATUS read_error, write_error, snap_error, normalize_status;
 static int drop_irq, wrong_reply, stale_wakes, probe_test;
 static BOOLEAN B2lMaxEvtMaxInterruptIsr(WDFINTERRUPT,ULONG);
@@ -81,6 +86,13 @@ static void WdfWaitLockRelease(WDFWAITLOCK l) { assert(l==current->MfdLock && he
 static void KeInitializeEvent(KEVENT *e,int t,int v) { assert(t==0);e->signaled=v; }
 static int KeSetEvent(KEVENT *e,int n,int wait) { assert(n==0 && !wait); e->signaled=1;return 0; }
 static ULONGLONG KeQueryInterruptTime(void) { return ticks; }
+static BOOLEAN WdfTimerStop(WDFTIMER t,BOOLEAN wait) { (void)t; assert(!wait);timer_due=0;return 0; }
+static BOOLEAN WdfTimerStart(WDFTIMER t,LONGLONG due) { (void)t;assert(due<0);timer_due=ticks+(ULONGLONG)-due;return 0; }
+static WDFDEVICE WdfTimerGetParentObject(WDFTIMER t) { assert(t==current);return current; }
+static NTSTATUS B2lMaxEnableOtg(PB2L_MAX_CONTEXT c) {assert(held);c->OtgEnabled=c->OtgHardwareActive=1;return 0;}
+static NTSTATUS B2lMaxDisableOtg(PB2L_MAX_CONTEXT c) {assert(held);c->OtgEnabled=c->OtgHardwareActive=0;return 0;}
+static NTSTATUS B2lMaxUnlockCharger(PB2L_MAX_CONTEXT c) {(void)c;assert(held);return 0;}
+static NTSTATUS B2lMaxRequestMuicLocked(PB2L_MAX_CONTEXT,UCHAR);
 static PB2L_MAX_CONTEXT B2lMaxGetContext(WDFDEVICE d) { assert(d==current); return current; }
 static WDFDEVICE WdfInterruptGetDevice(WDFINTERRUPT i) { assert(i==current); return current; }
 static void WdfInterruptGetInfo(WDFINTERRUPT i,WDF_INTERRUPT_INFO *p) { assert(i==current);p->Vector=0xa02; }
@@ -93,6 +105,9 @@ static void WRITE_REGISTER_ULONG(PULONG p,ULONG value) {
 }
 static NTSTATUS B2lMaxReadByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v) {
     assert(c==current && held); if (read_error) return read_error;
+    if(a==0x69 && r==0xb5) trace[trace_count++]='B';
+    if(a==0x25 && r==0x0b) trace[trace_count++]='W';
+    if(a==0x25 && r==0x0d) trace[trace_count++]='P';
     if(a==0x66 && r==0x22) *v=top;
     else if(a==0x25 && r==0x07) *v=0;
     else if(a==0x69 && r==0xb0) *v=1;
@@ -102,11 +117,14 @@ static NTSTATUS B2lMaxReadByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v) {
 static NTSTATUS B2lMaxReadBlock(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v,ULONG n) {
     assert(c==current && held && a==0x25);
     if(read_error) return read_error;
+    if(r==0x0a) { assert(n==2);trace[trace_count++]='C';v[0]=reg_values[a][r];v[1]=reg_values[a][r+1];return 0; }
     if(r==0x02) { assert(n==4); ++r2c_reads; memcpy(v,raw,4); memset(raw,0,4); return 0; }
     if(r==0x06) { assert(n==8); memset(v,0x81,n); return snap_error; }
     assert(r==0x51 && n>=1 && n<=2); ++responses;
+    trace[trace_count++]='A';
     v[0]=wrong_reply ? reply_opcode : last_opcode;
     if(n==2) v[1]=(last_opcode==0x0b || last_opcode==0x0c) ? 0x1f : 0x64;
+    if(last_opcode==0x05 && n==2) v[1]=muic_bad_read ? 0x11 : muic_actual;
     return 0;
 }
 static NTSTATUS B2lMaxWriteBlock(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,const UCHAR *v,ULONG n) {
@@ -114,6 +132,7 @@ static NTSTATUS B2lMaxWriteBlock(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,const UCHAR 
     if(write_error) return write_error;
     assert(commands<64); written_op[commands]=last_opcode=v[0];
     written_data[commands]=last_payload=(n==2 ? v[1] : 0); ++commands;
+    if(v[0]==0x06) muic_actual=v[1];
     return 0;
 }
 static NTSTATUS B2lMaxWriteByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR v) {
@@ -129,13 +148,15 @@ static NTSTATUS B2lMaxUpdateByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR value,
     if(probe_test && a==0x66 && r==0x23 && mask==8 && !value) {
         PB2L_MAX_OPCODE_REQUEST q=c->OpcodeHead;int count=0;
         while(q) { ++count;q=q->Next; }
-        assert(count==4 && commands==1 && responses==0 && last_opcode==0x57);
+        assert(count==(reg_values[0x25][0x0a]==1 && !(reg_values[0x25][0x0b]&2) ? 6 : 4));
+        assert(commands==1 && responses==0 && last_opcode==0x57);
         assert(reg_values[0x25][0x10]==0x1c && reg_values[0x25][0x11]==0xff);
     }
     return 0;
 }
 static NTSTATUS B2lMaxNormalizeCcOpen(PB2L_MAX_CONTEXT c) {
-    assert(c==current && !held && c->OpcodeHead==NULL && responses==4);
+    assert(c==current && !held && c->OpcodeHead==NULL);
+    assert(responses==(reg_values[0x25][0x0a]==1 && !(reg_values[0x25][0x0b]&2) ? 6U : 4U));
     return normalize_status;
 }
 static NTSTATUS KeWaitForSingleObject(KEVENT *event,int r,int m,int alert,LARGE_INTEGER *t) {
@@ -143,16 +164,22 @@ static NTSTATUS KeWaitForSingleObject(KEVENT *event,int r,int m,int alert,LARGE_
     if(event->signaled) { event->signaled=0;return 0; }
     if(stale_wakes) { --stale_wakes;ticks+=1000;return 0; }
     if(drop_irq) { ticks+=(ULONGLONG)-t->QuadPart;return STATUS_TIMEOUT; }
-    regs[0xa04/4]|=1U<<6;
-    WdfWaitLockAcquire(current->MfdLock,NULL);
-    assert(B2lMaxEvtMaxInterruptIsr(current,0));
-    WdfWaitLockRelease(current->MfdLock);
-    ticks+=10000;
-    if(event->signaled) { event->signaled=0;return 0; }
-    // Kernel would keep sleeping for a non-APCMD interrupt.
+    // While a caller sleeps, other queued opcodes can complete first. Only
+    // its own event releases the waiter (as the kernel wait would behave).
+    for(unsigned attempt=0;attempt<128;++attempt) {
+        regs[0xa04/4]|=1U<<6;
+        WdfWaitLockAcquire(current->MfdLock,NULL);
+        assert(B2lMaxEvtMaxInterruptIsr(current,0));
+        WdfWaitLockRelease(current->MfdLock);
+        ticks+=10000;
+        if(event->signaled) { event->signaled=0;return 0; }
+        if(!current->OpcodeHead) break;
+    }
     ticks+=(ULONGLONG)-t->QuadPart;return STATUS_TIMEOUT;
 }
 '''
+for name in ('B2lMaxSetDiagnosticLocked','B2lMaxReadCcStatus','B2lMaxEvaluateConnection','B2lMaxReadWaterState','B2lMaxHandleDataRole','B2lMaxHandleBypass','B2lMaxDispatchBypassLocked','B2lMaxObserveIrqLocked','B2lMaxDispatchCcPdLocked'):
+    h+='\n'+function(name)+'\n'
 # Match the forward prototype linkage of the real callback in this TU.
 h+=irq.replace('BOOLEAN\nB2lMaxEvtMaxInterruptIsr','static BOOLEAN\nB2lMaxEvtMaxInterruptIsr')
 h+='\n'+function('B2lMaxWriteUsbcMasks')+'\n'+function('B2lMaxInitializeUsbc')
@@ -163,7 +190,8 @@ static void reset(PB2L_MAX_CONTEXT c) {
     memset(raw,0,4); current=c; ticks=1234; held=queued=r2c_reads=responses=commands=cancels=0;
     mmio_ack=0; read_error=write_error=snap_error=normalize_status=0;
     drop_irq=wrong_reply=stale_wakes=probe_test=0; last_opcode=last_payload=reply_opcode=0;
-    c->Device=c->MaxInterrupt=c->PolicyWork=c; c->MfdLock=(void *)1;
+    c->Device=c->MaxInterrupt=c->PolicyWork=c->OpcodeDeadline=c;
+    timer_due=0;muic_actual=0;muic_bad_read=trace_count=0;memset(trace,0,sizeof(trace)); c->MfdLock=(void *)1;
     c->AliveRegisters=(PUCHAR)regs; c->AliveLength=0x1000; c->MaxTranslatedIrq=0xa02;
     c->PolicyEnabled=TRUE; c->MfdReady=TRUE; top=8;
     assert(B2lMaxPrepareGpio(c)==0);
@@ -207,7 +235,7 @@ int main(void) {
     assert(B2lMaxWaitOpcode(&c,&b)==STATUS_IO_TIMEOUT);
     reset(&c);queue(&c,&a,0x1c);queue(&c,&b,0x05);wrong_reply=1;reply_opcode=0x0b;
     assert(B2lMaxWaitOpcode(&c,&a)==STATUS_DEVICE_PROTOCOL_ERROR && commands==1);
-    assert(b.Complete && !c.OpcodeHead && c.MaxInterruptFailures==1);
+    assert(b.Complete && !c.OpcodeHead && c.MaxInterruptFailures==1 && c.UicInterruptSeen==0x80);
     assert(c.IrqFrameCount==1 && c.IrqFrames[0].Raw[0]==0x80);
     assert(NT_SUCCESS(c.IrqFrames[0].SnapshotStatus)); // opcode fault does not erase status evidence
     assert(regs[0x904/4]&(1U<<6)); // failed mailbox is not silently resumed
@@ -249,7 +277,75 @@ int main(void) {
     assert(!c.UsbcRuntimeMasksConfigured && c.OpcodeHead==NULL);
     reset(&c);probe_test=1;drop_irq=1;assert(B2lMaxInitializeUsbc(&c)==STATUS_IO_TIMEOUT);
     assert(c.OpcodeHead==NULL && c.OpcodeTail==NULL && !c.AutoIbusConfigured && !c.UsbcInitialized);
-    puts("MAX77705 GPIO IRQ, queue, cancellation and probe order: PASS (hardware delivery unverified)");
+    reset(&c);probe_test=1;c.MfdReady=FALSE;B2lMaxGpioMask(&c);
+    reg_values[0x25][0x0a]=1;reg_values[0x25][0x0d]=0x80;
+    assert(B2lMaxInitializeUsbc(&c)==0 && c.UsbcInitialized);
+    assert(commands==6 && responses==6 && c.MuicPathVerified && c.MuicControl1==9);
+    assert(written_op[0]==0x57 && written_op[1]==6 && written_op[2]==5 && written_op[3]==0x54);
+    assert(c.PowerRole==1 && c.DataRole==1 && c.CcSourceEventCount==0);
+    reset(&c);probe_test=1;c.MfdReady=FALSE;B2lMaxGpioMask(&c);
+    reg_values[0x25][0x0a]=1;reg_values[0x25][0x0d]=0;
+    assert(B2lMaxInitializeUsbc(&c)==0 && c.UsbcInitialized && c.MfdFault==0);
+    assert(c.DataRoleStatus==STATUS_NOT_SUPPORTED && c.MuicControl1==0x3f);
+    reset(&c);probe_test=1;c.MfdReady=FALSE;B2lMaxGpioMask(&c);
+    reg_values[0x25][0x0a]=1;reg_values[0x25][0x0b]=2;reg_values[0x25][0x0d]=0x80;
+    assert(B2lMaxInitializeUsbc(&c)==0 && c.UsbcInitialized && c.MfdFault==0);
+    assert(commands==4 && c.WaterDetected && c.DataRoleStatus==STATUS_DEVICE_NOT_READY);
+    // No publication worker runs below. BYP/CC/PD must still execute while
+    // a previous MUIC command awaits APCMD, in the real passive ISR.
+    reset(&c);c.PowerRoleValid=c.DataRoleValid=TRUE;c.PowerRole=2;c.DataRole=1;
+    c.OtgEnabled=c.OtgHardwareActive=TRUE;reg_values[0x25][0x0a]=2;
+    reg_values[0x25][0x0d]=0x80;reg_values[0x69][0xb5]=1;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxRequestMuicLocked(&c,9)==STATUS_PENDING && commands==1);
+    WdfWaitLockRelease(c.MfdLock);
+    assert(!c.MuicPathVerified && c.MuicOutstanding==1);
+    top=9;raw[0]=0x80;raw[1]=0x11;raw[2]=0x20;
+    assert(deliver() && strcmp(trace,"BAWCP")==0);
+    assert(!c.OtgEnabled && c.OvercurrentEvents==1 && c.MuicOutstanding==1);
+    assert(c.DataRoleStatus==STATUS_PENDING && !c.MuicPathVerified);
+    top=8;assert(deliver() && c.MuicPathVerified && c.MuicControl1==9);
+    assert(c.MuicOutstanding==0 && c.DataRoleStatus==0 && timer_due==0);
+    // An old USB read-back cannot verify a newer detach request.
+    reset(&c);c.PowerRoleValid=c.DataRoleValid=TRUE;c.PowerRole=2;c.DataRole=1;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxRequestMuicLocked(&c,9)==STATUS_PENDING);
+    assert(B2lMaxRequestMuicLocked(&c,0x3f)==STATUS_PENDING);
+    WdfWaitLockRelease(c.MfdLock);
+    assert(c.MuicOutstanding==2 && commands==1);
+    assert(deliver() && deliver() && !c.MuicPathVerified && c.MuicStatus==STATUS_PENDING);
+    assert(c.MuicControl1==9 && c.MuicOutstanding==1);
+    assert(deliver() && deliver() && c.MuicPathVerified && c.MuicControl1==0x3f);
+    assert(c.MuicOutstanding==0 && !c.OpcodeHead);
+    // A WATER event arriving before a successful switch response keeps the
+    // data-role attach blocked; callback success must not clear that reason.
+    reset(&c);c.DataRoleValid=TRUE;c.DataRole=1;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxRequestMuicLocked(&c,9)==STATUS_PENDING);WdfWaitLockRelease(c.MfdLock);
+    raw[1]=0x10;reg_values[0x25][0x0b]=2;assert(deliver() && deliver());
+    assert(c.MuicPathVerified && c.WaterDetected && c.DataRoleStatus==STATUS_DEVICE_NOT_READY);
+    // Read-back mismatch is not a verified switch or a transport success.
+    reset(&c);WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxRequestMuicLocked(&c,9)==STATUS_PENDING);WdfWaitLockRelease(c.MfdLock);
+    muic_bad_read=1;assert(deliver() && deliver());
+    assert(!c.MuicPathVerified && c.MuicStatus==STATUS_DEVICE_DATA_ERROR && !c.MuicOutstanding);
+    // Deadline never reads I2C or creates a completion. A stale timer callback
+    // must instead rearm the actual current head's remaining deadline.
+    reset(&c);WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxRequestMuicLocked(&c,9)==STATUS_PENDING);WdfWaitLockRelease(c.MfdLock);
+    ticks+=1000;B2lMaxEvtOpcodeDeadline(&c);
+    assert(c.MuicOutstanding==1 && commands==1 && responses==0);
+    ticks=timer_due;B2lMaxEvtOpcodeDeadline(&c);
+    assert(c.MfdFault==STATUS_IO_TIMEOUT && c.MuicStatus==STATUS_IO_TIMEOUT);
+    assert(!c.MuicPathVerified && !c.MuicOutstanding && !c.OpcodeHead && commands==1 && responses==0);
+    // Capacity failure cancels old queued paths; no detach can be silently lost.
+    reset(&c);WdfWaitLockAcquire(c.MfdLock,NULL);
+    for(i=0;i<B2L_MAX_MUIC_SLOTS;++i) assert(B2lMaxRequestMuicLocked(&c,(i&1)?0x3f:9)==STATUS_PENDING);
+    assert(B2lMaxRequestMuicLocked(&c,9)==STATUS_INSUFFICIENT_RESOURCES);
+    WdfWaitLockRelease(c.MfdLock);
+    assert(!c.OpcodeHead && !c.MuicOutstanding && !c.MuicPathVerified);
+    for(i=0;i<B2L_MAX_MUIC_SLOTS;++i) assert(!c.MuicPairs[i].InUse);
+    puts("MAX77705 GPIO IRQ, queue, asynchronous roles, deadline and probe order: PASS (hardware delivery unverified)");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='b2l-max-irq-test-') as directory:

@@ -140,8 +140,8 @@ grep -Fq 'B2lMaxSetMuicPath' "$MAIN"
 grep -Fq 'Context->MuicControl1 != Path' "$MAIN"
 grep -Fq 'ReadBack != MAX77705_CCCTRL1_BEYOND2LTE' "$MAIN"
 grep -Fq 'InitialDetect && (CcState != B2L_MAX_CC_SINK)' "$MAIN"
-grep -Fq 'Frame.Active[1] & MAX77705_CC_INT_STATE' "$MAIN"
-grep -q 'DriverVer=09/05/2026,0.1.0.32' "$INF"
+grep -Fq 'Frame->Active[1] & MAX77705_CC_INT_STATE' "$MAIN"
+grep -q 'DriverVer=09/05/2026,0.1.0.33' "$INF"
 # Probe ordering, response ownership, cancellation and masks execute in C
 # fixtures (test_max77705_irq.py), rather than line-order approximations.
 if rg -n 'B2lMaxReadAndClearUsbcInterrupts|B2lMaxConfigureRuntimeUsbcMasks|B2lMaxSendOpcode' "$MAIN"; then
@@ -234,8 +234,13 @@ grep -q 'WdfWaitLockAcquire(Context->BusLock' "$MAIN"
 grep -q 'B2lMaxTransferMessage' "$HW"
 grep -q 'FALSE,' "$HW"
 grep -q '(BOOLEAN)(ReadLength == 0UL)' "$HW"
-# No connection or opcode polling: startup and real MAX IRQ enqueue work.
-if rg -n 'WdfTimer|B2lMaxEvtPollTimer|PollingEnabled|B2L_MAX_.*POLL_MS' "$MAIN" "$IRQ" "$HDR"; then
+# No connection or opcode polling. The one-shot timer only cancels a missing
+# response after its deadline; actual advancement remains in the physical ISR.
+# Behavioral timeout/no-I2C/ordering checks execute in test_max77705_irq.py.
+grep -Fq 'WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lMaxEvtOpcodeDeadline)' "$MAIN"
+grep -Fq 'B2lMaxDispatchCcPdLocked(Context, &Frame)' "$IRQ"
+grep -Fq 'B2lMaxRequestMuicLocked' "$IRQ"
+if rg -n 'WDF_TIMER_CONFIG_INIT_PERIODIC|B2lMaxEvtPollTimer|PollingEnabled|B2L_MAX_.*POLL_MS' "$MAIN" "$IRQ" "$HDR"; then
   echo 'HATA: MAX olaylari gercek IRQ yerine timer ile ilerletiliyor' >&2
   exit 1
 fi

@@ -1,5 +1,14 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
+**5 Eylül / MAX 0.1.0.33:** BYP/APCMD/WATER/CC/PD uygulanan işleyicileri
+özgün MAX pasif ISR sırasında çalışır. Runtime MUIC komutları asenkron;
+tanı işi veya APCMD yanıtı BYP/CC/PD'yi bekletmez. İlk CC/su/PD kontrolü
+GPIO unmask öncesine taşındı. `MAX FOTO v6` 40 satır, MUIC_NT/Q/OK ile
+istek ve gerçek read-back sonucunu ayırır. Tek atımlık timeout yalnız hata
+iptali yapar, donanım olayı üretmez. UCM/URS host/function, PD/SYSMSG
+recovery ve USB3 açık; WSL/WDK/telefon doğrulaması yapılmadı. Ayrıntılar
+Linux karşılaştırmasının başındaki `.33` bölümündedir.
+
 **5 Eylül / MAX 0.1.0.32:** CC SOURCE yalnız güç rolünü/VBUS'u yönetir;
 MUIC USB_AP gerçek PD DATAROLE=DFP olayına bağlıdır. Güç/veri rolleri,
 WATER kapısı, BYP aşırı akım-off ve Linux VBUSDet detach kontrolü eklendi.
@@ -56,7 +65,7 @@ Windows'un inbox xHCI yığınına bağlayan güvenli bring-up paketidir.
 - `b2lmax77705.sys`, `ACPI\BYN0004` üzerinde stock HSI2C45'i tek sahibi
   olarak açar. Samsung MFD sırasıyla TOP (`0x66`), USBC (`0x25`) ve charger
   (`0x69`) istemcilerini doğrular; CC state `SOURCE` olduğunda Samsung'un
-  CNFG_00/INT_MASK geçişiyle VBUS/OTG'yi açar; ardından
+  CNFG_00/INT_MASK geçişiyle VBUS/OTG'yi açar. Ayrı PD DATAROLE=DFP olayı
   `CONTROL1_WRITE(COM_USB=0x09)` ile D+/D- hatlarını AP USB PHY'ye bağlar
   ve `CONTROL1_READ` ile yolu doğrular. Ayrılmada önce VBUS'u kapatır ve sonra
   `COM_OPEN=0x3f` readback'ini zorunlu tutar.

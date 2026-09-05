@@ -65,7 +65,7 @@ static NTSTATUS B2lMaxReadByte(PB2L_MAX_CONTEXT c,UCHAR addr,UCHAR reg,UCHAR *v)
     return read_error;
 }
 static NTSTATUS B2lMaxUnlockCharger(PB2L_MAX_CONTEXT c) { (void)c;action('U');return 0; }
-static void B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT c, ULONG stage, NTSTATUS s) {
+static void B2lMaxSetDiagnosticLocked(PB2L_MAX_CONTEXT c, ULONG stage, NTSTATUS s) {
     (void)c; (void)stage; (void)s;
 }
 static NTSTATUS B2lMaxEnableOtg(PB2L_MAX_CONTEXT c) {
@@ -76,7 +76,7 @@ static NTSTATUS B2lMaxDisableOtg(PB2L_MAX_CONTEXT c) {
     action('D'); if(power_error) return power_error;
     c->OtgEnabled=c->OtgHardwareActive=0; return 0;
 }
-static NTSTATUS B2lMaxSetMuicPath(PB2L_MAX_CONTEXT c,UCHAR path) {
+static NTSTATUS B2lMaxRequestMuicLocked(PB2L_MAX_CONTEXT c,UCHAR path) {
     assert(path==9 || path==0x3f); action(path==9?'M':'O');
     if(muic_error) return muic_error;
     c->MuicControl1=path; c->MuicPathVerified=1; return 0;

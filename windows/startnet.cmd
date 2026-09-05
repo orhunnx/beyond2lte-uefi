@@ -344,6 +344,8 @@ call :B2LUsbAppendMax77705Summary CTRL3_AFTER B2LMaxControl3After
 call :B2LUsbAppendMax77705Summary MUIC_REQ B2LMaxMuicPathRequested
 call :B2LUsbAppendMax77705Summary MUIC_CTL1 B2LMaxMuicControl1
 call :B2LUsbAppendMax77705Summary MUIC_OK B2LMaxMuicPathVerified
+call :B2LUsbAppendMax77705Summary MUIC_NT B2LMaxMuicStatus
+call :B2LUsbAppendMax77705Summary MUIC_Q B2LMaxMuicOutstanding
 call :B2LUsbAppendMax77705Summary CHG_UNLOCK B2LMaxChargerUnlocked
 call :B2LUsbAppendMax77705Summary CHG_CFG06 B2LMaxChgConfig06
 call :B2LUsbAppendMax77705Summary CHG_MODE B2LMaxChgMode

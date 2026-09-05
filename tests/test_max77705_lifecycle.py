@@ -31,7 +31,7 @@ typedef uint64_t ULONGLONG;
 typedef int32_t NTSTATUS;
 typedef int BOOLEAN;
 typedef void VOID;
-typedef void *WDFDEVICE, *WDFWORKITEM, *WDFWAITLOCK, *WDFINTERRUPT;
+typedef void *WDFDEVICE, *WDFWORKITEM, *WDFWAITLOCK, *WDFINTERRUPT, *WDFTIMER;
 typedef int KEVENT, WDF_POWER_DEVICE_STATE;
 #define TRUE 1
 #define FALSE 0
@@ -83,18 +83,6 @@ static NTSTATUS B2lMaxServiceConnection(PB2L_MAX_CONTEXT c) {
     if(NT_SUCCESS(service_status)) c->UsbcInitialized=TRUE;
     return service_status;
 }
-static NTSTATUS B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT c,BOOLEAN initial) {
-    assert(c==current && held==1 && !initial);++cc_dispatches;dispatch_order[dispatch_count++]='C';return cc_status;
-}
-static NTSTATUS B2lMaxHandleBypass(PB2L_MAX_CONTEXT c) {
-    assert(c==current && held==1);++byp_dispatches;dispatch_order[dispatch_count++]='B';return 0;
-}
-static NTSTATUS B2lMaxReadWaterState(PB2L_MAX_CONTEXT c) {
-    assert(c==current && held==1);++water_dispatches;dispatch_order[dispatch_count++]='W';return 0;
-}
-static NTSTATUS B2lMaxHandleDataRole(PB2L_MAX_CONTEXT c,BOOLEAN initial) {
-    assert(c==current && held==1 && !initial);++pd_dispatches;dispatch_order[dispatch_count++]='P';return 0;
-}
 #define MAX77705_CC_INT_STATE 1U
 #define MAX77705_CC_INT_WATER 0x10U
 #define MAX77705_PD_INT_DATAROLE 0x20U
@@ -125,8 +113,11 @@ static NTSTATUS B2lMaxHsI2cInitialize(PB2L_MAX_CONTEXT c) {
     c->PlatformPrepared=NT_SUCCESS(init_status); return init_status;
 }
 static void B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT c, ULONG stage, NTSTATUS status) {
-    assert(c==current); diagnostic=status; diagnostic_stage=stage;c->DiagnosticStage=stage;
+    assert(c==current);
+    if(stage) {c->DiagnosticStage=stage;c->DiagnosticStatus=status;}
+    diagnostic=c->DiagnosticStatus;diagnostic_stage=c->DiagnosticStage;
 }
+static BOOLEAN WdfTimerStop(WDFTIMER t,BOOLEAN wait) { (void)t;assert(wait && !(held&4));return 0; }
 static NTSTATUS B2lMaxDisableOtg(PB2L_MAX_CONTEXT c) {
     assert(held && c->HsI2cIrqEnabled && stops>0); ++off_calls;
     if (NT_SUCCESS(off_status)) c->OtgEnabled=c->OtgHardwareActive=FALSE;
@@ -150,7 +141,7 @@ static void *MmMapIoSpaceEx(PHYSICAL_ADDRESS a, ULONG n, ULONG flags) {
     return (void *)(uintptr_t)a.QuadPart;
 }
 '''
-for name in ('B2lMaxEvtPrepareHardware','B2lMaxEvtReleaseHardware','B2lMaxEvtD0Entry',
+for name in ('B2lMaxSetDiagnosticLocked','B2lMaxEvtPrepareHardware','B2lMaxEvtReleaseHardware','B2lMaxEvtD0Entry',
              'B2lMaxEvtD0EntryPostInterruptsEnabled','B2lMaxEvtD0ExitPreInterruptsDisabled','B2lMaxEvtPolicyWork'):
     h+='\n'+function(name)+'\n'
 h+=r'''
@@ -213,26 +204,17 @@ int main(void) {
     reset(&c); c.HsI2cIrqEnabled=c.MaxIrqEnabled=TRUE; muic_status=STATUS_UNSUCCESSFUL;
     assert(B2lMaxEvtD0ExitPreInterruptsDisabled(&c,0)==STATUS_UNSUCCESSFUL);
     assert(diagnostic_stage==B2L_MAX_STAGE_MUIC_OPEN && !c.OtgHardwareActive);
-    // A fault must still drain every read-to-clear frame into diagnostics.
-    reset(&c); c.PolicyEnabled=c.UsbcInitialized=TRUE; c.MfdFault=STATUS_UNSUCCESSFUL;
-    c.IrqFrameCount=2; c.IrqFrames[0].Active[1]=1;
-    B2lMaxEvtPolicyWork(&c); assert(recorded==2 && cc_dispatches==0 && c.IrqFrameCount==0 && diagnostic<0);
+    // Publication must not replay real CC/PD/BYP handlers a second time.
+    reset(&c);c.PolicyEnabled=c.UsbcInitialized=TRUE;c.MfdFault=STATUS_UNSUCCESSFUL;
+    c.DiagnosticStatus=STATUS_UNSUCCESSFUL;c.DiagnosticStage=B2L_MAX_STAGE_MFD_IRQ;
+    c.IrqFrameCount=2;c.IrqFrames[0].Active[1]=1;c.IrqFrames[0].Charger=1;
+    B2lMaxEvtPolicyWork(&c);
+    assert(recorded==2 && !c.IrqFrameCount && diagnostic<0 && !held);
     reset(&c);c.PolicyEnabled=TRUE;service_status=STATUS_NO_SUCH_DEVICE;c.IrqFrameCount=1;
-    B2lMaxEvtPolicyWork(&c);assert(recorded==1 && cc_dispatches==0 && diagnostic_stage==B2L_MAX_STAGE_IDENTITY);
+    B2lMaxEvtPolicyWork(&c);assert(recorded==1 && diagnostic_stage==B2L_MAX_STAGE_MFD_IRQ);
     reset(&c);c.PolicyEnabled=c.UsbcInitialized=TRUE;c.IrqFrameCount=3;
-    c.IrqFrames[0].Active[1]=8;c.IrqFrames[1].Active[1]=4;c.IrqFrames[2].Active[1]=1;
-    B2lMaxEvtPolicyWork(&c);assert(recorded==3 && cc_dispatches==1 && !held);
-    reset(&c);c.PolicyEnabled=c.UsbcInitialized=TRUE;c.IrqFrameCount=3;
-    c.IrqFrames[0].Active[1]=1;cc_status=STATUS_NO_SUCH_DEVICE;
-    B2lMaxEvtPolicyWork(&c);assert(recorded==3 && cc_dispatches==1 && diagnostic==STATUS_NO_SUCH_DEVICE);
-    reset(&c);c.PolicyEnabled=c.UsbcInitialized=TRUE;c.IrqFrameCount=1;
-    c.IrqFrames[0].Charger=1;c.IrqFrames[0].Active[1]=0x11;c.IrqFrames[0].Active[2]=0x20;
-    B2lMaxEvtPolicyWork(&c);assert(strcmp(dispatch_order,"BWCP")==0);
-    reset(&c);c.PolicyEnabled=c.UsbcInitialized=TRUE;c.MfdFault=STATUS_UNSUCCESSFUL;c.IrqFrameCount=1;
-    c.IrqFrames[0].Charger=1;c.IrqFrames[0].Active[1]=1;c.IrqFrames[0].Active[2]=0x20;
-    B2lMaxEvtPolicyWork(&c);assert(strcmp(dispatch_order,"B")==0 && recorded==1 && diagnostic<0);
-    reset(&c);c.PolicyEnabled=c.UsbcInitialized=TRUE;c.IrqFrameCount=1;c.IrqFrames[0].DetachRecheck=TRUE;
-    B2lMaxEvtPolicyWork(&c);assert(cc_dispatches==1 && c.CcInterruptCount==0 && c.DetachRechecks==1);
+    c.IrqFrames[0].Active[1]=0x11;c.IrqFrames[0].Active[2]=0x20;c.IrqFrames[0].Charger=1;
+    B2lMaxEvtPolicyWork(&c);assert(recorded==3 && !held);
     puts("MAX77705 resource and power/IRQ lifecycle tests: PASS (KMDF/device unverified)");
 }
 '''

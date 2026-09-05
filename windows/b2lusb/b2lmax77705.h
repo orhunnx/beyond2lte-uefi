@@ -56,16 +56,25 @@
 #define B2L_MAX_HSI2C_PHASE_WRITE    0x20UL
 #define B2L_MAX_HSI2C_PHASE_READ     0x30UL
 
-// Stack-owned by a passive caller until completion or cancellation under
-// MfdLock. IRQ code never keeps a caller pointer after it releases that lock.
+// Requests belong to a waiting probe/shutdown caller or a fixed MUIC slot.
+// Queue ownership and slot reuse are protected by the passive ISR MfdLock.
 typedef struct _B2L_MAX_OPCODE_REQUEST {
     struct _B2L_MAX_OPCODE_REQUEST *Next;
+    struct _B2L_MAX_MUIC_PAIR *MuicPair;
     KEVENT Completion;
     ULONGLONG SentAt;
     NTSTATUS Status;
     BOOLEAN Complete;
     UCHAR Opcode, WriteLength, ReadLength, WriteData, ResponseData;
 } B2L_MAX_OPCODE_REQUEST, *PB2L_MAX_OPCODE_REQUEST;
+
+#define B2L_MAX_MUIC_SLOTS 32UL
+typedef struct _B2L_MAX_MUIC_PAIR {
+    B2L_MAX_OPCODE_REQUEST Write, Read;
+    ULONGLONG Generation;
+    UCHAR Path;
+    BOOLEAN InUse;
+} B2L_MAX_MUIC_PAIR, *PB2L_MAX_MUIC_PAIR;
 
 typedef struct _B2L_MAX_IRQ_FRAME {
     ULONGLONG Time;
@@ -79,6 +88,11 @@ typedef struct _B2L_MAX_IRQ_FRAME {
 typedef struct _B2L_MAX_CONTEXT {
     WDFDEVICE Device;
     WDFWORKITEM PolicyWork;
+    WDFTIMER OpcodeDeadline;
+    B2L_MAX_MUIC_PAIR MuicPairs[B2L_MAX_MUIC_SLOTS];
+    ULONGLONG MuicGeneration;
+    ULONG MuicOutstanding;
+    NTSTATUS MuicStatus;
     WDFWAITLOCK TransportLock;
     WDFWAITLOCK MfdLock;
     WDFINTERRUPT MaxInterrupt;
@@ -230,6 +244,11 @@ EVT_WDF_INTERRUPT_ISR B2lMaxEvtMaxInterruptIsr;
 EVT_WDF_INTERRUPT_ENABLE B2lMaxEvtMaxInterruptEnable;
 EVT_WDF_INTERRUPT_DISABLE B2lMaxEvtMaxInterruptDisable;
 
+EVT_WDF_TIMER B2lMaxEvtOpcodeDeadline;
+NTSTATUS B2lMaxRequestMuicLocked(PB2L_MAX_CONTEXT Context, UCHAR Path);
+NTSTATUS B2lMaxDispatchBypassLocked(PB2L_MAX_CONTEXT Context);
+VOID B2lMaxObserveIrqLocked(PB2L_MAX_CONTEXT Context, const B2L_MAX_IRQ_FRAME *Frame);
+VOID B2lMaxDispatchCcPdLocked(PB2L_MAX_CONTEXT Context, const B2L_MAX_IRQ_FRAME *Frame);
 NTSTATUS B2lMaxPrepareGpio(PB2L_MAX_CONTEXT Context);
 VOID B2lMaxGpioMask(PB2L_MAX_CONTEXT Context);
 VOID B2lMaxGpioUnmask(PB2L_MAX_CONTEXT Context);
