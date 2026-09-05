@@ -42,6 +42,10 @@ seçilmesini önlemek için Windows dizini taşımayan küçük bir NTFS SYSTEM
 nötrleyicisi paketlenir. Büyük USERDATA sparse girdisi ustar'ın 8 GiB
 sınırına takılmaması için `userdata.img.lz4` olarak paketlenir; arşiv öncesi
 ve sonrası tam açılmış sparse SHA-256 değeri doğrulanır.
+Klavyesiz geçişte Partition 28 doğru bağlandı; ilk deneme yalnız güncel
+`cache_esp.sh --win --disk` çıktısının etiketi `UEFIESP` olduğu halde eski
+`CACHE` etiketini zorunlu tuttuğu için durdu. Kapı artık yalnız bu iki bilinen
+etiketten birini ve `EFI\Microsoft\Boot\BCD` dosyasını birlikte kabul eder.
 
 Karşılaştırma: upstream `beyond1lte` (S10) Status.md'de Display ✅ ve tuşlar ✅
 diyor ama "Inactive" işaretli. **beyond2lte artık ondan ileride** — çünkü onun

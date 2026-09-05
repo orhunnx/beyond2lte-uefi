@@ -28,8 +28,15 @@ diskpart /s "%DPSCRIPT%" > "%DPLOG%" 2>&1
 if not exist W:\NUL goto :mount_fail
 
 vol W: > "%SystemDrive%\B2L-DESKTOP-VOL.TXT" 2>&1
+set "ESP_LABEL="
 %SystemRoot%\System32\find.exe /i "CACHE" < "%SystemDrive%\B2L-DESKTOP-VOL.TXT" >nul 2>&1
-if errorlevel 1 goto :label_fail
+if not errorlevel 1 set "ESP_LABEL=CACHE"
+if not defined ESP_LABEL (
+  %SystemRoot%\System32\find.exe /i "UEFIESP" < "%SystemDrive%\B2L-DESKTOP-VOL.TXT" >nul 2>&1
+  if not errorlevel 1 set "ESP_LABEL=UEFIESP"
+)
+if not defined ESP_LABEL goto :label_fail
+echo ESP etiketi dogrulandi: %ESP_LABEL%
 
 set "BCD=W:\EFI\Microsoft\Boot\BCD"
 if not exist "%BCD%" goto :bcd_missing
@@ -76,7 +83,7 @@ goto :eof
 set "WHY=Disk 0 / Partition 28 W: olarak baglanamadi"
 goto :fail
 :label_fail
-set "WHY=W: biriminin etiketi CACHE degil"
+set "WHY=W: biriminin etiketi CACHE veya UEFIESP degil"
 goto :fail
 :bcd_missing
 set "WHY=CACHE icinde EFI\Microsoft\Boot\BCD yok"

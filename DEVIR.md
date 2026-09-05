@@ -87,7 +87,8 @@ SYSTEM'i NTFS'e geri açar; arşiv yolu ilk argüman olarak da verilebilir. Bunl
 yoksa `esp/sources/boot.wim`den yeniden üretir. Her kaynakta B2LUFS boot-start
 işareti yeniden doğrulanır. Yalnız
 `out/beyond2lte-cache-bcd-transition.tar` içindeki `system.img` geçici olarak
-flaşlanır. WinPE açılınca Disk 0 / Partition 28'i CACHE etiketiyle doğrular,
+flaşlanır. WinPE açılınca Disk 0 / Partition 28'i güncel disk ESP'nin
+`UEFIESP` etiketiyle (eski imajlarda `CACHE` de kabul edilir) doğrular,
 BCD'yi `BCD.winpe.bak` olarak yedekler, Desktop değerlerini yazar ve yeşil
 başarı ekranından sekiz saniye sonra telefonu kapatır. CACHE imajı üretilmez
 ve CACHE'e flash atılmaz. Ardından cihaz normal açılmadan Download Mode'a

@@ -89,6 +89,8 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
         self.assertIn("B2LUFS offline boot-start isareti yok", transition)
         self.assertIn("select partition 28", startnet)
         self.assertIn('find.exe /i "CACHE"', startnet)
+        self.assertIn('find.exe /i "UEFIESP"', startnet)
+        self.assertIn('if not defined ESP_LABEL goto :label_fail', startnet)
         self.assertIn("BCD.winpe.bak", startnet)
         self.assertIn("/deletevalue {default} winpe", startnet)
         self.assertIn("/set {default} path \\Windows\\System32\\winload.efi", startnet)
