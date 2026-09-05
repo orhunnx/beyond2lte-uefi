@@ -55,6 +55,8 @@ Desktop geçişinden hemen önce çalışan disk-WinPE içinden BCD'nin `winpe`
 değeri silinip normal `winload.efi` yolu yerinde yazılır.
 USERDATA hedefi `userdata.img.lz4` adıyla Odin uyumlu LZ4 frame'e sıkıştırılır;
 bu, ustar'ın 8 GiB tek-dosya sınırını aşmadan büyük Windows imajını taşır.
+Samsung'un 1 MiB blok/content-size profili ve `04224d186c60` başlığı paketleme
+sırasında doğrulanır.
 Klavye yoksa `tools_cache_desktop_transition.sh`, yalnız geçici SYSTEM
 WinPE'yi flaşlayan ve bu BCD dönüşümünü tamamen otomatik yapan paketi üretir.
 Ham disk-WinPE SYSTEM kaybolmuşsa araç eski `beyond2lte-winpe-ufs-disk.tar`

@@ -156,6 +156,14 @@ require_ustar_size() {
     fail "$(basename "$IMAGE") ${SIZE} bayt; Odin ustar tek-girdi siniri ${USTAR_MAX} bayt"
 }
 
+require_samsung_lz4() {
+  local IMAGE="$1" HEADER
+  HEADER="$(od -An -tx1 -N6 "$IMAGE" | tr -d '[:space:]')"
+  [ "$HEADER" = "04224d186c60" ] || \
+    fail "Samsung/Odin LZ4 basligi gecersiz: $IMAGE (0x${HEADER:-<bos>}; beklenen 0x04224d186c60)"
+  printf '  %s Samsung LZ4 basligi: 0x%s\n' "$(basename "$IMAGE")" "$HEADER"
+}
+
 only_entry "$BOOT_TAR" boot.img
 tar -xf "$BOOT_TAR" -C "$WORK"
 [ -s "$WORK/boot.img" ] || fail "BOOT arsivinden boot.img cikarilamadi"
@@ -170,8 +178,11 @@ if [ "$DESKTOP_MODE" = 1 ]; then
 
     say "USERDATA Odin uyumlu LZ4 frame'e sikistiriliyor"
     TARGET_SPARSE_SHA="$(sha256sum "$WORK/$TARGET_ENTRY" | awk '{print $1}')"
-    lz4 -12 -B7 --content-size "$WORK/$TARGET_ENTRY" "$WORK/$ARCHIVE_TARGET_ENTRY"
+    # Samsung download akisi 1 MiB bagimsiz bloklu, content-size tasiyan
+    # frame profilini bekler: magic+FLG+BD = 04 22 4d 18 6c 60.
+    lz4 -12 -B6 --content-size "$WORK/$TARGET_ENTRY" "$WORK/$ARCHIVE_TARGET_ENTRY"
     [ -s "$WORK/$ARCHIVE_TARGET_ENTRY" ] || fail "LZ4 USERDATA girdisi uretilemedi"
+    require_samsung_lz4 "$WORK/$ARCHIVE_TARGET_ENTRY"
     require_ustar_size "$WORK/$ARCHIVE_TARGET_ENTRY"
     LZ4_ROUNDTRIP_SHA="$(lz4 -dc "$WORK/$ARCHIVE_TARGET_ENTRY" | sha256sum | awk '{print $1}')"
     [ "$LZ4_ROUNDTRIP_SHA" = "$TARGET_SPARSE_SHA" ] || fail "LZ4 USERDATA acma hash'i sparse kaynakla uyusmuyor"
@@ -240,6 +251,7 @@ for F in "${FILES[@]}"; do
 done
 if [ "$DESKTOP_MODE" = 1 ] && [ "$TARGET" = userdata ]; then
   require_sparse "$CHECK/system.img"
+  require_samsung_lz4 "$CHECK/$ARCHIVE_TARGET_ENTRY"
   LZ4_TAR_ROUNDTRIP_SHA="$(lz4 -dc "$CHECK/$ARCHIVE_TARGET_ENTRY" | sha256sum | awk '{print $1}')"
   [ "$LZ4_TAR_ROUNDTRIP_SHA" = "$TARGET_SPARSE_SHA" ] || fail "tar icindeki LZ4 USERDATA acma hash'i sparse kaynakla uyusmuyor"
   printf '  %-10s acilmis sparse hash esit: %s\n' "$ARCHIVE_TARGET_ENTRY" "$LZ4_TAR_ROUNDTRIP_SHA"

@@ -41,7 +41,11 @@ Desktop flash arşivi CACHE'i artık içermez. Mevcut CACHE ESP'deki BCD,
 seçilmesini önlemek için Windows dizini taşımayan küçük bir NTFS SYSTEM
 nötrleyicisi paketlenir. Büyük USERDATA sparse girdisi ustar'ın 8 GiB
 sınırına takılmaması için `userdata.img.lz4` olarak paketlenir; arşiv öncesi
-ve sonrası tam açılmış sparse SHA-256 değeri doğrulanır.
+ve sonrası tam açılmış sparse SHA-256 değeri doğrulanır. İlk paket 4 MiB
+bloklu genel LZ4 frame (`BD=0x70`) kullandığı için Odin 3.13.1 tarafından
+`LZ4 is invalid` ile reddedildi ve hiçbir bölüm yazılmadı. Samsung profili
+1 MiB blok (`BD=0x60`) ister; paket artık `04224d186c60` başlığını zorunlu
+kılar.
 Klavyesiz geçişte Partition 28 doğru bağlandı; ilk deneme yalnız güncel
 `cache_esp.sh --win --disk` çıktısının etiketi `UEFIESP` olduğu halde eski
 `CACHE` etiketini zorunlu tuttuğu için durdu. Kapı artık yalnız bu iki bilinen

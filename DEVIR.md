@@ -127,7 +127,9 @@ SYSTEM hedefinde arşiv yalnız `boot.img + system.img`; USERDATA hedefinde
 `boot.img + system.img + userdata.img.lz4` taşır. USERDATA'nın Android sparse
 akışı Odin/Samsung uyumlu LZ4 frame olarak sıkıştırılır; böylece `ustar`ın
 8 GiB tek-girdi sınırı aşılmaz. Betik LZ4'ü tekrar açarak sparse kaynakla
-SHA-256 eşitliğini de doğrular. İkinci profilde `system.img`,
+SHA-256 eşitliğini de doğrular. Frame 1 MiB bağımsız blok ve content-size
+profilindedir; `04224d186c60` başlığı arşivden önce ve sonra zorunludur.
+İkinci profilde `system.img`,
 eski WinPE'nin `locate=` ile yanlış seçilmesini engelleyen boş NTFS
 nötrleyicisidir. İki arşivde de CACHE girdisi bulunması build hatasıdır.
 
