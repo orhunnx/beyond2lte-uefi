@@ -58,6 +58,44 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > `tools_winboot.sh --desktop` iki koşulu da BCD'den geri okuyarak doğrular.
 > Cihaz üzerinde Desktop/OOBE henüz doğrulanmadı.
 
+### CACHE'e flash atmadan Desktop geçişi
+
+Desktop paketinde `cache.img` **yoktur**. Cihazda disk-WinPE'yi başarıyla
+başlatan mevcut CACHE ESP korunur. SYSTEM/USERDATA Desktop imajını flaşlamadan
+hemen önce mevcut WinPE komut satırında CACHE birimine bir harf verilir:
+
+```text
+diskpart
+list volume
+select volume <CACHE satirindaki numara>
+assign letter=W
+exit
+```
+
+Ardından mevcut BCD aynı partition üzerinde, flash atmadan dönüştürülür:
+
+```text
+bcdedit /store W:\EFI\Microsoft\Boot\BCD /deletevalue {default} winpe
+bcdedit /store W:\EFI\Microsoft\Boot\BCD /set {default} path \Windows\System32\winload.efi
+bcdedit /store W:\EFI\Microsoft\Boot\BCD /enum {default}
+wpeutil shutdown
+```
+
+İlk iki komut başarı bildirmeli; son çıktıda `winpe Yes` bulunmamalı ve `path`
+normal `\Windows\System32\winload.efi` olmalıdır. Cihazı yeniden başlatmadan
+Odin'e geçilir. Son paket:
+
+```bash
+bash tools_odin_winpe_bundle.sh --desktop --target system
+# veya, USERDATA'nin silinmesi kabul edildiyse:
+bash tools_odin_winpe_bundle.sh --desktop --target userdata
+```
+
+SYSTEM hedefinde arşiv yalnız `boot.img + system.img`; USERDATA hedefinde
+`boot.img + system.img + userdata.img` taşır. İkinci profilde `system.img`,
+eski WinPE'nin `locate=` ile yanlış seçilmesini engelleyen boş NTFS
+nötrleyicisidir. İki arşivde de CACHE girdisi bulunması build hatasıdır.
+
 > **5 Eylül / İlk gerçek offline UFS denemesi ve ACCESS_DENIED düzeltmesi:**
 > WSL denemesinde `b2lufs.inf` eklendi; `ControlSet001`, `Start=0`,
 > `SCSI Miniport`, `ErrorControl=3` ve kurulu SYS hash'i başarıyla doğrulandı.

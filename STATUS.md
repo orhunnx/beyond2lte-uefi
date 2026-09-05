@@ -27,6 +27,12 @@ SYSTEM 5700 MiB ile sınırlıdır; sığmayan stok imaj için açıkça seçile
 hedefi desteklenir ve bu seçimin mevcut USERDATA'yı sileceği paketlemede tekrar
 uyarılır.
 
+Desktop flash arşivi CACHE'i artık içermez. Mevcut CACHE ESP'deki BCD,
+çalışan WinPE içinden iki `bcdedit /store` işlemiyle yerinde Desktop profiline
+çevrilir. USERDATA hedefinde ayrıca eski WinPE'nin `locate=` aramasında
+seçilmesini önlemek için Windows dizini taşımayan küçük bir NTFS SYSTEM
+nötrleyicisi paketlenir.
+
 Karşılaştırma: upstream `beyond1lte` (S10) Status.md'de Display ✅ ve tuşlar ✅
 diyor ama "Inactive" işaretli. **beyond2lte artık ondan ileride** — çünkü onun
 memory map hatasını düzelttik (aşağıya bak).

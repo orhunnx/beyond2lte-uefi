@@ -58,6 +58,9 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
         self.assertIn('TARGET_ENTRY="$TARGET.img"', bundle)
         self.assertIn('grep -Fqx "B2L_TARGET=$TARGET"', bundle)
         self.assertIn("beyond2lte-windows-desktop-$TARGET.tar", bundle)
+        self.assertIn("cache.img bilerek paketlenmedi", bundle)
+        self.assertIn("CACHE flash'i reddedildi", bundle)
+        self.assertIn("boot.img system.img userdata.img", bundle)
         self.assertIn("Bu arsiv USERDATA bolumundeki mevcut veriyi siler", bundle)
 
 

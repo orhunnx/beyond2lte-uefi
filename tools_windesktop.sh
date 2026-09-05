@@ -181,16 +181,29 @@ MARKER="$OUT/windows-desktop-target.txt"
   echo "B2L_COMPACT=XPRESS16K"
 } > "$MARKER"
 
+if [ "$TARGET" = userdata ]; then
+  # CACHE'teki BCD locate= ile birimleri tararken eski SYSTEM WinPE'yi
+  # Desktop sanmasin. SYSTEM'i Windows dizini bulunmayan kucuk bir NTFS ile
+  # notrleriz; CACHE'e dokunulmaz.
+  NEUTRAL="$OUT/system-empty.img"
+  say "Eski SYSTEM WinPE icin bos NTFS notrleyici olusturuluyor"
+  rm -f "$NEUTRAL"
+  truncate -s 64M "$NEUTRAL"
+  mkntfs -Q -F -s 4096 -c 4096 -L B2LNOOS "$NEUTRAL" 2>&1 | \
+    grep -vi "not a block device\|has been set to 0\|was not specified\|will not be able to boot\|forced anyway" || true
+  echo "B2L_SYSTEM_NEUTRALIZER=$(basename "$NEUTRAL")" >> "$MARKER"
+fi
+
 say "Windows Desktop imaji hazir"
 ls -lh "$IMAGE" "$MARKER"
 cat <<EOF
 
 SONRAKI ADIMLAR:
-  1) Windows'ta yonetici CMD: windows\\bcd_olustur.cmd desktop
-  2) BCD'yi depoya kopyala.
-  3) bash tools_winboot.sh <ARM64-ISO> --desktop
-  4) bash cache_esp.sh --win --disk --baseline
-  5) bash tools_odin_winpe_bundle.sh --desktop --target $TARGET
+  1) Mevcut disk-WinPE'yi bir kez ac ve CACHE BCD'sini yerinde Desktop'a cevir
+     (DEVIR.md "CACHE'e flash atmadan Desktop gecisi" bolumu).
+  2) WinPE'yi kapat; yeniden baslatmadan Odin'e gec.
+  3) bash tools_odin_winpe_bundle.sh --desktop --target $TARGET
 
-DIKKAT: --target userdata secildi ise flash USERDATA'daki mevcut veriyi siler.
+Desktop Odin arsivinde cache.img YOKTUR; CACHE partitionina flash atilmaz.
+DIKKAT: --target userdata secildi ise USERDATA ve eski WinPE SYSTEM silinir.
 EOF

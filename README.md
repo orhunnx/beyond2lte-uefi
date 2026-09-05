@@ -50,6 +50,9 @@ bash tools_windesktop.sh <ARM64-ISO> <edition-indeksi>  # tam Windows, SYSTEM he
 Stok Desktop 5700 MiB SYSTEM'e sığmazsa, mevcut Android verisini sileceği
 bilinerek `--target userdata --size-mib 16384` seçilebilir. Tam Windows BCD'si
 `windows\bcd_olustur.cmd desktop` ile üretilir; bu profil `winpe=Yes` yazmaz.
+Desktop Odin arşivlerine `cache.img` eklenmez. Mevcut CACHE boot ESP korunur;
+Desktop geçişinden hemen önce çalışan disk-WinPE içinden BCD'nin `winpe`
+değeri silinip normal `winload.efi` yolu yerinde yazılır.
 
 `yap.sh` overlay'i `~/Mu-Silicium`'a kopyalar, derler, çıktıyı Windows
 masaüstüne atar ve FV kullanımını raporlar.

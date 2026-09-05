@@ -395,11 +395,12 @@ echo Simdi WSL'de:
 echo   cp "%BCD%" ~/beyond2lte-uefi/windows/BCD
 if defined DISKMOD (
   if defined DESKTOPMOD (
-    echo   cd ~/beyond2lte-uefi ^&^& bash tools_winboot.sh --desktop
+    echo   Bu BCD yeni ESP kurulumu icindir. Mevcut CACHE korunacaksa
+    echo   calisan WinPE icinden CACHE BCD'sini yerinde guncelle; CACHE flaslama.
   ) else (
     echo   cd ~/beyond2lte-uefi ^&^& bash tools_winboot.sh --disk
+    echo   bash cache_esp.sh --win --disk --baseline
   )
-  echo   bash cache_esp.sh --win --disk --baseline
   if defined DESKTOPMOD (
     echo   bash tools_odin_winpe_bundle.sh --desktop
   ) else (
