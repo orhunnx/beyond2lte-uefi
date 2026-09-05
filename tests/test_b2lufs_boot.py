@@ -92,6 +92,8 @@ class B2LUfsBootPipelineTests(unittest.TestCase):
         self.assertIn("/Windows/B2LUFS/offline-driverstore.txt", windisk)
         self.assertIn("B2L_BOOT_START=1", windisk)
         self.assertIn("B2L_USB_TESTS=DISABLED", windisk)
+        self.assertIn("grep -Eq '^B2L_OFFLINE_PACKAGE=(UFS|TOUCHUFS)$'", windisk)
+        self.assertNotIn("(UFS|TOUCHUFS)\\r?$", windisk)
         self.assertIn('DISKBOOT=1', cache)
         self.assertIn("ESP hala boot.wim tasiyor", cache)
         self.assertIn("BCD disk profili dogrulandi", winboot)

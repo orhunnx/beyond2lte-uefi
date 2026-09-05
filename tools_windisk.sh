@@ -83,8 +83,8 @@ for EXPECTED in \
     exit 1
   }
 done
-grep -Eq '^B2L_OFFLINE_PACKAGE=(UFS|TOUCHUFS)\r?$' \
-  "$VERIFY_DIR/offline-driverstore.txt" || {
+tr -d '\r' < "$VERIFY_DIR/offline-driverstore.txt" | \
+  grep -Eq '^B2L_OFFLINE_PACKAGE=(UFS|TOUCHUFS)$' || {
   echo "HATA: boot.wim B2LUFS paketi UFS/TOUCHUFS profili degil"
   exit 1
 }
