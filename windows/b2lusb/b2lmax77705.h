@@ -307,6 +307,7 @@ typedef struct _B2L_MAX_CONTEXT {
     ULONG CcTransitionCount;
     ULONG CcInterruptCount;
     ULONG CcSourceEventCount;
+    ULONG DetachQueueClears;
     ULONG DiagnosticPollCount;
     ULONGLONG CcLastSampleTime;
     ULONGLONG CcLastTransitionTime;

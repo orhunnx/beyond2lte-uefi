@@ -41,7 +41,7 @@ typedef int BOOLEAN;
 typedef struct {
     UCHAR CcStatus0, CcStatus1, CcState, PreviousCcState, CcInterrupt, MuicControl1;
     ULONGLONG CcLastSampleTime, CcLastTransitionTime;
-    ULONG CcSampleCount, CcSourceEventCount, CcTransitionCount;
+    ULONG CcSampleCount, CcSourceEventCount, CcTransitionCount, DetachQueueClears;
     int CcStatusValid, CcStateChanged, DiagnosticDirty;
     int OtgEnabled, OtgHardwareActive, MuicPathVerified;
     int PowerRoleValid, DataRoleValid, WaterDetected, MuicRprd;
@@ -58,6 +58,7 @@ static NTSTATUS read_error, power_error, muic_error;
 static char actions[32]; static size_t action_count;
 static ULONGLONG KeQueryInterruptTime(void) { return 123; }
 static void action(char c) { assert(action_count+1<sizeof(actions)); actions[action_count++]=c; }
+static void B2lMaxClearOpcodesLocked(PB2L_MAX_CONTEXT c) { (void)c;action('C'); }
 static NTSTATUS B2lMaxReadBlock(PB2L_MAX_CONTEXT c,UCHAR addr,UCHAR reg,UCHAR *data,ULONG len) {
     (void)c; assert(addr==0x25 && reg==0x0a && len==2); action('R');
     if (read_error) return read_error;
@@ -112,9 +113,21 @@ int main(void) {
         if(state==2) continue;
         reset(); memset(&c,0,sizeof(c)); raw[0]=(UCHAR)(0x80|state); raw[1]=0;
         assert(B2lMaxEvaluateConnection(&c,FALSE)==0);
-        assert(strcmp(actions,state==1 ? "R" : "RO")==0 && c.CcState==state);
+        assert(strcmp(actions,state==1 ? "R" : (state==0 ? "RCO" : "RO"))==0 && c.CcState==state);
+        assert(c.DetachQueueClears==(state==0 ? 1U : 0U));
         assert(c.CcSourceEventCount==0 && !c.OtgEnabled);
     }
+    // Probe does not fabricate detach. Runtime repeats still clear commands
+    // queued since the previous no-connection IRQ, matching the stock branch.
+    reset();memset(&c,0,sizeof(c));raw[0]=0;raw[1]=0;
+    assert(B2lMaxEvaluateConnection(&c,TRUE)==0 && strcmp(actions,"R")==0 && !c.DetachQueueClears);
+    reset();assert(B2lMaxEvaluateConnection(&c,FALSE)==0 && c.DetachQueueClears==1);
+    reset();assert(B2lMaxEvaluateConnection(&c,FALSE)==0 && strcmp(actions,"RC")==0 && c.DetachQueueClears==2);
+    reset();c.OtgEnabled=c.PowerRoleValid=c.DataRoleValid=1;power_error=-40;
+    assert(B2lMaxEvaluateConnection(&c,FALSE)==-40 && strcmp(actions,"RCD")==0);
+    assert(c.DetachQueueClears==3 && !c.PowerRoleValid && !c.DataRoleValid && c.OtgEnabled);
+    reset();read_error=-30;
+    assert(B2lMaxEvaluateConnection(&c,FALSE)==-30 && strcmp(actions,"R")==0 && c.DetachQueueClears==3);
     reset(); memset(&c,0,sizeof(c)); raw[0]=0x42; pd_raw=0x80;
     assert(B2lMaxEvaluateConnection(&c,TRUE)==0 && strcmp(actions,"R")==0);
     assert(!c.PowerRoleValid && c.CcSourceEventCount==0);
@@ -132,9 +145,9 @@ int main(void) {
     assert(strcmp(actions,"RD")==0 && c.PowerRole==1 && c.DataRole==1 && c.MuicControl1==9);
     reset(); assert(B2lMaxHandleDataRole(&c,FALSE)==0 && strcmp(actions,"P")==0); // SINK+DFP valid
     reset(); raw[0]=0x80;assert(B2lMaxEvaluateConnection(&c,FALSE)==0);
-    assert(strcmp(actions,"RO")==0 && !c.PowerRoleValid && !c.DataRoleValid);
+    assert(strcmp(actions,"RCO")==0 && !c.PowerRoleValid && !c.DataRoleValid);
     reset();raw[0]=0x42;assert(B2lMaxEvaluateConnection(&c,FALSE)==0);
-    reset();raw[0]=0;assert(B2lMaxEvaluateConnection(&c,FALSE)==0 && strcmp(actions,"RD")==0);
+    reset();raw[0]=0;assert(B2lMaxEvaluateConnection(&c,FALSE)==0 && strcmp(actions,"RCD")==0);
     // OPEN is already verified here; power goes off without redundant opcode.
     reset();memset(&c,0,sizeof(c));raw[0]=0x42;power_error=-10;
     assert(B2lMaxEvaluateConnection(&c,FALSE)==-10 && strcmp(actions,"RV")==0 && !c.PowerRoleValid);

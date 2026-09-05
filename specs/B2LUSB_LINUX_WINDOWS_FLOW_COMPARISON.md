@@ -1,5 +1,126 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.39` — gerçek CC detach ve bekleyen komutların ömrü
+
+MAX `0.1.0.39`, parent/host/function `0.1.0.19`, ABI `7`. Kaynak işi
+flaş beklenmeden sürdürüldü. Bu bölüm yeni telefon ölçümü değildir; `.28`
+fotoğrafları daha sonraki sürümlerin çalıştığına kanıt olarak kullanılmaz.
+
+### Kapatılan fark: CC No Connection dalındaki queue-clear
+
+Aynı beyond2lte referansının
+[max77705_cc.c / CCSTAT işleyicisi](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/ccic/max77705_cc.c#L538)
+ile [USBC queue-clear/recover](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/ccic/max77705_usbc.c#L2108)
+birlikte incelendi. Gerçek `cc_No_Connection` dalı aktif rol değiştirme
+beklemesi yokken yazılım kuyruğunu temizler; ardından PD detach ve VBUS-off
+gelir. Stok HWC1 `CONFIG_MAX77705_GRL_ENABLE=y` olduğundan burada firmware
+queue-clear komutu gönderilmez.
+
+Windows'ta bu çağrı eksikti. MUIC/PDO nesil kontrolü, eski yanıtın yeni
+bağlantı için yayımlanmasını engelliyordu; **bekleyen eski fiziksel yazının
+gönderilmesini engellemiyordu**. Örneğin USB_AP WRITE/READ ve ikinci USB_AP
+çifti beklerken detach gelirse eski çiftler önce çalışabiliyordu.
+
+`.39`, canlı CC okumasının `NO_CONNECTION` sonucu için `.38`in gerçek
+queue-clear işlevini çağırır. Eski bağlı istekler `STATUS_CANCELLED` ile
+emekli edilir; MUIC çiftleri ve PDO/control slotları serbest kalır. Sonraki
+OPEN, VBUS-off başarılıysa ayrı yeni WRITE/READ çifti olarak kuyruğa girer.
+OPEN doğrulaması gerçek APCMD ve readback gerektirir. VBUS kapatma hatasında
+eski kuyruk yine temizlenmiş ve bilinen detach Windows bildirimine verilmiş
+olur; güç kesildiği veya OPEN tamamlandığı söylenmez.
+
+- İlk probe okuması kaynakta olduğu gibi yalnız SINK işler. Başlangıçta
+  `CC=0` okumak queue-clear veya yeni fiziksel detach üretmez.
+- SOURCE/SINK, audio/debug ve diğer CC durumları `NO_CONNECTION` gibi
+  queue-clear dalına sokulmaz. Mevcut aksesuar tüketicilerinin eksikleri
+  ayrıca sürer.
+- Tekrarlanan gerçek no-connection IRQ'si yeniden temizler: arada kuyruğa
+  eklenen komutlar olabilir. Sadece durum değiştiğinde temizleme yapılmaz.
+- PASS2 VBUSDet'in gerçek BC/CC okumalarıyla doğrulanan detach yeniden
+  dağıtımı da aynı dalı kullanır. Ham IRQ baytları değiştirilmez.
+- Aynı fiziksel frame'de APCMD ve CCSTAT varsa stok nested sıra korunur:
+  APCMD önce yanıtı emekli eder ve sıradaki yazıyı başlatabilir; CCSTAT sonra
+  kalan kuyruğu temizler. CC'yi yapay olarak APCMD'nin önüne alma yoktur.
+- Şu an OS rol değiştirme isteği başlatılmadığı için aktif `try_state_change`
+  yoktur. Gerçek swap eklendiğinde stok detach/swap completion koşulu da
+  birlikte uygulanmalıdır; bu değişiklik swap uygulanmış demek değildir.
+
+### İptal edilen başlangıç grubunun tanısı
+
+Detach normal probe komutları sürerken gelirse gönderilmemiş `0c/54`
+recover listesinde kalır. Sonraki gerçek APCMD bu listeyi stok sırada işler.
+Timer recover göndermez. `57/0b/1c` başlangıç adımları kaynakta recover
+listesinde değildir; otomatik tekrar edilmez, eski başarıları üretilmez.
+
+Bu durumda `INIT_NT=C0000120`, `INIT_DONE=0` başlangıç grubunun iptal
+edildiğini anlatır. Recover yazıları daha sonra tamamlandı diye iptal
+edilmiş başlangıç grubunun sonucu başarıya çevrilmez. `MfdFault=0` ile
+birlikte görülebilir: yazılım iptali I2C arızası değildir. Gerçek resetin
+başlattığı yeni kontrol grubu `.38`teki ayrı sonuç kurallarını korur.
+
+`MAX FOTO v12` kurtarma sayfası **32 satır**, metinler 64 sütunun altındadır.
+`DETACH_CLEARS` yalnız bu canlı CC dalının çağrı sayısıdır; `QUEUE_CLEARS`
+reset/GRL dahil toplamdır; `QUEUE_DROPS` emekli edilen istek sayısıdır.
+Bunlar farklı büyüklüklerdir ve sıfır olmayan temizleme sayısı tek başına
+hata değildir. Startnet özeti aynı yeni alanı verir. Registry alanları
+ardışık okunur, atomik frame sayılmaz; REG_BINARY olay formatı değişmedi.
+
+### Aynı incelemede kesinleştirilen açık tüketiciler
+
+[Type-C manager kaydı](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/usb/manager/usb_typec_manager_notifier.c#L802),
+READY üreticisini açıkça gösterir: DP destekleniyorsa **battery + USB + DP**,
+desteklenmiyorsa **battery + USB** dinleyicileri kaydolmalıdır. DP seçimi
+aynı dosyada `displayport` düğümünün `dp,displayport_not_support` özelliğiyle
+yapılır. Tek başına UCM nesnesi oluşturmak bu kayıtların karşılığı değildir.
+Gerçek tüketiciler kurulmadan `READY|START` veya `55` üretmek eksik adımı
+gizler; Windows alt mod/VDM yolu hâlâ tamamlanmalıdır.
+
+CC kaynağındaki CCI, SINK iken karşı tarafın Rp bilgisidir. SOURCE akımı
+olarak kopyalanamaz. Linux partner nesnesinin varsayılan USB güç modu da
+MAX'ın elektriksel source Rp ölçümü değildir. Windows source advertisement
+boşluğu, gerçek CCCTRL1 kaynak akım semantiğiyle kapatılmalıdır.
+
+[Stok rol değiştirme isteği](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/ccic/max77705_usbc.c#L345)
+yazılım queue-clear → `37` DR/PR isteği → gerçek rol olayını bekleme
+şeklindedir. APCMD yalnız komut yanıtıdır; DATAROLE/CC/PS_RDY tamamlanması
+ayrıdır. OS isteğini başarılı göstermek için rol alanına istenen değeri
+yazmak kabul edilmez. UCM'nin OS swap sonrası partner DR_SWAP reddetme
+koşulu da ayrı firmware/politika karşılığını gerektirir; yalnız `37`
+göndermek tüm Windows swap sözleşmesini tamamlamaz.
+
+Bir başka açık eşleme: stok `max77705_irq_execute`, beklenen opcode ile
+ham yanıt uyuşmazlığını kaydettikten sonra **gerçek response opcode'una**
+göre dispatch eder. Mevcut Windows, protokol uyuşmazlığında kuyruğu hatayla
+durdurur. `.39` bunu başarılı yanıt saymaz veya gizlemez. Gerçek yanıt
+tüketicilerini ve uzunluk/istek ömrünü birlikte taşıyan dispatch işi ayrıca
+gereklidir; özellikle queue-clear sonrasında geç gelen yanıt için önemlidir.
+Bu nedenle queue-clear dalının düzeltilmesi, mailbox ve tüm USB akışının
+Linux ile eksiksiz eşitlendiği anlamına gelmez.
+
+### Kontroller ve WSL
+
+Gerçek Windows C işlevlerini kullanan host testleri geçti: bekleyen iki
+USB_AP çifti sırasında CC detach, PDO isteği sırasında VBUSDet detach,
+VBUS-off hatası, probe sırasında detach/recover, aynı frame APCMD+CCSTAT,
+tekrar detach, başlangıç ve aksesuar ayrımı. IRQ, CC/PD, UCM, PnP lifecycle,
+foto genişliği/satır sayısı ve iki Windows kaynak kontrolü de geçti.
+Host fixture kesmeleri, telefonun gerçek kesme teslimi veya USB transferi
+kanıtı değildir. WDK/UEFI/WIM bu Mac'te derlenmedi.
+
+WSL yöntemleri değişmedi:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+İlerideki cihaz ölçümünde MAX `.39` / FOTO v12, geçerli status snapshot,
+gerçek SOURCE ve ayrı DFP, VBUS/MUIC doğrulaması, UCM/URS ardından root-hub
+ve gerçek USB aygıt/transferi aranır. Detach sırasında `DETACH_CLEARS`
+artışı, eski isteklerin iptali ve yeni OPEN yanıtı ayrı değerlendirilir.
+Kaynak çalışması bu ölçümü beklemez. Source Rp, OS swap/PD, battery/CHGINSEL,
+alt mod/VDM, gerçek response dispatch, USB3 ve uçtan uca transfer açıktır.
+
 ## 5 Eylül 2026: `.38` — asenkron başlangıç, POR/WDT ve GRL kurtarması
 
 MAX `0.1.0.38`, parent/host/function `0.1.0.19`, ABI `7`. Kaynak eksikleri

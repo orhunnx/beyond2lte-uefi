@@ -394,6 +394,7 @@ call :B2LUsbAppendMax77705Summary UIC_PENDING B2LMaxSavedUic
 call :B2LUsbAppendMax77705Summary UIC_REPLAY B2LMaxLastUicReplay
 call :B2LUsbAppendMax77705Summary REPLAY_COUNT B2LMaxUicReplayCount
 call :B2LUsbAppendMax77705Summary QUEUE_CLEARS B2LMaxQueueClears
+call :B2LUsbAppendMax77705Summary DETACH_CLEARS B2LMaxDetachQueueClears
 call :B2LUsbAppendMax77705Summary QUEUE_DROPS B2LMaxQueueDiscarded
 call :B2LUsbAppendMax77705Summary RECOVER_MASK B2LMaxRecoverMask
 call :B2LUsbAppendMax77705Summary GRL_COUNT B2LMaxGrlRequests

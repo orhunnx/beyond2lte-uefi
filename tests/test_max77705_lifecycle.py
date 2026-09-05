@@ -192,9 +192,9 @@ int main(void) {
     assert(B2lMaxEvtPrepareHardware(&c,&raw,&translated)<0 && !c.HardwareReady); // reversed IRQ ownership
     resources(&raw); translated=raw; translated.Entries[4].Type=CmResourceTypeDevicePrivate;
     assert(B2lMaxEvtPrepareHardware(&c,&raw,&translated)<0 && !c.HardwareReady); // missing ALIVE
-    reset(&c); c.HsI2cInterruptCount=100; c.HsI2cCompletionCount=99;
+    reset(&c); c.HsI2cInterruptCount=100; c.HsI2cCompletionCount=99;c.DetachQueueClears=17;
     assert(B2lMaxEvtD0Entry(&c,0)==0 && starts==0 && !c.PolicyEnabled);
-    assert(c.HsI2cInterruptCount==0 && c.HsI2cCompletionCount==0 && c.PlatformPrepared);
+    assert(c.HsI2cInterruptCount==0 && c.HsI2cCompletionCount==0 && !c.DetachQueueClears && c.PlatformPrepared);
     c.HsI2cIrqEnabled=c.MaxIrqEnabled=TRUE; // framework enable occurs between these callbacks
     assert(B2lMaxEvtD0EntryPostInterruptsEnabled(&c,0)==0 && starts==1);
     assert(B2lMaxEvtD0ExitPreInterruptsDisabled(&c,0)==0);

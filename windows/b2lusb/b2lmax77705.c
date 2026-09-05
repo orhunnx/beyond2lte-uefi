@@ -218,7 +218,8 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxGrlStatus",
         L"B2LMaxAltModeStartRequested",
         L"B2LMaxAltModeStatus",
-        L"B2LMaxResetPriorFault"
+        L"B2LMaxResetPriorFault",
+        L"B2LMaxDetachQueueClears"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -438,6 +439,7 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[202] = (ULONG)Context->AltModeStartRequested;
     Values[203] = (ULONG)Context->AltModeStatus;
     Values[204] = (ULONG)Context->ResetPriorFault;
+    Values[205] = Context->DetachQueueClears;
     Context->DiagnosticDirty = FALSE;
     WdfWaitLockRelease(Context->MfdLock);
 
@@ -1237,6 +1239,14 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
         B2lMaxQueueConnectorLocked(Context);
         // DFP/UFP comes from PD_STATUS1, never from this power-role value.
         return STATUS_SUCCESS;
+    }
+    if (CcState == B2L_MAX_CC_NO_CONNECTION) {
+        // max77705_ccstat_irq_handler: clear_queue precedes detach_pd and
+        // VBUS off. GRL is enabled in this board's stock kernel: discard
+        // software nodes only, retaining the stock opcode recover list.
+        // No OS try_state_change is active in the current role implementation.
+        ++Context->DetachQueueClears;
+        B2lMaxClearOpcodesLocked(Context);
     }
     // A known physical detach must reach USB even if disabling source power
     // subsequently fails. Keep the charger error visible independently.
@@ -2174,6 +2184,7 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     Context->CcTransitionCount = 0UL;
     Context->CcInterruptCount = 0UL;
     Context->CcSourceEventCount = 0UL;
+    Context->DetachQueueClears = 0UL;
     Context->DiagnosticPollCount = 0UL;
     Context->CcLastSampleTime = 0ULL;
     Context->CcLastTransitionTime = 0ULL;

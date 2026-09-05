@@ -8,7 +8,7 @@ Class=UCM
 ClassGuid={e6f1aa1c-7f3b-4473-b2e8-c97d8ac71d53}
 Provider=%B2L%
 CatalogFile=b2lusb.cat
-DriverVer=09/05/2026,0.1.0.38
+DriverVer=09/05/2026,0.1.0.39
 PnpLockdown=1
 
 [DestinationDirs]

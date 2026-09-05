@@ -302,7 +302,7 @@ int main(void) {
     assert(output_lines == 24 && max_width < 64);
     output_lines = max_width = 0;
     B2lPrintRecoveryPhotoOverview(2);
-    assert(output_lines == 30 && max_width < 64);
+    assert(output_lines == 32 && max_width < 64);
     output_lines=max_width=0; registry_error=2;
     B2lPrintMaxPhotoOverview(3);
     assert(output_lines == 3 && max_width < 64);

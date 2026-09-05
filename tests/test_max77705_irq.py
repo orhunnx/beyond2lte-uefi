@@ -114,6 +114,7 @@ NTSTATUS B2lMaxHandlePdMessageLocked(PB2L_MAX_CONTEXT);
 NTSTATUS B2lMaxHandlePsRdyLocked(PB2L_MAX_CONTEXT);
 VOID B2lMaxResetPdConnectionLocked(PB2L_MAX_CONTEXT);
 VOID B2lMaxCancelPdRecoveryLocked(PB2L_MAX_CONTEXT,NTSTATUS);
+VOID B2lMaxClearOpcodesLocked(PB2L_MAX_CONTEXT);
 VOID B2lMaxRetirePdRequestLocked(PB2L_MAX_CONTEXT,PB2L_MAX_PD_REQUEST,NTSTATUS);
 VOID B2lMaxHandleSysmsgLocked(PB2L_MAX_CONTEXT);
 NTSTATUS B2lMaxQueueControlLocked(PB2L_MAX_CONTEXT,UCHAR);
@@ -410,6 +411,49 @@ int main(void) {
     assert(c.MuicControl1==9 && c.MuicOutstanding==1);
     assert(deliver() && deliver() && c.MuicPathVerified && c.MuicControl1==0x3f);
     assert(c.MuicOutstanding==0 && !c.OpcodeHead);
+    // Actual CC detach discards the old physical command sequence before
+    // queuing OPEN. A generation check alone would still send the old writes.
+    reset(&c);c.PowerRoleValid=c.DataRoleValid=TRUE;c.PowerRole=2;c.DataRole=1;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxRequestMuicLocked(&c,9)==STATUS_PENDING);
+    assert(B2lMaxReapplyMuicLocked(&c,9)==STATUS_PENDING);
+    WdfWaitLockRelease(c.MfdLock);
+    raw[0]=0;raw[1]=1;reg_values[0x25][0x0a]=0;
+    assert(deliver() && c.DetachQueueClears==1 && c.QueueClears==1 && c.QueueDiscarded==4);
+    assert(!c.PowerRoleValid && !c.DataRoleValid && !c.MfdFault);
+    assert(commands==2 && responses==0 && written_op[1]==6 && written_data[1]==0x3f);
+    assert(c.MuicOutstanding==1 && !c.MuicPathVerified && c.MuicStatus==STATUS_PENDING);
+    assert(deliver() && deliver() && c.MuicPathVerified && c.MuicControl1==0x3f);
+    assert(commands==3 && responses==2 && !c.MuicOutstanding);
+    // The Linux PASS2 VBUSDet recheck uses the same real-detach cleanup,
+    // including PDO requests and a failed VBUS-off. No OPEN follows that error.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;reg_values[0x25][0x0d]=0x10;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxHandlePsRdyLocked(&c)==STATUS_PENDING);
+    WdfWaitLockRelease(c.MfdLock);
+    c.OtgEnabled=TRUE;otg_error=STATUS_IO_TIMEOUT;raw[0]=0x20;
+    assert(deliver() && c.DetachQueueClears==1 && c.QueueDiscarded==1);
+    assert(!c.OpcodeHead && !c.PdReadsPending && !c.PdCapsValid && !c.DataRoleValid);
+    assert(commands==1 && responses==0 && otg_off==1 && c.OtgEnabled);
+    // Clearing a probe command group does not retroactively complete it.
+    // Recover only unsent 0c/54 after a physical APCMD, not from a timer.
+    reset(&c);assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);
+    raw[0]=0;raw[1]=1;assert(deliver());
+    assert(c.DetachQueueClears==1 && c.RecoverMask==3 && !c.ControlPending);
+    assert(c.ControlStatus==STATUS_CANCELLED && !c.UsbcInitialized && !c.MfdFault);
+    assert(commands==2 && written_op[1]==6);
+    ticks+=100;B2lMaxEvtOpcodeDeadline(&c);
+    assert(c.RecoverMask==3 && commands==2 && responses==0);
+    finish_controls();
+    assert(commands==5 && written_op[2]==5 && written_op[3]==0x0c && written_op[4]==0x54);
+    assert(c.ControlStatus==STATUS_CANCELLED && !c.UsbcInitialized && !c.ControlPending && !c.RecoverMask);
+    assert(!c.AutoIbusConfigured && !c.CcControlConfigured && !c.CcOpenNormalized);
+    // An APCMD in the same frame precedes CCSTAT (source nested IRQ order).
+    reset(&c);assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);
+    raw[1]=1;assert(deliver());
+    assert(c.AutoIbusConfigured && c.DetachQueueClears==1 && commands==3 && responses==1);
+    assert(written_op[1]==0x54 && written_op[2]==6 && c.RecoverMask==1);
+    finish_controls();assert(!c.MfdFault && !c.ControlPending && !c.MuicOutstanding);
     // A WATER event arriving before a successful switch response keeps the
     // data-role attach blocked; callback success must not clear that reason.
     reset(&c);c.DataRoleValid=TRUE;c.DataRole=1;
