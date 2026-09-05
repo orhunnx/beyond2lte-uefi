@@ -197,6 +197,37 @@ abort ürettiği için onları açan bir paket güvenli değildir.
 
 ## WSL derleme ve paketleme
 
+**Güncel tercih: kullanıcı onaylı karma UFX denemesi.** Aynı-build kapısı
+projenin varsayılan politikasıdır; farklı build'in yüklenemeyeceği ölçülmedi.
+28000 çekirdek/UCM/URS korunarak gerçek 25H2 UFX/Synopsys çiftini eklemek için:
+
+```bash
+cd ~/beyond2lte-uefi-8549
+export B2L_USB_RUNTIME_PROFILE=experimental-ufx
+export B2L_WINDOWS_ARM64_SOURCE=/mnt/c/Users/orhun/Downloads/Windows11_25H2_ARM64.iso
+export B2L_WINDOWS_ARM64_SOURCE_INDEX=1
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+İlk build başarılı olmadan ESP komutuna geçme. WSL'de `hivexget`,
+`hivexregedit`, `7z` eksikse `sudo apt-get install libhivex-bin libwin-hivex-perl p7zip-full`.
+Kaynak SYS/INF, DriverStore dosyaları ve gerçek iki servis ağacı kullanılır;
+Microsoft dosyaları değiştirilmez veya yeniden imzalanmaz. Bu tam CBS paket
+kurulumu değildir; Windows imza/ABI/WDF bağlama ve cihaz testi henüz yapılmadı.
+PnP platform paketi sonraki mevcut DISM aşamasında kurulur. Rol/IRQ akışı aynıdır.
+
+WIM önce geçici kopyada hazırlanıp geri okunur; önceki WIM
+`esp/sources/boot.wim.before-experimental-ufx` olarak korunur. Kaynak ve
+payload hash'leri `out/b2lusb/experimental-ufx.json` içindedir. Yalnız bu kayda
+bağlı UFX çiftinin farklı build olmasına izin verilir; mimari veya UCM/URS
+hataları kabul edilmez. Aynı kaynakla tekrar çalıştırma ISO'yu yeniden çıkarmaz.
+Varsayılan `strict` profili aynı-build koşulunu korur; aşağıdaki salt okunur
+kaynak/target karşılaştırması da sürüm farkında başarısız sonuç verir.
+Deneme ve geri dönüş ayrıntıları [Linux karşılaştırmasının başında](../../specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md).
+
+**Önceki strict profil bulguları:**
+
 Gerçek 26100 inbox INF'deki genel Synopsys/Qualcomm model ayrımı düzeltildi.
 Function INF üreticisi ARM64 `URS\PNP0CA1&FUNCTION` satırının DDInstall
 referansını kullanır; kendi `URS\BYN0002&FUNCTION` kimliğini korur.

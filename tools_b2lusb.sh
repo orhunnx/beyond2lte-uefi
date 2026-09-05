@@ -31,8 +31,24 @@ case "$AUTO_HOST" in 0|1) ;; *) die "B2L_USB_AUTO_HOST yalniz 0 veya 1 olabilir"
 # Validate the actual target image before MSVC, signing or WIM changes.
 # Keep all missing files and the image inventory in one WSL-side report.
 mkdir -p "$OUT"
+RUNTIME_PROFILE="${B2L_USB_RUNTIME_PROFILE:-strict}"
+RUNTIME_ARGS=()
+case "$RUNTIME_PROFILE" in
+  strict) ;;
+  experimental-ufx)
+    [ -n "${B2L_WINDOWS_ARM64_SOURCE:-}" ] || die "Deneme profili icin B2L_WINDOWS_ARM64_SOURCE gerekli"
+    say "Acikca secilen UFX deneme profili: kaynak UFX + hedef cekirdek/UCM/URS"
+    python3 "$SRC/prepare-experimental-ufx.py" \
+      --allow-mixed-ufx --source "$B2L_WINDOWS_ARM64_SOURCE" \
+      --index "${B2L_WINDOWS_ARM64_SOURCE_INDEX:-1}" --target-wim "$WIM" \
+      --manifest "$OUT/experimental-ufx.json" || die "UFX deneme katmani hazirlanamadi"
+    RUNTIME_ARGS=(--experimental-ufx-manifest "$OUT/experimental-ufx.json")
+    ;;
+  *) die "B2L_USB_RUNTIME_PROFILE strict veya experimental-ufx olmali" ;;
+esac
 say "Hedef WinPE USB runtime on kontrolu"
 python3 "$SRC/check-winpe-runtime.py" "$WIM" \
+  "${RUNTIME_ARGS[@]}" \
   --out-inf "$OUT/b2lusb-function.inf" \
   --report "$OUT/winpe-usb-runtime-check.txt" || \
   die "WinPE USB runtime hazir degil; rapor: $OUT/winpe-usb-runtime-check.txt"
@@ -231,6 +247,10 @@ MANIFEST="$OUT/b2lusb-manifest.txt"
   echo "B2LUSB_SUPERSPEED=DISABLED_UNTIL_COMBO_PMA_SAFE"
   echo "B2LUSB_AUTO_HOST=$AUTO_HOST"
   echo "B2LUSB_OFFLINE_DRIVERSTORE=1"
+  echo "B2LUSB_RUNTIME_PROFILE=$RUNTIME_PROFILE"
+  if [ "$RUNTIME_PROFILE" = "experimental-ufx" ]; then
+    echo "B2LUSB_RUNTIME_MANIFEST_SHA256=$(sha256sum "$OUT/experimental-ufx.json" | awk '{print $1}')"
+  fi
   echo "B2LUSB_INF_SHA256=$(sha256sum "$OUT/b2lusb.inf" | awk '{print $1}')"
   echo "B2LUSB_FUNCTION_INF_SHA256=$(sha256sum "$OUT/b2lusb-function.inf" | awk '{print $1}')"
   echo "B2LUSB_HOST_INF_SHA256=$(sha256sum "$OUT/b2lusb-host.inf" | awk '{print $1}')"

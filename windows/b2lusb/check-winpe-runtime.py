@@ -2,6 +2,7 @@
 """Read-only WIM preflight; never substitute DriverStore files for installed ones."""
 import argparse
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -64,7 +65,25 @@ def compare_kernels(source, index, target, emit, run=subprocess.run):
     return 0
 
 
-def check(wim, index, emit, out_inf=None, run=subprocess.run, evidence_inf=None):
+def validate_experimental_ufx(files, manifest):
+    """An opt-in exception for exactly the recorded UFX pair, not UCM/URS/kernel."""
+    record = json.loads(Path(manifest).read_text(encoding='utf-8'))
+    if record.get('profile') != 'experimental-ufx-overlay-v1':
+        raise ValueError('Bilinmeyen UFX deneme profili')
+    versions = [VALIDATOR['arm64_build'](p.read_bytes()) for p in files[:-1]]
+    if not versions[0] == versions[1] == versions[2]:
+        raise ValueError('Deneme profili cekirdek/UCM/URS farkina izin vermez')
+    if versions[3] != versions[4] or versions[3][:2] != versions[0][:2]:
+        raise ValueError('UFX cifti ayni major/minor/build olmali')
+    if list(versions[0]) != record['target_build'] or list(versions[3]) != record['source_build']:
+        raise ValueError('UFX manifest build bilgisi dosyalarla eslesmiyor')
+    for path, file in zip(REQUIRED, files):
+        if hashlib.sha256(file.read_bytes()).hexdigest() != record['files'][path]:
+            raise ValueError(f'UFX manifest hash farki: {path}')
+
+
+def check(wim, index, emit, out_inf=None, run=subprocess.run, evidence_inf=None,
+          experimental_ufx_manifest=None):
     env = dict(os.environ, WIMLIB_IMAGEX_IGNORE_CASE='1', LC_ALL='C')
 
     def command(*args):
@@ -130,8 +149,12 @@ def check(wim, index, emit, out_inf=None, run=subprocess.run, evidence_inf=None)
             return 1
         failed = False
         try:
-            VALIDATOR['check_runtimes'](files[:-1])
-        except (ValueError, OSError) as error:
+            if experimental_ufx_manifest is None:
+                VALIDATOR['check_runtimes'](files[:-1])
+            else:
+                validate_experimental_ufx(files, experimental_ufx_manifest)
+                emit('DENEYSEL UFX: kayitli kaynak cifti kabul edildi; yukleyici/ABI uyumu kanitlanmadi.')
+        except (ValueError, OSError, KeyError, TypeError) as error:
             emit(f'HATA: ARM64/build dogrulamasi: {error}')
             failed = True
         try:
@@ -149,7 +172,7 @@ def check(wim, index, emit, out_inf=None, run=subprocess.run, evidence_inf=None)
             return 1
         if out_inf is not None:
             Path(out_inf).write_text(generated, encoding='ascii')
-        emit('ARM64 runtime build ve function INF kontrolleri gecti; servis/bagimlilik ve cihaz testi ayridir.')
+        emit('Incelenen imajin kendi ARM64 runtime/build/INF kontrolleri gecti.')
         return 0
 
 
@@ -159,16 +182,21 @@ def main():
     parser.add_argument('--index', type=int, default=1)
     parser.add_argument('--out-inf', type=Path)
     parser.add_argument('--report', type=Path)
+    parser.add_argument('--experimental-ufx-manifest', type=Path,
+                        help='Yalniz hazirlanan, hash kayitli UFX deneme WIM\'ini kabul et')
     parser.add_argument('--reference-wim', type=Path,
                         help='Kaynak ISO/WIM cekirdegini hedef boot.wim indeks 1 ile karsilastir')
     args = parser.parse_args()
     if args.index < 1:
         parser.error('--index en az 1 olmali')
+    if args.experimental_ufx_manifest and (args.reference_wim or args.wim.suffix.lower() == '.iso'):
+        parser.error('UFX deneme manifesti yalniz hazirlanan hedef WIM icindir')
     if args.reference_wim is not None and args.out_inf is not None:
         parser.error('Kaynak incelemesinde --out-inf kullanilamaz; INF hedef WIM\'den uretilir')
     if args.wim.suffix.lower() == '.iso' and args.out_inf is not None:
         parser.error('ISO incelemesinde --out-inf kullanilamaz; INF hedef WIM\'den uretilir')
     lines = []
+    comparison = None
 
     def emit(line):
         lines.append(line)
@@ -184,14 +212,22 @@ def main():
         with tempfile.TemporaryDirectory(prefix='b2l-iso-audit-') as work:
             emit(f'Girdi: {args.wim}')
             image = resolve_image(args.wim, Path(work), emit)
-            comparison = 0
             if args.reference_wim is not None:
                 comparison = compare_kernels(image, args.index, args.reference_wim, emit)
-            result = check(image, args.index, emit, args.out_inf, evidence_inf=evidence_inf)
-            result = max(result, comparison)
+            extra = ({'experimental_ufx_manifest': args.experimental_ufx_manifest}
+                     if args.experimental_ufx_manifest else {})
+            result = check(image, args.index, emit, args.out_inf, evidence_inf=evidence_inf, **extra)
+            result = max(result, comparison or 0)
     except (OSError, ValueError) as error:
         emit(f'HATA: {error}')
         result = 1
+    if comparison == 1:
+        emit('HEDEF ESLESMESI: BASARISIZ; kaynak ve hedef PE build farkli.')
+    if result:
+        emit('GENEL SONUC: BASARISIZ (cikis kodu 1). Paketleme icin on kontrol gecmedi.')
+    else:
+        emit('GENEL SONUC: BASARILI (cikis kodu 0). Yalniz dosya/build/INF kontrolleri gecti.')
+    emit('Bu kontrol runtime kurmaz; servis/bagimlilik ve cihaz dogrulamasi ayridir.')
     if args.report is not None:
         args.report.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     return result

@@ -527,6 +527,29 @@ verify_winpe_b2lusb_package() {
   fi
 
   ExpectedSys="$(sha256sum "$PROJ/out/b2lusb/b2lusb.sys" | awk '{print $1}')"
+  # A mixed-runtime experiment is bound to the exact prepared WIM payload.
+  # Packaging does not infer compatibility from a successful source-only audit.
+  local RuntimeProfile RuntimeManifestHash
+  RuntimeProfile="$(sed -n 's/^B2LUSB_RUNTIME_PROFILE=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+  case "${RuntimeProfile:-strict}" in
+    strict) ;;
+    experimental-ufx)
+      RuntimeManifestHash="$(sed -n 's/^B2LUSB_RUNTIME_MANIFEST_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
+      if ! wimlib-imagex extract "$PROJ/esp/sources/boot.wim" 1 \
+          /Windows/B2LUSB/experimental-ufx.json --dest-dir="$VerifyDir" --no-acls >/dev/null || \
+          [ "$(sha256sum "$VerifyDir/experimental-ufx.json" | awk '{print $1}')" != "$RuntimeManifestHash" ]; then
+        rm -rf "$VerifyDir"
+        echo "HATA: UFX deneme manifesti eksik veya degismis."
+        return 1
+      fi
+      if ! python3 "$PROJ/windows/b2lusb/check-winpe-runtime.py" "$PROJ/esp/sources/boot.wim" \
+          --experimental-ufx-manifest "$VerifyDir/experimental-ufx.json"; then
+        rm -rf "$VerifyDir"
+        return 1
+      fi
+      ;;
+    *) rm -rf "$VerifyDir"; echo "HATA: bilinmeyen USB runtime profili"; return 1 ;;
+  esac
   ManifestSys="$(sed -n 's/^B2LUSB_SYS_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"
   ExpectedMon="$(sha256sum "$PROJ/out/b2lusb/b2lusbmon.sys" | awk '{print $1}')"
   ManifestMon="$(sed -n 's/^B2LUSB_MON_SHA256=//p' "$VerifyDir/manifest.txt" | head -n 1)"

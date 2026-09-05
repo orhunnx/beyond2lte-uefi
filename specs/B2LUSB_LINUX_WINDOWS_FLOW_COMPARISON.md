@@ -1,5 +1,128 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: kullanıcı onaylı 26100 UFX / 28000 WinPE deneme profili
+
+Son kullanıcı çıktısında altı kaynak dosyası bulundu, aynı INF SHA256'sı
+korundu ve kaynak ARM64 runtime/build/INF kontrolleri geçti. Böylece
+`d75de58` genel Synopsys model seçimi gerçek WSL akışında doğrulandı.
+Kaynak PE `26100`, hedef PE `28000` farkı ise devam ediyor. Sondaki eski
+“kontroller geçti” satırı yalnız kaynak imajı anlatıyordu; bütün komutun
+çıkış sonucu hâlâ 1 idi. Araç artık ayrı `HEDEF ESLESMESI` ve nihai
+`GENEL SONUC / cikis kodu` satırlarını hem konsola hem rapora yazar.
+Kaynak-içi başarı + hedef uyuşmazlığında nihai başarısızlık ayrıca test edildi.
+Bu, **varsayılan strict denetiminin** sonucudur; sürücünün Windows yükleyicisinde
+denenip uyumsuz bulunduğu anlamına gelmez. Kullanıcı karma runtime denemesini
+istedi. Aynı-build koşulu artık tek mümkün build yolu olarak sunulmuyor.
+
+[Microsoft ADK sürüm tablosu](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install)
+28000.1 ADK/WinPE'yi Windows 11 26H1 ARM64 ile, 26100.2454 ADK/WinPE'yi
+25H2/24H2 ile ilişkilendiriyor. [26H1 açıklaması](https://learn.microsoft.com/en-us/windows/whats-new/windows-11-version-26h1)
+26H1'in 24H2/25H2'den farklı Windows çekirdek hattı olduğunu ve belirli yeni
+cihazlarda ön yüklü sunulduğunu belirtiyor. Bu nedenle aynı 25H2 ISO'yu
+tekrar açmak 28000 runtime kaynağını sağlamaz. İncelenen resmî sayfalardan
+kullanılabilir, tam 28000 ARM64 UFX kurulum paketi henüz elde edilmedi.
+Bir SDK/WDK indirme bağlantısı eksik işletim sistemi runtime paketinin
+bulunduğu anlamına gelmez. Build farkı tek başına ABI uyumsuzluğunun kanıtı
+değildir. 28000 hedef korunarak, açıkça seçilen `experimental-ufx` profili
+eklendi. Varsayılan `strict` profili önceki eş-build kontrolünü korur.
+
+### Deneme profilinin yaptığı işlem
+
+`windows/b2lusb/prepare-experimental-ufx.py`, verilen ISO/WIM'in seçilen
+indeksini inceler; kaynak kendi ARM64 runtime/INF kontrolünden geçmelidir.
+Hedef `ntoskrnl.exe`, `UcmCx.sys`, `Urscx01000.sys` korunur ve birbirleriyle
+aynı build olmaları istenir. Kaynak `Ufx01000.sys` + `ufxsynopsys.sys` aynı
+build'den alınır. Kaynak `ufxsynopsys.inf` ve kurulu INF/hash ile eşleşen gerçek
+ARM64 DriverStore dizini de taşınır. Mevcut farklı bir UFX dosyası veya servis
+ağacı sessizce ezilmez. Microsoft SYS/INF dosyaları değiştirilmez ve yeniden
+imzalanmaz; projenin kendi test imzalı platform INF'si sonraki mevcut DISM
+aşamasında kurulur. Genel Synopsys model seçimi ve Include/Needs korunur.
+
+Kaynak SYSTEM'den gerçek `Ufx01000` ve `ufxsynopsys` servis ağaçları,
+Parameters alt anahtarlarıyla birlikte dışarı alınır. Sadece anahtar
+başlığındaki gerçek ControlSet yolu hedefe uyarlanır; değerler uydurulmaz.
+Kaynak bilgisayara ait `Enum` dalı alınmaz. Type/Start/ErrorControl/ImagePath,
+bildirilen servis/grup bağımlılıkları ve iki SYS'in normal import modülü
+dosyalarının hedefte/taşınan çiftte bulunması kontrol edilir. Gecikmeli import
+tablosu varsa desteklenmediği açık hata olarak döner. Import dosyasının varlığı
+sembol uyumluluğu değildir: sembol/ABI, WDF/UFX class sürümü bağlanması, Windows
+imza/katalog güveni ve aygıt çalışması **henüz doğrulanmış değildir**.
+
+Bu bir **deneysel dosya/servis katmanı**, Microsoft CBS USBFunction paketinin
+tam kurulumu değildir. DriverStore dosyalarını kopyalamak, o inbox paketin
+DriverDatabase veya CBS'ye kurulduğu iddiasını taşımaz. PnP platform paketi
+gerçek DISM ile kurulur; DISM veya Windows yükleyicisinin hatası saklanmaz.
+Eksik bileşeni varmış gibi gösteren registry veya rol/CC/PD/IRQ üretimi yoktur.
+Samsung Linux akışını uygulayan sürücüler ve parent `.21` / MAX `.42` aynı kalır.
+
+İşlem asıl WIM yerine aynı dizindeki geçici kopyaya uygulanır. Her eklenen
+dosya ve değiştirilmiş hive WIM'den geri okunup hash ile karşılaştırılır.
+Kaynak yolu/indeksi/SHA256, dosya build/hash'leri, servis REG hash'leri ve
+import dosyaları `out/b2lusb/experimental-ufx.json` ile WIM'deki aynı isimli
+B2LUSB kaydına yazılır. İlk hazırlamadan önceki WIM
+`esp/sources/boot.wim.before-experimental-ufx` olarak saklanır; eski yedek
+ezilmez. Hatalı geri okuma asıl WIM'i değiştirmez. Aynı kaynak hash'iyle
+tekrar build, hazırlanmış altı dosyayı doğrular ve ISO'yu tekrar çıkarmaz.
+
+MSVC ön kontrolü yalnız bu manifestle hash'i eşleşen UFX çiftine sürüm
+istisnası verir. UCM/URS veya çekirdeğe genel sürüm istisnası yoktur.
+`cache_esp.sh`, B2LUSB manifestindeki runtime kayıt hash'ini ve WIM'deki altı
+asıl dosyayı tekrar doğrular; başka bir UFX ile ESP üretilemez.
+
+### WSL build komutları
+
+WSL'de, mevcut WDK/MSVC ve proje bağımlılıklarına ek olarak eksikse:
+
+```bash
+sudo apt-get install libhivex-bin libwin-hivex-perl p7zip-full
+```
+
+Ardından normal UEFI + touch + USB ve ESP akışı:
+
+```bash
+cd ~/beyond2lte-uefi-8549
+export B2L_USB_RUNTIME_PROFILE=experimental-ufx
+export B2L_WINDOWS_ARM64_SOURCE=/mnt/c/Users/orhun/Downloads/Windows11_25H2_ARM64.iso
+export B2L_WINDOWS_ARM64_SOURCE_INDEX=1
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+İkinci komuta yalnız ilk komut başarılıysa geçilir. DISM'in mevcut Windows
+UAC adımı aynıdır. İlk çalışmada ISO'daki install.wim/esd, geçici WIM ve
+geri dönüş WIM'i için boş alan gerekir. Yeni UEFI ve ESP birlikte kullanılır.
+
+Denemeyi geri almak için, **yedek bu denemeden hemen önceki istenen tabansa**:
+
+```bash
+cp esp/sources/boot.wim.before-experimental-ufx esp/sources/boot.wim
+unset B2L_USB_RUNTIME_PROFILE
+```
+
+Bu geri dönüş sadece WIM'i geri alır; sonraki ESP ayrıca yeniden üretilir.
+Strict profile dönmek UFX eksikliğini gidermez; aynı-build kaynak gereksinimi
+bu profilde hâlâ geçerlidir.
+
+### Kontrol edilenler ve sonraki gerçek sonuç
+
+Host testleri: hash bağlı istisna, UCM/URS/mimari ve çift sürümü hataları;
+servis değerlerini koruyan ControlSet taşıması ve Enum ayırımı; bozuk PE/import
+tablosu reddi; geri-okuma hatasında asıl WIM/yedeğin korunması; başarılı
+kopyanın yayımlanması. Mevcut rol ve USB güvenlik testleri de geçti.
+Mac'te Windows build, gerçek WIM/hive araçları veya telefon testi çalıştırılmadı.
+
+WSL'de önce deneme katmanının hazırlanması, MSVC ve DISM'in tamamlanması
+beklenir. Telefonda gerçek attach sonrasında UCM/URS ilgili host/function
+çocuğunu başlatmalıdır. Code 39/52, eksik entry point veya WDF class hatası
+görülürse bu karma runtime yüklemesinin gerçek bulgusudur; başarıya çevrilmez.
+Runtime'ın yüklenmesi tek başına USB'nin çalıştığı anlamına gelmez; önceki
+Linux karşılaştırmasındaki açık güç/saat/USB3 adımları bu paketleme değişikliğiyle
+kapanmış sayılmaz.
+
+Araç sözleşmeleri: [hivex registry dışa/içe aktarımı](https://libguestfs.org/hivexregedit.1.html),
+[hivexget veri biçimi](https://libguestfs.org/hivexget.1.html),
+[wimlib update komutları](https://wimlib.net/man1/wimupdate.html).
+
 ## 5 Eylül 2026: gerçek inbox INF — genel URS ve Qualcomm kurulum ayrımı düzeltildi
 
 Kullanıcının paylaştığı numaralı 105 satırlık `ufxsynopsys.inf`, önceki

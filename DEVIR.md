@@ -18,6 +18,17 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / kullanıcı onaylı karma UFX denemesi:** Aynı-build şartı
+> projenin temkinli politikasıydı; 26100 UFX'in 28000'de yüklenemeyeceğinin
+> ölçümü değildi. `B2L_USB_RUNTIME_PROFILE=experimental-ufx` profili eklendi.
+> Gerçek 25H2 ISO'sundan UFX/Synopsys SYS, INF/DriverStore dosyaları ve iki
+> gerçek servis ağacı alınır; çekirdek/UCM/URS 28000 kalır. SYS değiştirilmez,
+> yeniden imzalanmaz; donanım/rol akışı değişmez. Bu bir CBS paket kurulumu
+> değildir. Hash, ARM64, import dosyası ve servis bağımlılık kontrolleri vardır;
+> Windows imza güveni, sembol/ABI/WDF bağlama ve cihaz sonucu henüz sınanmadı.
+> WIM kopyası geri okunmadan yayımlanmaz, önceki WIM korunur. Host testleri
+> geçti; build yalnız WSL'de. Tam komutlar Linux karşılaştırmasının başında.
+
 > **5 Eylül / gerçek INF düzeltmesi:** Genel Synopsys ve Qualcomm
 > modellerinin birlikte bulunması parser hatasının gerçek nedeniydi.
 > Genel `URS\PNP0CA1&FUNCTION` modelinin DDInstall referansı seçiliyor;

@@ -156,3 +156,55 @@ with tempfile.TemporaryDirectory() as temp:
     assert m['check']('mixed.wim', 1, logs.append, output, wim.run) == 1
     assert not output.exists()
 print('Observed Synopsys/Qualcomm INF preflight and unchanged build gate: PASS')
+
+# A source-local success must never hide failed target matching in the final
+# console/report summary or process result.
+import contextlib
+import io
+import sys
+from unittest.mock import patch
+with tempfile.TemporaryDirectory() as temp:
+    report = Path(temp)/'report.txt'
+    wim = Wim()
+    actual_check = m['check']
+    for comparison in (0, 1):
+        console = io.StringIO()
+        with patch.dict(m['main'].__globals__, {
+            'compare_kernels': lambda *args: comparison,
+            'check': lambda *args, **kwargs: actual_check(*args, run=wim.run, **kwargs),
+        }), patch.object(sys, 'argv', ['check', 'source.wim', '--reference-wim',
+                                      'boot.wim', '--report', str(report)]), contextlib.redirect_stdout(console):
+            result = m['main']()
+        assert result == comparison
+        summary = 'GENEL SONUC: ' + ('BASARISIZ' if comparison else 'BASARILI')
+        assert summary in console.getvalue() and summary in report.read_text()
+        assert ('HEDEF ESLESMESI: BASARISIZ' in report.read_text()) == bool(comparison)
+print('Source-local success versus overall target comparison summary: PASS')
+
+# Only an explicit, hash-bound UFX pair may differ from the target. The source
+# comparison remains strict; arbitrary UCM/URS/architecture changes are rejected.
+import hashlib
+import json
+with tempfile.TemporaryDirectory() as temp:
+    manifest = Path(temp)/'experimental.json'
+    for bad in (None, 'hash', 'ucm', 'urs', 'pair', 'machine', 'kernel', 'profile'):
+        wim = Wim()
+        for path in REQUIRED[3:5]:
+            wim.files[path] = pe(26100)
+        record = {'profile': 'experimental-ufx-overlay-v1', 'target_build': [10, 0, 28000],
+                  'source_build': [10, 0, 26100],
+                  'files': {p: hashlib.sha256(b).hexdigest() for p, b in wim.files.items()}}
+        if bad == 'hash':
+            record['files'][REQUIRED[5]] = '0'*64
+        elif bad in ('ucm', 'urs', 'pair', 'machine', 'kernel'):
+            i = {'ucm': 1, 'urs': 2, 'pair': 4, 'machine': 3, 'kernel': 0}[bad]
+            wim.files[REQUIRED[i]] = pe(22631, 0x8664 if bad == 'machine' else 0xaa64)
+            record['files'][REQUIRED[i]] = hashlib.sha256(wim.files[REQUIRED[i]]).hexdigest()
+        elif bad == 'profile':
+            record['profile'] = 'anything-goes'
+        manifest.write_text(json.dumps(record))
+        assert m['check']('mixed.wim', 1, lambda _: None, run=wim.run,
+                          experimental_ufx_manifest=manifest) == (1 if bad else 0), bad
+        if bad is None:
+            assert m['check']('mixed.wim', 1, lambda _: None, run=wim.run) == 1
+print('Explicit UFX exception: exact hashes, pair, target UCM/URS and architecture: PASS')
