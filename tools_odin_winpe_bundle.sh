@@ -51,6 +51,12 @@ if [ "$DESKTOP_MODE" = 0 ] && [ "$TARGET" != system ]; then
 fi
 BOOT_TAR="${ARGS[0]:-$OUT/uefi-boot.tar}"
 TARGET_ENTRY="$TARGET.img"
+ARCHIVE_TARGET_ENTRY="$TARGET_ENTRY"
+if [ "$DESKTOP_MODE" = 1 ] && [ "$TARGET" = userdata ]; then
+  # Odin/Samsung firmware paketleri LZ4 frame girdilerini .lz4 uzantisiyla
+  # tanir. Bu ayni zamanda ustar'in 8 GiB tek-girdi sinirini asmayi engeller.
+  ARCHIVE_TARGET_ENTRY="$TARGET_ENTRY.lz4"
+fi
 SYSTEM_RAW="${ARGS[1]:-$OUT/$TARGET_ENTRY}"
 CACHE_RAW="${ARGS[2]:-$OUT/cache.img}"
 NEUTRAL_RAW="${ARGS[2]:-$OUT/system-empty.img}"
@@ -77,6 +83,9 @@ fi
 
 command -v tar >/dev/null || fail "tar yok"
 command -v img2simg >/dev/null || fail "img2simg yok -> sudo apt install -y android-sdk-libsparse-utils"
+if [ "$ARCHIVE_TARGET_ENTRY" != "$TARGET_ENTRY" ]; then
+  command -v lz4 >/dev/null || fail "buyuk USERDATA Odin paketi icin lz4 gerekli -> sudo apt install -y lz4"
+fi
 
 if [ "$DISK_MODE" = 1 ] && [ "$DESKTOP_MODE" = 0 ]; then
   command -v mdir >/dev/null || fail "--disk CACHE ESP dogrulamasi icin mtools/mdir gerekli"
@@ -139,6 +148,14 @@ require_sparse() {
   printf '  %s sparse sihirli sayisi: 0x%s\n' "$(basename "$IMAGE")" "$MAGIC"
 }
 
+USTAR_MAX=8589934591
+require_ustar_size() {
+  local IMAGE="$1" SIZE
+  SIZE="$(stat -c %s "$IMAGE")"
+  [ "$SIZE" -le "$USTAR_MAX" ] || \
+    fail "$(basename "$IMAGE") ${SIZE} bayt; Odin ustar tek-girdi siniri ${USTAR_MAX} bayt"
+}
+
 only_entry "$BOOT_TAR" boot.img
 tar -xf "$BOOT_TAR" -C "$WORK"
 [ -s "$WORK/boot.img" ] || fail "BOOT arsivinden boot.img cikarilamadi"
@@ -150,6 +167,17 @@ if [ "$DESKTOP_MODE" = 1 ]; then
   if [ "$TARGET" = userdata ]; then
     img2simg "$NEUTRAL_RAW" "$WORK/system.img"
     require_sparse "$WORK/system.img"
+
+    say "USERDATA Odin uyumlu LZ4 frame'e sikistiriliyor"
+    TARGET_SPARSE_SHA="$(sha256sum "$WORK/$TARGET_ENTRY" | awk '{print $1}')"
+    lz4 -12 -B7 --content-size "$WORK/$TARGET_ENTRY" "$WORK/$ARCHIVE_TARGET_ENTRY"
+    [ -s "$WORK/$ARCHIVE_TARGET_ENTRY" ] || fail "LZ4 USERDATA girdisi uretilemedi"
+    require_ustar_size "$WORK/$ARCHIVE_TARGET_ENTRY"
+    LZ4_ROUNDTRIP_SHA="$(lz4 -dc "$WORK/$ARCHIVE_TARGET_ENTRY" | sha256sum | awk '{print $1}')"
+    [ "$LZ4_ROUNDTRIP_SHA" = "$TARGET_SPARSE_SHA" ] || fail "LZ4 USERDATA acma hash'i sparse kaynakla uyusmuyor"
+    printf '  %-20s %s\n' "sparse SHA-256:" "$TARGET_SPARSE_SHA"
+    printf '  %-20s %s bayt\n' "LZ4 boyutu:" "$(stat -c %s "$WORK/$ARCHIVE_TARGET_ENTRY")"
+    rm -f "$WORK/$TARGET_ENTRY"
   fi
 else
   say "${TARGET^^} ve CACHE Android sparse'e cevriliyor"
@@ -161,11 +189,18 @@ fi
 
 say "Tek AP arsivi uretiliyor"
 rm -f "$BUNDLE"
+require_ustar_size "$WORK/boot.img"
+require_ustar_size "$WORK/$ARCHIVE_TARGET_ENTRY"
+if [ "$DESKTOP_MODE" = 1 ] && [ "$TARGET" = userdata ]; then
+  require_ustar_size "$WORK/system.img"
+elif [ "$DESKTOP_MODE" = 0 ]; then
+  require_ustar_size "$WORK/cache.img"
+fi
 (
   cd "$WORK"
   if [ "$DESKTOP_MODE" = 1 ]; then
     if [ "$TARGET" = userdata ]; then
-      tar -H ustar -cf "$BUNDLE" boot.img system.img userdata.img
+      tar -H ustar -cf "$BUNDLE" boot.img system.img userdata.img.lz4
     else
       tar -H ustar -cf "$BUNDLE" boot.img system.img
     fi
@@ -177,7 +212,7 @@ rm -f "$BUNDLE"
 say "Dogrulama"
 if [ "$DESKTOP_MODE" = 1 ]; then
   if [ "$TARGET" = userdata ]; then
-    EXPECTED=$'boot.img\nsystem.img\nuserdata.img'
+    EXPECTED=$'boot.img\nsystem.img\nuserdata.img.lz4'
   else
     EXPECTED=$'boot.img\nsystem.img'
   fi
@@ -191,9 +226,9 @@ if [ "$DESKTOP_MODE" = 1 ] && printf '%s\n' "$ACTUAL" | grep -Fqx 'cache.img'; t
 fi
 mkdir "$CHECK"
 tar -xf "$BUNDLE" -C "$CHECK"
-FILES=(boot.img "$TARGET_ENTRY")
+FILES=(boot.img "$ARCHIVE_TARGET_ENTRY")
 if [ "$DESKTOP_MODE" = 1 ] && [ "$TARGET" = userdata ]; then
-  FILES=(boot.img system.img userdata.img)
+  FILES=(boot.img system.img userdata.img.lz4)
 elif [ "$DESKTOP_MODE" = 0 ]; then
   FILES+=(cache.img)
 fi
@@ -203,11 +238,16 @@ for F in "${FILES[@]}"; do
   [ "$BEFORE" = "$AFTER" ] || fail "tar icinde $F degismis"
   printf '  %-10s hash esit: %s\n' "$F" "$AFTER"
 done
-require_sparse "$CHECK/$TARGET_ENTRY"
 if [ "$DESKTOP_MODE" = 1 ] && [ "$TARGET" = userdata ]; then
   require_sparse "$CHECK/system.img"
+  LZ4_TAR_ROUNDTRIP_SHA="$(lz4 -dc "$CHECK/$ARCHIVE_TARGET_ENTRY" | sha256sum | awk '{print $1}')"
+  [ "$LZ4_TAR_ROUNDTRIP_SHA" = "$TARGET_SPARSE_SHA" ] || fail "tar icindeki LZ4 USERDATA acma hash'i sparse kaynakla uyusmuyor"
+  printf '  %-10s acilmis sparse hash esit: %s\n' "$ARCHIVE_TARGET_ENTRY" "$LZ4_TAR_ROUNDTRIP_SHA"
 elif [ "$DESKTOP_MODE" = 0 ]; then
+  require_sparse "$CHECK/$TARGET_ENTRY"
   require_sparse "$CHECK/cache.img"
+else
+  require_sparse "$CHECK/$TARGET_ENTRY"
 fi
 tar -tvf "$BUNDLE"
 sha256sum "$BUNDLE"
@@ -234,6 +274,7 @@ if [ "$DESKTOP_MODE" = 1 ]; then
   echo "Windows Desktop ${TARGET^^} NTFS dogrulandi; cache.img bilerek paketlenmedi."
   if [ "$TARGET" = userdata ]; then
     echo "UYARI: Bu arsiv USERDATA bolumundeki mevcut veriyi siler."
+    echo "USERDATA Odin uyumlu LZ4 frame olarak paketlendi; acilmis sparse hash'i dogrulandi."
   fi
 elif [ "$DISK_MODE" = 1 ]; then
   echo "SYSTEM NTFS, CACHE disk-BCD ESP ve iki sparse imaj dogrulandi."

@@ -119,7 +119,10 @@ bash tools_odin_winpe_bundle.sh --desktop --target userdata
 ```
 
 SYSTEM hedefinde arşiv yalnız `boot.img + system.img`; USERDATA hedefinde
-`boot.img + system.img + userdata.img` taşır. İkinci profilde `system.img`,
+`boot.img + system.img + userdata.img.lz4` taşır. USERDATA'nın Android sparse
+akışı Odin/Samsung uyumlu LZ4 frame olarak sıkıştırılır; böylece `ustar`ın
+8 GiB tek-girdi sınırı aşılmaz. Betik LZ4'ü tekrar açarak sparse kaynakla
+SHA-256 eşitliğini de doğrular. İkinci profilde `system.img`,
 eski WinPE'nin `locate=` ile yanlış seçilmesini engelleyen boş NTFS
 nötrleyicisidir. İki arşivde de CACHE girdisi bulunması build hatasıdır.
 

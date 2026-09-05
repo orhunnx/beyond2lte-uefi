@@ -53,6 +53,8 @@ bilinerek `--target userdata --size-mib 24576` seçilebilir. Tam Windows BCD'si
 Desktop Odin arşivlerine `cache.img` eklenmez. Mevcut CACHE boot ESP korunur;
 Desktop geçişinden hemen önce çalışan disk-WinPE içinden BCD'nin `winpe`
 değeri silinip normal `winload.efi` yolu yerinde yazılır.
+USERDATA hedefi `userdata.img.lz4` adıyla Odin uyumlu LZ4 frame'e sıkıştırılır;
+bu, ustar'ın 8 GiB tek-dosya sınırını aşmadan büyük Windows imajını taşır.
 Klavye yoksa `tools_cache_desktop_transition.sh`, yalnız geçici SYSTEM
 WinPE'yi flaşlayan ve bu BCD dönüşümünü tamamen otomatik yapan paketi üretir.
 WSL wimlib System Compression üretemediği için betik edition'ın `Total Bytes`

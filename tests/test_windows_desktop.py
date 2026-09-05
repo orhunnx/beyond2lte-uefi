@@ -69,7 +69,11 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
         self.assertIn("beyond2lte-windows-desktop-$TARGET.tar", bundle)
         self.assertIn("cache.img bilerek paketlenmedi", bundle)
         self.assertIn("CACHE flash'i reddedildi", bundle)
-        self.assertIn("boot.img system.img userdata.img", bundle)
+        self.assertIn("boot.img system.img userdata.img.lz4", bundle)
+        self.assertIn('ARCHIVE_TARGET_ENTRY="$TARGET_ENTRY.lz4"', bundle)
+        self.assertIn("lz4 -12 -B7 --content-size", bundle)
+        self.assertIn("USTAR_MAX=8589934591", bundle)
+        self.assertIn("LZ4_TAR_ROUNDTRIP_SHA", bundle)
         self.assertIn("Bu arsiv USERDATA bolumundeki mevcut veriyi siler", bundle)
 
     def test_keyboardless_transition_never_packages_cache(self) -> None:

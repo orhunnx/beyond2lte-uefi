@@ -39,7 +39,9 @@ Desktop flash arşivi CACHE'i artık içermez. Mevcut CACHE ESP'deki BCD,
 çalışan WinPE içinden iki `bcdedit /store` işlemiyle yerinde Desktop profiline
 çevrilir. USERDATA hedefinde ayrıca eski WinPE'nin `locate=` aramasında
 seçilmesini önlemek için Windows dizini taşımayan küçük bir NTFS SYSTEM
-nötrleyicisi paketlenir.
+nötrleyicisi paketlenir. Büyük USERDATA sparse girdisi ustar'ın 8 GiB
+sınırına takılmaması için `userdata.img.lz4` olarak paketlenir; arşiv öncesi
+ve sonrası tam açılmış sparse SHA-256 değeri doğrulanır.
 
 Karşılaştırma: upstream `beyond1lte` (S10) Status.md'de Display ✅ ve tuşlar ✅
 diyor ama "Inactive" işaretli. **beyond2lte artık ondan ileride** — çünkü onun
