@@ -70,6 +70,8 @@ typedef struct {
 typedef struct { ULONG Count; CM_PARTIAL_RESOURCE_DESCRIPTOR Entries[10]; } RESOURCES, *WDFCMRESLIST;
 static NTSTATUS B2lMaxCreateConnector(PB2L_MAX_CONTEXT c) { c->Connector=c; return 0; }
 static void B2lMaxStopConnector(PB2L_MAX_CONTEXT c) { c->ConnectorRunning=0; }
+static void B2lMaxResetPdConnectionLocked(PB2L_MAX_CONTEXT c) { c->PdCapsValid=0; }
+static void B2lMaxCancelPdRecoveryLocked(PB2L_MAX_CONTEXT c,NTSTATUS s) { c->PdRecoveryPending=0;c->PdRecoveryStatus=s; }
 static void WdfObjectDelete(WDFOBJECT o) { (void)o; }
 static PB2L_MAX_CONTEXT current;
 static int held, starts, stops, off_calls, muic_calls, quiesces, unmaps, maps;

@@ -1,5 +1,125 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.36` — gerçek PDMSG/PS_RDY, VBUS sıralaması ve PDO yanıtı
+
+MAX sürümü `0.1.0.36`; parent/host/function `0.1.0.19`, IOCTL ABI `7`
+değişmedi. Kaynakta PD kesmelerinin tüketicisi tamamlanmaya devam edildi;
+flaş beklenmedi. **Bu bölüm yeni telefon ölçümü değildir.** Eldeki `.28`
+fotoğraflarında `v=0, nt=C00000B5`, 13 → 15 başarısız status snapshot'ı,
+`CC_STATE=0`, `OTG_SW/HW=0` ve `PORTSC.CCS=0` görülüyordu. Bunlar bir PD
+sözleşmesi, firmware reset gereği veya çalışan USB kanıtı değildi. `.36`
+henüz WSL/WDK'da derlenmedi ve telefonda denenmedi.
+
+### Linux kaynak zinciri ve uygulanan sıra
+
+Referans sabit commit: `ianmacd/d2s@d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39`.
+[max77705-irq.c](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/mfd/max77705-irq.c)
+PD sırası PDMSG bit7 → PS_RDY bit6 → DATAROLE bit5 → FCTID bit0'dır.
+[max77705_pd.c](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_pd.c)
+içindeki `max77705_pdmsg_irq`, `max77705_pd_check_pdmsg`,
+`max77705_psrdy_irq`, `max77705_check_pdo` ve `max77705_current_pdo`
+birlikte izlendi. Windows'ta yeni `b2lmax77705_pd.c` bu olayları gerçek
+MAX pasif ISR'sinin `MfdLock` korumasında tüketir. PDMSG için `0x0c`,
+PS_RDY için `0x0d` canlı okunur; foto snapshot'ı politika girdisi yapılmaz.
+Bir PD işleyicisinin hatası aynı frame'deki bağımsız PS_RDY/DATAROLE/FCTID
+işleyicisini atlatmaz; ilk hata genel tanıda ve özel PD sonucu kendi alanında
+korunur. HSI2C GSIV114 ve MAX GPA1-6 GSIV51 kaynakları değişmedi.
+
+| Gerçek PDMSG | Samsung işlemi ve Windows karşılığı |
+|---|---|
+| `06` Source SenderResponse timeout | VBUS off; başarılı off sonrasında 800 ms gecikmeli kaynak VBUS işlemi |
+| `16/19` hard reset received/sent | Yalnız gerçek SOURCE rolünde off; ardından 760 ms gecikmeli işlem |
+| `18/1a/1b` Get_Vbus_turn_off / SRCTOSWAP / SWAPTOSNK | Gerçek charger off işlemi; eski gecikmeli on isteği iptal edilir |
+| `1d` SWAPTOSRC | Gerçek PD firmware olayının VBUS-on isteği; CC güç/veri rolü burada yeniden etiketlenmez |
+| `14/15` PR swap sent | Yalnız PR swap yönü kaydedilir; bitmiş swap sayılmaz |
+| `17` Get_Vbus_turn_on | Stok switch dalı boş olduğundan register yazısı yapılmaz |
+| `1c` SNKTOSWAP | Eski sink PDO/PS_RDY durumu geçersiz kılınır; eksik battery/CHGINSEL tüketicisi `STATUS_NOT_SUPPORTED` ile görünür kalır |
+
+Diğer stok no-op dalları açıkça listelenir. Uygulanmamış MPSM, SRC_CAP
+batarya bildirimi, Status/Alert, current-cable JIG ve bilinmeyen mesajlar
+`PdUnhandledEvents` sayacını artırır ve `C00000BB` döner. Başarı sonucu
+üreterek atlanmazlar.
+
+Gecikmeli güç işi, [max77705_usbc.c içindeki
+vbus_control_hard_reset](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_usbc.c)
+gibi süre sonunda gerçek rolün hâlâ SOURCE olduğunu kontrol eder.
+Tek atımlık pasif WDF timer'ın amacı bu güç işlemidir; CC/PD/register
+polling yapmaz ve kayıp IRQ'yu tamamlamaz. `schedule_delayed_work` gibi,
+ikinci olay zaten bekleyen işin süresini ileri itmez. Başarısız off yeni
+on planlamaz. Detach, SINK'e geçiş, su, BYP aşırı akım, mailbox hatası ve
+PnP kapanışı bekleyen işi iptal eder. Kapanışta timer kilit dışında flush
+edilir; kaynaklar unmap edildikten sonra I2C erişimi yapılmaz.
+
+### PS_RDY ve gerçek 31 baytlık CURRENT_SRCCAP yanıtı
+
+Gerçek PS_RDY kesmesinde `0x0d[4]` set ve CC güç rolü geçerliyse donanımın
+PD desteği gördüğü kaydedilir. Yalnız SINK için stok `max77705_check_pdo`
+gibi opcode `0x30`, write length `0`, read length `31` kuyruğa alınır.
+PDMSG `01` bu kesmenin yerine geçmez; SOURCE PS_RDY sink PDO okuması üretmez.
+Yanıt ancak gerçek APCMD IRQ ile tüketilir. Kuyruk okuma alanı opcode +
+32 veri baytına genişletildi; mevcut MUIC/probe tek bayt tüketicileri korunur.
+
+Yanıtın ilk veri baytında PDO sayısı `[2:0]`, mevcut PDO numarası `[5:3]`
+çözülür. Sıfır veya sayıdan büyük seçim `STATUS_DEVICE_DATA_ERROR` olur;
+ham başlık `CAPS_HEADER` alanında kalır. Geçerli sayımda en fazla yedi PDO,
+little-endian ham 32 bit değerleri ve özgün numaralarıyla saklanır. Sabit,
+batarya, değişken ve APDO nesneleri yeniden sıralanmaz. **`CAPS_VALID`, bu
+okumanın ve sayı/seçim başlığının geçerliliğidir; bütün PDO semantiğinin,
+RDO'nun, müzakere edilmiş gerilim/akımın veya OS PD sözleşmesinin doğrulaması
+değildir.** Yeni voltaj isteği gönderilmez.
+
+Asenkron istekler 16 sabit slot ve bağlantı nesliyle korunur. Detach veya
+daha yeni PS_RDY sonrası eski yanıt tüketilip stale sayılır; yeni kabloya
+aitmiş gibi yayımlanmaz. Dolu slotlar açık kaynak hatası verir. APCMD,
+yanlış opcode, taşıma hatası ve iptal aynı istek emeklilik yolunu kullanır;
+slot/counter ikinci kez bırakılmaz. `READ_DONE/STALE_DONE` hatalı veya iptal
+edilmiş tamamlanmaları da kapsar; başarılı okuma sayacı olarak yorumlanmaz.
+
+### CHGINSEL kaynak tuzağı ve halen eksik PD tüketicileri
+
+Stok `PRSWAP_SNKTOSWAP` dalındaki `POWER_SUPPLY_EXT_PROP_CHGINSEL=0`
+yorumundan `CNFG_12.bit5=0` sonucu çıkarılamaz.
+[max77705_charger.c](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/battery_v2/max77705_charger.c)
+property setter, `max77705_change_charge_path(charger, charger->cable_type)`
+çağırır. Bu işlev wireless/WCIN yolu için biti temizler, diğer yolda set eder;
+`charging_port` etkisi ayrıca `CONFIG_BATTERY_SAMSUNG_MHS` koşuluna bağlıdır.
+Windows'ta bu özgün cable/battery tüketicisi kurulmadan tek bir bit yazısı
+seçilmedi. Bu eksik `.36` ile kapatılmış sayılmaz.
+
+OS'nin farklı DR/PR isteği, stok `0x37` swap komutundan önceki firmware
+kuyruk temizleme/recovery, gerçek DATAROLE/PS_RDY ile sonuçlandırma, reddetme
+ve timeout ömrü hâlâ eksik. Yalnız APCMD yanıtı swap tamamlanması değildir.
+Microsoft [data-role callback sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ucmmanager/nc-ucmmanager-evt_ucm_connector_set_data_role)
+ile swap sonrası partner DR_SWAP politikası da uygulanmalıdır. `PdConfig`
+hâlâ NULL; [UcmConnectorPdConnectionStateChanged](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ucmmanager/nf-ucmmanager-ucmconnectorpdconnectionstatechanged)
+ile PD sözleşmesi ilan edilmez. Source Rp, SYSMSG POR/WDT/APCMD_FAIL,
+batarya/charger, RID detach/UART/CP, USB3 ve uçtan uca transfer açık işlerdir.
+
+### Tanı, build ve doğrulama
+
+`MAX FOTO v9`: genel → USB/PnP → MUIC/RID → UCM → **PD/PDO** → olay
+sayfaları. Yeni PD sayfası 35 satır ve 64 sütundan dar; klavyesiz 20 saniyede
+ilerler. PD mesajı/sonucu, PS_RDY ham baytı, CAPS_HEADER/VALID/NT, PDO1–7,
+bekleyen/tamamlanan/eski okumalar ve VBUS gecikmeli iş sonucu ayrıdır.
+Kritik `startnet.cmd` özetine de PD alanları eklendi. Registry'deki genel
+alanlar ardışık okunur; atomik olay kaydı oldukları söylenmez.
+
+WSL build girişleri korunur:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+Yeni PD kaynak/nesne dosyası mevcut PowerShell WDK build/link listesine
+eklendi. Bu Mac'te WDK/UEFI/WIM derlemesi yapılmadı. Host fixture testleri;
+PD nested sıra, yedi ham PDO, hatalı seçim/yanlış opcode, send failure,
+detach/yeniden PS_RDY ile eski yanıt, 16 slot dolması, 760/800 ms süre,
+off hatası ve su/BYP/PnP iptalini çalıştırır. Taşıma testleri zaten 1–64
+bayt gerçek transfer kodunu kapsar. Foto satır/genişlik testleri de geçer.
+Bunlar gerçek IRQ teslimini, UCM/URS runtime'ını veya USB transferini
+doğrulamaz; kaynak çalışmasının devamı kullanıcıdan flaş beklemez.
+
 ## 5 Eylül 2026: `.35` — gerçek MAX rolünden UCM/URS tüketicisine
 
 Flaş beklenmeden Windows'taki eksik USB bildirim tüketicisi eklendi. MAX

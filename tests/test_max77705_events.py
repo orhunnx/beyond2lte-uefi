@@ -159,6 +159,7 @@ harness += function("B2lPrintMaxEventPage", control)
 harness += function("B2lPrintMaxPhotoOverview", control)
 harness += function("B2lPrintMuicPhotoOverview", control)
 harness += function("B2lPrintConnectorPhotoOverview", control)
+harness += function("B2lPrintPdPhotoOverview", control)
 
 harness += r"""
 typedef int HANDLE;
@@ -291,6 +292,9 @@ int main(void) {
     output_lines=max_width=0;
     B2lPrintConnectorPhotoOverview(2);
     assert(output_lines == 17 && max_width < 64);
+    output_lines=max_width=0;
+    B2lPrintPdPhotoOverview(2);
+    assert(output_lines == 35 && max_width < 64);
     output_lines=max_width=0; registry_error=2;
     B2lPrintMaxPhotoOverview(3);
     assert(output_lines == 3 && max_width < 64);

@@ -182,7 +182,17 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxConnectorStatus", L"B2LMaxConnectorSwapStatus",
         L"B2LMaxConnectorRunning", L"B2LMaxConnectorAttached",
         L"B2LMaxConnectorQueued", L"B2LMaxConnectorAttempts",
-        L"B2LMaxConnectorCount", L"B2LMaxConnectorOverflow"
+        L"B2LMaxConnectorCount", L"B2LMaxConnectorOverflow",
+        L"B2LMaxPdMessage", L"B2LMaxPdMessageStatus", L"B2LMaxPdMessageEvents",
+        L"B2LMaxPdUnhandledEvents", L"B2LMaxPsRdyRaw", L"B2LMaxPsRdyStatus",
+        L"B2LMaxPsRdyEvents", L"B2LMaxPdSupported", L"B2LMaxPdCapsValid",
+        L"B2LMaxPdCapsStatus", L"B2LMaxPdPdoCount", L"B2LMaxPdCurrentPdo",
+        L"B2LMaxPdReadsQueued", L"B2LMaxPdReadsPending", L"B2LMaxPdReadCompletions",
+        L"B2LMaxPdStaleResponses", L"B2LMaxPdRecoveryPending", L"B2LMaxPdRecoveryStatus",
+        L"B2LMaxPdRecoveryAttempts", L"B2LMaxPdPrSwap",
+        L"B2LMaxPdPdo1", L"B2LMaxPdPdo2", L"B2LMaxPdPdo3", L"B2LMaxPdPdo4",
+        L"B2LMaxPdPdo5", L"B2LMaxPdPdo6", L"B2LMaxPdPdo7",
+        L"B2LMaxPdCapsHeader"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -344,6 +354,28 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[138] = (ULONG)Context->ConnectorAttempts;
     Values[139] = (ULONG)Context->ConnectorCount;
     Values[140] = (ULONG)Context->ConnectorOverflow;
+    Values[141] = Context->PdMessage;
+    Values[142] = (ULONG)Context->PdMessageStatus;
+    Values[143] = Context->PdMessageEvents;
+    Values[144] = Context->PdUnhandledEvents;
+    Values[145] = Context->PsRdyRaw;
+    Values[146] = (ULONG)Context->PsRdyStatus;
+    Values[147] = Context->PsRdyEvents;
+    Values[148] = Context->PdSupported ? 1UL : 0UL;
+    Values[149] = Context->PdCapsValid ? 1UL : 0UL;
+    Values[150] = (ULONG)Context->PdCapsStatus;
+    Values[151] = Context->PdPdoCount;
+    Values[152] = Context->PdCurrentPdo;
+    Values[153] = Context->PdReadsQueued;
+    Values[154] = Context->PdReadsPending;
+    Values[155] = Context->PdReadCompletions;
+    Values[156] = Context->PdStaleResponses;
+    Values[157] = Context->PdRecoveryPending ? 1UL : 0UL;
+    Values[158] = (ULONG)Context->PdRecoveryStatus;
+    Values[159] = Context->PdRecoveryAttempts;
+    Values[160] = Context->PdPrSwap;
+    for (Index = 0UL; Index < 7UL; ++Index) Values[161UL + Index] = Context->PdPdos[Index];
+    Values[168] = Context->PdCapsHeader;
     Context->DiagnosticDirty = FALSE;
     WdfWaitLockRelease(Context->MfdLock);
 
@@ -975,7 +1007,7 @@ B2lMaxProbeIdentity(PB2L_MAX_CONTEXT Context)
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS
+NTSTATUS
 B2lMaxEnableOtg(PB2L_MAX_CONTEXT Context)
 {
     UCHAR Current;
@@ -1103,7 +1135,7 @@ RestoreMask:
     return Status;
 }
 
-static NTSTATUS
+NTSTATUS
 B2lMaxDisableOtg(PB2L_MAX_CONTEXT Context)
 {
     UCHAR Current;
@@ -1211,6 +1243,7 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
     if (CcState != B2L_MAX_CC_SINK) {
         Context->PowerRoleValid = Context->DataRoleValid = FALSE;
         Context->PowerRole = Context->DataRole = 0xFFU;
+        B2lMaxResetPdConnectionLocked(Context);
         B2lMaxQueueConnectorLocked(Context);
     }
     // CC source power is permitted in exactly one state. This also shuts down
@@ -1225,6 +1258,7 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
         }
     }
     if (CcState == B2L_MAX_CC_SINK) {
+        B2lMaxCancelPdRecoveryLocked(Context, STATUS_CANCELLED);
         Context->PowerRole = B2L_MAX_CC_SINK;
         Context->PowerRoleValid = TRUE;
         B2lMaxQueueConnectorLocked(Context);
@@ -1260,6 +1294,8 @@ B2lMaxReadWaterState(PB2L_MAX_CONTEXT Context)
     if (NT_SUCCESS(Status)) {
         Context->CcStatus1 = Value;
         Context->WaterDetected = (BOOLEAN)((Value & MAX77705_CC_STATUS_WATER) != 0U);
+        if (Context->WaterDetected)
+            B2lMaxCancelPdRecoveryLocked(Context, STATUS_DEVICE_NOT_READY);
     }
     return Status;
 }
@@ -1491,6 +1527,8 @@ B2lMaxHandleBypass(PB2L_MAX_CONTEXT Context)
     if (!NT_SUCCESS(Status)) return Status;
     Context->ChargerDetails[2] = Details;
     // max77705_charger.h: BYP_DTLS mask=0x0f, shift=0; bit0 is overcurrent.
+    if ((Details & 0x01U) != 0U)
+        B2lMaxCancelPdRecoveryLocked(Context, STATUS_DEVICE_POWER_FAILURE);
     if (((Details & 0x01U) != 0U) && (Context->OtgEnabled || Context->OtgHardwareActive)) {
         ++Context->OvercurrentEvents;
         Status = B2lMaxDisableOtg(Context);
@@ -1547,9 +1585,21 @@ B2lMaxDispatchCcPdLocked(PB2L_MAX_CONTEXT Context, const B2L_MAX_IRQ_FRAME *Fram
         Status = B2lMaxEvaluateConnection(Context, FALSE);
         Handled = TRUE;
     }
-    if (NT_SUCCESS(Status) && ((Frame->Active[2] & MAX77705_PD_INT_DATAROLE) != 0U)) {
-        Status = B2lMaxHandleDataRole(Context, FALSE);
-        Stage = B2L_MAX_STAGE_PD;
+    // Samsung nested PD order is PDMSG, PS_RDY, DATAROLE, then FCTID.
+    // Each handler reads its own live status; a snapshot never completes PD.
+    if ((Frame->Active[2] & 0x80U) != 0U) {
+        NTSTATUS PdStatus = B2lMaxHandlePdMessageLocked(Context);
+        if (NT_SUCCESS(Status)) { Status = PdStatus; Stage = B2L_MAX_STAGE_PD_MESSAGE; }
+        Handled = TRUE;
+    }
+    if ((Frame->Active[2] & 0x40U) != 0U) {
+        NTSTATUS PdStatus = B2lMaxHandlePsRdyLocked(Context);
+        if (NT_SUCCESS(Status)) { Status = PdStatus; Stage = B2L_MAX_STAGE_PD_CAPS; }
+        Handled = TRUE;
+    }
+    if ((Frame->Active[2] & MAX77705_PD_INT_DATAROLE) != 0U) {
+        NTSTATUS DataStatus = B2lMaxHandleDataRole(Context, FALSE);
+        if (NT_SUCCESS(Status)) { Status = DataStatus; Stage = B2L_MAX_STAGE_PD; }
         Handled = TRUE;
     }
     // FCTID is after DATAROLE in the Samsung nested-IRQ table. A USB data
@@ -1864,6 +1914,10 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
     Attributes.ExecutionLevel = WdfExecutionLevelPassive;
     Status = WdfTimerCreate(&TimerConfig, &Attributes, &Context->OpcodeDeadline);
     if (!NT_SUCCESS(Status)) return Status;
+    WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lMaxEvtPdRecoveryTimer);
+    TimerConfig.AutomaticSerialization = FALSE;
+    Status = WdfTimerCreate(&TimerConfig, &Attributes, &Context->PdRecoveryTimer);
+    if (!NT_SUCCESS(Status)) return Status;
     WDF_WORKITEM_CONFIG_INIT(&WorkConfig, B2lMaxEvtPolicyWork);
     WorkConfig.AutomaticSerialization = FALSE;
     Status = WdfWorkItemCreate(&WorkConfig, &Attributes, &Context->PolicyWork);
@@ -2023,9 +2077,11 @@ B2lMaxEvtReleaseHardware(
     WdfWaitLockAcquire(Context->BusLock, NULL);
     WdfWaitLockAcquire(Context->MfdLock, NULL);
     Context->PolicyEnabled = FALSE;
+    B2lMaxCancelPdRecoveryLocked(Context, STATUS_DEVICE_NOT_READY);
     WdfWaitLockRelease(Context->MfdLock);
     WdfWaitLockRelease(Context->BusLock);
     WdfWorkItemFlush(Context->PolicyWork);
+    (VOID)WdfTimerStop(Context->PdRecoveryTimer, TRUE);
     B2lMaxStopConnector(Context);
     WdfWaitLockAcquire(Context->BusLock, NULL);
     // Hardware is no longer accessible here; all mask/quiesce operations
@@ -2073,6 +2129,13 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     Context->ConnectorCount = Context->ConnectorRead = 0UL;
     RtlZeroMemory(&Context->ConnectorLast, sizeof(Context->ConnectorLast));
     Context->ConnectorStatus = Context->ConnectorSwapStatus = STATUS_DEVICE_NOT_READY;
+    B2lMaxResetPdConnectionLocked(Context);
+    RtlZeroMemory(Context->PdRequests, sizeof(Context->PdRequests));
+    Context->PdMessage = 0xFFU;
+    Context->PdMessageEvents = Context->PdUnhandledEvents = Context->PsRdyEvents = 0UL;
+    Context->PdReadsQueued = Context->PdReadsPending = Context->PdReadCompletions = Context->PdStaleResponses = 0UL;
+    Context->PdRecoveryAttempts = 0UL;
+    Context->PdMessageStatus = Context->PsRdyStatus = Context->PdRecoveryStatus = STATUS_DEVICE_NOT_READY;
     RtlZeroMemory(Context->MuicPairs, sizeof(Context->MuicPairs));
     Context->MuicOutstanding = 0UL;
     Context->MuicGeneration = 0ULL;
@@ -2172,9 +2235,11 @@ B2lMaxEvtD0ExitPreInterruptsDisabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Ta
     WdfWaitLockAcquire(Context->BusLock, NULL);
     WdfWaitLockAcquire(Context->MfdLock, NULL);
     Context->PolicyEnabled = FALSE;
+    B2lMaxCancelPdRecoveryLocked(Context, STATUS_DEVICE_NOT_READY);
     WdfWaitLockRelease(Context->MfdLock);
     WdfWaitLockRelease(Context->BusLock);
     WdfWorkItemFlush(Context->PolicyWork);
+    (VOID)WdfTimerStop(Context->PdRecoveryTimer, TRUE);
     B2lMaxStopConnector(Context);
     WdfWaitLockAcquire(Context->BusLock, NULL);
     if (Context->HardwareReady && Context->PlatformPrepared) {

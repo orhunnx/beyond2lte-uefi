@@ -13,6 +13,7 @@ DIR=ROOT/'windows/b2lusb'
 header=(DIR/'b2lmax77705.h').read_text()
 main=(DIR/'b2lmax77705.c').read_text()
 irq=(DIR/'b2lmax77705_irq.c').read_text().replace('#include "b2lmax77705.h"','')
+pd=(DIR/'b2lmax77705_pd.c').read_text().replace('#include "b2lmax77705.h"','')
 def function(name):
     pos=main.index(name+'(');start=main.rfind('\n\n',0,pos)+2
     brace=main.index('{',pos);end=brace+1;depth=1
@@ -40,6 +41,8 @@ typedef struct { ULONG Vector; } WDF_INTERRUPT_INFO;
 #define TRUE 1
 #define FALSE 0
 #define STATUS_SUCCESS 0
+#define STATUS_CANCELLED (-11)
+#define STATUS_DEVICE_POWER_FAILURE (-12)
 #define STATUS_NOT_SUPPORTED (-9)
 #define STATUS_INSUFFICIENT_RESOURCES (-10)
 #define STATUS_PENDING 0x103
@@ -75,7 +78,10 @@ static PB2L_MAX_CONTEXT current;
 static ULONG regs[0x1000/4], mmio_ack, held, queued, r2c_reads, responses, commands, cancels;
 static UCHAR top, raw[4], reg_values[128][256], last_opcode, last_payload, reply_opcode;
 static UCHAR written_op[64], written_data[64];
-static ULONGLONG ticks, timer_due;
+static ULONGLONG ticks, timer_due, pd_due;
+static UCHAR pd_response[32];
+static int otg_on, otg_off;
+static NTSTATUS otg_error;
 static UCHAR muic_actual;
 static int muic_bad_read, trace_count;
 static char trace[1024];
@@ -89,13 +95,18 @@ static void WdfWaitLockRelease(WDFWAITLOCK l) { assert(l==current->MfdLock && he
 static void KeInitializeEvent(KEVENT *e,int t,int v) { assert(t==0);e->signaled=v; }
 static int KeSetEvent(KEVENT *e,int n,int wait) { assert(n==0 && !wait); e->signaled=1;return 0; }
 static ULONGLONG KeQueryInterruptTime(void) { return ticks; }
-static BOOLEAN WdfTimerStop(WDFTIMER t,BOOLEAN wait) { (void)t; assert(!wait);timer_due=0;return 0; }
-static BOOLEAN WdfTimerStart(WDFTIMER t,LONGLONG due) { (void)t;assert(due<0);timer_due=ticks+(ULONGLONG)-due;return 0; }
-static WDFDEVICE WdfTimerGetParentObject(WDFTIMER t) { assert(t==current);return current; }
-static NTSTATUS B2lMaxEnableOtg(PB2L_MAX_CONTEXT c) {assert(held);c->OtgEnabled=c->OtgHardwareActive=1;return 0;}
-static NTSTATUS B2lMaxDisableOtg(PB2L_MAX_CONTEXT c) {assert(held);c->OtgEnabled=c->OtgHardwareActive=0;return 0;}
+static BOOLEAN WdfTimerStop(WDFTIMER t,BOOLEAN wait) { (void)t; assert(!wait);if(t==current->PdRecoveryTimer) pd_due=0; else timer_due=0;return 0; }
+static BOOLEAN WdfTimerStart(WDFTIMER t,LONGLONG due) { (void)t;assert(due<0);if(t==current->PdRecoveryTimer) pd_due=ticks+(ULONGLONG)-due; else timer_due=ticks+(ULONGLONG)-due;return 0; }
+static WDFDEVICE WdfTimerGetParentObject(WDFTIMER t) { assert(t==current || t==current->PdRecoveryTimer);return current; }
+static NTSTATUS B2lMaxEnableOtg(PB2L_MAX_CONTEXT c) {assert(held);++otg_on;if(otg_error)return otg_error;c->OtgEnabled=c->OtgHardwareActive=1;return 0;}
+static NTSTATUS B2lMaxDisableOtg(PB2L_MAX_CONTEXT c) {assert(held);++otg_off;if(otg_error)return otg_error;c->OtgEnabled=c->OtgHardwareActive=0;return 0;}
 static NTSTATUS B2lMaxUnlockCharger(PB2L_MAX_CONTEXT c) {(void)c;assert(held);return 0;}
 static NTSTATUS B2lMaxRequestMuicLocked(PB2L_MAX_CONTEXT,UCHAR);
+NTSTATUS B2lMaxHandlePdMessageLocked(PB2L_MAX_CONTEXT);
+NTSTATUS B2lMaxHandlePsRdyLocked(PB2L_MAX_CONTEXT);
+VOID B2lMaxResetPdConnectionLocked(PB2L_MAX_CONTEXT);
+VOID B2lMaxCancelPdRecoveryLocked(PB2L_MAX_CONTEXT,NTSTATUS);
+VOID B2lMaxRetirePdRequestLocked(PB2L_MAX_CONTEXT,PB2L_MAX_PD_REQUEST,NTSTATUS);
 static NTSTATUS B2lMaxReapplyMuicLocked(PB2L_MAX_CONTEXT,UCHAR);
 static PB2L_MAX_CONTEXT B2lMaxGetContext(WDFDEVICE d) { assert(d==current); return current; }
 static WDFDEVICE WdfInterruptGetDevice(WDFINTERRUPT i) { assert(i==current); return current; }
@@ -113,6 +124,7 @@ static NTSTATUS B2lMaxReadByte(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v) {
     if(a==0x25 && r==0x0b) trace[trace_count++]='W';
     if(a==0x25 && r==0x0a) trace[trace_count++]='I';
     if(a==0x25 && r==0x0d) trace[trace_count++]='P';
+    if(a==0x25 && r==0x0c) trace[trace_count++]='S';
     if(a==0x66 && r==0x22) *v=top;
     else if(a==0x25 && r==0x07) *v=0;
     else if(a==0x69 && r==0xb0) *v=1;
@@ -125,7 +137,13 @@ static NTSTATUS B2lMaxReadBlock(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v,ULON
     if(r==0x0a) { assert(n==2);trace[trace_count++]='C';v[0]=reg_values[a][r];v[1]=reg_values[a][r+1];return 0; }
     if(r==0x02) { assert(n==4); ++r2c_reads; memcpy(v,raw,4); memset(raw,0,4); return 0; }
     if(r==0x06) { if(n==5) { trace[trace_count++]='M'; memcpy(v,&reg_values[a][r],5); return 0; } assert(n==8); memset(v,0x81,n); return snap_error; }
-    assert(r==0x51 && n>=1 && n<=2); ++responses;
+    assert(r==0x51 && n>=1 && n<=33); ++responses;
+    if(last_opcode==0x30) {
+        assert(n==32); memcpy(v,pd_response,32);
+        v[0]=wrong_reply ? reply_opcode : last_opcode;
+        trace[trace_count++]='A';return 0;
+    }
+    assert(n<=2);
     trace[trace_count++]='A';
     v[0]=wrong_reply ? reply_opcode : last_opcode;
     if(n==2) v[1]=(last_opcode==0x0b || last_opcode==0x0c) ? 0x1f : 0x64;
@@ -187,6 +205,7 @@ for name in ('B2lMaxSetDiagnosticLocked','B2lMaxReadCcStatus','B2lMaxEvaluateCon
     h+='\n'+function(name)+'\n'
 # Match the forward prototype linkage of the real callback in this TU.
 h+=irq.replace('BOOLEAN\nB2lMaxEvtMaxInterruptIsr','static BOOLEAN\nB2lMaxEvtMaxInterruptIsr')
+h+='\n'+pd
 h+='\n'+function('B2lMaxWriteUsbcMasks')+'\n'+function('B2lMaxInitializeUsbc')
 h+='\n'+function('B2lMaxRecordIrqFrame')
 h+=r'''
@@ -196,7 +215,7 @@ static void reset(PB2L_MAX_CONTEXT c) {
     mmio_ack=0; read_error=write_error=snap_error=normalize_status=0;
     drop_irq=wrong_reply=stale_wakes=probe_test=0; last_opcode=last_payload=reply_opcode=0;
     c->Device=c->MaxInterrupt=c->PolicyWork=c->OpcodeDeadline=c;
-    timer_due=0;muic_actual=0;muic_bad_read=trace_count=0;connector_notifications=0;memset(trace,0,sizeof(trace)); c->MfdLock=(void *)1;
+    timer_due=pd_due=0;otg_on=otg_off=0;otg_error=0;memset(pd_response,0,sizeof(pd_response));c->PdRecoveryTimer=(void *)2;muic_actual=0;muic_bad_read=trace_count=0;connector_notifications=0;memset(trace,0,sizeof(trace)); c->MfdLock=(void *)1;
     c->AliveRegisters=(PUCHAR)regs; c->AliveLength=0x1000; c->MaxTranslatedIrq=0xa02;
     c->PolicyEnabled=TRUE; c->MfdReady=TRUE; c->MuicRid=7; c->RidRaw=0xff; top=8;
     assert(B2lMaxPrepareGpio(c)==0);
@@ -446,7 +465,95 @@ int main(void) {
     reg_values[0x25][8]=0x80;
     assert(B2lMaxDetectMuicLocked(&c,2)==0 && c.MuicType==B2L_MAX_MUIC_TA && commands==1);
     WdfWaitLockRelease(c.MfdLock);
-    puts("MAX77705 IRQ, queue, MUIC/RID cable vectors and probe order: PASS (hardware delivery unverified)");
+    // PDMSG -> PS_RDY -> DATAROLE: PS_RDY queues 0x30, not a fabricated PDO.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;
+    reg_values[0x25][0x0c]=0x17;reg_values[0x25][0x0d]=0x90;raw[2]=0xe0;
+    assert(deliver() && strcmp(trace,"SPPM")==0 && c.DataRole==1);
+    assert(c.PdSupported && !c.PdCapsValid && c.PdReadsPending==1 && commands==1);
+    assert(written_op[0]==0x30 && c.OpcodeHead->ReadLength==31 && !otg_on && !otg_off);
+    pd_response[1]=(UCHAR)((7<<3)|7);
+    for(i=0;i<7;++i) {pd_response[2+4*i]=(UCHAR)(i+1);pd_response[5+4*i]=0xc0;}
+    pd_response[2]=0x2c;pd_response[3]=0x91;pd_response[4]=1;pd_response[5]=0; // fixed 5V/3A first PDO
+    assert(deliver() && c.PdCapsValid && c.PdCurrentPdo==7 && c.PdPdoCount==7);
+    assert(c.PdPdos[0]==0x0001912c && c.PdPdos[6]==0xc0000007 && c.PdReadsPending==0);
+    assert(!otg_on && !otg_off); // parsing APDO does not request its voltage
+    assert(deliver() && deliver()); // independent MUIC WRITE/READ complete
+    // A malformed selection is not a verified contract; transport still succeeded.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;reg_values[0x25][0x0d]=0x10;raw[2]=0x40;
+    assert(deliver());pd_response[1]=(3<<3)|2;assert(deliver());
+    assert(!c.PdCapsValid && c.PdCapsStatus==STATUS_DEVICE_DATA_ERROR && !c.MfdFault);
+    assert(c.PdCapsHeader==((3<<3)|2) && !c.PdPdoCount && !c.PdCurrentPdo);
+    // Wrong mailbox opcode retires the PDO slot as a protocol failure.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;reg_values[0x25][0x0d]=0x10;raw[2]=0x40;
+    assert(deliver());wrong_reply=1;reply_opcode=0x05;assert(deliver());
+    assert(c.MfdFault==STATUS_DEVICE_PROTOCOL_ERROR && c.PdCapsStatus==STATUS_DEVICE_PROTOCOL_ERROR);
+    assert(!c.PdReadsPending && !c.PdRequests[0].InUse && !c.PdCapsValid && c.PdReadCompletions==1);
+    // A send failure can retire synchronously: no slot/counter double release.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;reg_values[0x25][0x0d]=0x10;write_error=STATUS_IO_TIMEOUT;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxHandlePsRdyLocked(&c)==STATUS_IO_TIMEOUT);
+    assert(!c.PdReadsPending && !c.PdRequests[0].InUse && c.PdReadCompletions==1 && !c.PdReadsQueued);
+    assert(c.PdCapsStatus==STATUS_IO_TIMEOUT && !c.PdCapsValid);
+    WdfWaitLockRelease(c.MfdLock);
+    // A PDO reply from a detached cable must be consumed but never published.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;reg_values[0x25][0x0d]=0x10;raw[2]=0x40;
+    assert(deliver());pd_response[1]=9;
+    WdfWaitLockAcquire(c.MfdLock,NULL);B2lMaxResetPdConnectionLocked(&c);WdfWaitLockRelease(c.MfdLock);
+    assert(deliver() && c.PdStaleResponses==1 && !c.PdCapsValid && !c.PdReadsPending);
+    // Two PS_RDY events before the first reply: the newest generation wins.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;reg_values[0x25][0x0d]=0x10;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxHandlePsRdyLocked(&c)==STATUS_PENDING && B2lMaxHandlePsRdyLocked(&c)==STATUS_PENDING);
+    WdfWaitLockRelease(c.MfdLock);pd_response[1]=9;pd_response[2]=0x64;
+    assert(deliver() && !c.PdCapsValid && c.PdStaleResponses==1 && c.PdReadsPending==1);
+    assert(deliver() && c.PdCapsValid && c.PdPdos[0]==0x64 && !c.PdReadsPending);
+    // Slot pressure reports an error and cancellation retires every request.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;reg_values[0x25][0x0d]=0x10;
+    WdfWaitLockAcquire(c.MfdLock,NULL);
+    for(i=0;i<B2L_MAX_PD_SLOTS;++i)assert(B2lMaxHandlePsRdyLocked(&c)==STATUS_PENDING);
+    assert(B2lMaxHandlePsRdyLocked(&c)==STATUS_INSUFFICIENT_RESOURCES && c.PdReadsPending==B2L_MAX_PD_SLOTS);
+    B2lMaxCancelOpcodesLocked(&c,STATUS_IO_TIMEOUT);
+    assert(!c.PdReadsPending && !c.PdCapsValid && !c.OpcodeHead);
+    for(i=0;i<B2L_MAX_PD_SLOTS;++i)assert(!c.PdRequests[i].InUse);
+    WdfWaitLockRelease(c.MfdLock);
+    // Source PS_RDY and PDMSG=Sink_PSRdy do not substitute for sink PS_RDY IRQ.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=2;reg_values[0x25][0x0d]=0x90;raw[2]=0x40;
+    assert(deliver() && c.PdSupported && !commands && !c.PdCapsValid);
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;reg_values[0x25][0x0c]=1;raw[2]=0x80;
+    assert(deliver() && !c.PdSupported && !commands);
+    // Hard-reset recovery is an actual Linux delayed VBUS action, not IRQ polling.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=2;c.OtgEnabled=TRUE;
+    reg_values[0x25][0x0c]=0x16;raw[2]=0x80;assert(deliver());
+    assert(otg_off==1 && !otg_on && c.PdRecoveryPending && pd_due==ticks+7600000ULL);
+    { ULONGLONG first=pd_due;
+      ticks+=100000;raw[2]=0x80;assert(deliver() && pd_due==first);
+      ticks=first-1;B2lMaxEvtPdRecoveryTimer(c.PdRecoveryTimer);assert(!otg_on && pd_due==first);
+      ticks=first;B2lMaxEvtPdRecoveryTimer(c.PdRecoveryTimer);
+      assert(otg_on==1 && !c.PdRecoveryPending && c.PdRecoveryAttempts==1 && !c.PdRecoveryStatus); }
+    // Sender timeout uses 800 ms. Sink/cancel/PnP must prevent deferred power-on.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=2;reg_values[0x25][0x0c]=6;raw[2]=0x80;
+    assert(deliver() && pd_due==ticks+8000000ULL);c.PowerRole=1;ticks=pd_due;
+    B2lMaxEvtPdRecoveryTimer(c.PdRecoveryTimer);assert(!otg_on && !c.PdRecoveryPending);
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=2;reg_values[0x25][0x0c]=0x19;raw[2]=0x80;
+    assert(deliver());c.PolicyEnabled=FALSE;ticks=pd_due;B2lMaxEvtPdRecoveryTimer(c.PdRecoveryTimer);
+    assert(!otg_on && c.PdRecoveryStatus==STATUS_DEVICE_NOT_READY);
+    // Off failure never schedules/reuses a recovery; real data IRQ still runs.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=2;otg_error=-90;
+    reg_values[0x25][0x0c]=6;reg_values[0x25][0x0d]=0x80;raw[2]=0xa0;
+    assert(deliver() && c.PdMessageStatus==-90 && !c.PdRecoveryPending && c.DataRoleValid);
+    // PR transition messages operate VBUS without relabeling cached CC/DR.
+    reset(&c);c.PowerRoleValid=c.DataRoleValid=TRUE;c.PowerRole=1;c.DataRole=0;
+    reg_values[0x25][0x0c]=0x1d;raw[2]=0x80;assert(deliver() && otg_on==1 && c.PowerRole==1 && c.DataRole==0);
+    reg_values[0x25][0x0c]=0x1a;raw[2]=0x80;assert(deliver() && otg_off==1 && !c.PdRecoveryPending);
+    reg_values[0x25][0x0c]=0x17;raw[2]=0x80;assert(deliver() && otg_on==1); // documented no-op
+    c.PdCapsValid=TRUE;reg_values[0x25][0x0c]=0x1c;raw[2]=0x80;
+    assert(deliver() && !c.PdCapsValid && c.PdMessageStatus==STATUS_NOT_SUPPORTED);
+    // Water/BYP cancel a pending recovery even while its VBUS is already off.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=2;reg_values[0x25][0x0c]=6;raw[2]=0x80;assert(deliver());
+    reg_values[0x25][0x0b]=2;raw[1]=0x10;assert(deliver() && !c.PdRecoveryPending && !pd_due);
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=2;reg_values[0x25][0x0c]=6;raw[2]=0x80;assert(deliver());
+    top=9;reg_values[0x69][0xb5]=1;assert(deliver() && !c.PdRecoveryPending && !pd_due);
+    puts("MAX77705 IRQ/queue/MUIC/PD power, PDO lifetime and probe order: PASS (hardware delivery unverified)");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='b2l-max-irq-test-') as directory:

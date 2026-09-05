@@ -34,6 +34,8 @@ typedef int BOOLEAN;
 #define STATUS_SUCCESS 0
 #define STATUS_DEVICE_NOT_READY (-100)
 #define STATUS_NOT_SUPPORTED (-101)
+#define STATUS_CANCELLED (-102)
+#define STATUS_DEVICE_POWER_FAILURE (-103)
 #define NT_SUCCESS(x) ((x)>=0)
 #define RTL_NUMBER_OF(x) (sizeof(x)/sizeof(x[0]))
 typedef struct {
@@ -49,6 +51,8 @@ typedef struct {
     NTSTATUS DataRoleStatus;
 } CONTEXT, *PB2L_MAX_CONTEXT;
 static void B2lMaxQueueConnectorLocked(PB2L_MAX_CONTEXT c) { (void)c; }
+static void B2lMaxResetPdConnectionLocked(PB2L_MAX_CONTEXT c) { (void)c; }
+static void B2lMaxCancelPdRecoveryLocked(PB2L_MAX_CONTEXT c,NTSTATUS s) { (void)c;(void)s; }
 static UCHAR raw[2], pd_raw, byp_raw;
 static NTSTATUS read_error, power_error, muic_error;
 static char actions[32]; static size_t action_count;

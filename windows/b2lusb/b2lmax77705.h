@@ -49,6 +49,8 @@
 #define B2L_MAX_STAGE_BYP            0x6AUL
 #define B2L_MAX_STAGE_MUIC_DETECT    0x6BUL
 #define B2L_MAX_STAGE_RID            0x6CUL
+#define B2L_MAX_STAGE_PD_MESSAGE     0x6DUL
+#define B2L_MAX_STAGE_PD_CAPS        0x6EUL
 #define B2L_MAX_STAGE_READY          0x70UL
 #define B2L_MAX_STAGE_GPIO_IRQ       0x24UL
 #define B2L_MAX_STAGE_MFD_IRQ        0x34UL
@@ -86,12 +88,21 @@ typedef struct _B2L_MAX_CONNECTOR_EVENT {
 typedef struct _B2L_MAX_OPCODE_REQUEST {
     struct _B2L_MAX_OPCODE_REQUEST *Next;
     struct _B2L_MAX_MUIC_PAIR *MuicPair;
+    struct _B2L_MAX_PD_REQUEST *PdRequest;
     KEVENT Completion;
     ULONGLONG SentAt;
     NTSTATUS Status;
     BOOLEAN Complete;
     UCHAR Opcode, WriteLength, ReadLength, WriteData, ResponseData;
+    UCHAR Response[33]; // opcode plus up to 32 bytes, MAX77705 mailbox limit
 } B2L_MAX_OPCODE_REQUEST, *PB2L_MAX_OPCODE_REQUEST;
+
+#define B2L_MAX_PD_SLOTS 16UL
+typedef struct _B2L_MAX_PD_REQUEST {
+    B2L_MAX_OPCODE_REQUEST Request;
+    ULONGLONG Generation;
+    BOOLEAN InUse;
+} B2L_MAX_PD_REQUEST, *PB2L_MAX_PD_REQUEST;
 
 #define B2L_MAX_MUIC_SLOTS 32UL
 typedef struct _B2L_MAX_MUIC_PAIR {
@@ -120,6 +131,15 @@ typedef struct _B2L_MAX_CONTEXT {
     BOOLEAN ConnectorRunning, ConnectorAttached, ConnectorOverflow;
     ULONG ConnectorRead, ConnectorCount, ConnectorQueued, ConnectorAttempts;
     NTSTATUS ConnectorStatus, ConnectorSwapStatus;
+    WDFTIMER PdRecoveryTimer;
+    B2L_MAX_PD_REQUEST PdRequests[B2L_MAX_PD_SLOTS];
+    ULONGLONG PdGeneration, PdRecoveryDeadline;
+    ULONG PdMessageEvents, PdUnhandledEvents, PsRdyEvents;
+    ULONG PdReadsQueued, PdReadsPending, PdReadCompletions, PdStaleResponses;
+    ULONG PdPdos[7], PdRecoveryAttempts;
+    UCHAR PdMessage, PsRdyRaw, PdPrSwap, PdCapsHeader, PdPdoCount, PdCurrentPdo;
+    BOOLEAN PsRdyReceived, PdSupported, PdCapsValid, PdRecoveryPending;
+    NTSTATUS PdMessageStatus, PsRdyStatus, PdCapsStatus, PdRecoveryStatus;
     WDFTIMER OpcodeDeadline;
     B2L_MAX_MUIC_PAIR MuicPairs[B2L_MAX_MUIC_SLOTS];
     ULONGLONG MuicGeneration;
@@ -321,5 +341,13 @@ EVT_WDF_WORKITEM B2lMaxEvtConnectorWork;
 NTSTATUS B2lMaxCreateConnector(PB2L_MAX_CONTEXT Context);
 VOID B2lMaxQueueConnectorLocked(PB2L_MAX_CONTEXT Context);
 VOID B2lMaxStopConnector(PB2L_MAX_CONTEXT Context);
+NTSTATUS B2lMaxEnableOtg(PB2L_MAX_CONTEXT Context);
+NTSTATUS B2lMaxDisableOtg(PB2L_MAX_CONTEXT Context);
+NTSTATUS B2lMaxHandlePdMessageLocked(PB2L_MAX_CONTEXT Context);
+NTSTATUS B2lMaxHandlePsRdyLocked(PB2L_MAX_CONTEXT Context);
+VOID B2lMaxRetirePdRequestLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_PD_REQUEST Request, NTSTATUS Status);
+VOID B2lMaxResetPdConnectionLocked(PB2L_MAX_CONTEXT Context);
+VOID B2lMaxCancelPdRecoveryLocked(PB2L_MAX_CONTEXT Context, NTSTATUS Status);
+EVT_WDF_TIMER B2lMaxEvtPdRecoveryTimer;
 
 #endif

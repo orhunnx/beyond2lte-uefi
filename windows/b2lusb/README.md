@@ -1,22 +1,32 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
-## Güncel kaynak: `.35` / UCM ve URS
+## Güncel kaynak: `.36` / PD olayları ve PDO okuması
 
-MAX `0.1.0.35`, parent/host/function `0.1.0.19`, IOCTL ABI 7.
+MAX `0.1.0.36`, parent/host/function `0.1.0.19`, IOCTL ABI 7.
 Koşulsuz HOST kaldırıldı. Gerçek MAX CC/PD değişiklikleri ayrı pasif UCM
 kuyruğuna, oradan URS host/function yaşam döngüsüne gider. ACPI rol çocukları
 `_ADR=0/1`, PnP kimlikleri `URS\BYN0002&HOST/FUNCTION`; özgün GSIV273.
 `status`, `observe`, `maxevents`, `maxscreen` tanı komutlarıdır; `host` yoktur.
 
-`MAX FOTO v8` ayrı UCM sonucu/kuyruk sayfası gösterir. UCM kabulü enumeration
-kanıtı değildir. Source Rp akımı, OS PD swap/PDO/sözleşmeleri, function sınıfı,
-SYSMSG/PD kurtarma ve USB3 hâlâ açık. Bu sürüm USB çalıştı iddiası taşımaz.
+Gerçek PDMSG/PS_RDY kesmeleri stok sırada işlenir; hard-reset/source-timeout
+VBUS off ve 760/800 ms gecikmeli on işlemini kullanır. On öncesi gerçek
+SOURCE rolü yeniden kontrol edilir. Timer CC/PD polling yapmaz. SINK PS_RDY,
+APCMD ile tamamlanan `CURRENT_SRCCAP=0x30` / 31 bayt okumasını kuyruğa alır.
+Bağlantı nesli eski PDO yanıtının yeni kabloya aitmiş gibi yayımlanmasını
+engeller; hatalı başlık ve başarısız istek görünür kalır.
+
+`MAX FOTO v9` genel/USB/MUIC/UCM sayfalarına 35 satırlık PD/PDO sayfası ekler.
+`CAPS_VALID` ham PDO okuması ve sayı/seçim başlığının geçerliliğidir; RDO,
+PDO güç semantiği veya OS PD sözleşmesi doğrulaması değildir. UCM kabulü de
+enumeration kanıtı değildir. Source Rp, OS PD swap/sözleşmeleri,
+SYSMSG recovery, battery/CHGINSEL, function sınıfı ve USB3 hâlâ açık.
+Bu sürüm USB çalıştı iddiası taşımaz; kaynak işi flaş beklemeden devam eder.
 
 Build yalnız WSL: `bash yap.sh --touch --usb-test --clean`, ardından
 `bash cache_esp.sh --win --system --baseline`. Hedef WIM'de aynı Windows
 build'inin ARM64 UCM/URS/UFX bileşenleri gerekir. Function INF gerçek inbox
 bölümlerinden üretilir; eski Mobile runtime veya tahmini INF adı kullanılmaz.
-Ayrıntı ve test kapsamı: `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md`, `.35`.
+Ayrıntı ve test kapsamı: `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md`, `.36`.
 
 **Aşağıdaki `.34` ve statik `.18` bölümleri önceki ölçüm/tasarım günlüğüdür;
 statik HOST komutları ve BYN0003 kimliği güncel build için kullanılmaz.**

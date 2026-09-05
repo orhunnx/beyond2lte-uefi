@@ -86,6 +86,10 @@ B2lMaxRetireOpcodeLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_OPCODE_REQUEST Reque
     PB2L_MAX_MUIC_PAIR Pair = Request->MuicPair;
     Request->Status = Status;
     Request->Complete = TRUE;
+    if (Request->PdRequest != NULL) {
+        B2lMaxRetirePdRequestLocked(Context, Request->PdRequest, Status);
+        return;
+    }
     if (Pair == NULL) {
         (VOID)KeSetEvent(&Request->Completion, IO_NO_INCREMENT, FALSE);
         return;
@@ -124,6 +128,7 @@ B2lMaxCancelOpcodesLocked(PB2L_MAX_CONTEXT Context, NTSTATUS Status)
     // supplied as the passive interrupt's WaitLock. Never cancel as success.
     NT_ASSERT(!NT_SUCCESS(Status));
     Context->MfdFault = Status;
+    B2lMaxCancelPdRecoveryLocked(Context, Status);
     B2lMaxQueueConnectorLocked(Context);
     while ((Request = Context->OpcodeHead) != NULL) {
         Context->OpcodeHead = Request->Next;
@@ -167,7 +172,7 @@ B2lMaxQueueOpcodeLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_OPCODE_REQUEST Reques
     if (!NT_SUCCESS(Context->MfdFault) || !Context->MfdReady) {
         return !NT_SUCCESS(Context->MfdFault) ? Context->MfdFault : STATUS_DEVICE_NOT_READY;
     }
-    if ((Request->WriteLength > 1U) || (Request->ReadLength > 1U)) {
+    if ((Request->WriteLength > 1U) || (Request->ReadLength > 32U)) {
         return STATUS_INVALID_PARAMETER;
     }
     if (Context->OpcodeTail != NULL) {
@@ -313,7 +318,7 @@ static NTSTATUS
 B2lMaxCompleteOpcodeLocked(PB2L_MAX_CONTEXT Context)
 {
     PB2L_MAX_OPCODE_REQUEST Request = Context->OpcodeHead;
-    UCHAR Response[2];
+    UCHAR Response[33];
     NTSTATUS Status;
 
     if (Request == NULL) {
@@ -334,6 +339,7 @@ B2lMaxCompleteOpcodeLocked(PB2L_MAX_CONTEXT Context)
         Context->OpcodeTail = NULL;
     }
     Request->Next = NULL;
+    RtlCopyMemory(Request->Response, Response, 1UL + Request->ReadLength);
     if (Request->ReadLength != 0U) {
         Request->ResponseData = Response[1];
     }
