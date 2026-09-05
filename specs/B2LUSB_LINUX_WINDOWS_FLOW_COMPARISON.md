@@ -1,5 +1,45 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: Inf2Cat paket ayrımı çalıştı; WSL UNC staging yerel Windows TEMP'e taşındı
+
+Yeni WSL çıktısı `Inf2Cat: yalniz B2LUSB paketi (4 INF, 3 SYS)` satırını
+gösteriyor. Dolayısıyla önceki paket ayrımı düzeltmesi bu kez gerçekten
+çalışmış. Sonraki hata, `\\wsl.localhost\ubuntu-24.04\home\orhun\...\out\b2lusb\
+.inf2cat.azfhxu\b2lusb.sys` dosyasının bulunamadığını bildiriyor. Bu mesaj
+runtime veya telefon USB ölçümü değildir; Windows Inf2Cat'in paket girdisine
+erişim hatasıdır. Sondaki SHA256 satırının hangi dosyaya ait olduğu bu kesitte
+görünmediğinden onu `b2lusb.sys` hash'i olarak kaydetmiyoruz.
+
+Önceki katalog betiği yalnız içerik ayrımını yapmış, staging dizinini hâlâ
+WSL dosya sistemi altında tutmuştu. Bu, MSVC build'inin Windows yerel geçici
+dizin kullanımıyla tutarlı değildi. Hatanın altında yatan UNC sağlayıcısı,
+yol normalleştirme veya erişim ayrıntısı tek satırdan kesinleştirilemez;
+bu bağımlılık paket hazırlığından çıkarıldı.
+
+`build-catalog.sh`, sabit bir PowerShell komutuyla Windows `GetTempPath()`
+sonucunu alır. Yerel sürücü yolu olması zorunludur; UNC sonucu reddedilir.
+`wslpath -u` ile erişilen Windows TEMP altında benzersiz `b2lusb-inf2cat.*`
+dizini oluşturulur. Dört INF ve üç imzalı SYS kopyalanıp `cmp` ile birebir
+doğrulanır. Dizinin `wslpath -w` sonucu da yerel Windows sürücü yolu olmak
+zorundadır. Inf2Cat hem `/driver` hem çalışma dizini için bu konumu kullanır.
+Günlükte `Inf2Cat yerel Windows dizini: C:\...\b2lusb-inf2cat...` benzeri
+bir satır beklenir; sürücü harfi sabitlenmemiştir.
+
+Başarılı katalog önce WSL çıktı dizinindeki geçici dosyaya kopyalanır,
+birebir karşılaştırıldıktan sonra `b2lusb.cat` adına taşınır. Böylece farklı
+dosya sistemleri arasındaki başarısız kopya yarım katalog bırakmaz. Araç
+hata kodu korunur, boş/eksik katalog kabul edilmez ve geçici dosyalar hata
+durumunda da temizlenir. Ham Microsoft INF kanıtları ve ayrı EXE imzası
+aynı kalır; runtime, Linux akışı ve sürücü sürümleri değişmedi.
+
+Host regresyon testi gerçek Bash yardımcısını Windows araçlarının davranış
+testleriyle çalıştırır: `/driver` yerel C: yolu olmalı, çalışma dizini aynı
+staging dizini olmalı; UNC yol, TEMP sorgu hatası, boşluk/Türkçe karakter,
+eksik girdi/çıktı, Inf2Cat hata kodu ve temizlik kontrol edilir. Önceki test
+UNC/Windows çalışma dizini davranışını modellemiyordu; şimdi bunları yanlış
+veren betik testten geçemez. Test Windows Inf2Cat'in kendisini çalıştırmaz;
+gerçek WSL sonucu henüz bekleniyor. Normal WSL build/ESP komutları aynıdır.
+
 ## 5 Eylül 2026: Inf2Cat ham tanı INF'lerini paket sanıyor — katalog girdileri ayrıldı
 
 Son WSL çıktısı katalog aşamasında `Signability test failed` verdi. Hatalarda

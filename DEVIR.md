@@ -18,6 +18,14 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / Inf2Cat WSL UNC erişimi:** Paket ayrımı gerçek WSL'de devreye
+> girdi; sonraki hata `.inf2cat.../b2lusb.sys` dosyasının WSL UNC yolunda
+> bulunamamasıydı. Katalog girdileri artık Windows'un kendi `%TEMP%` dizininde
+> hazırlanır; Inf2Cat paket yolu ve çalışma dizini yerel sürücüdedir. Girdi
+> kopyaları ve katalog geri kopyası birebir karşılaştırılır. UNC TEMP/stage
+> reddedilir; hatada eski/yarım katalog yayımlanmaz. Genişletilmiş host testi
+> geçti; gerçek Windows Inf2Cat çalışması henüz doğrulanmadı. Build WSL'de.
+
 > **5 Eylül / Inf2Cat 22.9.1–22.9.4 düzeltmesi:** Katalog aşaması tüm
 > `out/b2lusb` dizinini taradığı için tanı amaçlı ham Microsoft INF'leri
 > paket sanıyordu. `build-catalog.sh` yalnız dört dağıtım INF'si ve üç imzalı
