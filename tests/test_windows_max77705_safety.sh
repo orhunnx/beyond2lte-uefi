@@ -6,6 +6,7 @@ WIN="$ROOT/windows/b2lusb"
 MAIN="$WIN/b2lmax77705.c"
 HW="$WIN/b2lmax77705_hw.c"
 HDR="$WIN/b2lmax77705.h"
+IRQ="$WIN/b2lmax77705_irq.c"
 INF="$WIN/b2lmax77705.inf.in"
 DSDT="$ROOT/silicium-acpi-overlay/SoCs/Samsung/S5E9820/DSDT_minimal.dsl"
 DXE="$ROOT/mu-silicium-overlay/Platforms/Samsung/beyond2ltePkg/Drivers/B2LMax77705Dxe/B2LMax77705Dxe.c"
@@ -23,7 +24,7 @@ grep -q 'B2L_MAX_CMGP_CMU_LENGTH            0x00008000UL' "$HDR"
 grep -Fq 'ACPI\BYN0004' "$INF"
 grep -Fq 'Name (_HID, "BYN0004")' "$DSDT"
 grep -Fq '\_SB.USBC' "$DSDT"
-test "$(rg -c 'MmMapIoSpaceEx' "$MAIN")" -eq 4
+test "$(rg -c 'MmMapIoSpaceEx' "$MAIN")" -eq 5
 if rg -n '10C00000|10B00000|10AE0000|10AF0000|1586072C' "$MAIN" "$HW" "$HDR"; then
   echo 'HATA: MAX77705 surucusu DWC3/PHY/PMU kaynagina genislemis' >&2
   exit 1
@@ -129,64 +130,25 @@ grep -q 'MAX77705_USBC_OPCODE_WRITE 0x21U' "$MAIN"
 grep -q 'MAX77705_USBC_OPCODE_END   0x41U' "$MAIN"
 grep -q 'MAX77705_USBC_OPCODE_READ  0x51U' "$MAIN"
 grep -q 'MAX77705_USBC_INT_APCMDRES' "$MAIN"
-grep -q 'Response\[0\] != Opcode' "$MAIN"
-grep -q 'Context->AutoVbusDisabled = TRUE' "$MAIN"
-grep -q 'B2L_MAX_STAGE_AUTO_VBUS' "$MAIN"
-grep -q 'Context->AutoIbusConfigured = TRUE' "$MAIN"
-grep -q 'B2L_MAX_STAGE_AUTO_IBUS' "$MAIN"
-grep -q 'B2lMaxConfigureAutoIbus' "$MAIN"
-grep -q 'Context->UsbcMasksConfigured = TRUE' "$MAIN"
-grep -q 'B2L_MAX_STAGE_USBC_MASKS' "$MAIN"
-grep -q 'B2lMaxConfigureUsbcMasks' "$MAIN"
-grep -q 'Context->UsbcRuntimeMasksConfigured = TRUE' "$MAIN"
-grep -q 'B2L_MAX_STAGE_RUNTIME_MASKS' "$MAIN"
-grep -q 'B2lMaxConfigureRuntimeUsbcMasks' "$MAIN"
-grep -q 'Context->CcControlConfigured = TRUE' "$MAIN"
-grep -q 'B2L_MAX_STAGE_CC_CONTROL' "$MAIN"
-grep -q 'B2lMaxConfigureCcControl' "$MAIN"
-grep -q 'Context->CcControlReadBack != MAX77705_CCCTRL1_BEYOND2LTE' "$MAIN"
-grep -q 'B2lMaxNormalizeCcOpen' "$MAIN"
-grep -q 'Context->CcOpenNormalized = TRUE' "$MAIN"
-grep -q 'B2L_MAX_STAGE_CC_OPEN' "$MAIN"
-grep -q 'Context->Control3After & MAX77705_CONTROL3_LOCK_ERROR_EN' "$MAIN"
-grep -q 'B2lMaxSetMuicPath' "$MAIN"
-grep -q 'Context->MuicControl1 != Path' "$MAIN"
-grep -q 'Context->MuicPathVerified = TRUE' "$MAIN"
-grep -q 'B2L_MAX_STAGE_MUIC_USB' "$MAIN"
-grep -q 'B2L_MAX_STAGE_MUIC_OPEN' "$MAIN"
-grep -q 'B2lMaxReadAndClearUsbcInterrupts' "$MAIN"
-grep -q 'B2lMaxReadCcStatus' "$MAIN"
-grep -q 'MAX77705_CC_INT_STATE            (1U << 0)' "$MAIN"
-grep -q 'MAX77705_CC_INT_CURRENT          (1U << 2)' "$MAIN"
-grep -q 'MAX77705_CC_INT_PIN_STATE        (1U << 3)' "$MAIN"
-grep -q 'Context->TopInterruptSourceSeen |= Context->TopInterruptSource' "$MAIN"
-grep -q 'Context->CcInterruptSeen |= Context->CcInterrupt' "$MAIN"
-grep -q 'Context->CcStateChanged = TRUE' "$MAIN"
-grep -q 'Context->CcLastTransitionTime = SampleTime' "$MAIN"
-grep -q 'SampleTime = KeQueryInterruptTime()' "$MAIN"
-test "$(rg -c 'MAX77705_TOP_INTSRC_MASK' "$MAIN")" -eq 2
-READ_STATUS_SECTION="$(sed -n '/B2lMaxReadStatus(PB2L_MAX_CONTEXT Context)/,/B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
-IRQ_DRAIN_LINE="$(printf '%s\n' "$READ_STATUS_SECTION" | grep -n 'B2lMaxReadAndClearUsbcInterrupts(Context)' | head -n1 | cut -d: -f1)"
-CC_STATUS_LINE="$(printf '%s\n' "$READ_STATUS_SECTION" | grep -n 'B2lMaxReadCcStatus(Context)' | head -n1 | cut -d: -f1)"
-CHARGER_LINE="$(printf '%s\n' "$READ_STATUS_SECTION" | grep -n 'B2L_MAX_CHARGER_ADDRESS' | head -n1 | cut -d: -f1)"
-test "$IRQ_DRAIN_LINE" -lt "$CC_STATUS_LINE"
-test "$CC_STATUS_LINE" -lt "$CHARGER_LINE"
-grep -q 'DriverVer=09/05/2026,0.1.0.30' "$INF"
-SERVICE_SECTION="$(sed -n '/B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)/,/B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
-AUTOIBUS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureAutoIbus(Context)' | head -n1 | cut -d: -f1)"
-MASKS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureUsbcMasks(Context)' | head -n1 | cut -d: -f1)"
-AUTOVBUS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxDisableAutoVbus(Context)' | head -n1 | cut -d: -f1)"
-CCCTRL_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureCcControl(Context)' | head -n1 | cut -d: -f1)"
-RUNTIME_MASKS_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxConfigureRuntimeUsbcMasks(Context)' | head -n1 | cut -d: -f1)"
-CC_OPEN_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxNormalizeCcOpen(Context)' | head -n1 | cut -d: -f1)"
-EVALUATE_LINE="$(printf '%s\n' "$SERVICE_SECTION" | grep -n 'B2lMaxEvaluateConnection(Context)' | head -n1 | cut -d: -f1)"
-test "$AUTOIBUS_LINE" -lt "$MASKS_LINE"
-test "$MASKS_LINE" -lt "$AUTOVBUS_LINE"
-test "$AUTOVBUS_LINE" -lt "$CCCTRL_LINE"
-test "$CCCTRL_LINE" -lt "$RUNTIME_MASKS_LINE"
-test "$RUNTIME_MASKS_LINE" -lt "$CC_OPEN_LINE"
-test "$CC_OPEN_LINE" -lt "$EVALUATE_LINE"
-EVALUATE_SECTION="$(sed -n '/B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)/,/B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
+# Real opcode responses are owned by APCMDRES and the passive MFD lock.
+grep -Fq 'Response[0] != Request->Opcode' "$IRQ"
+grep -Fq 'B2lMaxQueueOpcodeLocked' "$MAIN"
+grep -Fq 'B2lMaxWaitOpcode' "$MAIN"
+grep -Fq 'B2lMaxNormalizeCcOpen' "$MAIN"
+grep -Fq 'B2lMaxReadCcStatus' "$MAIN"
+grep -Fq 'B2lMaxSetMuicPath' "$MAIN"
+grep -Fq 'Context->MuicControl1 != Path' "$MAIN"
+grep -Fq 'ReadBack != MAX77705_CCCTRL1_BEYOND2LTE' "$MAIN"
+grep -Fq 'InitialDetect && (CcState != B2L_MAX_CC_SINK)' "$MAIN"
+grep -Fq 'Frame.Active[1] & MAX77705_CC_INT_STATE' "$MAIN"
+grep -q 'DriverVer=09/05/2026,0.1.0.31' "$INF"
+# Probe ordering, response ownership, cancellation and masks execute in C
+# fixtures (test_max77705_irq.py), rather than line-order approximations.
+if rg -n 'B2lMaxReadAndClearUsbcInterrupts|B2lMaxConfigureRuntimeUsbcMasks|B2lMaxSendOpcode' "$MAIN"; then
+  echo 'HATA: eski opcode polling/probe maskesi yolu geri geldi' >&2
+  exit 1
+fi
+EVALUATE_SECTION="$(sed -n '/B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context,/,/B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)/p' "$MAIN")"
 MUIC_USB_LINE="$(printf '%s\n' "$EVALUATE_SECTION" | grep -n 'MAX77705_MUIC_COM_USB_AP' | tail -n1 | cut -d: -f1)"
 OTG_ON_LINE="$(printf '%s\n' "$EVALUATE_SECTION" | grep -n 'B2lMaxEnableOtg(Context)' | head -n1 | cut -d: -f1)"
 OTG_OFF_LINE="$(printf '%s\n' "$EVALUATE_SECTION" | grep -n 'B2lMaxDisableOtg(Context)' | head -n1 | cut -d: -f1)"
@@ -205,8 +167,8 @@ grep -q 'B2L_HSI2C_IRQ_TIMEOUT_100NS 10000000ULL' "$HW"
 grep -q 'WdfInterruptCreate(Device, &InterruptConfig' "$MAIN"
 grep -q 'B2L_MAX_HSI2C_GSIV                 114UL' "$HDR"
 grep -q '0x00000072' "$DSDT"
-grep -q 'InterruptCount != 1UL' "$MAIN"
-grep -q 'Raw->u.Interrupt.Vector != B2L_MAX_HSI2C_GSIV' "$MAIN"
+grep -q 'InterruptCount != 2UL' "$MAIN"
+grep -q 'B2L_MAX_HSI2C_GSIV : B2L_MAX_GPIO_GSIV' "$MAIN"
 grep -q 'KeWaitForSingleObject(&Context->HsI2cCompletion' "$HW"
 grep -q 'WdfInterruptQueueDpcForIsr(Interrupt)' "$HW"
 if rg -n 'B2lMaxPollingDeadline|B2L_HSI2C_POLL_DELAY_US' "$HW"; then
@@ -272,43 +234,35 @@ grep -q 'WdfWaitLockAcquire(Context->BusLock' "$MAIN"
 grep -q 'B2lMaxTransferMessage' "$HW"
 grep -q 'FALSE,' "$HW"
 grep -q '(BOOLEAN)(ReadLength == 0UL)' "$HW"
-grep -q 'B2L_MAX_INITIAL_POLL_MS      1UL' "$HDR"
-grep -q 'B2L_MAX_ATTACH_POLL_MS       20UL' "$HDR"
-grep -q 'B2L_MAX_ATTACH_FAST_POLLS    50UL' "$HDR"
-grep -q 'B2L_MAX_POLL_MS              200UL' "$HDR"
-grep -q 'B2L_MAX_RETRY_POLL_MS        2000UL' "$HDR"
-grep -q 'B2L_MAX_IDLE_DIAGNOSTIC_POLLS 10UL' "$HDR"
-grep -q 'WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lMaxEvtPollTimer)' "$MAIN"
-if grep -q 'WDF_TIMER_CONFIG_INIT_PERIODIC' "$MAIN"; then
-  echo 'HATA: pasif MAX77705 timer periyodik WDF timer olarak olusturulamaz' >&2
+# No connection or opcode polling: startup and real MAX IRQ enqueue work.
+if rg -n 'WdfTimer|B2lMaxEvtPollTimer|PollingEnabled|B2L_MAX_.*POLL_MS' "$MAIN" "$IRQ" "$HDR"; then
+  echo 'HATA: MAX olaylari gercek IRQ yerine timer ile ilerletiliyor' >&2
   exit 1
 fi
-grep -q 'TimerConfig.AutomaticSerialization = FALSE' "$MAIN"
-grep -q 'Context->PollingEnabled = TRUE' "$MAIN"
-grep -q 'Context->PollingEnabled = FALSE' "$MAIN"
-test "$(rg -c 'WdfTimerStart\(' "$MAIN")" -eq 2
-test "$(rg -c 'B2lMaxServiceConnection\(Context\)' "$MAIN")" -eq 1
-grep -q 'Context->CcSampleCount <= B2L_MAX_ATTACH_FAST_POLLS' "$MAIN"
-grep -q 'B2LMaxCcOpenNormalized' "$MAIN"
-grep -q 'B2LMaxControl3Before' "$MAIN"
-grep -q 'B2LMaxControl3After' "$MAIN"
-grep -q 'CCOPEN_OK B2LMaxCcOpenNormalized' "$ROOT/windows/startnet.cmd"
-if sed -n '/B2lMaxEvtD0Entry(WDFDEVICE Device/,/B2lMaxEvtD0EntryPostInterruptsEnabled(WDFDEVICE Device/p' "$MAIN" | \
-   grep -q 'B2lMaxServiceConnection'; then
-  echo 'HATA: tek cekirdekte MAX77705 transferi PnP D0Entry yolunu bloklayamaz' >&2
+grep -Fq 'InterruptConfig.PassiveHandling = TRUE' "$MAIN"
+grep -Fq 'InterruptConfig.WaitLock = Context->MfdLock' "$MAIN"
+grep -Fq 'WorkConfig.AutomaticSerialization = FALSE' "$MAIN"
+grep -Fq 'WdfWorkItemFlush(Context->PolicyWork)' "$MAIN"
+grep -Fq 'WdfWaitLockAcquire(Context->TransportLock' "$HW"
+grep -Fq 'WdfWaitLockRelease(Context->MfdLock)' "$IRQ"
+grep -Fq 'KeWaitForSingleObject(&Request->Completion' "$IRQ"
+grep -Fq 'MAX_EINT_CON  0x704UL' "$IRQ"
+grep -Fq 'MAX_EINT_MASK 0x904UL' "$IRQ"
+grep -Fq 'MAX_EINT_PEND 0xA04UL' "$IRQ"
+grep -Fq 'B2lMaxGpioWrite(Context, MAX_EINT_PEND, MAX_PIN_BIT)' "$IRQ"
+grep -Fq '0x00000033' "$DSDT"
+grep -Fq '0x15850000, 0x00001000' "$DSDT"
+if rg -n 'GICD_|GICR_|B2lMaxReadBlock.*0x02U' "$MAIN"; then
+  echo 'HATA: MAX politika isi kesme dagiticisini veya read-to-clear registerini sahipleniyor' >&2
   exit 1
 fi
-sed -n '/B2lMaxEvtPollTimer(WDFTIMER Timer)/,$p' "$MAIN" | \
-  grep -q 'B2L_MAX_RETRY_POLL_MS'
-sed -n '/B2lMaxEvtPollTimer(WDFTIMER Timer)/,$p' "$MAIN" | \
-  grep -q 'B2L_MAX_ATTACH_POLL_MS'
 # Adapter MMIO/clock setup must precede IRQ enable; client transfers start
 # afterwards and shutdown finishes before KMDF disconnects the interrupt.
 grep -q 'EvtDeviceD0EntryPostInterruptsEnabled = B2lMaxEvtD0EntryPostInterruptsEnabled' "$MAIN"
 grep -q 'EvtDeviceD0ExitPreInterruptsDisabled = B2lMaxEvtD0ExitPreInterruptsDisabled' "$MAIN"
 D0_SECTION="$(sed -n '/B2lMaxEvtD0Entry(WDFDEVICE Device/,/B2lMaxEvtD0EntryPostInterruptsEnabled(WDFDEVICE Device/p' "$MAIN")"
 printf '%s\n' "$D0_SECTION" | grep -q 'Status = B2lMaxHsI2cInitialize(Context)'
-if printf '%s\n' "$D0_SECTION" | grep -q 'WdfTimerStart'; then
+if printf '%s\n' "$D0_SECTION" | grep -q 'WdfWorkItemEnqueue'; then
   echo 'HATA: MAX istemci transferi IRQ acilmadan baslatiliyor' >&2
   exit 1
 fi

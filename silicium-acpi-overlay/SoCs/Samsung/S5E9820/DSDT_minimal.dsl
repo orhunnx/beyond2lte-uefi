@@ -255,7 +255,7 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000006)
         // creates logical TOP, USBC and charger clients at 0x66/0x25/0x69
         // on this single controller.  b2lmax77705.sys follows that ownership
         // model. HSI2C45 transfer completion uses its original SPI 82.
-        // The separate MAX GPA1-6 EINT/CC path still needs its own port.
+        // MAX GPA1-6 uses a separate level-low EINT -> SPI 19 / GSIV 51.
         Device (USBC)
         {
             Name (_HID, "BYN0004")
@@ -281,6 +281,14 @@ DefinitionBlock ("", "DSDT", 2, "SAMSUN", "S5E9820 ", 0x00000006)
                 Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
                 {
                     0x00000072
+                }
+                // ALIVE owns GPA1-6 pin mux and its wakeup EINT registers.
+                // GPIO input is level-low; the EINT controller's GIC output
+                // is level-high. The two interrupt objects stay in this order.
+                Memory32Fixed (ReadWrite, 0x15850000, 0x00001000)
+                Interrupt (ResourceConsumer, Level, ActiveHigh, Exclusive)
+                {
+                    0x00000033
                 }
             })
         }

@@ -1,5 +1,130 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.31` — MAX77705 özgün GPIO kesmesi ve APCMD kuyruğu
+
+Bu bölüm `.30` durumunu günceller. **Flaş beklenmeden kaynak çalışmasına devam
+ediliyor.** `.31` gerçek MAX GPIO/MFD ve opcode taşıma adımını ekler; USB'nin
+çalıştığı veya Linux akışının tamamlandığı iddiası değildir. Son telefon kanıtı
+hâlâ `.28` fotoğraflarıdır; `.29`–`.31` WSL/WDK ve telefon doğrulaması yapılmadı.
+
+### Kaynak sahipliği ve iki ayrı kesme
+
+| Katman | Özgün kaynak | Windows uygulaması |
+|---|---|---|
+| HSI2C45 aktarımı | SPI82 -> GSIV114 (`0x72`) | `.30` DIRQL ISR/DPC; FIFO yalnız bu ISR'den ilerler |
+| MAX77705 olayları | GPA1-6 -> SPI19 -> GSIV51 (`0x33`) | `.31` ayrı pasif ISR; TOP ve USBC read-to-clear registerlarının tek çalışma zamanı sahibi |
+| GPA1/EINT | ALIVE `0x15850000`, GPA1 bankı `0x20`, EINT offset `4` | BYN0004 beşinci MMIO sayfası; yalnız pin6 alanları değiştirilir |
+| USB denetleyicisi | xHCI GSIV273 | Ayrı inbox USBXHCI kaynağı; MAX/HSI2C kesmelerinin yerine geçmez |
+
+ACPI BYN0004 artık beş MMIO ve sırasıyla HSI2C/MAX olmak üzere iki interrupt
+verir. Eksik, çift, ters sıralı, edge/MSI interrupt veya yanlış MMIO reddedilir.
+Her KMDF interrupt enable callback'i kendisine atanmış translated vector'ü de
+kontrol eder. GPA1 pin6 için FUNC=f, PUD=0, DRV=0; EINT CON `0x704` alanı LOW=0,
+MASK `0x904`, PEND `0xa04` bit6. Fiziksel aktif-düşük GPIO, EINT tarafından
+GIC'ye aktif-yüksek SPI olarak sunulur. Unmask öncesi yalnız bit6 W1C ack yapılır.
+GIC route/EOI Windows HAL/KMDF'nindir; sürücü GIC dağıtıcısına yazmaz.
+
+`pinctrl-samsung.c:1157` içindeki `bank->eint_base = virt_base[0]`, EINT
+registerlarının gerçekten ALIVE MMIO tabanına göre olduğunu doğrular.
+[Samsung bank tabanı](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/pinctrl/samsung/pinctrl-samsung.c#L1157),
+[EINT mask/ack](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/pinctrl/samsung/pinctrl-exynos.c#L64).
+
+### Kuyruk, kilitler ve probe sırası
+
+Bağlantı timer'ı ve APCMD polling kaldırıldı. Politika işi başlangıçta ve gerçek
+MAX ISR'den kuyruğa alınır. `BusLock` politika durumunu, `MfdLock` MAX ISR/opcode
+kuyruğunu, `TransportLock` tek I2C write/repeated-START/read çiftini korur.
+Pasif MAX ISR `BusLock` almaz; bağımsız HSI2C ISR/DPC ile I2C bekleyebilir.
+Opcode bekleyicisi `MfdLock` veya `TransportLock` tutmaz. Böylece isteğin
+beklenmesi, yanıt kesmesini kilitlemez. KMDF automatic serialization kapalıdır.
+[Windows pasif IRQ sözleşmesi](https://learn.microsoft.com/en-us/windows-hardware/drivers/wdf/supporting-passive-level-interrupts).
+
+1. GPA1 maskeli tutulur. MFD TOP/nested maskeleri hazırlanır; TOP CHG bit0
+   açılır, USBC bit3 henüz maskelidir.
+2. USBC nested handler yazılım maskesi `00/20/00/f0` olarak uygulanır.
+3. PD-init AUTOIBUS `57 01` kuyruğa girer; yalnız kuyruk başı donanıma yazılır.
+4. Normal probe donanım maskeleri `00/20/1c/ff` yazılır. `54 00`, `0c 1f`,
+   `0b` istekleri kuyruğa eklenir.
+5. Probe sonunda TOP USBC bit3 açılır; GPA1 unmask edilir. Bundan **önce**
+   yanıt beklenmez. Yalnız gerçek APCMDRES kesmesi `0x51` yanıtını okur,
+   ilgili isteği sonuçlandırır ve sıradaki komutu gönderir.
+6. Gerçek yanıtlar/read-back'ler alındıktan sonra probe-sonu CONTROL3/CC-open
+   işlemi de aynı kuyruktan yürür.
+
+**Maskelerle ilgili eski yorum düzeltildi:** `PD=1c, VDM=ff` normal probe
+sonundaki donanım yazılarıdır. `REG_*_INIT=00/20/00/f0` reset-kurtarma yolunda da
+kullanılır; bunları her normal probe sonunda tekrar yazmak kaynakla aynı
+akış değildir. Linux `irq_masks_cur` yazılım maskesi, doğrudan probe register
+yazılarından ayrı kalır. `.31` normal probe maskelerini korur; alt-mode/PD'nin
+sonraki gerçek maske geçişleri ayrıca tamamlanmalıdır. Bu yüzden eski
+`UsbcRuntimeMasksConfigured` bayrağı normal probe'da sahte biçimde 1 yapılmaz.
+[Samsung probe](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_usbc.c#L3510),
+[MFD dispatch](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/mfd/max77705-irq.c#L293).
+
+Gönderilmiş opcode için Samsung genel kuyruğundaki 10 saniyelik deadline
+kullanılır; kayıp IRQ'da register taraması yoktur. Timeout/hatalı I2C/uyuşmayan
+cevap bütün bekleyen stack isteklerini kilit altında negatif sonuçla ayırır.
+Geç IRQ silinmiş isteğe erişemez; unsolicited APCMD hiçbir isteğe başarı vermez.
+**Bu hata yolu Linux kurtarmasının tamamı değildir:** Linux genel opcode
+uyuşmazlığını loglayıp alınan türe göre dispatch edebilir; SYSMSG WDT/POR ve
+APCMD_FAIL farklı kurtarma yollarıdır. `.31` bunları başarı gibi kabul etmez,
+MFD hatasını açıkça saklar. Tam kurtarma portu hâlâ gereklidir.
+
+### CC başlangıç kontrolündeki ek düzeltme
+
+`max77705_ccstat_irq_handler(CCIC_IRQ_INIT_DETECT)` yalnız SINK'i işler;
+SOURCE dahil diğer durumlarda döner. Windows'taki tek seferlik başlangıç
+okumasının SOURCE'dan VBUS açması kaldırıldı. SOURCE eylemi gerçek CCSTAT
+(bit0) dispatch'inden gelir; CCPINSTAT (bit3) veya CCISTAT (bit2) yalnız başına
+rol başlatamaz. `CC_SRC_EV` artık başlangıç okumasını değil işlenen SOURCE
+CCSTAT olayını sayar. Pin/status tanısı gerçek snapshot'ta korunur.
+[Samsung CC initial-detect/CCSTAT](https://github.com/ianmacd/d2s/blob/d1d4fb4aa21d6f4c9b9f36caf15bc1a3c21d4e39/drivers/ccic/max77705_cc.c#L539).
+
+### Tanı, kapanış ve doğrulama
+
+`MAX FOTO v4` genel sayfası 37 satırdır. `MAX_GSIV=33`, `MAX_IRQ`, `MAX_NT`,
+`OP_DONE`, `MFD_FAULT` eklendi; I2C_GSIV/IRQ/DONE ayrı kalır. Olay origin=6
+gerçek MAX ISR örneğidir. Binary kayıt v1 korunur. Sekiz baytlık snapshot
+başarısızsa `v=0`, gerçek NTSTATUS ve sıfır payload korunur. Sonradan APCMD
+hata verse de önceden tüketilmiş read-to-clear baytları kaybolmaz; politika
+hatalı kuyruğu da tanıya aktarır. 64 frame taşarsa sayaç ve negatif hata
+üretilir. Registry yazımı ISR'de yapılmaz. `startnet.cmd` kısa özetinde de yeni
+alanlar vardır; TXT dışarı aktarmak önkoşul değildir.
+
+Kapanış, iş kuyruğunu durdurup tamamlanmasını bekler; OTG off/MUIC OPEN
+I2C ve MAX kesmeleri açıkken yapılır. Sonra GPIO maskelenir, bekleyen istekler
+ayrılır, HSI2C quiesce edilir. ReleaseHardware yalnız kaynakları unmap eder.
+Pasif ISR ile politika işinin aynı WDF work item'ını tekrar kuyruğa alması
+mümkündür; eşzamanlı callback'leri `BusLock` seri hale getirir.
+[WDF work item kuyruğu](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdfworkitem/nf-wdfworkitem-wdfworkitemenqueue).
+
+Yerel gerçek-C fixture kapsamı: GPIO alan sahipliği/W1C, doğru ve ters IRQ
+kaynakları, üç komutun gerçek APCMD sırası, unsolicited/uyuşmayan/geç yanıt,
+kayıp IRQ deadline, snapshot hatası, kuyruk taşması, init öncesi USBC maskesi,
+probe maskeleri, kapanış, hata sonrası kayıt koruma, pin/akım olaylarının rol
+başlatmaması ve initial SOURCE'un VBUS açmaması. Bunlar host fixture'lardır;
+WSL/WDK derlemesi ve fiziksel kesme teslimi değildir.
+
+### Hedefe kalan kaynak işleri — flaş önkoşulu yok
+
+- PD DATAROLE/PSRDY ve CC power-role ayrı yürütülmeli; SOURCE tek başına DFP
+  veya USB veri yolu bildirimi değildir. Mevcut MUIC SOURCE dalı bu ayrımı
+  henüz tamamlamaz.
+- BYP aşırı akımın nested charger eylemi, VBUSDet/No-Connection detach
+  koordinasyonu ve su algılama bildirimi tamamlanmalı.
+- SYSMSG/firmware mailbox kurtarması ve PD/VDM maske geçişleri port edilmeli.
+- MAX -> USB role-switch -> DWC3/PHY -> xHCI start/stop zinciri kurulmalı.
+  Mevcut `.18` parent hâlâ statik HOST başlatır; bu Linux eşdeğeri değildir.
+- USB3 PHY ve function/device tarafı mevcut USB2 HOST profilinin dışındadır;
+  özgün USB'nin tamamı için bunlar da bitmiş sayılmaz.
+
+WSL yöntemi aynı: `bash yap.sh --touch --usb-test --clean`, ardından
+`bash cache_esp.sh --win --system --baseline`. ACPI değiştiğinden aynı turdaki
+`boot.img` ve `system.img` birlikte kullanılmalı. Bu Mac'te WDK/UEFI/WIM build
+yapılmadı. Flaş yalnız fiziksel sonucu doğrulamak içindir; bu listedeki kaynak
+çalışmalarını durdurmaz.
+
+
 ## 5 Eylül 2026: `.30` — HSI2C45 gerçek aktarım kesmesi
 
 **Hedef değişmedi:** cihazın özgün USB olay/rol/güç akışını Windows'ta gerçek

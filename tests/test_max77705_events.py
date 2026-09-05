@@ -58,12 +58,6 @@ static ULONG sample_count, sample_index, reads, writes, waits;
 static NTSTATUS snapshot_result, uic_result;
 static ULONGLONG clock_ticks;
 static ULONGLONG KeQueryInterruptTime(void) { return ++clock_ticks; }
-static void B2lMaxDelayMicroseconds(ULONG us) { (void)us; ++waits; }
-static NTSTATUS B2lMaxReadByte(PB2L_MAX_CONTEXT c, UCHAR a, UCHAR r, UCHAR *v) {
-    (void)c; assert(a == 0x25 && r == 0x02);
-    if (!NT_SUCCESS(uic_result)) return uic_result;
-    assert(sample_index < sample_count); *v = samples[sample_index++]; return 0;
-}
 static NTSTATUS B2lMaxReadBlock(PB2L_MAX_CONTEXT c, UCHAR a, UCHAR r, UCHAR *v, ULONG n) {
     (void)c; assert(a == 0x25);
     if (r == 0x06) {
@@ -72,16 +66,10 @@ static NTSTATUS B2lMaxReadBlock(PB2L_MAX_CONTEXT c, UCHAR a, UCHAR r, UCHAR *v, 
     assert(r == 0x51 && n >= 1 && n <= 2);
     v[0] = response_opcode; if (n == 2) v[1] = 0x64; return 0;
 }
-static NTSTATUS B2lMaxWriteBlock(PB2L_MAX_CONTEXT c, UCHAR a, UCHAR r, const UCHAR *v, ULONG n) {
-    (void)c; (void)v; assert(a == 0x25 && r == 0x21 && n >= 1 && n <= 2); ++writes; return 0;
-}
-static NTSTATUS B2lMaxWriteByte(PB2L_MAX_CONTEXT c, UCHAR a, UCHAR r, UCHAR v) {
-    (void)c; assert(a == 0x25 && r == 0x41 && v == 0); ++writes; return 0;
-}
 '''
 harness += defines + "\n"
 harness += "\n".join(function(n) for n in (
-    "B2lMaxCaptureEvent", "B2lMaxRecordOpcodeUic", "B2lMaxExchangeOpcode"))
+    "B2lMaxCaptureEvent",))
 harness += r'''
 #include <stdarg.h>
 #include <wchar.h>
@@ -233,43 +221,7 @@ static void reset(B2L_MAX_CONTEXT *c) {
 }
 int main(void) {
     B2L_MAX_CONTEXT c;
-    UCHAR result = 0;
     ULONG i, index;
-    reset(&c);
-    // Stale SYSMSG + empty wait + combined SYSMSG/APCMDRES must all survive.
-    samples[0]=0x40; samples[1]=0; samples[2]=0xc0; sample_count=3;
-    assert(B2lMaxExchangeOpcode(&c, 0x1c, NULL, 0, 1, &result) == 0);
-    assert(result == 0x64 && writes == 2 && waits == 1 && reads == 2);
-    assert(c.UicInterruptSeen == 0xc0 && c.EventLog.OpcodeUicSeen == 0xc0);
-    assert(c.EventLog.SysmsgEvents == 2 && c.EventLog.Count == 2);
-    assert(c.EventLog.Events[0].Origin == B2L_MAX_EVENT_DRAIN);
-    assert(c.EventLog.Events[1].Origin == B2L_MAX_EVENT_WAIT);
-    assert(c.EventLog.Events[1].Status[1] == 3);
-    assert(c.EventLog.Events[1].PolicyCc == 0xffffffffU);
-    assert(c.CcStatus0 == 0x40 && c.CcStatus1 == 0); // snapshot must not enable SOURCE
-
-    reset(&c);
-    snapshot_result = -7; samples[1] = 0x80; sample_count = 2;
-    assert(B2lMaxExchangeOpcode(&c, 0x1c, NULL, 0, 1, &result) == 0);
-    assert(c.EventLog.SnapshotFailures == 1 && c.EventLog.Events[0].Valid == 0);
-    assert(c.EventLog.Events[0].ReadStatus == (ULONG)-7);
-    for (i=0; i<8; ++i) assert(c.EventLog.Events[0].Status[i] == 0);
-
-    reset(&c);
-    uic_result = -9;
-    assert(B2lMaxExchangeOpcode(&c, 0x1c, NULL, 0, 1, &result) == -9);
-    assert(c.EventLog.Count == 0 && reads == 0 && writes == 0);
-
-    reset(&c);
-    samples[1]=0x80; sample_count=2; response_opcode=0x05;
-    assert(B2lMaxExchangeOpcode(&c, 0x1c, NULL, 0, 1, &result) == STATUS_DEVICE_PROTOCOL_ERROR);
-    assert(c.EventLog.Count == 1); // response mismatch still has event evidence
-
-    reset(&c);
-    sample_count=301;
-    assert(B2lMaxExchangeOpcode(&c, 0x1c, NULL, 0, 1, &result) == STATUS_IO_TIMEOUT);
-    assert(reads == 0 && c.EventLog.Count == 0 && waits == 300);
-
     reset(&c);
     for (i=0; i<113; ++i)
         B2lMaxCaptureEvent(&c, B2L_MAX_EVENT_POLL, 0xff, 0x2000, 0);
@@ -328,7 +280,7 @@ int main(void) {
     assert(invalid_rows==1 && output_lines<=33 && max_width<64);
     output_lines=max_width=0;
     B2lPrintMaxPhotoOverview(2);
-    assert(output_lines == 32 && max_width < 64);
+    assert(output_lines == 37 && max_width < 64);
     output_lines=max_width=0; registry_error=2;
     B2lPrintMaxPhotoOverview(3);
     assert(output_lines == 3 && max_width < 64);
@@ -352,4 +304,4 @@ with tempfile.TemporaryDirectory(prefix="b2l-event-test-") as directory:
                               "-I", str(SRC), str(temp / "test.c"),
                               "-o", str(temp / "test")], check=True)
     subprocess.run([str(temp / "test")], check=True)
-print("MAX77705 event/opcode fault-injection checks: PASS")
+print("MAX77705 event/photo fault-injection checks: PASS")

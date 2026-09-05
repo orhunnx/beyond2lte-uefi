@@ -568,7 +568,12 @@ B2lMaxHsI2cEvtInterruptEnable(WDFINTERRUPT Interrupt, WDFDEVICE Device)
 {
     PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
 
-    UNREFERENCED_PARAMETER(Interrupt);
+    WDF_INTERRUPT_INFO Info;
+    WDF_INTERRUPT_INFO_INIT(&Info);
+    WdfInterruptGetInfo(Interrupt, &Info);
+    if (Info.Vector != Context->HsI2cTranslatedIrq) {
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
     // D0Entry has already prepared clocks/pins and quiesced the controller.
     // Each transfer arms the peripheral only after publishing its buffer.
     Context->HsI2cIrqEnabled = TRUE;
@@ -728,8 +733,8 @@ B2lMaxTransferMessage(
     return Status;
 }
 
-NTSTATUS
-B2lMaxHsI2cWriteRead(
+static NTSTATUS
+B2lMaxHsI2cWriteReadLocked(
     PB2L_MAX_CONTEXT Context,
     UCHAR SlaveAddress,
     const UCHAR *WriteBuffer,
@@ -801,5 +806,18 @@ RetryTransfer:
         B2lMaxSleepMicroseconds(100U);
     }
     Context->HsI2cRetryCount = B2L_HSI2C_RETRIES;
+    return Status;
+}
+
+NTSTATUS
+B2lMaxHsI2cWriteRead(PB2L_MAX_CONTEXT Context, UCHAR SlaveAddress,
+    const UCHAR *WriteBuffer, ULONG WriteLength, UCHAR *ReadBuffer, ULONG ReadLength)
+{
+    NTSTATUS Status;
+    if (Context == NULL) return STATUS_INVALID_PARAMETER;
+    WdfWaitLockAcquire(Context->TransportLock, NULL);
+    Status = B2lMaxHsI2cWriteReadLocked(Context, SlaveAddress,
+        WriteBuffer, WriteLength, ReadBuffer, ReadLength);
+    WdfWaitLockRelease(Context->TransportLock);
     return Status;
 }

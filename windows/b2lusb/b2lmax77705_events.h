@@ -11,6 +11,7 @@
 #define B2L_MAX_EVENT_WAIT     3UL
 #define B2L_MAX_EVENT_POLL     4UL
 #define B2L_MAX_EVENT_CC_FAILED 5UL
+#define B2L_MAX_EVENT_IRQ       6UL
 #define B2L_MAX_EVENT_VALUE L"B2LMaxEventLog"
 
 typedef struct _B2L_MAX_EVENT {

@@ -63,8 +63,6 @@
 #define MAX77705_PD_INT_MASK_RUNTIME     0x00U
 #define MAX77705_VDM_INT_MASK_RUNTIME    0xF0U
 #define MAX77705_OPCODE_RESPONSE_LENGTH  2UL
-#define MAX77705_OPCODE_POLL_COUNT       300UL
-#define MAX77705_OPCODE_POLL_US          10000UL
 
 #define MAX77705_CHG_INT_MASK      0xB1U
 #define MAX77705_CHG_INT_OK        0xB2U
@@ -156,7 +154,8 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxHsI2cLastReadFailureLength", L"B2LMaxHsI2cLastReadFailureTransferred",
         L"B2LMaxHsI2cRawIrq", L"B2LMaxHsI2cTranslatedIrq",
         L"B2LMaxHsI2cInterruptCount", L"B2LMaxHsI2cCompletionCount",
-        L"B2LMaxHsI2cLastInterruptStatus"
+        L"B2LMaxHsI2cLastInterruptStatus",
+        L"B2LMaxMaxRawIrq", L"B2LMaxMaxTranslatedIrq", L"B2LMaxMaxInterruptCount", L"B2LMaxMaxInterruptFailures", L"B2LMaxMaxLastInterruptStatus", L"B2LMaxOpcodeCompletions", L"B2LMaxOpcodeUnexpected", L"B2LMaxIrqFrameOverflows", L"B2LMaxMfdFault"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -264,6 +263,17 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[92] = Context->HsI2cInterruptCount;
     Values[93] = Context->HsI2cCompletionCount;
     Values[94] = Context->HsI2cLastInterruptStatus;
+    WdfWaitLockAcquire(Context->MfdLock, NULL);
+    Values[95] = (ULONG)Context->MaxRawIrq;
+    Values[96] = (ULONG)Context->MaxTranslatedIrq;
+    Values[97] = (ULONG)Context->MaxInterruptCount;
+    Values[98] = (ULONG)Context->MaxInterruptFailures;
+    Values[99] = (ULONG)Context->MaxLastInterruptStatus;
+    Values[100] = (ULONG)Context->OpcodeCompletions;
+    Values[101] = (ULONG)Context->OpcodeUnexpected;
+    Values[102] = (ULONG)Context->IrqFrameOverflows;
+    Values[103] = (ULONG)Context->MfdFault;
+    WdfWaitLockRelease(Context->MfdLock);
 
     RtlInitUnicodeString(&ServicePath, ServicePathBuffer);
     InitializeObjectAttributes(
@@ -304,7 +314,7 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Context->DiagnosticPollCount = 0UL;
 }
 
-static NTSTATUS
+NTSTATUS
 B2lMaxReadByte(
     PB2L_MAX_CONTEXT Context,
     UCHAR SlaveAddress,
@@ -322,7 +332,7 @@ B2lMaxReadByte(
         );
 }
 
-static NTSTATUS
+NTSTATUS
 B2lMaxWriteByte(
     PB2L_MAX_CONTEXT Context,
     UCHAR SlaveAddress,
@@ -344,7 +354,7 @@ B2lMaxWriteByte(
         );
 }
 
-static NTSTATUS
+NTSTATUS
 B2lMaxWriteBlock(
     PB2L_MAX_CONTEXT Context,
     UCHAR SlaveAddress,
@@ -371,7 +381,7 @@ B2lMaxWriteBlock(
         );
 }
 
-static NTSTATUS
+NTSTATUS
 B2lMaxReadBlock(
     PB2L_MAX_CONTEXT Context,
     UCHAR SlaveAddress,
@@ -460,39 +470,12 @@ B2lMaxCaptureEvent(
     Context->DiagnosticDirty = TRUE;
 }
 
-static VOID
-B2lMaxRecordOpcodeUic(
-    PB2L_MAX_CONTEXT Context,
-    ULONG Origin,
-    UCHAR Opcode,
-    UCHAR Interrupts
-    )
-{
-    // Account for every successful read-to-clear UIC sample, including stale
-    // pre-command samples and APCMDRES combined with SYSMSG. Empty polling
-    // iterations perform no extra I2C traffic and consume no record slots.
-    Context->UicInterruptSeen |= Interrupts;
-    Context->EventLog.OpcodeUicSeen |= Interrupts;
-    if (Interrupts != 0U) {
-        B2lMaxCaptureEvent(Context, Origin, Opcode, Interrupts, STATUS_SUCCESS);
-    }
-}
-
 static NTSTATUS
-B2lMaxExchangeOpcode(
-    PB2L_MAX_CONTEXT Context,
-    UCHAR Opcode,
-    const UCHAR *WriteData,
-    ULONG WriteDataLength,
-    ULONG ResponseDataLength,
-    UCHAR *ResponseData
-    )
+B2lMaxExchangeOpcode(PB2L_MAX_CONTEXT Context, UCHAR Opcode,
+    const UCHAR *WriteData, ULONG WriteDataLength, ULONG ResponseDataLength,
+    UCHAR *ResponseData)
 {
-    UCHAR Command[2];
-    UCHAR InterruptStatus = 0U;
-    UCHAR Response[MAX77705_OPCODE_RESPONSE_LENGTH];
-    ULONG ResponseLength;
-    ULONG Poll;
+    B2L_MAX_OPCODE_REQUEST Request;
     NTSTATUS Status;
 
     if ((WriteDataLength > 1UL) || (ResponseDataLength > 1UL) ||
@@ -500,98 +483,20 @@ B2lMaxExchangeOpcode(
         ((ResponseDataLength != 0UL) && (ResponseData == NULL))) {
         return STATUS_INVALID_PARAMETER;
     }
-    ResponseLength = 1UL + ResponseDataLength;
-    RtlZeroMemory(Response, sizeof(Response));
-
-    // REG_UIC_INT is read-to-clear.  Drain any stale APCmdRes before sending
-    // a Samsung opcode, then wait for this command's APCmdRes response.
-    Status = B2lMaxReadByte(
-        Context,
-        B2L_MAX_USBC_ADDRESS,
-        MAX77705_USBC_UIC_INT,
-        &InterruptStatus
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
+    B2lMaxInitOpcodeRequest(&Request, Opcode, (UCHAR)WriteDataLength,
+        WriteDataLength != 0UL ? *WriteData : 0U, (UCHAR)ResponseDataLength);
+    WdfWaitLockAcquire(Context->MfdLock, NULL);
+    Status = B2lMaxQueueOpcodeLocked(Context, &Request);
+    WdfWaitLockRelease(Context->MfdLock);
+    if (NT_SUCCESS(Status)) {
+        // BusLock serializes policy clients, but neither MfdLock nor the
+        // transport lock is held while APCMDRES is delivered by GSIV 51.
+        Status = B2lMaxWaitOpcode(Context, &Request);
     }
-
-    B2lMaxRecordOpcodeUic(Context, B2L_MAX_EVENT_DRAIN, Opcode, InterruptStatus);
-    Command[0] = Opcode;
-    if (WriteDataLength != 0UL) {
-        Command[1] = *WriteData;
+    if (NT_SUCCESS(Status) && (ResponseDataLength != 0UL)) {
+        *ResponseData = Request.ResponseData;
     }
-    Status = B2lMaxWriteBlock(
-        Context,
-        B2L_MAX_USBC_ADDRESS,
-        MAX77705_USBC_OPCODE_WRITE,
-        Command,
-        1UL + WriteDataLength
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-    Status = B2lMaxWriteByte(
-        Context,
-        B2L_MAX_USBC_ADDRESS,
-        MAX77705_USBC_OPCODE_END,
-        0x00U
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-
-    for (Poll = 0UL; Poll < MAX77705_OPCODE_POLL_COUNT; ++Poll) {
-        Status = B2lMaxReadByte(
-            Context,
-            B2L_MAX_USBC_ADDRESS,
-            MAX77705_USBC_UIC_INT,
-            &InterruptStatus
-            );
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-        B2lMaxRecordOpcodeUic(Context, B2L_MAX_EVENT_WAIT, Opcode, InterruptStatus);
-        if ((InterruptStatus & MAX77705_USBC_INT_APCMDRES) != 0U) {
-            Status = B2lMaxReadBlock(
-                Context,
-                B2L_MAX_USBC_ADDRESS,
-                MAX77705_USBC_OPCODE_READ,
-                Response,
-                ResponseLength
-                );
-            if (!NT_SUCCESS(Status)) {
-                return Status;
-            }
-            if (Response[0] != Opcode) {
-                return STATUS_DEVICE_PROTOCOL_ERROR;
-            }
-            if (ResponseDataLength != 0UL) {
-                *ResponseData = Response[1];
-            }
-            return STATUS_SUCCESS;
-        }
-        B2lMaxDelayMicroseconds(MAX77705_OPCODE_POLL_US);
-    }
-    return STATUS_IO_TIMEOUT;
-}
-
-static NTSTATUS
-B2lMaxSendOpcode(
-    PB2L_MAX_CONTEXT Context,
-    UCHAR Opcode,
-    UCHAR Data,
-    ULONG ResponseDataLength,
-    UCHAR *ResponseData
-    )
-{
-    return B2lMaxExchangeOpcode(
-        Context,
-        Opcode,
-        &Data,
-        1UL,
-        ResponseDataLength,
-        ResponseData
-        );
+    return Status;
 }
 
 static NTSTATUS
@@ -633,51 +538,6 @@ B2lMaxSetMuicPath(PB2L_MAX_CONTEXT Context, UCHAR Path)
     }
     Context->MuicPathVerified = TRUE;
     return STATUS_SUCCESS;
-}
-
-static NTSTATUS
-B2lMaxDisableAutoVbus(PB2L_MAX_CONTEXT Context)
-{
-    NTSTATUS Status;
-
-    Context->AutoVbusDisabled = FALSE;
-    Context->OpcodeResponse = 0xFFU;
-    Status = B2lMaxSendOpcode(
-        Context,
-        MAX77705_OPCODE_FACTORY_TEST,
-        MAX77705_FACTORY_AUTO_VBUS_OFF,
-        1UL,
-        &Context->OpcodeResponse
-        );
-    if (NT_SUCCESS(Status)) {
-        Context->AutoVbusDisabled = TRUE;
-    }
-    return Status;
-}
-
-static NTSTATUS
-B2lMaxConfigureAutoIbus(PB2L_MAX_CONTEXT Context)
-{
-    NTSTATUS Status;
-
-    Context->AutoIbusConfigured = FALSE;
-    Context->AutoIbusMode = 0xFFU;
-    // Samsung's Exynos PD initialization uses AUTOIBUS_AT_OFF: USBC firmware
-    // remains active, while charger input-bus automation is handed to the OS.
-    // This is deliberately 0x01, not the Snapdragon UEFI log's stronger
-    // FW_AT_OFF (0x03), because Windows still relies on MAX77705 CC firmware.
-    Status = B2lMaxSendOpcode(
-        Context,
-        MAX77705_OPCODE_FW_AUTOIBUS,
-        MAX77705_AUTOIBUS_AT_OFF,
-        0UL,
-        NULL
-        );
-    if (NT_SUCCESS(Status)) {
-        Context->AutoIbusMode = MAX77705_AUTOIBUS_AT_OFF;
-        Context->AutoIbusConfigured = TRUE;
-    }
-    return Status;
 }
 
 static NTSTATUS
@@ -776,58 +636,6 @@ B2lMaxUnlockCharger(PB2L_MAX_CONTEXT Context)
 }
 
 static NTSTATUS
-B2lMaxReadAndClearUsbcInterrupts(PB2L_MAX_CONTEXT Context)
-{
-    UCHAR Interrupts[4];
-    NTSTATUS Status;
-
-    // Match the Samsung parent IRQ thread ordering: sample TOP INTSRC first,
-    // then fetch the four contiguous, read-to-clear USBC interrupt bytes in
-    // one transaction.  ACPI currently has no verified MAX77705 GPIO IRQ, so
-    // the passive timer is the delivery mechanism; sticky copies preserve
-    // short events after the live register sample has been cleared.
-    Status = B2lMaxReadByte(
-        Context,
-        B2L_MAX_TOP_ADDRESS,
-        MAX77705_TOP_INTSRC,
-        &Context->TopInterruptSource
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-    Context->TopInterruptSourceSeen |= Context->TopInterruptSource;
-    Status = B2lMaxReadBlock(
-        Context,
-        B2L_MAX_USBC_ADDRESS,
-        MAX77705_USBC_UIC_INT,
-        Interrupts,
-        RTL_NUMBER_OF(Interrupts)
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-    Context->UicInterrupt = Interrupts[0];
-    Context->CcInterrupt = Interrupts[1];
-    Context->PdInterrupt = Interrupts[2];
-    Context->VdmInterrupt = Interrupts[3];
-    Context->UicInterruptSeen |= Context->UicInterrupt;
-    Context->CcInterruptSeen |= Context->CcInterrupt;
-    Context->PdInterruptSeen |= Context->PdInterrupt;
-    Context->VdmInterruptSeen |= Context->VdmInterrupt;
-    if (Context->CcInterrupt != 0U) {
-        ++Context->CcInterruptCount;
-    }
-    if ((Context->TopInterruptSource != 0U) ||
-        (Context->UicInterrupt != 0U) ||
-        (Context->CcInterrupt != 0U) ||
-        (Context->PdInterrupt != 0U) ||
-        (Context->VdmInterrupt != 0U)) {
-        Context->DiagnosticDirty = TRUE;
-    }
-    return STATUS_SUCCESS;
-}
-
-static NTSTATUS
 B2lMaxReadCcStatus(PB2L_MAX_CONTEXT Context)
 {
     UCHAR StatusBytes[2];
@@ -860,9 +668,6 @@ B2lMaxReadCcStatus(PB2L_MAX_CONTEXT Context)
         Context->CcState = NewState;
         Context->CcStatusValid = TRUE;
         Context->DiagnosticDirty = TRUE;
-        if (NewState == B2L_MAX_CC_SOURCE) {
-            ++Context->CcSourceEventCount;
-        }
     } else if (NewState != Context->CcState) {
         Context->PreviousCcState = Context->CcState;
         Context->CcState = NewState;
@@ -870,9 +675,6 @@ B2lMaxReadCcStatus(PB2L_MAX_CONTEXT Context)
         Context->CcLastTransitionTime = SampleTime;
         ++Context->CcTransitionCount;
         Context->DiagnosticDirty = TRUE;
-        if (NewState == B2L_MAX_CC_SOURCE) {
-            ++Context->CcSourceEventCount;
-        }
     } else if ((Context->CcInterrupt & MAX77705_CC_INT_ATTACH_MASK) != 0U) {
         // Preserve an interrupt whose status already settled back to the same
         // state.  Sticky interrupt bytes and the counter make it diagnosable.
@@ -933,94 +735,6 @@ B2lMaxWriteUsbcMasks(
         0xFFU,
         &Context->VdmInterruptMask
         );
-}
-
-static NTSTATUS
-B2lMaxConfigureUsbcMasks(PB2L_MAX_CONTEXT Context)
-{
-    NTSTATUS Status;
-
-    Context->UsbcMasksConfigured = FALSE;
-    Context->UsbcRuntimeMasksConfigured = FALSE;
-    Status = B2lMaxReadByte(
-        Context,
-        B2L_MAX_TOP_ADDRESS,
-        MAX77705_TOP_INTSRC_MASK,
-        &Context->TopInterruptSourceMask
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-    Status = B2lMaxReadAndClearUsbcInterrupts(Context);
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-    Status = B2lMaxWriteUsbcMasks(
-        Context,
-        MAX77705_UIC_INT_MASK_LINUX,
-        MAX77705_CC_INT_MASK_LINUX,
-        MAX77705_PD_INT_MASK_PROBE,
-        MAX77705_VDM_INT_MASK_PROBE
-        );
-    if (NT_SUCCESS(Status)) {
-        Context->UsbcMasksConfigured = TRUE;
-    }
-    return Status;
-}
-
-static NTSTATUS
-B2lMaxConfigureRuntimeUsbcMasks(PB2L_MAX_CONTEXT Context)
-{
-    NTSTATUS Status;
-
-    Context->UsbcRuntimeMasksConfigured = FALSE;
-    Status = B2lMaxWriteUsbcMasks(
-        Context,
-        MAX77705_UIC_INT_MASK_LINUX,
-        MAX77705_CC_INT_MASK_LINUX,
-        MAX77705_PD_INT_MASK_RUNTIME,
-        MAX77705_VDM_INT_MASK_RUNTIME
-        );
-    if (NT_SUCCESS(Status)) {
-        Context->UsbcRuntimeMasksConfigured = TRUE;
-    }
-    return Status;
-}
-
-static NTSTATUS
-B2lMaxConfigureCcControl(PB2L_MAX_CONTEXT Context)
-{
-    NTSTATUS Status;
-
-    Context->CcControlConfigured = FALSE;
-    Context->CcControlResponse = 0xFFU;
-    Context->CcControlReadBack = 0xFFU;
-    Status = B2lMaxSendOpcode(
-        Context,
-        MAX77705_OPCODE_CCCTRL1_WRITE,
-        MAX77705_CCCTRL1_BEYOND2LTE,
-        1UL,
-        &Context->CcControlResponse
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-    Status = B2lMaxExchangeOpcode(
-        Context,
-        MAX77705_OPCODE_CCCTRL1_READ,
-        NULL,
-        0UL,
-        1UL,
-        &Context->CcControlReadBack
-        );
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
-    if (Context->CcControlReadBack != MAX77705_CCCTRL1_BEYOND2LTE) {
-        return STATUS_DEVICE_DATA_ERROR;
-    }
-    Context->CcControlConfigured = TRUE;
-    return STATUS_SUCCESS;
 }
 
 static NTSTATUS
@@ -1190,14 +904,10 @@ B2lMaxReadStatus(PB2L_MAX_CONTEXT Context)
     NTSTATUS Status;
 
     NeedDetails = (BOOLEAN)!Context->CcStatusValid;
-    Status = B2lMaxReadAndClearUsbcInterrupts(Context);
-    if (!NT_SUCCESS(Status)) {
-        return Status;
-    }
     Status = B2lMaxReadCcStatus(Context);
     if (!NT_SUCCESS(Status)) {
-        // The interrupt bytes have already been cleared. Keep their evidence
-        // even if the following policy CC read fails; do not reuse stale CC.
+        // The MFD IRQ frame owns the captured interrupt bytes. A failed
+        // nested CC read must not activate a previous SOURCE sample.
         B2lMaxCaptureEvent(Context, B2L_MAX_EVENT_CC_FAILED, 0xFFUL,
             (ULONG)Context->UicInterrupt | ((ULONG)Context->CcInterrupt << 8) |
             ((ULONG)Context->PdInterrupt << 16) | ((ULONG)Context->VdmInterrupt << 24),
@@ -1490,7 +1200,7 @@ B2lMaxDisableOtg(PB2L_MAX_CONTEXT Context)
 }
 
 static NTSTATUS
-B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)
+B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
 {
     UCHAR CcState;
     NTSTATUS Status;
@@ -1501,7 +1211,11 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)
         return Status;
     }
     CcState = Context->CcState;
+    // Samsung CCIC_IRQ_INIT_DETECT processes SINK only. In particular, a
+    // probe status read must never substitute for the source CCSTAT IRQ.
+    if (InitialDetect && (CcState != B2L_MAX_CC_SINK)) return STATUS_SUCCESS;
     if (CcState == B2L_MAX_CC_SOURCE) {
+        ++Context->CcSourceEventCount; // actual CCSTAT dispatch, never probe/pin-only
         // Samsung max77705_ccstat_irq_handler turns on VBUS in cc_SOURCE.
         // MUIC's later OTG/RpRd notification selects USB_AP. Do not invert
         // that dependency by requiring the MUIC switch before source power.
@@ -1525,7 +1239,7 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)
         }
         return STATUS_SUCCESS;
     }
-    // Fixed HOST permits VBUS in exactly one CC state.  This also shuts down
+    // CC source power is permitted in exactly one state. This also shuts down
     // OTG inherited from boot firmware when the current cable is detached,
     // sink, audio/debug accessory, disabled or erroneous.
     if ((CcState != B2L_MAX_CC_SOURCE) &&
@@ -1551,108 +1265,136 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context)
 }
 
 static NTSTATUS
+B2lMaxInitializeUsbc(PB2L_MAX_CONTEXT Context)
+{
+    B2L_MAX_OPCODE_REQUEST Requests[4];
+    UCHAR ReadBack;
+    ULONG Index;
+    NTSTATUS Status;
+
+    B2lMaxInitOpcodeRequest(&Requests[0], MAX77705_OPCODE_FW_AUTOIBUS,
+        1U, MAX77705_AUTOIBUS_AT_OFF, 0U);
+    B2lMaxInitOpcodeRequest(&Requests[1], MAX77705_OPCODE_FACTORY_TEST,
+        1U, MAX77705_FACTORY_AUTO_VBUS_OFF, 1U);
+    B2lMaxInitOpcodeRequest(&Requests[2], MAX77705_OPCODE_CCCTRL1_WRITE,
+        1U, MAX77705_CCCTRL1_BEYOND2LTE, 1U);
+    B2lMaxInitOpcodeRequest(&Requests[3], MAX77705_OPCODE_CCCTRL1_READ,
+        0U, 0U, 1U);
+
+    WdfWaitLockAcquire(Context->MfdLock, NULL);
+    Status = Context->MfdFault;
+    if (!NT_SUCCESS(Status) || !Context->MaxIrqEnabled) {
+        if (NT_SUCCESS(Status)) Status = STATUS_DEVICE_NOT_READY;
+        goto Failed;
+    }
+    B2lMaxGpioMask(Context);
+    // MFD starts with all nested sources masked, then installs its clients.
+    Status = B2lMaxUpdateByte(Context, B2L_MAX_TOP_ADDRESS, 0x23U,
+        0x0FU, 0x0FU, &Context->TopInterruptSourceMask);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    Status = B2lMaxWriteByte(Context, B2L_MAX_TOP_ADDRESS, 0x26U, 0xFFU);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    Status = B2lMaxWriteByte(Context, B2L_MAX_CHARGER_ADDRESS, 0xB1U, 0xFFU);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    Context->ChargerIntMask = Context->ChargerIntMaskBaseline = 0xFFU;
+    Status = B2lMaxWriteUsbcMasks(Context, 0xFFU, 0xFFU, 0xFFU, 0xFFU);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    // Original MFD enables CHG top source while USBC remains masked.
+    Status = B2lMaxUpdateByte(Context, B2L_MAX_TOP_ADDRESS, 0x23U,
+        0U, 0x01U, &Context->TopInterruptSourceMask);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    // Equivalent to USBC/MUIC/CC/PD nested handlers registering in probe.
+    Status = B2lMaxWriteUsbcMasks(Context, MAX77705_UIC_INT_MASK_LINUX,
+        MAX77705_CC_INT_MASK_LINUX, MAX77705_PD_INT_MASK_RUNTIME,
+        MAX77705_VDM_INT_MASK_RUNTIME);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    Context->MfdReady = TRUE;
+    // PD init queues AUTOIBUS before the final probe masks/init opcodes.
+    Status = B2lMaxQueueOpcodeLocked(Context, &Requests[0]);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    Status = B2lMaxWriteUsbcMasks(Context, MAX77705_UIC_INT_MASK_LINUX,
+        MAX77705_CC_INT_MASK_LINUX, MAX77705_PD_INT_MASK_PROBE,
+        MAX77705_VDM_INT_MASK_PROBE);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    Context->UsbcMasksConfigured = TRUE;
+    for (Index = 1UL; Index < RTL_NUMBER_OF(Requests); ++Index) {
+        Status = B2lMaxQueueOpcodeLocked(Context, &Requests[Index]);
+        if (!NT_SUCCESS(Status)) goto Failed;
+    }
+    // cc_booting_complete -> unmask top USBC bit; no pre-unmask response wait.
+    Status = B2lMaxUpdateByte(Context, B2L_MAX_TOP_ADDRESS, 0x23U,
+        0U, 0x08U, &Context->TopInterruptSourceMask);
+    if (!NT_SUCCESS(Status)) goto Failed;
+    B2lMaxGpioUnmask(Context);
+    WdfWaitLockRelease(Context->MfdLock);
+    for (Index = 0UL; Index < RTL_NUMBER_OF(Requests); ++Index) {
+        Status = B2lMaxWaitOpcode(Context, &Requests[Index]);
+        if (!NT_SUCCESS(Status)) return Status; // cancellation retired all links
+        switch (Index) {
+        case 0:
+            Context->AutoIbusMode = MAX77705_AUTOIBUS_AT_OFF;
+            Context->AutoIbusConfigured = TRUE;
+            break;
+        case 1:
+            Context->OpcodeResponse = Requests[Index].ResponseData;
+            Context->AutoVbusDisabled = TRUE;
+            break;
+        case 2:
+            Context->CcControlResponse = Requests[Index].ResponseData;
+            break;
+        case 3:
+            ReadBack = Requests[Index].ResponseData;
+            Context->CcControlReadBack = ReadBack;
+            if (ReadBack != MAX77705_CCCTRL1_BEYOND2LTE) return STATUS_DEVICE_DATA_ERROR;
+            Context->CcControlConfigured = TRUE;
+            break;
+        }
+    }
+    // Do not replace normal probe masks by reset-recovery mask constants.
+    // Alternate-mode/PD mask transitions need their actual Linux handlers.
+    Status = B2lMaxNormalizeCcOpen(Context);
+    if (NT_SUCCESS(Status)) Context->UsbcInitialized = TRUE;
+    return Status;
+
+Failed:
+    B2lMaxCancelOpcodesLocked(Context, Status);
+    Context->MfdReady = FALSE;
+    B2lMaxGpioMask(Context);
+    WdfWaitLockRelease(Context->MfdLock);
+    return Status;
+}
+
+static NTSTATUS
 B2lMaxServiceConnection(PB2L_MAX_CONTEXT Context)
 {
     NTSTATUS Status;
 
-    if (!Context->HardwareReady) {
-        return STATUS_DEVICE_NOT_READY;
-    }
-
-    // The HSI2C adapter's clocks/pins and IRQ are already owned. MAX MFD
-    // client probe/opcode retries run asynchronously after adapter startup;
-    // failed adapter initialization itself is reported by D0Entry.
+    if (!Context->HardwareReady) return STATUS_DEVICE_NOT_READY;
     if (!Context->IdentityReady) {
-        // The adapter is initialized before KMDF enables GSIV 114. MFD
-        // probe here uses real interrupt-completed transfers only.
         Status = B2lMaxProbeIdentity(Context);
         B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_IDENTITY, Status);
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
+        if (!NT_SUCCESS(Status)) return Status;
         B2lMaxCaptureEvent(Context, B2L_MAX_EVENT_BASELINE, 0xFFUL, 0UL, STATUS_SUCCESS);
     }
-
-    if (!Context->ChargerUnlocked) {
-        Status = B2lMaxUnlockCharger(Context);
-        B2lMaxPublishDiagnostic(
-            Context,
-            B2L_MAX_STAGE_CHARGER_UNLOCK,
-            Status
-            );
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-    }
-
-    // Preserve Samsung's probe order: PD initializes AUTOIBUS, the probe
-    // masks cover opcode setup, then the runtime mask vector is installed.
-    if (!Context->AutoIbusConfigured) {
-        Status = B2lMaxConfigureAutoIbus(Context);
-        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_AUTO_IBUS, Status);
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-    }
-
-    if (!Context->UsbcMasksConfigured) {
-        Status = B2lMaxConfigureUsbcMasks(Context);
-        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_USBC_MASKS, Status);
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-    }
-
-    if (!Context->AutoVbusDisabled) {
-        Status = B2lMaxDisableAutoVbus(Context);
-        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_AUTO_VBUS, Status);
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-    }
-
-    if (!Context->CcControlConfigured) {
-        Status = B2lMaxConfigureCcControl(Context);
-        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_CC_CONTROL, Status);
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-    }
-
-    if (!Context->UsbcRuntimeMasksConfigured) {
-        Status = B2lMaxConfigureRuntimeUsbcMasks(Context);
-        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_RUNTIME_MASKS, Status);
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-    }
-
-    if (!Context->CcOpenNormalized) {
-        Status = B2lMaxNormalizeCcOpen(Context);
-        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_CC_OPEN, Status);
-        if (!NT_SUCCESS(Status)) {
-            return Status;
-        }
-    }
-
-    Status = B2lMaxEvaluateConnection(Context);
-    if (NT_SUCCESS(Status)) {
-        ++Context->DiagnosticPollCount;
-    }
-    if (NT_SUCCESS(Status) &&
-        (Context->DiagnosticDirty ||
-         (Context->DiagnosticStage != B2L_MAX_STAGE_READY) ||
-         (Context->CcState != B2L_MAX_CC_NO_CONNECTION) ||
-         (Context->DiagnosticPollCount >= B2L_MAX_IDLE_DIAGNOSTIC_POLLS))) {
-        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_READY, Status);
-    }
+    Status = B2lMaxUnlockCharger(Context);
+    B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_CHARGER_UNLOCK, Status);
+    if (!NT_SUCCESS(Status)) return Status;
+    Status = B2lMaxInitializeUsbc(Context);
+    B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_MFD_IRQ, Status);
+    if (!NT_SUCCESS(Status)) return Status;
+    // Linux also performs a one-time initial CC/data-role detect in probe.
+    // This read is not counted as a hardware GPIO interrupt.
+    Context->UicInterrupt = Context->CcInterrupt = 0U;
+    Context->PdInterrupt = Context->VdmInterrupt = 0U;
+    Status = B2lMaxEvaluateConnection(Context, TRUE);
+    B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_CC, Status);
     return Status;
 }
 
 static VOID
 B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)
 {
-    Context->PollingEnabled = FALSE;
+    Context->PolicyEnabled = FALSE;
     if (Context->HsI2cRegisters != NULL) {
         MmUnmapIoSpace(Context->HsI2cRegisters, Context->HsI2cLength);
         Context->HsI2cRegisters = NULL;
@@ -1672,6 +1414,11 @@ B2lMaxUnmapResources(PB2L_MAX_CONTEXT Context)
             );
         Context->CmgpPinctrlRegisters = NULL;
     }
+    if (Context->AliveRegisters != NULL) {
+        MmUnmapIoSpace(Context->AliveRegisters, Context->AliveLength);
+        Context->AliveRegisters = NULL;
+    }
+    Context->AliveLength = 0UL;
     Context->HsI2cLength = 0UL;
     Context->UsiLength = 0UL;
     Context->CmgpCmuLength = 0UL;
@@ -1715,7 +1462,7 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 {
     WDF_OBJECT_ATTRIBUTES Attributes;
     WDF_PNPPOWER_EVENT_CALLBACKS PowerCallbacks;
-    WDF_TIMER_CONFIG TimerConfig;
+    WDF_WORKITEM_CONFIG WorkConfig;
     WDF_INTERRUPT_CONFIG InterruptConfig;
     WDFDEVICE Device;
     PB2L_MAX_CONTEXT Context;
@@ -1773,18 +1520,26 @@ B2lMaxEvtDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
         return Status;
     }
 
-    // Passive-level KMDF timers must be one-shot (Period == 0).  The timer
-    // callback rearms itself after each serialized MAX77705 status sample.
-    WDF_TIMER_CONFIG_INIT(&TimerConfig, B2lMaxEvtPollTimer);
-    TimerConfig.AutomaticSerialization = FALSE;
-    WDF_OBJECT_ATTRIBUTES_INIT(&Attributes);
-    Attributes.ParentObject = Device;
-    Attributes.ExecutionLevel = WdfExecutionLevelPassive;
-    return WdfTimerCreate(
-        &TimerConfig,
-        &Attributes,
-        &Context->PollTimer
-        );
+    Status = WdfWaitLockCreate(&Attributes, &Context->TransportLock);
+    if (!NT_SUCCESS(Status)) return Status;
+    Status = WdfWaitLockCreate(&Attributes, &Context->MfdLock);
+    if (!NT_SUCCESS(Status)) return Status;
+    // Second ACPI interrupt: real MAX GPA1-6 EINT. OS masks its GIC parent
+    // while the passive ISR services the I2C-connected interrupt source.
+    WDF_INTERRUPT_CONFIG_INIT(&InterruptConfig, B2lMaxEvtMaxInterruptIsr, NULL);
+    InterruptConfig.PassiveHandling = TRUE;
+    InterruptConfig.AutomaticSerialization = FALSE;
+    InterruptConfig.WaitLock = Context->MfdLock;
+    InterruptConfig.ShareVector = WdfFalse;
+    InterruptConfig.ReportInactiveOnPowerDown = WdfFalse;
+    InterruptConfig.EvtInterruptEnable = B2lMaxEvtMaxInterruptEnable;
+    InterruptConfig.EvtInterruptDisable = B2lMaxEvtMaxInterruptDisable;
+    Status = WdfInterruptCreate(Device, &InterruptConfig,
+        WDF_NO_OBJECT_ATTRIBUTES, &Context->MaxInterrupt);
+    if (!NT_SUCCESS(Status)) return Status;
+    WDF_WORKITEM_CONFIG_INIT(&WorkConfig, B2lMaxEvtPolicyWork);
+    WorkConfig.AutomaticSerialization = FALSE;
+    return WdfWorkItemCreate(&WorkConfig, &Attributes, &Context->PolicyWork);
 }
 
 NTSTATUS
@@ -1806,6 +1561,7 @@ B2lMaxEvtPrepareHardware(
     B2lMaxUnmapResources(Context);
     Context->HsI2cRawIrq = 0UL;
     Context->HsI2cTranslatedIrq = 0UL;
+    Context->MaxRawIrq = Context->MaxTranslatedIrq = 0UL;
     Count = WdfCmResourceListGetCount(ResourcesTranslated);
     for (Index = 0UL; Index < Count; ++Index) {
         Resource = WdfCmResourceListGetDescriptor(ResourcesTranslated, Index);
@@ -1821,18 +1577,24 @@ B2lMaxEvtPrepareHardware(
         if (Resource->Type == CmResourceTypeInterrupt) {
             Raw = WdfCmResourceListGetDescriptor(ResourcesRaw, Index);
             if ((Raw == NULL) || (Raw->Type != CmResourceTypeInterrupt) ||
-                (Raw->u.Interrupt.Vector != B2L_MAX_HSI2C_GSIV) ||
+                (InterruptCount > 1UL) ||
+                (Raw->u.Interrupt.Vector != (InterruptCount == 0UL ?
+                    B2L_MAX_HSI2C_GSIV : B2L_MAX_GPIO_GSIV)) ||
                 ((Resource->Flags & (CM_RESOURCE_INTERRUPT_LATCHED |
-                                    CM_RESOURCE_INTERRUPT_MESSAGE)) != 0) ||
-                (InterruptCount != 0UL)) {
+                                    CM_RESOURCE_INTERRUPT_MESSAGE)) != 0)) {
                 B2lMaxUnmapResources(Context);
                 B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_RESOURCES,
                     STATUS_DEVICE_CONFIGURATION_ERROR);
                 return STATUS_DEVICE_CONFIGURATION_ERROR;
             }
+            if (InterruptCount == 0UL) {
+                Context->HsI2cRawIrq = Raw->u.Interrupt.Vector;
+                Context->HsI2cTranslatedIrq = Resource->u.Interrupt.Vector;
+            } else {
+                Context->MaxRawIrq = Raw->u.Interrupt.Vector;
+                Context->MaxTranslatedIrq = Resource->u.Interrupt.Vector;
+            }
             ++InterruptCount;
-            Context->HsI2cRawIrq = Raw->u.Interrupt.Vector;
-            Context->HsI2cTranslatedIrq = Resource->u.Interrupt.Vector;
             continue;
         }
         if (Resource->Type != CmResourceTypeMemory) {
@@ -1877,6 +1639,13 @@ B2lMaxEvtPrepareHardware(
                 PAGE_READWRITE | PAGE_NOCACHE
                 );
             Context->CmgpPinctrlLength = Resource->u.Memory.Length;
+        } else if ((Start == B2L_MAX_ALIVE_PHYSICAL_BASE) &&
+                   (Resource->u.Memory.Length == B2L_MAX_DEVICE_PAGE_LENGTH) &&
+                   (Context->AliveRegisters == NULL)) {
+            Context->AliveRegisters = (PUCHAR)MmMapIoSpaceEx(
+                Resource->u.Memory.Start, Resource->u.Memory.Length,
+                PAGE_READWRITE | PAGE_NOCACHE);
+            Context->AliveLength = Resource->u.Memory.Length;
         } else {
             B2lMaxUnmapResources(Context);
             B2lMaxPublishDiagnostic(
@@ -1888,10 +1657,10 @@ B2lMaxEvtPrepareHardware(
         }
         ++MemoryCount;
     }
-    if ((MemoryCount != 4UL) || (InterruptCount != 1UL) || (Context->HsI2cRegisters == NULL) ||
+    if ((MemoryCount != 5UL) || (InterruptCount != 2UL) || (Context->HsI2cRegisters == NULL) ||
         (Context->UsiRegisters == NULL) ||
         (Context->CmgpCmuRegisters == NULL) ||
-        (Context->CmgpPinctrlRegisters == NULL)) {
+        (Context->CmgpPinctrlRegisters == NULL) || (Context->AliveRegisters == NULL)) {
         B2lMaxUnmapResources(Context);
         B2lMaxPublishDiagnostic(
             Context,
@@ -1915,15 +1684,14 @@ B2lMaxEvtReleaseHardware(
 
     UNREFERENCED_PARAMETER(ResourcesTranslated);
     WdfWaitLockAcquire(Context->BusLock, NULL);
-    Context->PollingEnabled = FALSE;
+    WdfWaitLockAcquire(Context->MfdLock, NULL);
+    Context->PolicyEnabled = FALSE;
+    WdfWaitLockRelease(Context->MfdLock);
     WdfWaitLockRelease(Context->BusLock);
-    (VOID)WdfTimerStop(Context->PollTimer, TRUE);
+    WdfWorkItemFlush(Context->PolicyWork);
     WdfWaitLockAcquire(Context->BusLock, NULL);
-    // Connector shutdown belongs to PreInterruptsDisabled. ReleaseHardware
-    // runs after interrupt disconnect and must not issue new I2C messages.
-    if (Context->HardwareReady && Context->PlatformPrepared) {
-        B2lMaxHsI2cQuiesce(Context);
-    }
+    // Hardware is no longer accessible here; all mask/quiesce operations
+    // were completed in PreInterruptsDisabled while resources were powered.
     B2lMaxUnmapResources(Context);
     Context->IdentityReady = FALSE;
     Context->BaselineValid = FALSE;
@@ -1952,6 +1720,11 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
 
     UNREFERENCED_PARAMETER(PreviousState);
     WdfWaitLockAcquire(Context->BusLock, NULL);
+    Context->MaxInterruptCount = Context->MaxInterruptFailures = 0UL;
+    Context->MaxLastInterruptStatus = Context->OpcodeCompletions = 0UL;
+    Context->OpcodeUnexpected = Context->IrqFrameOverflows = 0UL;
+    Context->IrqFrameRead = Context->IrqFrameCount = 0UL;
+    Context->MfdReady = Context->UsbcInitialized = FALSE;
     Context->HsI2cInterruptCount = 0UL;
     Context->HsI2cCompletionCount = 0UL;
     Context->HsI2cLastInterruptStatus = 0UL;
@@ -1988,11 +1761,15 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     Context->DiagnosticPollCount = 0UL;
     Context->CcLastSampleTime = 0ULL;
     Context->CcLastTransitionTime = 0ULL;
-    Context->PollingEnabled = FALSE;
+    Context->PolicyEnabled = FALSE;
     // Prepare clocks/pins and mask stale controller status BEFORE Windows
     // enables the hardware IRQ. No MAX transaction is made here.
     Status = B2lMaxHsI2cInitialize(Context);
     B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_BUS, Status);
+    if (NT_SUCCESS(Status)) {
+        Status = B2lMaxPrepareGpio(Context);
+        B2lMaxPublishDiagnostic(Context, B2L_MAX_STAGE_GPIO_IRQ, Status);
+    }
     WdfWaitLockRelease(Context->BusLock);
     return Status;
 }
@@ -2004,11 +1781,11 @@ B2lMaxEvtD0EntryPostInterruptsEnabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE P
 
     UNREFERENCED_PARAMETER(PreviousState);
     WdfWaitLockAcquire(Context->BusLock, NULL);
-    Context->PollingEnabled = TRUE;
+    WdfWaitLockAcquire(Context->MfdLock, NULL);
+    Context->PolicyEnabled = TRUE;
+    WdfWaitLockRelease(Context->MfdLock);
     WdfWaitLockRelease(Context->BusLock);
-    // MFD/opcode work may wait for GSIV 114 only after WDF enabled it.
-    (VOID)WdfTimerStart(Context->PollTimer,
-        WDF_REL_TIMEOUT_IN_MS(B2L_MAX_INITIAL_POLL_MS));
+    WdfWorkItemEnqueue(Context->PolicyWork);
     return STATUS_SUCCESS;
 }
 
@@ -2021,9 +1798,11 @@ B2lMaxEvtD0ExitPreInterruptsDisabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Ta
 
     UNREFERENCED_PARAMETER(TargetState);
     WdfWaitLockAcquire(Context->BusLock, NULL);
-    Context->PollingEnabled = FALSE;
+    WdfWaitLockAcquire(Context->MfdLock, NULL);
+    Context->PolicyEnabled = FALSE;
+    WdfWaitLockRelease(Context->MfdLock);
     WdfWaitLockRelease(Context->BusLock);
-    (VOID)WdfTimerStop(Context->PollTimer, TRUE);
+    WdfWorkItemFlush(Context->PolicyWork);
     WdfWaitLockAcquire(Context->BusLock, NULL);
     if (Context->HardwareReady && Context->PlatformPrepared) {
         Status = B2lMaxDisableOtg(Context);
@@ -2039,8 +1818,19 @@ B2lMaxEvtD0ExitPreInterruptsDisabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Ta
                 }
             }
         }
+        WdfWaitLockAcquire(Context->MfdLock, NULL);
+        B2lMaxGpioMask(Context);
+        Context->MfdReady = FALSE;
+        // Do not overwrite a previous mailbox failure with a shutdown code.
+        if (Context->OpcodeHead != NULL) {
+            B2lMaxCancelOpcodesLocked(Context, STATUS_DEVICE_NOT_READY);
+        }
+        WdfWaitLockAcquire(Context->TransportLock, NULL);
         B2lMaxHsI2cQuiesce(Context);
+        WdfWaitLockRelease(Context->TransportLock);
+        WdfWaitLockRelease(Context->MfdLock);
     }
+    Context->UsbcInitialized = FALSE;
     Context->IdentityReady = FALSE;
     Context->BaselineValid = FALSE;
     Context->ChargerUnlocked = FALSE;
@@ -2059,41 +1849,101 @@ B2lMaxEvtD0ExitPreInterruptsDisabled(WDFDEVICE Device, WDF_POWER_DEVICE_STATE Ta
     return Status;
 }
 
-VOID
-B2lMaxEvtPollTimer(WDFTIMER Timer)
+// Copy the IRQ's actual status snapshot into the photo log, without another
+// read-to-clear access or making failed bytes look like register contents.
+static VOID
+B2lMaxRecordIrqFrame(PB2L_MAX_CONTEXT Context, const B2L_MAX_IRQ_FRAME *Frame)
 {
-    WDFDEVICE Device = (WDFDEVICE)WdfTimerGetParentObject(Timer);
+    B2L_MAX_EVENT_LOG *Log = &Context->EventLog;
+    B2L_MAX_EVENT *Event;
+    ULONG Index;
+
+    if (Log->Count < B2L_MAX_EVENT_FIRST) {
+        Index = Log->Count;
+    } else {
+        Index = B2L_MAX_EVENT_FIRST + Log->NextTail;
+        Log->NextTail = (Log->NextTail + 1UL) % B2L_MAX_EVENT_TAIL;
+    }
+    if (Log->Count < B2L_MAX_EVENT_CAPACITY) ++Log->Count;
+    else ++Log->Overwritten;
+    Event = &Log->Events[Index];
+    RtlZeroMemory(Event, sizeof(*Event));
+    Event->Time = Frame->Time;
+    Event->Sequence = ++Log->Total;
+    Event->Origin = B2L_MAX_EVENT_IRQ;
+    Event->Opcode = 0xFFUL;
+    Event->PolicyCc = 0xFFFFFFFFUL;
+    Event->Interrupts = (ULONG)Frame->Raw[0] | ((ULONG)Frame->Raw[1] << 8) |
+        ((ULONG)Frame->Raw[2] << 16) | ((ULONG)Frame->Raw[3] << 24);
+    Event->ReadStatus = (ULONG)Frame->SnapshotStatus;
+    Event->Valid = NT_SUCCESS(Frame->SnapshotStatus);
+    if (Event->Valid) RtlCopyMemory(Event->Status, Frame->Status, sizeof(Event->Status));
+    else ++Log->SnapshotFailures;
+    Log->OpcodeUicSeen |= Frame->Raw[0];
+    if ((Frame->Raw[0] & MAX77705_USBC_INT_SYSMSG) != 0U) ++Log->SysmsgEvents;
+    if ((Frame->Raw[1] & MAX77705_CC_INT_ATTACH_ERROR) != 0U) ++Log->AttachErrorEvents;
+    Context->EventLogDirty = Context->DiagnosticDirty = TRUE;
+}
+
+VOID
+B2lMaxEvtPolicyWork(WDFWORKITEM WorkItem)
+{
+    WDFDEVICE Device = (WDFDEVICE)WdfWorkItemGetParentObject(WorkItem);
     PB2L_MAX_CONTEXT Context = B2lMaxGetContext(Device);
-    ULONG NextPollMs;
-    NTSTATUS Status;
+    B2L_MAX_IRQ_FRAME Frame;
+    ULONG Budget = B2L_MAX_IRQ_FRAMES;
+    NTSTATUS Status = STATUS_SUCCESS;
+    ULONG FailureStage = B2L_MAX_STAGE_MFD_IRQ;
 
     WdfWaitLockAcquire(Context->BusLock, NULL);
-    if (!Context->PollingEnabled || !Context->HardwareReady) {
-        WdfWaitLockRelease(Context->BusLock);
-        return;
+    if (!Context->PolicyEnabled || !Context->HardwareReady) goto Exit;
+    WdfWaitLockAcquire(Context->MfdLock, NULL);
+    Status = Context->MfdFault;
+    WdfWaitLockRelease(Context->MfdLock);
+    if (!NT_SUCCESS(Status)) FailureStage = Context->DiagnosticStage;
+    if (!Context->UsbcInitialized && NT_SUCCESS(Status)) {
+        Status = B2lMaxServiceConnection(Context);
+        if (!NT_SUCCESS(Status)) {
+            FailureStage = Context->DiagnosticStage;
+            WdfWaitLockAcquire(Context->MfdLock, NULL);
+            B2lMaxCancelOpcodesLocked(Context, Status);
+            B2lMaxGpioMask(Context);
+            WdfWaitLockRelease(Context->MfdLock);
+        }
     }
-    // ServiceConnection publishes the precise failed stage (BUS, IDENTITY,
-    // CC or OTG).  Do not overwrite a retry failure with a generic CC stage.
-    Status = B2lMaxServiceConnection(Context);
-    if (!NT_SUCCESS(Status)) {
-        NextPollMs = B2L_MAX_RETRY_POLL_MS;
-    } else if (Context->CcStatusValid &&
-               (Context->CcState == B2L_MAX_CC_NO_CONNECTION) &&
-               (Context->CcSampleCount <= B2L_MAX_ATTACH_FAST_POLLS)) {
-        // GPA1_6's DT source is known, but its EINT/ACPI interrupt lifecycle
-        // is not implemented. This existing timer is not a Linux CCStat IRQ.
-        // A stable role or an expired window returns to the 200 ms health
-        // cadence; late physical attach remains observable without a
-        // permanent 50 Hz polling load.
-        NextPollMs = B2L_MAX_ATTACH_POLL_MS;
-    } else {
-        NextPollMs = B2L_MAX_POLL_MS;
+    while (Budget-- != 0UL) {
+        WdfWaitLockAcquire(Context->MfdLock, NULL);
+        if (NT_SUCCESS(Status)) Status = Context->MfdFault;
+        if (Context->IrqFrameCount == 0UL) {
+            WdfWaitLockRelease(Context->MfdLock);
+            break;
+        }
+        Frame = Context->IrqFrames[Context->IrqFrameRead];
+        Context->IrqFrameRead = (Context->IrqFrameRead + 1UL) % B2L_MAX_IRQ_FRAMES;
+        --Context->IrqFrameCount;
+        WdfWaitLockRelease(Context->MfdLock);
+        B2lMaxRecordIrqFrame(Context, &Frame);
+        Context->TopInterruptSource = Frame.Top;
+        Context->TopInterruptSourceSeen |= Frame.Top;
+        Context->UicInterrupt = Frame.Active[0];
+        Context->CcInterrupt = Frame.Active[1];
+        Context->PdInterrupt = Frame.Active[2];
+        Context->VdmInterrupt = Frame.Active[3];
+        Context->UicInterruptSeen |= Frame.Raw[0];
+        Context->CcInterruptSeen |= Frame.Raw[1];
+        Context->PdInterruptSeen |= Frame.Raw[2];
+        Context->VdmInterruptSeen |= Frame.Raw[3];
+        if (Frame.Active[1] != 0U) ++Context->CcInterruptCount;
+        if (!NT_SUCCESS(Status)) continue; // preserve evidence after a fault
+        // CC nested work reads current hardware state when dispatched. A
+        // historical status snapshot must not energize an already lost source.
+        // Full PD data-role/notification handlers still need their own port.
+        if ((Frame.Active[1] & MAX77705_CC_INT_STATE) != 0U) {
+            Status = B2lMaxEvaluateConnection(Context, FALSE);
+        }
     }
-    if (Context->PollingEnabled && Context->HardwareReady) {
-        (VOID)WdfTimerStart(
-            Timer,
-            WDF_REL_TIMEOUT_IN_MS(NextPollMs)
-            );
-    }
+    B2lMaxPublishDiagnostic(Context, NT_SUCCESS(Status) ?
+        B2L_MAX_STAGE_READY : FailureStage, Status);
+Exit:
     WdfWaitLockRelease(Context->BusLock);
 }

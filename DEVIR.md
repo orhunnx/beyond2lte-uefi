@@ -18,6 +18,13 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > talimat sayılmamalıdır. Güncel USB gerçeğinin ayrıntılı kaynağı ayrıca
 > `specs/B2LUSB_LINUX_WINDOWS_FLOW_COMPARISON.md` dosyasıdır.
 
+> **5 Eylül / `.31` kaynak güncellemesi:** HSI2C GSIV114'e ek olarak özgün
+> MAX77705 GPA1-6 / GSIV51 pasif kesmesi, MFD/opcode kuyruğu ve timer'sız
+> politika işi eklendi. `MAX FOTO v4` iki IRQ zincirini ayrı gösterir.
+> Linux karşılaştırmasının başındaki `.31` bölümü önceliklidir. Flaş beklenmeden
+> kaynak eksikleri kapatılıyor; PD veri rolü/kurtarma ve dinamik DWC3/xHCI
+> zinciri henüz tamamlanmadı. `.31` WSL/telefon sonucu yoktur.
+
 > **5 Eylül / `.30` kaynak güncellemesi:** HSI2C45 aktarımı artık gerçek
 > GSIV114/ISR/DPC yolunda; eski FIFO polling yolu kaldırıldı. `.29` foto/FIFO
 > düzeltmelerinden sonraki bu değişiklik için **0.20** ve Linux karşılaştırma
@@ -81,12 +88,12 @@ kökündeki eski `beyond2ltePkg/` anlık görüntüsüne yapılan değişiklikle
 
 ### 0.3 Güncel repo ve sürüm çıpası
 
-`.30` kaynak değişikliğinin commit'i ve tabanı:
+`.31` çalışma değişikliğinin commit tabanı (güncel commit için `git log -1`):
 
 ```text
 dal:    codex/touch-from-8549bfa
-commit: 74e43fe  feat: drive MAX77705 HSI2C transfers from the original IRQ
-taban:  3c4f6ba  fix: drain MAX77705 FIFO and align source power sequencing
+taban:  5b73b6a  docs: pin MAX77705 IRQ and opcode probe dependencies
+önceki: 74e43fe  feat: drive MAX77705 HSI2C transfers from the original IRQ
 ```
 
 Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
@@ -96,7 +103,7 @@ Yeni WSL build'inde beklenen paket sürümleri (henüz cihazda doğrulanmadı):
 | `b2ltouch.sys` | `0.2.0.1` | `ACPI\BYN0001`, Samsung sec_ts -> KMDF/VHF touch |
 | `b2lusb.sys` parent | `0.1.0.18` | `ACPI\BYN0002`, PHY/DWC3 platform hazırlığı |
 | inbox host | `0.1.0.18` INF | `ACPI\BYN0003`, `USBXHCI` + GSIV 273 |
-| `b2lmax77705.sys` | `0.1.0.30` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG |
+| `b2lmax77705.sys` | `0.1.0.31` | `ACPI\BYN0004`, HSI2C45/MAX77705 Type-C/OTG |
 | `b2lufs.sys` | `0.0.4.5` kaynak sürümü | Deneysel Windows UFS miniport; güncel USB kapısı değil |
 
 Yalnız MAX77705 değiştiğinde parent/host sürümünün aynı kalması normaldir.

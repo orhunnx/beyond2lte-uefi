@@ -28,6 +28,7 @@ typedef uint8_t UCHAR;
 typedef uint32_t ULONG;
 typedef uint64_t ULONGLONG;
 typedef int32_t NTSTATUS;
+typedef int BOOLEAN;
 #define TRUE 1
 #define FALSE 0
 #define STATUS_SUCCESS 0
@@ -83,31 +84,34 @@ int main(void) {
     for(state=0;state<8;++state) {
         if(state==2) continue;
         reset(); memset(&c,0,sizeof(c)); raw[0]=(UCHAR)(0x80|state); raw[1]=0;
-        assert(B2lMaxEvaluateConnection(&c)==0);
+        assert(B2lMaxEvaluateConnection(&c, FALSE)==0);
         assert(strcmp(actions,"RO")==0 && c.CcState==state);
         assert(c.CcSourceEventCount==0 && !c.OtgEnabled);
     }
     reset(); memset(&c,0,sizeof(c)); raw[0]=0x42;
-    assert(B2lMaxEvaluateConnection(&c)==0);
+    assert(B2lMaxEvaluateConnection(&c, TRUE)==0);
+    assert(strcmp(actions,"R")==0 && !c.OtgEnabled && c.CcSourceEventCount==0);
+    reset(); memset(&c,0,sizeof(c)); raw[0]=0x42;
+    assert(B2lMaxEvaluateConnection(&c, FALSE)==0);
     assert(strcmp(actions,"RVM")==0); // Linux: CC -> VBUS -> MUIC
     assert(c.CcSourceEventCount==1 && c.OtgEnabled && c.MuicControl1==9);
-    reset(); assert(B2lMaxEvaluateConnection(&c)==0);
+    reset(); assert(B2lMaxEvaluateConnection(&c, FALSE)==0);
     assert(strcmp(actions,"R")==0); // stable source is idempotent
     reset(); raw[0]=0x80;
-    assert(B2lMaxEvaluateConnection(&c)==0);
+    assert(B2lMaxEvaluateConnection(&c, FALSE)==0);
     assert(strcmp(actions,"RDO")==0); // source lost: power off before OPEN
     assert(c.CcTransitionCount==1 && !c.OtgEnabled && c.MuicControl1==0x3f);
     reset(); raw[0]=0x42; power_error=-10;
-    assert(B2lMaxEvaluateConnection(&c)==-10 && strcmp(actions,"RV")==0);
+    assert(B2lMaxEvaluateConnection(&c, FALSE)==-10 && strcmp(actions,"RV")==0);
     reset(); muic_error=-20;
-    assert(B2lMaxEvaluateConnection(&c)==-20 && strcmp(actions,"RVM")==0);
-    reset(); assert(B2lMaxEvaluateConnection(&c)==0);
+    assert(B2lMaxEvaluateConnection(&c, FALSE)==-20 && strcmp(actions,"RVM")==0);
+    reset(); assert(B2lMaxEvaluateConnection(&c, FALSE)==0);
     assert(strcmp(actions,"RM")==0); // retry failed MUIC without a second power-on
     reset(); read_error=-30;
-    assert(B2lMaxEvaluateConnection(&c)==-30 && strcmp(actions,"R")==0);
+    assert(B2lMaxEvaluateConnection(&c, FALSE)==-30 && strcmp(actions,"R")==0);
     // A failed status read must not activate an inherited/stale SOURCE sample.
     reset(); c.OtgEnabled=0; read_error=-30;
-    assert(B2lMaxEvaluateConnection(&c)==-30 && strcmp(actions,"R")==0);
+    assert(B2lMaxEvaluateConnection(&c, FALSE)==-30 && strcmp(actions,"R")==0);
     puts("MAX77705 CC/source/VBUS/MUIC ordering tests: PASS");
 }
 '''

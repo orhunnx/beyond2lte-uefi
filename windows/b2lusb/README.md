@@ -1,5 +1,15 @@
 # Beyond2LTE Windows ARM64 USB bring-up
 
+**5 Eylül / MAX 0.1.0.31:** Özgün GPA1-6 / GSIV51 pasif kesmesi ve APCMD
+istek/yanıt kuyruğu eklendi; bağlantı/opcode polling kaldırıldı. ACPI BYN0004
+beş MMIO + iki IRQ ister (HSI2C114, MAX51). `MAX FOTO v4` genel sayfası
+37 satırdır; MAX_GSIV/IRQ/NT, OP_DONE ve MFD_FAULT alanlarını içerir.
+Normal probe PD/VDM maskeleri 1c/ff korunur. Initial SOURCE kontrolü VBUS
+başlatmaz; gerçek CCSTAT gerekir. WSL/WDK ve telefon doğrulaması yapılmadı.
+PD/charger hata işleyicileri ve dinamik DWC3/xHCI rol zinciri hâlâ eksiktir;
+statik HOST profili Linux akışının tamamı değildir. Ayrıntılar Linux
+karşılaştırma dosyasının başındadır; aşağıdaki sürüm notları tarihseldir.
+
 **5 Eylül / MAX 0.1.0.30:** HSI2C45 transferi özgün GSIV114 üzerinden
 ISR/DPC ile yürür; pasif FIFO polling yolu kaldırıldı. ACPI ve SYS birlikte
 güncellenmeli. `MAX FOTO v3` I2C_GSIV/IRQ/DONE gösterir. Gerçek MAX GPIO

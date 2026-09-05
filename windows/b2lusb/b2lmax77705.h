@@ -10,6 +10,8 @@
 #define B2L_MAX_CMGP_PINCTRL_PHYSICAL_BASE 0x15C30000ULL
 #define B2L_MAX_HSI2C_PHYSICAL_BASE        0x15D60000ULL
 #define B2L_MAX_HSI2C_GSIV                 114UL
+#define B2L_MAX_GPIO_GSIV                  51UL
+#define B2L_MAX_ALIVE_PHYSICAL_BASE        0x15850000ULL
 #define B2L_MAX_CMGP_CMU_LENGTH            0x00008000UL
 #define B2L_MAX_DEVICE_PAGE_LENGTH         0x00001000UL
 
@@ -17,11 +19,8 @@
 #define B2L_MAX_USBC_ADDRESS         0x25U
 #define B2L_MAX_CHARGER_ADDRESS      0x69U
 
-#define B2L_MAX_INITIAL_POLL_MS      1UL
-#define B2L_MAX_ATTACH_POLL_MS       20UL
-#define B2L_MAX_ATTACH_FAST_POLLS    50UL
-#define B2L_MAX_POLL_MS              200UL
-#define B2L_MAX_RETRY_POLL_MS        2000UL
+#define B2L_MAX_IRQ_FRAMES 64UL
+#define B2L_MAX_OPCODE_TIMEOUT_100NS 100000000ULL // Samsung 10*HZ queue deadline
 #define B2L_MAX_IDLE_DIAGNOSTIC_POLLS 10UL
 #define B2L_MAX_CC_STATUS_MASK       0x07U
 #define B2L_MAX_CC_NO_CONNECTION     0x00U
@@ -44,6 +43,8 @@
 #define B2L_MAX_STAGE_MUIC_OPEN      0x64UL
 #define B2L_MAX_STAGE_CC             0x68UL
 #define B2L_MAX_STAGE_READY          0x70UL
+#define B2L_MAX_STAGE_GPIO_IRQ       0x24UL
+#define B2L_MAX_STAGE_MFD_IRQ        0x34UL
 
 #define B2L_MAX_HSI2C_PHASE_NONE     0x00UL
 #define B2L_MAX_HSI2C_PHASE_PLATFORM 0x08UL
@@ -51,13 +52,43 @@
 #define B2L_MAX_HSI2C_PHASE_WRITE    0x20UL
 #define B2L_MAX_HSI2C_PHASE_READ     0x30UL
 
+// Stack-owned by a passive caller until completion or cancellation under
+// MfdLock. IRQ code never keeps a caller pointer after it releases that lock.
+typedef struct _B2L_MAX_OPCODE_REQUEST {
+    struct _B2L_MAX_OPCODE_REQUEST *Next;
+    KEVENT Completion;
+    ULONGLONG SentAt;
+    NTSTATUS Status;
+    BOOLEAN Complete;
+    UCHAR Opcode, WriteLength, ReadLength, WriteData, ResponseData;
+} B2L_MAX_OPCODE_REQUEST, *PB2L_MAX_OPCODE_REQUEST;
+
+typedef struct _B2L_MAX_IRQ_FRAME {
+    ULONGLONG Time;
+    UCHAR Top, Raw[4], Active[4], Charger;
+    UCHAR Status[8];
+    NTSTATUS SnapshotStatus;
+} B2L_MAX_IRQ_FRAME, *PB2L_MAX_IRQ_FRAME;
+
 typedef struct _B2L_MAX_CONTEXT {
     WDFDEVICE Device;
-    WDFTIMER PollTimer;
+    WDFWORKITEM PolicyWork;
+    WDFWAITLOCK TransportLock;
+    WDFWAITLOCK MfdLock;
+    WDFINTERRUPT MaxInterrupt;
+    PUCHAR AliveRegisters;
+    ULONG AliveLength, MaxRawIrq, MaxTranslatedIrq;
+    ULONG MaxInterruptCount, MaxInterruptFailures, MaxLastInterruptStatus;
+    ULONG OpcodeCompletions, OpcodeUnexpected, IrqFrameOverflows;
+    BOOLEAN MaxIrqEnabled, MfdReady, UsbcInitialized, PolicyEnabled;
+    NTSTATUS MfdFault;
+    PB2L_MAX_OPCODE_REQUEST OpcodeHead, OpcodeTail;
+    B2L_MAX_IRQ_FRAME IrqFrames[B2L_MAX_IRQ_FRAMES];
+    ULONG IrqFrameRead, IrqFrameCount;
     WDFWAITLOCK BusLock;
     WDFINTERRUPT HsI2cInterrupt;
     KEVENT HsI2cCompletion;
-    // Protected by the interrupt lock; BusLock serializes message callers.
+    // Protected by the HSI2C interrupt lock; TransportLock serializes callers.
     PUCHAR HsI2cMessageBuffer;
     ULONG HsI2cMessageLength;
     ULONG HsI2cMessagePosition;
@@ -81,7 +112,6 @@ typedef struct _B2L_MAX_CONTEXT {
     BOOLEAN HardwareReady;
     BOOLEAN PlatformPrepared;
     BOOLEAN IdentityReady;
-    BOOLEAN PollingEnabled;
     BOOLEAN OtgEnabled;
     BOOLEAN OtgHardwareActive;
     BOOLEAN ChargerUnlocked;
@@ -184,7 +214,23 @@ EVT_WDF_DEVICE_RELEASE_HARDWARE B2lMaxEvtReleaseHardware;
 EVT_WDF_DEVICE_D0_ENTRY B2lMaxEvtD0Entry;
 EVT_WDF_DEVICE_D0_ENTRY_POST_INTERRUPTS_ENABLED B2lMaxEvtD0EntryPostInterruptsEnabled;
 EVT_WDF_DEVICE_D0_EXIT_PRE_INTERRUPTS_DISABLED B2lMaxEvtD0ExitPreInterruptsDisabled;
-EVT_WDF_TIMER B2lMaxEvtPollTimer;
+EVT_WDF_WORKITEM B2lMaxEvtPolicyWork;
+EVT_WDF_INTERRUPT_ISR B2lMaxEvtMaxInterruptIsr;
+EVT_WDF_INTERRUPT_ENABLE B2lMaxEvtMaxInterruptEnable;
+EVT_WDF_INTERRUPT_DISABLE B2lMaxEvtMaxInterruptDisable;
+
+NTSTATUS B2lMaxPrepareGpio(PB2L_MAX_CONTEXT Context);
+VOID B2lMaxGpioMask(PB2L_MAX_CONTEXT Context);
+VOID B2lMaxGpioUnmask(PB2L_MAX_CONTEXT Context);
+VOID B2lMaxCancelOpcodesLocked(PB2L_MAX_CONTEXT Context, NTSTATUS Status);
+NTSTATUS B2lMaxQueueOpcodeLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_OPCODE_REQUEST Request);
+NTSTATUS B2lMaxWaitOpcode(PB2L_MAX_CONTEXT Context, PB2L_MAX_OPCODE_REQUEST Request);
+VOID B2lMaxInitOpcodeRequest(PB2L_MAX_OPCODE_REQUEST Request, UCHAR Opcode,
+    UCHAR WriteLength, UCHAR WriteData, UCHAR ReadLength);
+NTSTATUS B2lMaxReadByte(PB2L_MAX_CONTEXT Context, UCHAR Address, UCHAR Register, UCHAR *Value);
+NTSTATUS B2lMaxReadBlock(PB2L_MAX_CONTEXT Context, UCHAR Address, UCHAR Register, UCHAR *Values, ULONG Count);
+NTSTATUS B2lMaxWriteByte(PB2L_MAX_CONTEXT Context, UCHAR Address, UCHAR Register, UCHAR Value);
+NTSTATUS B2lMaxWriteBlock(PB2L_MAX_CONTEXT Context, UCHAR Address, UCHAR Register, const UCHAR *Values, ULONG Count);
 EVT_WDF_INTERRUPT_ISR B2lMaxHsI2cEvtInterruptIsr;
 EVT_WDF_INTERRUPT_DPC B2lMaxHsI2cEvtInterruptDpc;
 EVT_WDF_INTERRUPT_ENABLE B2lMaxHsI2cEvtInterruptEnable;

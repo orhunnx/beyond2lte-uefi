@@ -355,6 +355,11 @@ call :B2LUsbAppendMax77705Summary RX_WANTED B2LMaxHsI2cLastReadFailureLength
 call :B2LUsbAppendMax77705Summary RX_READ B2LMaxHsI2cLastReadFailureTransferred
 call :B2LUsbAppendMax77705Summary I2C_GSIV B2LMaxHsI2cRawIrq
 call :B2LUsbAppendMax77705Summary I2C_IRQ B2LMaxHsI2cInterruptCount
+call :B2LUsbAppendMax77705Summary MAX_GSIV B2LMaxMaxRawIrq
+call :B2LUsbAppendMax77705Summary MAX_IRQ B2LMaxMaxInterruptCount
+call :B2LUsbAppendMax77705Summary MAX_NT B2LMaxMaxLastInterruptStatus
+call :B2LUsbAppendMax77705Summary OP_DONE B2LMaxOpcodeCompletions
+call :B2LUsbAppendMax77705Summary MFD_FAULT B2LMaxMfdFault
 call :B2LUsbAppendMax77705Summary I2C_DONE B2LMaxHsI2cCompletionCount
 rem Keep both automatic captures; print only the compact event summary.
 rem maxevents reads one registry value and works even if BYN0002 is absent.

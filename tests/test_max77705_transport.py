@@ -52,6 +52,9 @@ typedef int KEVENT;
 #define STATUS_DEVICE_PROTOCOL_ERROR ((NTSTATUS)-3)
 #define STATUS_IO_TIMEOUT ((NTSTATUS)-4)
 #define STATUS_DEVICE_NOT_READY ((NTSTATUS)-5)
+#define STATUS_DEVICE_CONFIGURATION_ERROR ((NTSTATUS)-6)
+typedef struct { ULONG Vector; } WDF_INTERRUPT_INFO;
+#define WDF_INTERRUPT_INFO_INIT(p) ((p)->Vector=0)
 #define UNREFERENCED_PARAMETER(x) ((void)(x))
 #define IO_NO_INCREMENT 0
 #define Executive 0
@@ -60,6 +63,7 @@ struct CONTEXT;
 typedef struct CONTEXT *PB2L_MAX_CONTEXT, *WDFINTERRUPT, *WDFDEVICE;
 typedef struct CONTEXT {
     WDFINTERRUPT HsI2cInterrupt;
+    ULONG HsI2cTranslatedIrq;
     KEVENT HsI2cCompletion;
     PUCHAR HsI2cMessageBuffer;
     ULONG HsI2cMessageLength, HsI2cMessagePosition;
@@ -191,6 +195,7 @@ static NTSTATUS KeWaitForSingleObject(KEVENT *event, int why, int mode, BOOLEAN 
     return STATUS_TIMEOUT;
 }
 '''
+harness += 'static void WdfInterruptGetInfo(WDFINTERRUPT i, WDF_INTERRUPT_INFO *n) { n->Vector=i->HsI2cTranslatedIrq; }\n'
 for name in ('B2lMaxHsI2cEvtInterruptIsr','B2lMaxHsI2cEvtInterruptDpc',
              'B2lMaxHsI2cEvtInterruptEnable','B2lMaxHsI2cEvtInterruptDisable',
              'B2lMaxFinishClockStretch','B2lMaxTransferMessage'):
