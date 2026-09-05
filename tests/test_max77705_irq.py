@@ -54,6 +54,7 @@ typedef struct { ULONG Vector; } WDF_INTERRUPT_INFO;
 #define STATUS_INVALID_PARAMETER (-3)
 #define STATUS_IO_TIMEOUT (-4)
 #define STATUS_DEVICE_PROTOCOL_ERROR (-5)
+#define STATUS_BUFFER_TOO_SMALL (-15)
 #define STATUS_BUFFER_OVERFLOW (-6)
 #define STATUS_NO_SUCH_DEVICE (-7)
 #define STATUS_DEVICE_DATA_ERROR (-8)
@@ -95,6 +96,9 @@ static int drop_irq, wrong_reply, stale_wakes, probe_test;
 static UCHAR sys_reads[8];
 static int sys_read_count, sys_read_length, sys_read_fail, afc_step, afc_fail, trace_sysmsg;
 static int retry_while_waiting;
+static NTSTATUS mailbox_error;
+static UCHAR response_override[33];
+static ULONG response_override_length;
 static BOOLEAN B2lMaxEvtMaxInterruptIsr(WDFINTERRUPT,ULONG);
 static void WdfWaitLockAcquire(WDFWAITLOCK l,void *timeout) {
     assert(l==current->MfdLock && !held && timeout==NULL); held=1;
@@ -122,6 +126,8 @@ VOID B2lMaxRetireControlLocked(PB2L_MAX_CONTEXT,PB2L_MAX_CONTROL_REQUEST,NTSTATU
 NTSTATUS B2lMaxRecoverControlsLocked(PB2L_MAX_CONTEXT);
 NTSTATUS B2lMaxResetUsbcLocked(PB2L_MAX_CONTEXT,BOOLEAN);
 NTSTATUS B2lMaxSetGrlLocked(PB2L_MAX_CONTEXT);
+NTSTATUS B2lMaxDispatchOpcodeResponseLocked(PB2L_MAX_CONTEXT,const B2L_MAX_OPCODE_REQUEST *,const UCHAR *,ULONG);
+NTSTATUS B2lMaxConsumeCurrentPdoLocked(PB2L_MAX_CONTEXT,const UCHAR *,ULONG,ULONGLONG);
 NTSTATUS B2lMaxWriteUsbcMasks(PB2L_MAX_CONTEXT,UCHAR,UCHAR,UCHAR,UCHAR);
 static VOID B2lMaxDelayMicroseconds(ULONG us) { assert(held && us==100000);++delay_100ms;ticks+=us*10ULL; }
 static NTSTATUS B2lMaxReapplyMuicLocked(PB2L_MAX_CONTEXT,UCHAR);
@@ -164,6 +170,11 @@ static NTSTATUS B2lMaxReadBlock(PB2L_MAX_CONTEXT c,UCHAR a,UCHAR r,UCHAR *v,ULON
     if(r==0x02) { assert(n==4); ++r2c_reads; memcpy(v,raw,4); memset(raw,0,4); return 0; }
     if(r==0x06) { if(n==5) { trace[trace_count++]='M'; memcpy(v,&reg_values[a][r],5); return 0; } assert(n==8); memset(v,0x81,n); return snap_error; }
     assert(r==0x51 && n>=1 && n<=33); ++responses;
+    if(mailbox_error)return mailbox_error;
+    if(response_override_length) {
+        assert(n<=response_override_length);memcpy(v,response_override,n);
+        trace[trace_count++]='A';return 0;
+    }
     if(last_opcode==0x30) {
         assert(n==32); memcpy(v,pd_response,32);
         v[0]=wrong_reply ? reply_opcode : last_opcode;
@@ -253,6 +264,7 @@ for name in ('B2lMaxSetDiagnosticLocked','B2lMaxReadCcStatus','B2lMaxEvaluateCon
 h+=irq.replace('BOOLEAN\nB2lMaxEvtMaxInterruptIsr','static BOOLEAN\nB2lMaxEvtMaxInterruptIsr')
 h+='\n'+pd
 h+='\n'+sysmsg+'\n'+control
+h+='\n'+(DIR/'b2lmax77705_response.c').read_text().replace('#include "b2lmax77705.h"','')
 h+='\n'+function('B2lMaxWriteUsbcMasks')+'\n'+function('B2lMaxInitializeUsbc')
 h+='\n'+function('B2lMaxRecordIrqFrame')
 h+=r'''
@@ -263,6 +275,7 @@ static void reset(PB2L_MAX_CONTEXT c) {
     reset_writes=trim_writes=delay_100ms=0;reset_irq=0;reset_fail_stage=control3_bad=cc_bad=0;
     drop_irq=wrong_reply=stale_wakes=probe_test=0; last_opcode=last_payload=reply_opcode=0;
     sys_read_count=sys_read_length=sys_read_fail=afc_step=afc_fail=trace_sysmsg=retry_while_waiting=0;
+    mailbox_error=0;response_override_length=0;memset(response_override,0,sizeof(response_override));
     memset(sys_reads,0,sizeof(sys_reads));
     c->Device=c->MaxInterrupt=c->PolicyWork=c->OpcodeDeadline=c;
     timer_due=pd_due=0;otg_on=otg_off=0;otg_error=0;memset(pd_response,0,sizeof(pd_response));c->PdRecoveryTimer=(void *)2;muic_actual=0;muic_bad_read=trace_count=0;connector_notifications=0;memset(trace,0,sizeof(trace)); c->MfdLock=(void *)1;
@@ -312,11 +325,14 @@ int main(void) {
     assert(a.Complete && b.Complete && a.Next==NULL && b.Next==NULL && c.OpcodeHead==NULL);
     assert(B2lMaxWaitOpcode(&c,&b)==STATUS_IO_TIMEOUT);
     reset(&c);queue(&c,&a,0x1c);queue(&c,&b,0x05);wrong_reply=1;reply_opcode=0x0b;
-    assert(B2lMaxWaitOpcode(&c,&a)==STATUS_DEVICE_PROTOCOL_ERROR && commands==1);
-    assert(b.Complete && !c.OpcodeHead && c.MaxInterruptFailures==1 && c.UicInterruptSeen==0x80);
+    assert(B2lMaxWaitOpcode(&c,&a)==STATUS_DEVICE_PROTOCOL_ERROR && commands==2);
+    assert(!b.Complete && c.OpcodeHead==&b && !c.MaxInterruptFailures && c.UicInterruptSeen==0x80);
+    assert(c.ResponseMismatches==1 && c.ResponseExpected==0x1c && c.ResponseOpcode==0x0b);
+    assert(c.ResponseLength==2 && c.ResponseStatus==0 && c.ResponseRequestStatus==STATUS_DEVICE_PROTOCOL_ERROR);
     assert(c.IrqFrameCount==1 && c.IrqFrames[0].Raw[0]==0x80);
     assert(NT_SUCCESS(c.IrqFrames[0].SnapshotStatus)); // opcode fault does not erase status evidence
-    assert(regs[0x904/4]&(1U<<6)); // failed mailbox is not silently resumed
+    assert(!(regs[0x904/4]&(1U<<6)) && !c.MfdFault);
+    wrong_reply=0;assert(B2lMaxWaitOpcode(&c,&b)==0 && c.OpcodeCompletions==2 && !c.OpcodeHead);
     reset(&c); queue(&c,&a,0x1c);read_error=STATUS_NO_SUCH_DEVICE;
     assert(B2lMaxWaitOpcode(&c,&a)==STATUS_NO_SUCH_DEVICE && a.Next==NULL);
     reset(&c);queue(&c,&a,0x1c);snap_error=STATUS_IO_TIMEOUT;
@@ -586,7 +602,7 @@ int main(void) {
     // Wrong mailbox opcode retires the PDO slot as a protocol failure.
     reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;reg_values[0x25][0x0d]=0x10;raw[2]=0x40;
     assert(deliver());wrong_reply=1;reply_opcode=0x05;assert(deliver());
-    assert(c.MfdFault==STATUS_DEVICE_PROTOCOL_ERROR && c.PdCapsStatus==STATUS_DEVICE_PROTOCOL_ERROR);
+    assert(!c.MfdFault && c.PdCapsStatus==STATUS_DEVICE_PROTOCOL_ERROR && c.ResponseMismatches==1);
     assert(!c.PdReadsPending && !c.PdRequests[0].InUse && !c.PdCapsValid && c.PdReadCompletions==1);
     // A send failure can retire synchronously: no slot/counter double release.
     reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;reg_values[0x25][0x0d]=0x10;write_error=STATUS_IO_TIMEOUT;
@@ -790,7 +806,7 @@ int main(void) {
         if(i==0) {ticks=timer_due;B2lMaxEvtOpcodeDeadline(&c);}
         if(i==1) {wrong_reply=1;reply_opcode=0x54;assert(deliver());}
         if(i==2) {reset_fail_stage=9;assert(deliver());}
-        assert(c.GrlStatus<0 && c.ControlStatus<0 && c.MfdFault<0);
+        assert(c.GrlStatus<0 && c.ControlStatus<0 && (i==1 ? c.MfdFault==0 : c.MfdFault<0));
         assert(trim_writes==(i==2) && !c.ControlPending && !c.OpcodeHead && !c.UsbcInitialized);
     }
     // GRL APCMD_FAIL dequeues only its response. Successor stays unsent;
@@ -813,9 +829,10 @@ int main(void) {
     // unchanged sticky bit fails verification, never a fabricated readback.
     reset(&c);control3_bad=1;assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);finish_controls();
     assert(written_op[5]==0x1d && written_data[5]==0x64 && written_op[6]==0x1c);
-    assert(!c.CcOpenNormalized && c.ControlStatus==STATUS_DEVICE_DATA_ERROR && c.MfdFault<0);
+    assert(!c.CcOpenNormalized && c.ControlStatus==STATUS_DEVICE_DATA_ERROR && !c.MfdFault);
     reset(&c);cc_bad=1;assert(B2lMaxInitializeUsbc(&c)==STATUS_PENDING);finish_controls();
     assert(!c.CcControlConfigured && !c.UsbcInitialized && c.ControlStatus<0 && !c.ControlPending);
+    assert(!c.MfdFault && c.CcOpenNormalized); // later CONTROL3 still completed
     // Pending PD slots are retired too, without a synthetic PD detach or
     // a successful PDO publication when GRL cancels their mailbox response.
     reset(&c);c.PowerRoleValid=1;c.PowerRole=1;reg_values[0x25][0x0d]=0x10;
@@ -840,19 +857,104 @@ int main(void) {
     reset(&c);raw[0]=0x40;reg_values[0x25][7]=0x64;assert(deliver());
     raw[0]=0x40;reg_values[0x25][7]=0x33;afc_fail=3;assert(deliver());
     assert(c.GrlStatus==STATUS_CANCELLED && c.SysmsgStatus==STATUS_IO_TIMEOUT && c.MfdFault==STATUS_IO_TIMEOUT);
-    // A failed APCMD must not hide a genuine POR in the same raw frame.
-    // Fault history survives; only the actual reset sequence admits new work.
+    // A mismatched APCMD is not a bus fault and must not hide genuine POR.
+    // Stock APCMD advances its successor before SYSMSG discards that node.
     reset(&c);queue(&c,&a,0x1c);queue(&c,&b,0x05);
     raw[0]=0xc0;reg_values[0x25][7]=5;wrong_reply=1;reply_opcode=0x54;assert(deliver());
     assert(a.Complete && a.Status==STATUS_DEVICE_PROTOCOL_ERROR && b.Complete);
-    assert(c.ResetPriorFault==STATUS_DEVICE_PROTOCOL_ERROR && c.ResetStatus==0 && c.ResetStage==8);
-    assert(!c.MfdFault && c.ControlStatus==STATUS_PENDING && commands==2 && written_op[1]==0x54);
+    assert(c.ResetPriorFault==0 && c.ResetStatus==0 && c.ResetStage==8 && c.ResponseMismatches==1);
+    assert(!c.MfdFault && c.ControlStatus==STATUS_PENDING && commands==3 && written_op[1]==5 && written_op[2]==0x54);
     wrong_reply=0;finish_controls();assert(c.UsbcInitialized && c.ControlStatus==0);
-    // A failed reset never clears that earlier error as if recovery succeeded.
+    // A failed reset still reports its I2C error after the opcode mismatch.
     reset(&c);queue(&c,&a,0x1c);raw[0]=0xc0;reg_values[0x25][7]=5;
     wrong_reply=1;reply_opcode=0x54;reset_fail_stage=4;assert(deliver());
-    assert(c.ResetPriorFault==STATUS_DEVICE_PROTOCOL_ERROR && c.ResetStatus==STATUS_IO_TIMEOUT);
+    assert(c.ResetPriorFault==0 && c.ResponseMismatches==1 && c.ResetStatus==STATUS_IO_TIMEOUT);
     assert(c.MfdFault==STATUS_IO_TIMEOUT && !c.ControlPending && !c.OpcodeHead && !c.UsbcInitialized);
+    // A real read failure still cancels the bus queue, while same-frame POR
+    // runs and preserves that actual failure (unlike a protocol mismatch).
+    reset(&c);queue(&c,&a,0x1c);queue(&c,&b,5);mailbox_error=STATUS_IO_TIMEOUT;
+    raw[0]=0xc0;reg_values[0x25][7]=5;assert(deliver());
+    assert(a.Status==STATUS_IO_TIMEOUT && b.Status==STATUS_IO_TIMEOUT);
+    assert(c.ResetPriorFault==STATUS_IO_TIMEOUT && c.ResetStatus==0 && !c.MfdFault);
+    assert(c.ResponseLength==0 && c.ResponseOpcode==0xff && c.ResponseStatus==STATUS_IO_TIMEOUT);
+    mailbox_error=0;finish_controls();assert(c.UsbcInitialized);
+    // Actual GRL can arrive while another opcode is expected. It is decoded
+    // once; the expected request fails honestly and its successor advances.
+    reset(&c);queue(&c,&a,0x0b);queue(&c,&b,5);
+    response_override[0]=0x70;response_override_length=2;assert(deliver());
+    assert(a.Status==STATUS_DEVICE_PROTOCOL_ERROR && !b.Complete && trim_writes==1);
+    assert(!c.GrlRequests && c.GrlStatus==0 && c.ResponseStatus==0 && c.ResponseMismatches==1 && commands==2);
+    response_override_length=0;assert(deliver() && b.Complete && !c.MfdFault && trim_writes==1);
+    // A mismatched GRL reply with failed trim does not conceal the real I2C
+    // failure. The old owner reports mismatch; remaining owners get bus error.
+    reset(&c);queue(&c,&a,0x0b);queue(&c,&b,5);reset_fail_stage=9;
+    response_override[0]=0x70;response_override_length=2;assert(deliver());
+    assert(a.Status==STATUS_DEVICE_PROTOCOL_ERROR && b.Status==STATUS_IO_TIMEOUT && c.MfdFault==STATUS_IO_TIMEOUT);
+    assert(c.ResponseStatus==STATUS_IO_TIMEOUT && c.ResponseRequestStatus==STATUS_DEVICE_PROTOCOL_ERROR && commands==1);
+    // Readback observations cannot change the expected control request's kind.
+    reset(&c);WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxQueueControlLocked(&c,B2L_MAX_CONTROL_CC_READ)==0);
+    assert(B2lMaxQueueControlLocked(&c,B2L_MAX_CONTROL_AUTO_VBUS)==0);WdfWaitLockRelease(c.MfdLock);
+    response_override[0]=0x1c;response_override[1]=0x66;response_override_length=2;assert(deliver());
+    assert(c.Control3RawValid && c.Control3Raw==0x66 && !c.CcControlConfigured && commands==2);
+    assert(c.ControlStatus==STATUS_DEVICE_PROTOCOL_ERROR && !c.MfdFault);
+    response_override_length=0;finish_controls();assert(!c.UsbcInitialized && c.AutoVbusDisabled);
+    // Failed WRITE is retained even if the following READ matches the path.
+    reset(&c);WdfWaitLockAcquire(c.MfdLock,NULL);
+    assert(B2lMaxRequestMuicLocked(&c,9)==STATUS_PENDING);WdfWaitLockRelease(c.MfdLock);
+    response_override[0]=0x55;response_override_length=1;assert(deliver());
+    assert(c.AltModeAcknowledged && !c.AltModeStartRequested && !c.MfdFault && commands==2);
+    response_override_length=0;assert(deliver());
+    assert(c.MuicStatus==STATUS_DEVICE_PROTOCOL_ERROR && !c.MuicPathVerified && !c.MuicOutstanding && c.MuicControl1==9);
+    // A missing consumer never masquerades as successful handling or a bus
+    // failure. No guessed VDM/AFC action is sent for the actual packet.
+    { static const UCHAR unhandled[]={0x21,0x22,0x31,0x48,0x4b,0xd1};
+      for(i=0;i<RTL_NUMBER_OF(unhandled);++i) {
+        reset(&c);queue(&c,&a,unhandled[i]);queue(&c,&b,5);
+        response_override[0]=unhandled[i];response_override_length=2;assert(deliver());
+        assert(a.Status==STATUS_NOT_SUPPORTED && c.ResponseUnhandled==1 && !c.MfdFault && commands==2);
+        response_override_length=0;assert(deliver() && b.Complete);
+      }
+    }
+    // Full raw PDO response follows the actual opcode even when its owner
+    // expected another command. No selected PDO or OS contract is created.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;c.PsRdyReceived=TRUE;
+    B2lMaxInitOpcodeRequest(&a,0x31,0,0,31);
+    WdfWaitLockAcquire(c.MfdLock,NULL);assert(B2lMaxQueueOpcodeLocked(&c,&a)==0);WdfWaitLockRelease(c.MfdLock);
+    response_override[0]=0x30;response_override[1]=9;response_override[2]=0x2c;
+    response_override[3]=0x91;response_override[4]=1;response_override_length=32;assert(deliver());
+    assert(a.Status==STATUS_DEVICE_PROTOCOL_ERROR && c.PdCapsValid && c.PdPdos[0]==0x1912c && c.ResponseStatus==0);
+    assert(!c.PdReadCompletions && !c.PdReadsPending && !c.PdRequestRetry);
+    // A 0x30 opcode in a short read cannot turn zero padding into PDO data.
+    reset(&c);c.PowerRoleValid=TRUE;c.PowerRole=1;c.PsRdyReceived=TRUE;queue(&c,&a,0x1c);
+    response_override[0]=0x30;response_override[1]=9;response_override_length=2;assert(deliver());
+    assert(!c.PdCapsValid && c.PdCapsHeader==9 && !c.PdPdos[0] && c.PdCapsStatus==STATUS_BUFFER_TOO_SMALL);
+    assert(c.ResponseShort==1 && c.ResponseLength==2 && !c.MfdFault);
+    // Source-cap request retry is response-driven, and not a power request.
+    reset(&c);queue(&c,&a,0x32);response_override[0]=0x32;response_override[1]=0xfe;response_override_length=2;
+    assert(deliver() && a.Status==0 && c.PdRequestRetry && commands==1 && !otg_on);
+    queue(&c,&b,0x32);response_override[1]=0;assert(deliver() && c.PdRequestRetry);
+    WdfWaitLockAcquire(c.MfdLock,NULL);B2lMaxResetPdConnectionLocked(&c);WdfWaitLockRelease(c.MfdLock);
+    assert(!c.PdRequestRetry); // stock detach clears srcccap_request_retry
+    // SBU and selftest are separate real observations, not CC/water events.
+    reset(&c);B2lMaxInitOpcodeRequest(&a,0x25,1,1,2);
+    WdfWaitLockAcquire(c.MfdLock,NULL);assert(B2lMaxQueueOpcodeLocked(&c,&a)==0);WdfWaitLockRelease(c.MfdLock);
+    response_override[0]=0x25;response_override[1]=0;response_override[2]=0x80;response_override_length=3;
+    assert(deliver() && c.SbuValid && !c.SbuRaw[0] && c.SbuRaw[1]==0x80 && !c.CcStatusValid);
+    B2lMaxInitOpcodeRequest(&b,0x59,1,1,3);
+    WdfWaitLockAcquire(c.MfdLock,NULL);assert(B2lMaxQueueOpcodeLocked(&c,&b)==0);WdfWaitLockRelease(c.MfdLock);
+    response_override[0]=0x59;response_override[1]=0xab;response_override[2]=3;response_override[3]=4;response_override_length=4;
+    assert(deliver() && c.SelftestValid && c.SelftestCc==0xab && c.SelftestSbuRaw[0]==3 && c.SelftestSbuRaw[1]==4);
+    assert(c.SbuRaw[1]==0x80 && !c.WaterDetected && !c.CcStatusValid && !c.DataRoleValid);
+    c.PdRequestRetry=TRUE;response_override_length=0;raw[0]=0;raw[1]=1;reg_values[0x25][0x0a]=2;
+    assert(deliver() && !c.PdRequestRetry && c.PowerRole==2);
+    raw[0]=0x40;reg_values[0x25][7]=5;assert(deliver());
+    assert(!c.Control3RawValid && !c.SbuValid && !c.SelftestValid && !c.AltModeAcknowledged);
+    finish_controls();
+    // No new policy write is executed during teardown, even for actual GRL.
+    reset(&c);queue(&c,&a,0x0b);c.PolicyEnabled=FALSE;
+    response_override[0]=0x70;response_override_length=2;assert(deliver());
+    assert(c.GrlStatus==STATUS_CANCELLED && !trim_writes && !c.MfdFault && a.Status==STATUS_DEVICE_PROTOCOL_ERROR);
     puts("MAX77705 IRQ/queue/MUIC/PD/SYSMSG reset/GRL/recovery: PASS (hardware delivery unverified)");
 }
 '''

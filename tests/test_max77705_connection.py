@@ -44,7 +44,7 @@ typedef struct {
     ULONG CcSampleCount, CcSourceEventCount, CcTransitionCount, DetachQueueClears;
     int CcStatusValid, CcStateChanged, DiagnosticDirty;
     int OtgEnabled, OtgHardwareActive, MuicPathVerified;
-    int PowerRoleValid, DataRoleValid, WaterDetected, MuicRprd;
+    int PowerRoleValid, DataRoleValid, WaterDetected, MuicRprd, PdRequestRetry;
     ULONG MuicType;
     UCHAR PowerRole, DataRole, PdStatus1, ChargerDetails[3];
     ULONG DataRoleEvents, DataRoleChanges, OvercurrentEvents;

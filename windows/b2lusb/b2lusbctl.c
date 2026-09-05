@@ -469,7 +469,7 @@ B2lPrintMaxPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v12 / tur %lu / GENEL DURUM\n", Cycle);
+    wprintf(L"MAX FOTO v13 / tur %lu / GENEL DURUM\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -519,7 +519,7 @@ B2lPrintConnectorPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v12 / tur %lu / WINDOWS ROL BILDIRIMI\n", Cycle);
+    wprintf(L"MAX FOTO v13 / tur %lu / WINDOWS ROL BILDIRIMI\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -624,7 +624,7 @@ B2lPrintPdPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v12 / tur %lu / PD OLAYLARI VE PDO\n", Cycle);
+    wprintf(L"MAX FOTO v13 / tur %lu / PD OLAYLARI VE PDO\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -703,7 +703,7 @@ B2lPrintSysmsgPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v12 / tur %lu / SYSMSG / OPCODE HATASI\n", Cycle);
+    wprintf(L"MAX FOTO v13 / tur %lu / SYSMSG / OPCODE HATASI\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -793,7 +793,7 @@ B2lPrintRecoveryPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v12 / tur %lu / BASLANGIC / RESET / GRL\n", Cycle);
+    wprintf(L"MAX FOTO v13 / tur %lu / BASLANGIC / RESET / GRL\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -830,6 +830,96 @@ B2lPrintRecoveryPhotoOverview(ULONG Cycle)
 }
 
 static VOID
+B2lPrintResponsePhotoOverview(ULONG Cycle)
+{
+    static const WCHAR *Names[] = {
+        L"B2LMaxResponseMismatches",
+        L"B2LMaxResponseUnhandled",
+        L"B2LMaxResponseShort",
+        L"B2LMaxResponseExpected",
+        L"B2LMaxResponseOpcode",
+        L"B2LMaxResponseLength",
+        L"B2LMaxResponseStatus",
+        L"B2LMaxResponseRequestStatus",
+        L"B2LMaxResponseRaw0",
+        L"B2LMaxResponseRaw1",
+        L"B2LMaxControl3RawValid",
+        L"B2LMaxControl3Raw",
+        L"B2LMaxAltModeAcknowledged",
+        L"B2LMaxPdRequestRetry",
+        L"B2LMaxSbuValid",
+        L"B2LMaxSbuRaw0",
+        L"B2LMaxSbuRaw1",
+        L"B2LMaxSelftestValid",
+        L"B2LMaxSelftestCc",
+        L"B2LMaxSelftestSbu0",
+        L"B2LMaxSelftestSbu1"
+    };
+    static const WCHAR *Labels[] = {
+        L"RX_MISMATCH",
+        L"RX_UNHANDLED",
+        L"RX_SHORT",
+        L"EXPECTED",
+        L"RECEIVED",
+        L"RX_LEN",
+        L"DISPATCH_NT",
+        L"REQ_NT",
+        L"RAW0",
+        L"RAW1",
+        L"CTRL3_VALID",
+        L"CTRL3_RAW",
+        L"ALT_ACK",
+        L"PDO_RETRY",
+        L"SBU_VALID",
+        L"SBU1_RAW",
+        L"SBU2_RAW",
+        L"SELF_VALID",
+        L"SELF_CC",
+        L"SELF_SBU1",
+        L"SELF_SBU2"
+    };
+    HKEY Key;
+    LSTATUS Error;
+    DWORD Value;
+    DWORD Size;
+    DWORD Type;
+    ULONG Index;
+
+    C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
+    wprintf(L"MAX FOTO v13 / tur %lu / GERCEK OPCODE YANITI\n", Cycle);
+    wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
+    Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+        L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
+    if (Error != ERROR_SUCCESS) {
+        wprintf(L"MAX_OVERVIEW_READ_ERROR=%ld\n", Error);
+        return;
+    }
+    // One key, no reg.exe processes. Fields are sequential reads, not one
+    // atomic policy snapshot; event pages carry their own snapshot identity.
+    for (Index = 0UL; Index < ARRAYSIZE(Names); ++Index) {
+        Size = (DWORD)sizeof(Value);
+        Type = 0;
+        Value = 0;
+        Error = RegQueryValueExW(Key, Names[Index], NULL, &Type,
+            (LPBYTE)&Value, &Size);
+        if ((Error == ERROR_SUCCESS) && (Type == REG_DWORD) &&
+            (Size == (DWORD)sizeof(Value))) {
+            wprintf(L"%-14ls = %08lX\n", Labels[Index], Value);
+        } else {
+            wprintf(L"%-14ls = YOK / hata=%ld tip=%lu boyut=%lu\n",
+                Labels[Index], Error, Type, Size);
+        }
+    }
+    RegCloseKey(Key);
+    wprintf(L"REQ_NT: beklenen komutun sonucu.\n");
+    wprintf(L"DISPATCH_NT: gercek yanitin tuketici sonucu.\n");
+    wprintf(L"RAW0/RAW1: dusuk bayt once; yalniz RX_LEN bayt gecerli.\n");
+    wprintf(L"ALT_ACK: firmware yaniti; READY / DP baglantisi degil.\n");
+    wprintf(L"PDO_RETRY: secim degil; yeni guc istegi gondermez.\n");
+    wprintf(L"Alanlar atomik degil. Sonraki sayfa: 20 sn. Q/Esc: cikis.\n");
+}
+
+static VOID
 B2lPrintMuicPhotoOverview(ULONG Cycle)
 {
     static const WCHAR *Names[] = {
@@ -857,7 +947,7 @@ B2lPrintMuicPhotoOverview(ULONG Cycle)
     ULONG Index;
 
     C_ASSERT(ARRAYSIZE(Names) == ARRAYSIZE(Labels));
-    wprintf(L"MAX FOTO v12 / tur %lu / MUIC / RID\n", Cycle);
+    wprintf(L"MAX FOTO v13 / tur %lu / MUIC / RID\n", Cycle);
     wprintf(L"Alanlar sirayla okunur. Sonraki sayfa: 20 sn.\n");
     Error = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
         L"SYSTEM\\CurrentControlSet\\Services\\b2lmax77705", 0, KEY_QUERY_VALUE, &Key);
@@ -904,7 +994,7 @@ B2lPrintMaxEventPage(const B2L_MAX_EVENT_LOG *Log, ULONG Page, ULONG Cycle)
     }
     // At most 33 lines on the WinPE 64x41 console. One immutable registry
     // snapshot for the whole cycle: new events cannot reorder later pages.
-    wprintf(L"MAX FOTO v12 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
+    wprintf(L"MAX FOTO v13 / tur %lu / sayfa %lu-%lu\n", Cycle, Page + 1UL, Pages);
     wprintf(L"Bu ekrani fotograflayin. Sonraki sayfa: 20 sn\n");
     wprintf(L"D0=%llu count=%lu total=%llu\n", Log->StartTime, Log->Count, Log->Total);
     wprintf(L"kayip=%llu UIC=%02lX SYS=%lu ERR=%lu FAIL=%lu\n",
@@ -1068,9 +1158,9 @@ B2lShowMaxPhotoScreen(VOID)
         if (Pages == 0UL) {
             Pages = 1UL;
         }
-        // Policy, USB/PnP, MUIC, UCM, PD, SYSMSG, then frozen event pages.
+        // Policy, USB/PnP, MUIC, UCM, PD, SYSMSG, recovery, response, then events.
         // Repeat indefinitely so photos never require a keyboard.
-        for (Page = 0UL; Page <= Pages + 6UL; ++Page) {
+        for (Page = 0UL; Page <= Pages + 7UL; ++Page) {
             if ((Page != 0UL) && !B2lClearPhotoConsole(Output)) {
                 return 1;
             }
@@ -1088,8 +1178,10 @@ B2lShowMaxPhotoScreen(VOID)
                 B2lPrintSysmsgPhotoOverview(Cycle);
             } else if (Page == 6UL) {
                 B2lPrintRecoveryPhotoOverview(Cycle);
+            } else if (Page == 7UL) {
+                B2lPrintResponsePhotoOverview(Cycle);
             } else if (Result == 0) {
-                B2lPrintMaxEventPage(&Log, Page - 7UL, Cycle);
+                B2lPrintMaxEventPage(&Log, Page - 8UL, Cycle);
             } else {
                 // Read errors were initially printed before the overview;
                 // repeat the actual error on this page after clearing it.

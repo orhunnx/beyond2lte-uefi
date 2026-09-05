@@ -219,7 +219,28 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
         L"B2LMaxAltModeStartRequested",
         L"B2LMaxAltModeStatus",
         L"B2LMaxResetPriorFault",
-        L"B2LMaxDetachQueueClears"
+        L"B2LMaxDetachQueueClears",
+        L"B2LMaxResponseMismatches",
+        L"B2LMaxResponseUnhandled",
+        L"B2LMaxResponseShort",
+        L"B2LMaxResponseExpected",
+        L"B2LMaxResponseOpcode",
+        L"B2LMaxResponseLength",
+        L"B2LMaxResponseStatus",
+        L"B2LMaxResponseRequestStatus",
+        L"B2LMaxResponseRaw0",
+        L"B2LMaxResponseRaw1",
+        L"B2LMaxControl3RawValid",
+        L"B2LMaxControl3Raw",
+        L"B2LMaxAltModeAcknowledged",
+        L"B2LMaxPdRequestRetry",
+        L"B2LMaxSbuValid",
+        L"B2LMaxSbuRaw0",
+        L"B2LMaxSbuRaw1",
+        L"B2LMaxSelftestValid",
+        L"B2LMaxSelftestCc",
+        L"B2LMaxSelftestSbu0",
+        L"B2LMaxSelftestSbu1"
     };
     ULONG Values[RTL_NUMBER_OF(Names)];
     OBJECT_ATTRIBUTES Attributes;
@@ -440,6 +461,27 @@ B2lMaxPublishDiagnostic(PB2L_MAX_CONTEXT Context, ULONG Stage, NTSTATUS Status)
     Values[203] = (ULONG)Context->AltModeStatus;
     Values[204] = (ULONG)Context->ResetPriorFault;
     Values[205] = Context->DetachQueueClears;
+    Values[206] = (ULONG)Context->ResponseMismatches;
+    Values[207] = (ULONG)Context->ResponseUnhandled;
+    Values[208] = (ULONG)Context->ResponseShort;
+    Values[209] = (ULONG)Context->ResponseExpected;
+    Values[210] = (ULONG)Context->ResponseOpcode;
+    Values[211] = (ULONG)Context->ResponseLength;
+    Values[212] = (ULONG)Context->ResponseStatus;
+    Values[213] = (ULONG)Context->ResponseRequestStatus;
+    Values[214] = (ULONG)Context->ResponseBytes[0] | ((ULONG)Context->ResponseBytes[1] << 8) | ((ULONG)Context->ResponseBytes[2] << 16) | ((ULONG)Context->ResponseBytes[3] << 24);
+    Values[215] = (ULONG)Context->ResponseBytes[4] | ((ULONG)Context->ResponseBytes[5] << 8) | ((ULONG)Context->ResponseBytes[6] << 16) | ((ULONG)Context->ResponseBytes[7] << 24);
+    Values[216] = (ULONG)Context->Control3RawValid;
+    Values[217] = (ULONG)Context->Control3Raw;
+    Values[218] = (ULONG)Context->AltModeAcknowledged;
+    Values[219] = (ULONG)Context->PdRequestRetry;
+    Values[220] = (ULONG)Context->SbuValid;
+    Values[221] = Context->SbuRaw[0];
+    Values[222] = Context->SbuRaw[1];
+    Values[223] = (ULONG)Context->SelftestValid;
+    Values[224] = (ULONG)Context->SelftestCc;
+    Values[225] = Context->SelftestSbuRaw[0];
+    Values[226] = Context->SelftestSbuRaw[1];
     Context->DiagnosticDirty = FALSE;
     WdfWaitLockRelease(Context->MfdLock);
 
@@ -1224,6 +1266,7 @@ B2lMaxEvaluateConnection(PB2L_MAX_CONTEXT Context, BOOLEAN InitialDetect)
     if (InitialDetect && (CcState != B2L_MAX_CC_SINK)) return STATUS_SUCCESS;
     if (CcState == B2L_MAX_CC_SOURCE) {
         ++Context->CcSourceEventCount; // actual CCSTAT dispatch, never probe/pin-only
+        Context->PdRequestRetry = FALSE; // stock cc_SOURCE clears sink PDO retry
         // Samsung max77705_ccstat_irq_handler turns on VBUS in cc_SOURCE.
         // Only a power-role transition starts source power. BYP overcurrent
         // can turn OTG off while current_pr remains SRC in the Linux handler.
@@ -2149,6 +2192,16 @@ B2lMaxEvtD0Entry(WDFDEVICE Device, WDF_POWER_DEVICE_STATE PreviousState)
     Context->MaxInterruptCount = Context->MaxInterruptFailures = 0UL;
     Context->MaxLastInterruptStatus = Context->OpcodeCompletions = 0UL;
     Context->OpcodeUnexpected = Context->IrqFrameOverflows = 0UL;
+    Context->ResponseMismatches = Context->ResponseUnhandled = Context->ResponseShort = 0UL;
+    Context->ResponseExpected = Context->ResponseOpcode = 0xFFU;
+    Context->ResponseLength = 0U;
+    RtlZeroMemory(Context->ResponseBytes, sizeof(Context->ResponseBytes));
+    Context->ResponseStatus = Context->ResponseRequestStatus = STATUS_DEVICE_NOT_READY;
+    Context->Control3RawValid = Context->SbuValid = Context->SelftestValid = FALSE;
+    Context->AltModeAcknowledged = Context->PdRequestRetry = FALSE;
+    Context->Control3Raw = Context->SelftestCc = 0U;
+    RtlZeroMemory(Context->SbuRaw, sizeof(Context->SbuRaw));
+    RtlZeroMemory(Context->SelftestSbuRaw, sizeof(Context->SelftestSbuRaw));
     Context->IrqFrameRead = Context->IrqFrameCount = 0UL;
     Context->MfdReady = Context->UsbcInitialized = FALSE;
     Context->HsI2cInterruptCount = 0UL;

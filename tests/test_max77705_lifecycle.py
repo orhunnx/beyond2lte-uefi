@@ -193,8 +193,13 @@ int main(void) {
     resources(&raw); translated=raw; translated.Entries[4].Type=CmResourceTypeDevicePrivate;
     assert(B2lMaxEvtPrepareHardware(&c,&raw,&translated)<0 && !c.HardwareReady); // missing ALIVE
     reset(&c); c.HsI2cInterruptCount=100; c.HsI2cCompletionCount=99;c.DetachQueueClears=17;
+    c.ResponseMismatches=3;c.ResponseLength=33;c.ResponseBytes[32]=0xab;
+    c.Control3RawValid=c.SbuValid=c.SelftestValid=c.AltModeAcknowledged=c.PdRequestRetry=TRUE;
     assert(B2lMaxEvtD0Entry(&c,0)==0 && starts==0 && !c.PolicyEnabled);
     assert(c.HsI2cInterruptCount==0 && c.HsI2cCompletionCount==0 && !c.DetachQueueClears && c.PlatformPrepared);
+    assert(!c.ResponseMismatches && !c.ResponseLength && !c.ResponseBytes[32] && c.ResponseExpected==0xff);
+    assert(c.ResponseStatus==STATUS_DEVICE_NOT_READY && !c.Control3RawValid && !c.SbuValid && !c.SelftestValid);
+    assert(!c.AltModeAcknowledged && !c.PdRequestRetry);
     c.HsI2cIrqEnabled=c.MaxIrqEnabled=TRUE; // framework enable occurs between these callbacks
     assert(B2lMaxEvtD0EntryPostInterruptsEnabled(&c,0)==0 && starts==1);
     assert(B2lMaxEvtD0ExitPreInterruptsDisabled(&c,0)==0);

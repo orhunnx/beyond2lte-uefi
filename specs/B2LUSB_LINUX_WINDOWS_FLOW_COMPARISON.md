@@ -1,5 +1,130 @@
 # Beyond2LTE USB host akışı: Samsung Linux ve Windows karşılaştırması
 
+## 5 Eylül 2026: `.40` — gerçek opcode yanıtının dağıtımı
+
+MAX `0.1.0.40`, parent/host/function `0.1.0.19`, ABI `7`. `.39`daki gerçek
+detach queue-clear ardından ortaya çıkan yanıt eşleme farkı düzeltildi.
+Kaynak çalışması flaş beklenmeden sürüyor; yeni telefon veya WSL sonucu yok.
+Bu bölüm, `.38/.39`daki **opcode uyuşmazlığı tüm kuyruğu/MFD'yi durdurur**
+ve **GRL trim yalnız beklenen opcode eşleşirse çalışır** açıklamalarının
+yerini alır. Gerçek I2C hatası ile yanıt türü uyuşmazlığı farklı sonuçlardır.
+
+### Stok kaynak ve değiştirilen davranış
+
+Sabit beyond2lte
+[max77705_irq_execute / cmd_run](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/ccic/max77705_usbc.c#L1813)
+yanıtı bekleyen düğümün `read_length` uzunluğuyla bir kez okur. İlk bayt
+beklenenden farklıysa farkı kaydeder; `switch(response)` yine **gerçek
+opcode** ile çalışır. GRL açık kaynak dalında firmware-clear istisnası
+yoktur. `cmd_run` yanıt tüketiminden sonra sıradaki komuta ilerler.
+
+Windows'un eski eşleştirmesi ise farklı opcode'u `MfdFault` yapıp tüm
+istekleri iptal ediyor ve GPIO kesmesini maskeliyordu. Bu, Linux'un normal
+dağıtımını kesiyor; özellikle yazılım queue-clear sonrası gelen yanıtlar
+USB başlangıcını kalıcı durdurabiliyordu.
+
+Yeni `b2lmax77705_response.c`, gerçek yanıtın tüketimini istek sahibinin
+sonucundan ayırır. Örneğin `EXPECTED=0b / RECEIVED=70` ise gerçek GRL
+handler'ı trim uygular; bekleyen `0b` isteği `STATUS_DEVICE_PROTOCOL_ERROR`
+alır. Bu istek CCCTRL1 okumuş sayılmaz. Trim başarılıysa sonraki komut
+ilerler; trim I2C hatası verirse kalan istekler gerçek I2C hatasıyla iptal
+edilir. Uyuşmazlık sayacı ve her iki sonuç da görünür kalır.
+
+| Gerçek yanıt | `.40` tüketimi ve kanıt sınırı |
+|---|---|
+| Register READ `01/03/05/07/09/0b/0d/0f/11/13/15/17` | Stok kaynak yalnız UPDATE_SEQ için yeni yazı üretir; mevcut Windows READ/WRITE isteklerinde ek yazı yok. Eşleşen isteğin readback doğrulaması ayrı çalışır. |
+| CONTROL3 `1c` | Gerçek bayt ve geçerliliği saklanır. Bekleyen eşleşen CONTROL3 istemcisi kendi CC-open devam işini yürütür; farklı isteğin türü CONTROL3'e çevrilmez. |
+| SBU `25` | İki gerçek ham SBU baytı saklanır; eksik veri geçerli sayılmaz. CC, su veya attach olayı üretilmez. |
+| CURRENT_SRCCAP `30` | Gerçek opcode ile PDO okuyucu çağrılır. Bilinen eski bağlantı nesli elenir; canlı SINK/PS_RDY koşulu korunur. Başlık ve gerekli PDO baytları mevcutsa ham PDO gözlemi yayımlanır. |
+| SRCCAP_REQUEST `32` | `fe/ff` yanıtı stok retry bayrağını kurar. Başka yanıt bu bayrağı kendiliğinden silmez. Gerçek detach ve CC SOURCE stok gibi temizler. |
+| SET_ALTERNATEMODE `55` | Firmware yanıtı `ALT_ACK` olarak kaydedilir; manager READY, START isteği veya DP anlaşması üretilmez. |
+| SELFTEST `59` | CC/SBU selftest baytları kendi geçerlilik alanlarında tutulur. Ayrı `25` SBU örneğiyle karıştırılmaz. |
+| GRL `70` | Gerçek yanıt opcode'u `62:1f=04` trim ve 100 ms adımını bir kez çalıştırır. İstek emekli edilirken ikinci trim yapılmaz. Kapanış sırasında yeni politika yazısı yapılmaz. |
+| AFC/QC `21/22`, GET_SRCCAP `31`, VDM `48/4b`, RAM_TEST `d1` | Gerçek tüketiciler tamamlanmadığı için `STATUS_NOT_SUPPORTED / RX_UNHANDLED` görünür. Tahmini güç/VDM işlemi gönderilmez. Bunlar hedefin açık parçalarıdır. |
+| Diğer/default | Stok switch'in ek iş yapmayan dalı; tek başına bir özellik veya bağlantı başarısı değildir. HWC1 `CONFIG_DIRECT_CHARGING` kapalı olduğundan `5d` bu derlemede log-only'dir. |
+
+PDO yerleşimi aynı commit'in
+[max77705_current_pdo](https://github.com/corsicanu/android_kernel_samsung_universal9820/blob/55f042627bb7030c93550faafa117674d32b21d1/drivers/ccic/max77705_pd.c#L743)
+işleyicisinden izlenir. Aktif HWC1 `PDIC_PD30` dalı kapalıdır. Mevcut Windows
+PDO listesi **ham gözlem** olmaya devam eder; battery power-list, RDO,
+selected PDO ve OS PD sözleşmesi henüz değildir. Kaynağın
+`srcccap_request_retry` bayrağını görmek, current PDO'yu selected PDO gibi
+kullanmayı haklı çıkarmaz. Gerçek seçim üreticisi ve sonraki CCI=3 retry
+isteği birlikte tamamlanmalıdır.
+
+### Uzunluk, istek ömrü ve hata ayrımı
+
+Beklenen kısa komutun yerine `30` gelirse sadece gerçekten okunan baytlar
+vardır. PDO başlığının gerektirdiği `2 + 4*N` bayt yoksa sonuç
+`STATUS_BUFFER_TOO_SMALL` olur; sıfırla doldurulmuş alanlardan PDO üretilmez.
+Ek polling veya ikinci mailbox okuması eklenmedi. Kısa SBU/SELFTEST/CONTROL3
+cevapları da geçerli veri sayılmaz. Başka opcode beklenirken gelen tam
+`30` paketi gerçek yanıt türüyle çözümlenir; eski bekleyen istek yine kendi
+uyuşmazlık sonucunu alır.
+
+MUIC WRITE ve READ'in durumları artık ayrı korunur. WRITE farklı opcode
+alıp READ sonradan istenen path'i döndürse bile çiftin sonucu başarılı
+olmaz. `PATH_READ` gerçek baytı gösterebilirken `PATH_OK=0 / PATH_NT=...`
+kalır. Slot yalnız çiftin son düğümü emekli edilince yeniden kullanılabilir.
+
+Readback içerik hatası kontrol grubunun sonucudur; tek başına I2C arızası
+ve GPIO maskesi üretmez. Başarısız CONTROL3/CCCTRL1 doğrulaması
+`INIT_NT` ve doğrulama bayraklarında kalır, tüm grup başarılı gösterilmez.
+Gerçek I2C okuma/yazma, trim ve deadline hataları mevcut iptal yolundadır.
+Aynı frame'de gerçek mailbox okuma hatası ve POR varsa hata kaydı korunur,
+POR yine işlenir. Sadece opcode farkı varsa POR öncesi `PRIOR_FAULT=0`
+normaldir; bu fark artık sahte I2C arızasına dönüştürülmez.
+
+### Tanı ve paketleme
+
+`MAX FOTO v13`, kurtarma sayfasından sonra **29 satırlık gerçek yanıt
+sayfası** gösterir. `EXPECTED`, `RECEIVED`, `RX_LEN`, `REQ_NT` ve
+`DISPATCH_NT` ayrı alanlardır. `REQ_NT` tek opcode isteğinin sonucudur;
+MUIC çiftinin ve init grubunun sonucu kendi sayfalarındadır.
+`RX_MISMATCH`, `RX_SHORT`, `RX_UNHANDLED` farklı sayaçlardır.
+
+`RAW0/RAW1` ilk sekiz baytın iki DWORD paketidir; düşük bayt önce gelir,
+yalnız `min(RX_LEN,8)` bayt geçerlidir. Registry alanları ardışık okunduğu
+için bu sayfa atomik packet günlüğü değildir. Mevcut REG_BINARY IRQ günlüğü
+ve ABI değişmedi. Tam okunan yanıt sürücü context'inde 33 bayta kadar
+saklanır. Son okuma başarısızsa `RX_LEN=0 / RECEIVED=ff` ve hata görünür;
+sıfırlar gerçek payload olarak sunulmaz.
+
+`ALT_ACK`, CONTROL3, SBU ve SELFTEST alanlarının geçerliliği yeni D0 ve
+gerçek USBC resetinde kaldırılır. Snapshot, IRQ veya OS attach yerine
+kullanılmazlar. Startnet özeti aynı alanları içerir. Yeni response modülü
+WSL kopyalama/derleme/link listelerine eklendi; SYSMSG/control/response
+kaynaklarının her derlemesinden sonra hata kontrolü yapılır. Başarısız bir
+derleme sonraki komutun başarı koduyla örtülemez.
+
+### Kontroller ve devam eden hedef
+
+Host fixture gerçek sürücü C işlevlerini çalıştırır: uyumsuz opcode ile
+sıradaki komutun ilerlemesi, uyuşmazlık/gerçek I2C hatası ayrımı, gerçek GRL
+ve trim hatası, aynı frame POR, eski PDO nesli, tam/kısa PDO payload'ı,
+MUIC WRITE hata + READ başarı birleşimi, CONTROL3 sahipliği, eksik
+tüketiciler, SBU/selftest ayrımı, SOURCE/detach retry temizliği ve kapanış.
+CC/PD, UCM, PnP lifecycle, foto satır/genişlik ve Windows kaynak kontrolleri
+geçti. Aynı IRQ/yanıt fixture'ı AddressSanitizer ve UndefinedBehaviorSanitizer
+ile de geçti; 227 registry adı/indeksi ve WSL modül listesi doğrulandı.
+Bu sonuçlar WDK ABI, gerçek GIC teslimi veya telefon USB transferi
+kanıtı değildir. Mac üzerinde WDK/UEFI/WIM build yapılmadı.
+
+WSL komutları değişmedi:
+
+```bash
+bash yap.sh --touch --usb-test --clean
+bash cache_esp.sh --win --system --baseline
+```
+
+İleride cihazda `.40` / FOTO v13 ile geçerli status, gerçek CC SOURCE ve
+ayrı DFP, VBUS/MUIC doğrulaması, UCM/URS ardından root-hub ve USB aygıtının
+gerçek transferi aranır. Yanıt uyuşmazlığı olursa beklenen/alınan opcode ve
+iki sonuç birlikte değerlendirilir. Kaynak işi bu ölçümü beklemez:
+source Rp, gerçek OS DR/PR swap, battery/CHGINSEL/RDO, AFC/VDM ve manager
+READY tüketicileri, RAM_TEST, USB3 PHY ve uçtan uca function/transfer hedefi
+hâlâ açıktır. Dispatch altyapısının taşınması bunların tamamlandığı değildir.
+
 ## 5 Eylül 2026: `.39` — gerçek CC detach ve bekleyen komutların ömrü
 
 MAX `0.1.0.39`, parent/host/function `0.1.0.19`, ABI `7`. Kaynak işi

@@ -33,6 +33,7 @@ B2lMaxResetPdConnectionLocked(PB2L_MAX_CONTEXT Context)
 {
     B2lMaxInvalidatePdCapsLocked(Context);
     Context->PdSupported = FALSE;
+    Context->PdRequestRetry = FALSE;
     Context->PdPrSwap = 0xFFU;
     Context->PsRdyRaw = 0U;
     B2lMaxCancelPdRecoveryLocked(Context, STATUS_CANCELLED);
@@ -197,41 +198,60 @@ B2lMaxHandlePsRdyLocked(PB2L_MAX_CONTEXT Context)
     return Status;
 }
 
+NTSTATUS
+B2lMaxConsumeCurrentPdoLocked(PB2L_MAX_CONTEXT Context,
+    const UCHAR *Response, ULONG Length, ULONGLONG Generation)
+{
+    ULONG Index;
+    UCHAR Count = 0U, Current = 0U;
+    NTSTATUS Status = STATUS_SUCCESS;
+    if (Generation != Context->PdGeneration || !Context->PsRdyReceived ||
+        !Context->PowerRoleValid || Context->PowerRole != B2L_MAX_CC_SINK) {
+        ++Context->PdStaleResponses;
+        return STATUS_CANCELLED;
+    }
+    Context->PdCapsValid = FALSE;
+    Context->PdPdoCount = Context->PdCurrentPdo = Context->PdCapsHeader = 0U;
+    RtlZeroMemory(Context->PdPdos, sizeof(Context->PdPdos));
+    if (Length < 2UL) Status = STATUS_BUFFER_TOO_SMALL;
+    else {
+        Context->PdCapsHeader = Response[1];
+        Count = (UCHAR)(Response[1] & 7U);
+        Current = (UCHAR)((Response[1] >> 3) & 7U);
+        if (!Count || !Current || Current > Count) Status = STATUS_DEVICE_DATA_ERROR;
+        else if (Length < 2UL + 4UL * Count) Status = STATUS_BUFFER_TOO_SMALL;
+    }
+    Context->PdCapsStatus = Status;
+    if (NT_SUCCESS(Status)) {
+        Context->PdCapsValid = TRUE;
+        Context->PdPdoCount = Count;
+        Context->PdCurrentPdo = Current;
+        for (Index = 0UL; Index < Count; ++Index) {
+            const UCHAR *Pdo = &Response[2UL + 4UL * Index];
+            Context->PdPdos[Index] = (ULONG)Pdo[0] | ((ULONG)Pdo[1] << 8) |
+                ((ULONG)Pdo[2] << 16) | ((ULONG)Pdo[3] << 24);
+        }
+        // This remains a raw capability observation, not an OS contract or
+        // RDO. Bytes missing from a mismatched short read are never invented.
+    }
+    Context->DiagnosticStage = B2L_MAX_STAGE_PD_CAPS;
+    Context->DiagnosticStatus = Status;
+    Context->DiagnosticDirty = TRUE;
+    return Status;
+}
+
 VOID
 B2lMaxRetirePdRequestLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_PD_REQUEST Slot,
     NTSTATUS Status)
 {
-    const UCHAR *Response = Slot->Request.Response;
-    ULONG Index;
-    UCHAR Count = 0U, Current = 0U;
     ++Context->PdReadCompletions;
-    if (Slot->Generation != Context->PdGeneration || !Context->PsRdyReceived ||
-        !Context->PowerRoleValid || Context->PowerRole != B2L_MAX_CC_SINK) {
-        ++Context->PdStaleResponses;
-    } else {
-        if (NT_SUCCESS(Status)) {
-            // Keep a received malformed header visible without publishing PDOs.
-            Context->PdCapsHeader = Response[1];
-            Count = (UCHAR)(Response[1] & 7U);
-            Current = (UCHAR)((Response[1] >> 3) & 7U);
-            if (!Count || !Current || Current > Count)
-                Status = STATUS_DEVICE_DATA_ERROR;
-        }
-        Context->PdCapsValid = NT_SUCCESS(Status);
+    // Actual 0x30 is decoded by the response dispatcher before retirement.
+    // Cancellation/mismatch still completes this owner with its own error.
+    if (!NT_SUCCESS(Status) && Slot->Generation == Context->PdGeneration &&
+        Context->PsRdyReceived && Context->PowerRoleValid &&
+        Context->PowerRole == B2L_MAX_CC_SINK) {
+        Context->PdCapsValid = FALSE;
         Context->PdCapsStatus = Status;
-        if (NT_SUCCESS(Status)) {
-            Context->PdPdoCount = Count;
-            Context->PdCurrentPdo = Current;
-            for (Index = 0UL; Index < Count; ++Index) {
-                const UCHAR *Pdo = &Response[2UL + 4UL * Index];
-                Context->PdPdos[Index] = (ULONG)Pdo[0] | ((ULONG)Pdo[1] << 8) |
-                    ((ULONG)Pdo[2] << 16) | ((ULONG)Pdo[3] << 24);
-            }
-            // Preserve raw fixed/battery/variable/APDO objects and numbering.
-            // No RDO, negotiated current or new voltage request is invented.
-        }
-        Context->DiagnosticStage = B2L_MAX_STAGE_PD_CAPS;
-        Context->DiagnosticStatus = Status;
     }
     Slot->InUse = FALSE;
     --Context->PdReadsPending;

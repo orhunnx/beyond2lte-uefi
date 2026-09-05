@@ -100,11 +100,8 @@ B2lMaxRetireControlLocked(PB2L_MAX_CONTEXT Context,
             if (!Context->CcOpenNormalized) Status = STATUS_DEVICE_DATA_ERROR;
             break;
         case B2L_MAX_CONTROL_GRL:
-            if (!Context->PolicyEnabled) { Status = STATUS_CANCELLED; break; }
-            // CONFIG_MAX77705_GRL_ENABLE: max77705_set_forcetrimi.
-            // Neither the SYSMSG nor the command send permits this write.
-            Status = B2lMaxWriteByte(Context, B2L_MAX_DEBUG_ADDRESS, 0x1FU, 0x04U);
-            B2lMaxDelayMicroseconds(100000UL);
+            // The actual response dispatcher already applied GRL. Request
+            // retirement must not trim twice or trim on another opcode.
             break;
         default: break;
         }
@@ -112,8 +109,9 @@ B2lMaxRetireControlLocked(PB2L_MAX_CONTEXT Context,
     if (Kind == B2L_MAX_CONTROL_GRL) Context->GrlStatus = Status;
     if (!NT_SUCCESS(Status) && NT_SUCCESS(Context->ControlStatus))
         Context->ControlStatus = Status;
-    if (!NT_SUCCESS(Status) && Status != STATUS_CANCELLED && NT_SUCCESS(Context->MfdFault))
-        Context->MfdFault = Status; // caller drains links before permitting another send
+    // An opcode mismatch or failed readback is a control-group result.
+    // Transport/send/trim failures latch MfdFault at the actual I2C operation;
+    // this consumer must not turn semantic validation into a bus failure.
     B2lMaxUpdateControlStatusLocked(Context);
 }
 
@@ -169,6 +167,8 @@ B2lMaxResetUsbcLocked(PB2L_MAX_CONTEXT Context, BOOLEAN Watchdog)
     Context->CcOpenNormalized = Context->UsbcMasksConfigured = FALSE;
     Context->UsbcRuntimeMasksConfigured = FALSE;
     Context->MuicPathVerified = FALSE;
+    Context->Control3RawValid = Context->AltModeAcknowledged = FALSE;
+    Context->SbuValid = Context->SelftestValid = FALSE;
     Context->MuicStatus = STATUS_DEVICE_NOT_READY;
     Status = B2lMaxWriteByte(Context, B2L_MAX_USBC_ADDRESS, 0x80U, 0x0FU);
     if (!NT_SUCCESS(Status)) goto Failed;

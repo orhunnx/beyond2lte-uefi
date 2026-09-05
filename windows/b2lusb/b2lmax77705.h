@@ -129,6 +129,7 @@ typedef struct _B2L_MAX_MUIC_PAIR {
     ULONGLONG Generation;
     UCHAR Path;
     BOOLEAN InUse;
+    NTSTATUS WriteStatus;
 } B2L_MAX_MUIC_PAIR, *PB2L_MAX_MUIC_PAIR;
 
 typedef struct _B2L_MAX_IRQ_FRAME {
@@ -188,6 +189,11 @@ typedef struct _B2L_MAX_CONTEXT {
     ULONG AliveLength, MaxRawIrq, MaxTranslatedIrq;
     ULONG MaxInterruptCount, MaxInterruptFailures, MaxLastInterruptStatus;
     ULONG OpcodeCompletions, OpcodeUnexpected, IrqFrameOverflows;
+    ULONG ResponseMismatches, ResponseUnhandled, ResponseShort;
+    UCHAR ResponseExpected, ResponseOpcode, ResponseLength, ResponseBytes[33];
+    NTSTATUS ResponseStatus, ResponseRequestStatus;
+    UCHAR Control3Raw, SbuRaw[2], SelftestCc, SelftestSbuRaw[2];
+    BOOLEAN Control3RawValid, SbuValid, SelftestValid, AltModeAcknowledged, PdRequestRetry;
     BOOLEAN MaxIrqEnabled, MfdReady, UsbcInitialized, PolicyEnabled;
     NTSTATUS MfdFault;
     PB2L_MAX_OPCODE_REQUEST OpcodeHead, OpcodeTail;
@@ -395,5 +401,9 @@ VOID B2lMaxRetireControlLocked(PB2L_MAX_CONTEXT Context,
 NTSTATUS B2lMaxRecoverControlsLocked(PB2L_MAX_CONTEXT Context);
 NTSTATUS B2lMaxResetUsbcLocked(PB2L_MAX_CONTEXT Context, BOOLEAN Watchdog);
 NTSTATUS B2lMaxSetGrlLocked(PB2L_MAX_CONTEXT Context);
+NTSTATUS B2lMaxDispatchOpcodeResponseLocked(PB2L_MAX_CONTEXT Context,
+    const B2L_MAX_OPCODE_REQUEST *Request, const UCHAR *Response, ULONG Length);
+NTSTATUS B2lMaxConsumeCurrentPdoLocked(PB2L_MAX_CONTEXT Context,
+    const UCHAR *Response, ULONG Length, ULONGLONG Generation);
 
 #endif

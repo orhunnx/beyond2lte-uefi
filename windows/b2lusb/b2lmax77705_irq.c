@@ -100,11 +100,17 @@ B2lMaxRetireOpcodeLocked(PB2L_MAX_CONTEXT Context, PB2L_MAX_OPCODE_REQUEST Reque
     }
     // Both commands were linked atomically. Cancel also retires WRITE then
     // READ; the slot is reusable only after the final request leaves the queue.
-    if (Request != &Pair->Read) return;
+    if (Request != &Pair->Read) {
+        Pair->WriteStatus = Status;
+        return;
+    }
     if (NT_SUCCESS(Status)) {
         Context->MuicControl1 = Request->ResponseData;
         if (Request->ResponseData != Pair->Path) Status = STATUS_DEVICE_DATA_ERROR;
     }
+    // A later matching read is not a successful WRITE/READ transaction if
+    // WRITE received a different opcode. Preserve both retirement outcomes.
+    if (!NT_SUCCESS(Pair->WriteStatus)) Status = Pair->WriteStatus;
     if (Pair->Generation == Context->MuicGeneration) {
         Context->MuicStatus = Status;
         Context->MuicPathVerified = NT_SUCCESS(Status);
@@ -279,6 +285,7 @@ B2lMaxRequestMuicInternal(PB2L_MAX_CONTEXT Context, UCHAR Path, BOOLEAN Reapply)
     Pair->Write.MuicPair = Pair->Read.MuicPair = Pair;
     Pair->Write.Next = &Pair->Read;
     Pair->InUse = TRUE;
+    Pair->WriteStatus = STATUS_PENDING;
     ++Context->MuicOutstanding;
     Context->MuicStatus = STATUS_PENDING;
     // Link WRITE + READ together before sending. No IRQ callback can observe
@@ -375,7 +382,7 @@ B2lMaxCompleteOpcodeLocked(PB2L_MAX_CONTEXT Context)
 {
     PB2L_MAX_OPCODE_REQUEST Request = Context->OpcodeHead;
     UCHAR Response[33];
-    NTSTATUS Status;
+    NTSTATUS Status, DispatchStatus, RequestStatus;
 
     if (Request == NULL) {
         ++Context->OpcodeUnexpected;
@@ -390,15 +397,20 @@ B2lMaxCompleteOpcodeLocked(PB2L_MAX_CONTEXT Context)
         if (NT_SUCCESS(Status)) Status = B2lMaxRecoverControlsLocked(Context);
         return Status;
     }
+    Context->ResponseExpected = Request->Opcode;
+    Context->ResponseOpcode = 0xFFU;
+    Context->ResponseLength = 0U;
+    RtlZeroMemory(Context->ResponseBytes, sizeof(Context->ResponseBytes));
     Status = B2lMaxReadBlock(Context, B2L_MAX_USBC_ADDRESS,
         0x51U, Response, 1UL + Request->ReadLength);
-    if (NT_SUCCESS(Status) && (Response[0] != Request->Opcode)) {
-        Status = STATUS_DEVICE_PROTOCOL_ERROR;
-    }
     if (!NT_SUCCESS(Status)) {
+        Context->ResponseStatus = Context->ResponseRequestStatus = Status;
         B2lMaxCancelOpcodesLocked(Context, Status);
         return Status;
     }
+    Context->ResponseOpcode = Response[0];
+    Context->ResponseLength = (UCHAR)(1U + Request->ReadLength);
+    RtlCopyMemory(Context->ResponseBytes, Response, Context->ResponseLength);
     Context->OpcodeHead = Request->Next;
     if (Context->OpcodeHead == NULL) {
         Context->OpcodeTail = NULL;
@@ -409,7 +421,20 @@ B2lMaxCompleteOpcodeLocked(PB2L_MAX_CONTEXT Context)
         Request->ResponseData = Response[1];
     }
     ++Context->OpcodeCompletions;
-    B2lMaxRetireOpcodeLocked(Context, Request, STATUS_SUCCESS);
+    // Samsung irq_execute dispatches the actual response even on mismatch;
+    // cmd_run then advances. A mismatch is a failed request, not an I2C fault
+    // or a successful response to the expected opcode.
+    DispatchStatus = B2lMaxDispatchOpcodeResponseLocked(Context, Request,
+        Response, Context->ResponseLength);
+    RequestStatus = DispatchStatus;
+    if (Response[0] != Request->Opcode) {
+        ++Context->ResponseMismatches;
+        RequestStatus = STATUS_DEVICE_PROTOCOL_ERROR;
+    }
+    Context->ResponseStatus = DispatchStatus;
+    Context->ResponseRequestStatus = RequestStatus;
+    Context->DiagnosticDirty = TRUE;
+    B2lMaxRetireOpcodeLocked(Context, Request, RequestStatus);
     if (!NT_SUCCESS(Context->MfdFault)) {
         B2lMaxCancelOpcodesLocked(Context, Context->MfdFault);
         return Context->MfdFault;
