@@ -1,6 +1,6 @@
 # beyond2lte UEFI — durum
 
-**Son güncelleme:** 5 Eylül 2026 — UFS disk boot kanıtlandı; Desktop imaj hattı hazırlandı.
+**Son güncelleme:** 6 Eylül 2026 — Windows Desktop UFS'ten GUI'ye ulaştı; OOBE onarımı eklendi.
 
 > Güncel dönüm noktası: özel ARM64 `b2lufs.sys` sürücüsü offline DriverStore'a
 > `Start=0`, `SCSI Miniport` olarak kuruldu. `bootmgfw` ve disk BCD'si CACHE
@@ -11,13 +11,13 @@
 
 | Özellik | Durum | Not |
 |---|---|---|
-| UEFI boot | ✅ | Project Silicium ekranı geliyor |
+| UEFI boot | ✅ | BGRT devri kapatıldı; Windows aşamasında Windows logosu çizilecek |
 | Display | ✅ | Framebuffer `0xCA000000` doğruymuş |
 | Yan tuşlar | ✅ | Ses +/−, güç — `KeypadDeviceLib` GPIO'ları doğru |
 | **Dahili depolama (UFS)** | **✅** | 5 LUN, DiskIO protokolü kurulu — `S5E9820Pkg/Library/PlatformUfsLib` yazıldı |
 | USB | ⏸️ | Deneysel sürücüler disk-boot profilinde devre dışı |
 | Windows UFS/NTFS disk boot | ✅ | B2LUFS `0.0.4.6` boot-start ile WinPE kabuğuna ulaşıldı |
-| Windows Desktop | 🧪 | Tam ARM64 edition, UFS+touch DISM ve boot-start framebuffer hattı hazır; cihaz testi bekliyor |
+| Windows Desktop | ✅/🧪 | UFS/NTFS'ten Windows GUI açıldı; offline OOBE onarımı cihaz tekrar testi bekliyor |
 
 Desktop üretimi `tools_windesktop.sh` ile seçilen `install.wim/install.esd`
 indeksini tek imaja aktarır, UFS+touch paketlerini aynı DISM turunda ekler ve
@@ -50,6 +50,16 @@ Klavyesiz geçişte Partition 28 doğru bağlandı; ilk deneme yalnız güncel
 `cache_esp.sh --win --disk` çıktısının etiketi `UEFIESP` olduğu halde eski
 `CACHE` etiketini zorunlu tuttuğu için durdu. Kapı artık yalnız bu iki bilinen
 etiketten birini ve `EFI\Microsoft\Boot\BCD` dosyasını birlikte kabul eder.
+
+İlk Desktop açılışı Project Silicium arka planı üzerinde “Windows could not
+complete the installation” penceresine kadar ulaştı. Bu gözlem UFS, winload,
+çekirdek ve GUI zincirini doğruladı; kalan engel Setup durumuydu. Yeni Desktop
+servislemesi offline SYSTEM hive'da
+`Setup\Status\ChildCompletion\setup.exe=3` yazar ve aynı mount içinde geri
+okur. Mevcut `userdata.img` için `tools_windesktop_oobe_repair.sh` yalnız hive'ı
+çıkarıp onarır, NTFS'e geri yazar ve tekrar okur. Paketleyici bu doğrulamayı
+zorunlu tutar. Mu-Silicium'ın standart BGRT DXE girdisi de build sırasında
+yalnız paketlemeden çıkarılır; Windows böylece firmware logosunu devralmaz.
 
 Karşılaştırma: upstream `beyond1lte` (S10) Status.md'de Display ✅ ve tuşlar ✅
 diyor ama "Inactive" işaretli. **beyond2lte artık ondan ileride** — çünkü onun

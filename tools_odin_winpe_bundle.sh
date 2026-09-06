@@ -106,6 +106,8 @@ if [ "$DESKTOP_MODE" = 1 ]; then
   grep -Fqx 'B2L_WINDOWS_DESKTOP=1' "$MARKER" || fail "Desktop hedef isareti gecersiz"
   grep -Fqx "B2L_TARGET=$TARGET" "$MARKER" || fail "Desktop hedef isareti $TARGET ile uyusmuyor"
   grep -Fqx "B2L_IMAGE=$TARGET_ENTRY" "$MARKER" || fail "Desktop imaj adi hedef isaretiyle uyusmuyor"
+  grep -Fqx 'B2L_OOBE_CHILD_COMPLETION=3' "$MARKER" || \
+    fail "Desktop OOBE onarimi yok; once bash tools_windesktop_oobe_repair.sh calistir"
   NTFS_MAGIC="$(dd if="$SYSTEM_RAW" bs=1 skip=3 count=8 status=none)"
   [ "$NTFS_MAGIC" = "NTFS    " ] || fail "Desktop $TARGET imaji NTFS degil"
   if [ "$TARGET" = userdata ]; then

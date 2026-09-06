@@ -127,10 +127,12 @@ fi
 
 say "Overlay kopyalaniyor"
 cp -r "$PROJ/mu-silicium-overlay/." "$MU/"
+python3 "$PROJ/tools_windows_boot_logo.py" "$MU"
 echo "  Platforms/Samsung/beyond2ltePkg"
 echo "  Silicon/Samsung/S5E9820Pkg"
 echo "  Silicon/Samsung/SamsungPkg/Drivers/UfsDxe/UfsDxe.inf  (upstream yamasi)"
 echo "  Resources/{Configs,DTBs}/beyond2lte.*"
+echo "  Windows logosu: firmware BGRT aktarimi kapali"
 
 # ---------------------------------------------------------------- UEFI touch
 #

@@ -2,6 +2,8 @@
 """Static gates for the full Windows Desktop UFS pipeline."""
 
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
 
 
@@ -34,11 +36,13 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
         desktop = read("tools_windesktop.sh")
         for gate in (
             "-Package TouchUfs -DisableUsb -IncludeFramebuffer",
+            "-PrepareDesktopOobe",
             "B2L_OFFLINE_PACKAGE=TOUCHUFS",
             "B2L_BOOT_START=1",
             "B2L_FRAMEBUFFER_BOOT_START=1",
             'wimlib-imagex apply "$DESKTOP_WIM" 1 "$IMAGE"',
             "B2L_COMPACT=NONE",
+            "B2L_OOBE_CHILD_COMPLETION=3",
             "Total Bytes:",
             'ntfscat "$IMAGE" "$file"',
             "/Windows/explorer.exe",
@@ -60,6 +64,49 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
         self.assertIn('$service.SetValue("ErrorControl", 3', stage)
         self.assertIn('"B2L_FRAMEBUFFER_BOOT_START=1"', stage)
         self.assertIn("Dismount-B2LRegistryHive -HiveName $hiveName", stage)
+        self.assertIn("function Set-B2LDesktopOobeState", stage)
+        self.assertIn('$childCompletion.SetValue("setup.exe", 3', stage)
+        self.assertIn('"B2L_CHILD_COMPLETION_SETUP=3"', stage)
+
+    def test_existing_desktop_image_has_transactional_oobe_repair(self) -> None:
+        repair = read("tools_windesktop_oobe_repair.sh")
+        for gate in (
+            "ntfscat",
+            "ntfscp -f",
+            "hivexregedit --merge --prefix",
+            "Setup\\Status\\ChildCompletion",
+            '"setup.exe"=dword:00000003',
+            "SYSTEM-before-oobe",
+            "B2L_OOBE_CHILD_COMPLETION=3",
+        ):
+            self.assertIn(gate, repair)
+
+        bundle = read("tools_odin_winpe_bundle.sh")
+        self.assertIn("B2L_OOBE_CHILD_COMPLETION=3", bundle)
+        self.assertIn("tools_windesktop_oobe_repair.sh", bundle)
+
+    def test_windows_logo_patch_disables_only_bgrt_fv_entry(self) -> None:
+        helper = ROOT / "tools_windows_boot_logo.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fdf = root / "Silicon/Silicium/SiliciumPkg/Extra.fdf.inc"
+            fdf.parent.mkdir(parents=True)
+            original = (
+                "[FV.DXEFV]\n"
+                "  INF MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/"
+                "BootGraphicsResourceTableDxe.inf\n"
+                "  INF MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf\n"
+            )
+            fdf.write_text(original, encoding="utf-8")
+            subprocess.run(["python3", str(helper), str(root)], check=True, capture_output=True)
+            subprocess.run(["python3", str(helper), str(root)], check=True, capture_output=True)
+            patched = fdf.read_text(encoding="utf-8")
+            self.assertIn("B2L_WINDOWS_BOOT_LOGO", patched)
+            self.assertIn("SetupBrowserDxe.inf", patched)
+            self.assertNotIn("\n  INF MdeModulePkg/Universal/Acpi/BootGraphics", patched)
+
+        build = read("yap.sh")
+        self.assertIn('python3 "$PROJ/tools_windows_boot_logo.py" "$MU"', build)
 
     def test_desktop_bundle_tracks_exact_partition_target(self) -> None:
         bundle = read("tools_odin_winpe_bundle.sh")

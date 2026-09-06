@@ -10,7 +10,7 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 
 ---
 
-## 0. GÜNCEL BAŞLANGIÇ NOKTASI — 5 Eylül 2026
+## 0. GÜNCEL BAŞLANGIÇ NOKTASI — 6 Eylül 2026
 
 > **Bu bölüm güncel tek devir kaynağıdır.** Aşağıdaki 1–14. bölümler, projenin
 > önceki UEFI, Windows açılışı ve UFS araştırmalarını koruyan tarihsel günlüktür.
@@ -66,6 +66,19 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > artık `ntfscat` ile gerçek veri akışını okur, doğru
 > `/Windows/explorer.exe` yolunu kullanır ve doğrulama hatasında başarıyla
 > uygulanmış imajı silmez.
+
+> **6 Eylül / Windows Desktop UFS boot BAŞARILI, OOBE düzeltmesi eklendi:**
+> `bootmgfw -> B2LUFS -> USERDATA NTFS -> winload -> ntoskrnl -> Windows GUI`
+> zinciri gerçek SM-G975F üzerinde çalıştı. İlk GUI açılışında Setup,
+> “Windows could not complete the installation” ile durdu; bu artık sürücü ya
+> da disk-boot engeli değildir. Desktop WIM servislemesi offline SYSTEM içindeki
+> `Setup\Status\ChildCompletion\setup.exe` değerini DWORD `3` yapar ve geri
+> okur. Önceden üretilmiş büyük `out/userdata.img`, WIM'i yeniden açmadan
+> `bash tools_windesktop_oobe_repair.sh` ile aynı şekilde onarılabilir. Desktop
+> Odin paketleyicisi bu işareti görmeden yeni arşiv üretmez. Firmware ayrıca
+> standart BGRT sürücüsünü DXE FV'ye koymaz; böylece Windows, Project Silicium
+> karesini devralmak yerine kendi boot logosunu çizer. OOBE düzeltmesinin ve
+> yeni logo profilinin cihaz tekrar testi bekleniyor.
 
 ### CACHE'e flash atmadan Desktop geçişi
 

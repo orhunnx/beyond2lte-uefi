@@ -6,7 +6,8 @@ param(
     [string]$Package,
     [string]$PreparedRoot,
     [switch]$DisableUsb,
-    [switch]$IncludeFramebuffer
+    [switch]$IncludeFramebuffer,
+    [switch]$PrepareDesktopOobe
 )
 
 $ErrorActionPreference = "Stop"
@@ -343,6 +344,63 @@ function Set-B2LFramebufferOfflineService {
     ) | Set-Content -LiteralPath (Join-Path $markerRoot "offline-drivers.txt") -Encoding ASCII
 }
 
+function Set-B2LDesktopOobeState {
+    param([string]$MountPath)
+
+    # A fully applied install.wim can retain ChildCompletion\setup.exe=1.
+    # On this keyboardless target that makes SetupHost stop at the generic
+    # "Windows could not complete the installation" dialog.  Set only the
+    # documented setup completion latch; do not skip OOBE or create an
+    # account here.
+    $systemHive = Join-Path $MountPath "Windows\System32\config\SYSTEM"
+    $hiveLeaf = "B2LOOBEOFFLINE_$PID"
+    $hiveName = "HKLM\$hiveLeaf"
+    $loaded = $false
+    $baseKey = $null
+    $offlineHive = $null
+    try {
+        Invoke-B2LReg -Arguments @("load", $hiveName, $systemHive)
+        $loaded = $true
+        $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+            [Microsoft.Win32.RegistryHive]::LocalMachine,
+            [Microsoft.Win32.RegistryView]::Default
+        )
+        $offlineHive = $baseKey.OpenSubKey($hiveLeaf, $true)
+        if ($null -eq $offlineHive) {
+            throw "Desktop OOBE offline SYSTEM hive acilamadi"
+        }
+        $childCompletion = $offlineHive.CreateSubKey("Setup\Status\ChildCompletion")
+        if ($null -eq $childCompletion) {
+            throw "Desktop OOBE ChildCompletion anahtari olusturulamadi"
+        }
+        try {
+            $before = $childCompletion.GetValue("setup.exe", $null)
+            $childCompletion.SetValue("setup.exe", 3, [Microsoft.Win32.RegistryValueKind]::DWord)
+            $childCompletion.Flush()
+            $after = $childCompletion.GetValue("setup.exe", $null)
+            if ($null -eq $after -or [int]$after -ne 3) {
+                throw "Desktop OOBE ChildCompletion geri okuma basarisiz: $after"
+            }
+        }
+        finally {
+            $childCompletion.Close()
+        }
+        Write-B2LStageLog "Desktop OOBE hazir: Setup\Status\ChildCompletion\setup.exe $before -> 3"
+    }
+    finally {
+        if ($null -ne $offlineHive) { $offlineHive.Close() }
+        if ($null -ne $baseKey) { $baseKey.Close() }
+        if ($loaded) { Dismount-B2LRegistryHive -HiveName $hiveName }
+    }
+
+    $markerRoot = Join-Path $MountPath "Windows\B2LDESKTOP"
+    New-Item -ItemType Directory -Path $markerRoot -Force | Out-Null
+    @(
+        "B2L_DESKTOP_OOBE_REPAIR=1"
+        "B2L_CHILD_COMPLETION_SETUP=3"
+    ) | Set-Content -LiteralPath (Join-Path $markerRoot "oobe-state.txt") -Encoding ASCII
+}
+
 function Test-B2LRuntimeFiles {
     param([string]$MountPath, [object]$Record, [string]$Stage, [switch]$RequireMatch)
     $different = @()
@@ -371,7 +429,8 @@ function Invoke-B2LOfflineServicing {
         [string]$WorkRoot,
         [string]$SelectedPackage,
         [switch]$DisableUsb,
-        [switch]$IncludeFramebuffer
+        [switch]$IncludeFramebuffer,
+        [switch]$PrepareDesktopOobe
     )
 
     Import-Module Dism -ErrorAction Stop
@@ -476,6 +535,13 @@ function Invoke-B2LOfflineServicing {
             Set-B2LFramebufferOfflineService -MountPath $mountRoot -DriverRoot $driverRoot
         }
 
+        if ($PrepareDesktopOobe) {
+            if (-not $IncludeFramebuffer -or -not $hasUfs) {
+                throw "Desktop OOBE hazirligi UFS + framebuffer Desktop profili gerektirir"
+            }
+            Set-B2LDesktopOobeState -MountPath $mountRoot
+        }
+
         $verified = @(Get-WindowsDriver -Path $mountRoot -All)
         foreach ($infName in $requiredInfs) {
             $match = @($verified | Where-Object {
@@ -546,7 +612,7 @@ if ($PreparedRoot) {
         exit 1
     }
     try {
-        Invoke-B2LOfflineServicing -WorkRoot $PreparedRoot -SelectedPackage $Package -DisableUsb:$DisableUsb -IncludeFramebuffer:$IncludeFramebuffer
+        Invoke-B2LOfflineServicing -WorkRoot $PreparedRoot -SelectedPackage $Package -DisableUsb:$DisableUsb -IncludeFramebuffer:$IncludeFramebuffer -PrepareDesktopOobe:$PrepareDesktopOobe
         exit 0
     }
     catch {
@@ -627,7 +693,7 @@ try {
     }
 
     if (Test-B2LAdministrator) {
-        Invoke-B2LOfflineServicing -WorkRoot $workRoot -SelectedPackage $Package -DisableUsb:$DisableUsb -IncludeFramebuffer:$IncludeFramebuffer
+        Invoke-B2LOfflineServicing -WorkRoot $workRoot -SelectedPackage $Package -DisableUsb:$DisableUsb -IncludeFramebuffer:$IncludeFramebuffer -PrepareDesktopOobe:$PrepareDesktopOobe
         $exitCode = 0
     }
     else {
@@ -636,7 +702,8 @@ try {
         $escapedRoot = $workRoot.Replace("'", "''")
         $disableUsbSwitch = if ($DisableUsb) { " -DisableUsb" } else { "" }
         $framebufferSwitch = if ($IncludeFramebuffer) { " -IncludeFramebuffer" } else { "" }
-        $command = "& '$escapedScript' -PreparedRoot '$escapedRoot' -Package '$Package'$disableUsbSwitch$framebufferSwitch"
+        $desktopOobeSwitch = if ($PrepareDesktopOobe) { " -PrepareDesktopOobe" } else { "" }
+        $command = "& '$escapedScript' -PreparedRoot '$escapedRoot' -Package '$Package'$disableUsbSwitch$framebufferSwitch$desktopOobeSwitch"
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
         $powershell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
         try {

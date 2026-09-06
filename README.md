@@ -30,7 +30,7 @@ Upstream'i güncel tutup bizim dosyalarımızı üzerine yazıyoruz.
 | Windows ARM64 UFS miniportu | ✅ `0.0.4.6` boot-start; UFS/NTFS diskten WinPE cihazda açıldı |
 | WinPE yerel ekran klavyesi | ⏸️ Microsoft OSK yükleniyor fakat 28000/26200 ortamında başlatılamıyor; ertelendi |
 | Windows WinPE / erken kullanıcı modu | ✅ RAM ve UFS/NTFS SYSTEM üzerinden cihazda açılıyor |
-| Windows Desktop imaj hattı | 🧪 ARM64 edition + UFS/touch/framebuffer offline stage hazır; cihaz testi bekliyor |
+| Windows Desktop UFS boot | ✅ GUI'ye ulaştı; ilk-açılış OOBE onarımı tekrar testi bekliyor |
 
 Ayrıntı: [`STATUS.md`](STATUS.md)
 
@@ -45,6 +45,7 @@ bash yap.sh --acpi           # ACPI tablolarını derle + etkinleştir
 bash yap.sh --touch --ufs-boot --clean  # diskten Windows; USB testleri kapali
 bash tools_windesktop.sh <ARM64-ISO> list               # edition indekslerini göster
 bash tools_windesktop.sh <ARM64-ISO> <edition-indeksi>  # tam Windows, SYSTEM hedefi
+bash tools_windesktop_oobe_repair.sh                    # mevcut userdata.img ilk-açılış onarımı
 ```
 
 Stok Desktop 5700 MiB SYSTEM'e sığmazsa, mevcut Android verisini sileceği
@@ -61,6 +62,13 @@ Klavye yoksa `tools_cache_desktop_transition.sh`, yalnız geçici SYSTEM
 WinPE'yi flaşlayan ve bu BCD dönüşümünü tamamen otomatik yapan paketi üretir.
 Ham disk-WinPE SYSTEM kaybolmuşsa araç eski `beyond2lte-winpe-ufs-disk.tar`
 AP arşivindeki sparse SYSTEM'i güvenli kaynak olarak geri açabilir.
+Desktop ilk açılışı genel kurulum-tamamlanamadı penceresinde kalırsa
+`tools_windesktop_oobe_repair.sh`, büyük NTFS imajını yeniden üretmeden
+offline `ChildCompletion\setup.exe=3` değerini yazar ve geri okur. Sonraki
+`tools_windesktop.sh` üretimleri bu kaydı DISM turunda otomatik hazırlar;
+Odin paketleyicisi doğrulama işareti bulunmayan Desktop imajını reddeder.
+`yap.sh` ayrıca firmware BGRT aktarımını kapatır; Windows Boot Manager böylece
+Project Silicium görselini sürdürmek yerine kendi Windows logosunu çizer.
 WSL wimlib System Compression üretemediği için betik edition'ın `Total Bytes`
 değerini NTFS/OOBE payıyla önceden denetler ve USERDATA gerekiyorsa asgari
 `--size-mib` değerini açıkça bildirir.

@@ -134,15 +134,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -File "$(wslpath -w "$HERE/windows/stage-winpe-driverstore.ps1")" \
   -ProjectRoot "$(wslpath -w "$HERE")" \
   -WimPath "$(wslpath -w "$DESKTOP_WIM")" \
-  -Package TouchUfs -DisableUsb -IncludeFramebuffer || \
+  -Package TouchUfs -DisableUsb -IncludeFramebuffer -PrepareDesktopOobe || \
   die "Windows Desktop offline driver servislemesi basarisiz"
 
 VERIFY="$WORK/verify"
-mkdir -p "$VERIFY/ufs" "$VERIFY/desktop"
+mkdir -p "$VERIFY/ufs" "$VERIFY/desktop" "$VERIFY/oobe"
 wimlib-imagex extract "$DESKTOP_WIM" 1 /Windows/B2LUFS/offline-driverstore.txt \
   --dest-dir="$VERIFY/ufs" --no-acls >/dev/null
 wimlib-imagex extract "$DESKTOP_WIM" 1 /Windows/B2LDESKTOP/offline-drivers.txt \
   --dest-dir="$VERIFY/desktop" --no-acls >/dev/null
+wimlib-imagex extract "$DESKTOP_WIM" 1 /Windows/B2LDESKTOP/oobe-state.txt \
+  --dest-dir="$VERIFY/oobe" --no-acls >/dev/null
 for expected in \
   B2L_OFFLINE_PACKAGE=TOUCHUFS B2L_BOOT_START=1 \
   'B2L_LOAD_ORDER_GROUP=SCSI Miniport' B2L_USB_TESTS=DISABLED; do
@@ -152,6 +154,10 @@ done
 for expected in B2L_DESKTOP_STAGE=1 B2L_FRAMEBUFFER_BOOT_START=1; do
   tr -d '\r' < "$VERIFY/desktop/offline-drivers.txt" | grep -Fqx "$expected" || \
     die "Desktop WIM framebuffer isareti eksik: $expected"
+done
+for expected in B2L_DESKTOP_OOBE_REPAIR=1 B2L_CHILD_COMPLETION_SETUP=3; do
+  tr -d '\r' < "$VERIFY/oobe/oobe-state.txt" | grep -Fqx "$expected" || \
+    die "Desktop WIM OOBE isareti eksik: $expected"
 done
 
 IMAGE="$OUT/$TARGET.img"
@@ -209,6 +215,7 @@ MARKER="$OUT/windows-desktop-target.txt"
   echo "B2L_EDITION_INDEX=$INDEX"
   echo "B2L_EDITION_NAME=$NAME"
   echo "B2L_COMPACT=NONE"
+  echo "B2L_OOBE_CHILD_COMPLETION=3"
 } > "$MARKER"
 
 if [ "$TARGET" = userdata ]; then
