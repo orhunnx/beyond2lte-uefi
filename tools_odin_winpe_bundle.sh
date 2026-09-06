@@ -85,6 +85,7 @@ command -v tar >/dev/null || fail "tar yok"
 command -v img2simg >/dev/null || fail "img2simg yok -> sudo apt install -y android-sdk-libsparse-utils"
 if [ "$ARCHIVE_TARGET_ENTRY" != "$TARGET_ENTRY" ]; then
   command -v lz4 >/dev/null || fail "buyuk USERDATA Odin paketi icin lz4 gerekli -> sudo apt install -y lz4"
+  command -v python3 >/dev/null || fail "coarse Android sparse profili icin python3 gerekli"
 fi
 
 if [ "$DISK_MODE" = 1 ] && [ "$DESKTOP_MODE" = 0 ]; then
@@ -177,7 +178,22 @@ tar -xf "$BOOT_TAR" -C "$WORK"
 
 if [ "$DESKTOP_MODE" = 1 ]; then
   say "CACHE haric Desktop bolumleri Android sparse'e cevriliyor"
-  img2simg "$SYSTEM_RAW" "$WORK/$TARGET_ENTRY"
+  if [ "$TARGET" = userdata ]; then
+    # 4 KiB hassasiyetli img2simg NTFS'te 15 bin civari chunk uretti ve
+    # NAND Write Start sonrasini 85 dakikaya cikardi. Samsung protokolu LZ4'u
+    # sikistirilmis aktarir; kisa sifir araliklarini birlestirmek USB boyunu
+    # hemen hemen korurken bootloader'a daha az, ardisik chunk verir.
+    # Uretici expanded baytlari ham NTFS ile yeniden karsilastirir.
+    python3 "$HERE/tools_android_sparse_coarse.py" \
+      "$SYSTEM_RAW" "$WORK/$TARGET_ENTRY" \
+      --window-mib 1 --bridge-mib 4 --max-raw-mib 1024 | tee "$WORK/sparse-profile.txt"
+    grep -Fqx 'B2L_SPARSE_PROFILE=COARSE_1M_BRIDGE_4M' "$WORK/sparse-profile.txt" || \
+      fail "coarse sparse profil isareti yok"
+    grep -Fqx 'B2L_SPARSE_RAW_EQUIVALENT=1' "$WORK/sparse-profile.txt" || \
+      fail "coarse sparse ham-esdegerlik dogrulamasi yok"
+  else
+    img2simg "$SYSTEM_RAW" "$WORK/$TARGET_ENTRY"
+  fi
   require_sparse "$WORK/$TARGET_ENTRY"
   if [ "$TARGET" = userdata ]; then
     img2simg "$NEUTRAL_RAW" "$WORK/system.img"

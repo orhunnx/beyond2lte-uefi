@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import subprocess
+import struct
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -168,6 +169,44 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
         self.assertIn("USTAR_MAX=8589934591", bundle)
         self.assertIn("LZ4_TAR_ROUNDTRIP_SHA", bundle)
         self.assertIn("Bu arsiv USERDATA bolumundeki mevcut veriyi siler", bundle)
+
+    def test_coarse_sparse_is_exact_and_reduces_ntfs_like_fragmentation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            raw = Path(temporary) / "userdata.img"
+            sparse = Path(temporary) / "userdata.sparse"
+            block = 4096
+            data = bytearray(12 * 1024 * 1024)
+            # Çok sayıda 4 KiB veri/boşluk adası, ardından geniş boş alan.
+            for offset in range(0, 6 * 1024 * 1024, block * 2):
+                data[offset : offset + block] = b"W" * block
+            raw.write_bytes(data)
+            result = subprocess.run(
+                [
+                    "python3",
+                    str(ROOT / "tools_android_sparse_coarse.py"),
+                    str(raw),
+                    str(sparse),
+                    "--window-mib", "1",
+                    "--bridge-mib", "4",
+                    "--max-raw-mib", "4",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            self.assertIn("B2L_SPARSE_RAW_EQUIVALENT=1", result.stdout)
+            header = sparse.read_bytes()[:28]
+            magic, _, _, _, _, block_size, total_blocks, total_chunks, _ = struct.unpack(
+                "<IHHHHIIII", header
+            )
+            self.assertEqual(magic, 0xED26FF3A)
+            self.assertEqual(block_size * total_blocks, len(data))
+            self.assertLessEqual(total_chunks, 4)
+
+        bundle = read("tools_odin_winpe_bundle.sh")
+        self.assertIn("tools_android_sparse_coarse.py", bundle)
+        self.assertIn("B2L_SPARSE_PROFILE=COARSE_1M_BRIDGE_4M", bundle)
+        self.assertIn("B2L_SPARSE_RAW_EQUIVALENT=1", bundle)
 
     def test_keyboardless_transition_never_packages_cache(self) -> None:
         transition = read("tools_cache_desktop_transition.sh")

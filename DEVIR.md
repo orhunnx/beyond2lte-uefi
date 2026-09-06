@@ -105,6 +105,20 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > Windows restart/sysprep adımı kullanılmaz. İlk masaüstü doğrulandıktan sonra
 > metin-giriş servisi ve ekran klavyesi ayrı bir cihaz testiyle geri açılacaktır.
 
+> **6 Eylül / Odin USERDATA yazma hızı:** 50 GiB mantıksal NTFS'ten üretilen
+> klasik `img2simg` çıktısı 15122 sparse chunk ve 7,4 GiB LZ4 AP girdisi taşıdı;
+> `NAND Write Start` sonrasında USERDATA yaklaşık 85 dakika sürdü. Kablo, port
+> ve yerel Windows dosya yolu değişmesine rağmen hız değişmediğinden birincil
+> şüphe Samsung bootloader'ın çok parçalı sparse akışını işlemesidir.
+> Desktop USERDATA paketleyicisi artık 1 MiB pencereli, 4 MiB kısa-boşluk
+> birleştirmeli coarse sparse profilini kullanır. Üretilen imajdaki her RAW
+> byte kaynak NTFS ile karşılaştırılır ve DONT_CARE yalnız kaynak tamamen
+> sıfırken kabul edilir; bu expanded-byte doğrulaması geçmeden LZ4/tar
+> oluşturulmaz. LZ4 Samsung protokolünde sıkıştırılmış aktarıldığı için kısa
+> sıfır aralıklarının birleştirilmesi USB yükünü düşük tutarken bootloader'ın
+> chunk sayısını ciddi biçimde azaltır. CACHE yine pakete alınmaz.
+> Coarse profilinin gerçek chunk sayısı ve süre kazanımı cihaz testi bekliyor.
+
 ### CACHE'e flash atmadan Desktop geçişi
 
 Desktop paketinde `cache.img` **yoktur**. Cihazda disk-WinPE'yi başarıyla
