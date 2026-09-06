@@ -108,7 +108,8 @@ if [ "$DESKTOP_MODE" = 1 ]; then
   grep -Fqx "B2L_IMAGE=$TARGET_ENTRY" "$MARKER" || fail "Desktop imaj adi hedef isaretiyle uyusmuyor"
   for OOBE_GATE in \
     B2L_OOBE_CHILD_COMPLETION=3 B2L_OOBE_UNATTEND=1 B2L_OOBE_LOCAL_USER=b2l \
-    B2L_OOBE_CREDENTIAL_CLEANUP=1 B2L_OOBE_REBOOT_REQUIRED=0; do
+    B2L_OOBE_CREDENTIAL_CLEANUP=1 B2L_OOBE_TABTIP_QUARANTINE=1 \
+    B2L_OOBE_REBOOT_REQUIRED=0; do
     grep -Fqx "$OOBE_GATE" "$MARKER" || \
       fail "Desktop OOBE answer file onarimi yok ($OOBE_GATE); tools_windesktop_oobe_repair.sh calistir"
   done

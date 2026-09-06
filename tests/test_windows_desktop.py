@@ -44,6 +44,7 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
             'wimlib-imagex apply "$DESKTOP_WIM" 1 "$IMAGE"',
             "B2L_COMPACT=NONE",
             "B2L_OOBE_CHILD_COMPLETION=3",
+            "B2L_OOBE_TABTIP_QUARANTINE=1",
             "Total Bytes:",
             'ntfscat "$IMAGE" "$file"',
             "/Windows/explorer.exe",
@@ -70,6 +71,9 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
         self.assertIn('"B2L_CHILD_COMPLETION_SETUP=3"', stage)
         self.assertIn('"UnattendFile"', stage)
         self.assertIn('"B2L_OOBE_UNATTEND=1"', stage)
+        self.assertIn('"TabletInputService", "TextInputManagementService"', stage)
+        self.assertIn('$service.SetValue("Start", 4', stage)
+        self.assertIn('"B2L_OOBE_TABTIP_QUARANTINE=1"', stage)
         self.assertIn('Join-Path $ProjectRoot "windows\\desktop-unattend.xml"', stage)
 
     def test_existing_desktop_image_has_transactional_oobe_repair(self) -> None:
@@ -87,11 +91,14 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
             "B2L_OOBE_UNATTEND=1",
             "B2L_OOBE_LOCAL_USER=b2l",
             "B2L_OOBE_REBOOT_REQUIRED=0",
+            "B2L_OOBE_TABTIP_QUARANTINE=1",
+            "TabletInputService TextInputManagementService",
         ):
             self.assertIn(gate, repair)
 
         bundle = read("tools_odin_winpe_bundle.sh")
         self.assertIn("B2L_OOBE_CHILD_COMPLETION=3", bundle)
+        self.assertIn("B2L_OOBE_TABTIP_QUARANTINE=1", bundle)
         self.assertIn("tools_windesktop_oobe_repair.sh", bundle)
 
     def test_keyboardless_oobe_answer_file_is_arm64_and_bounded(self) -> None:
@@ -111,6 +118,7 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
             "<Group>Administrators</Group>",
             "<LogonCount>1</LogonCount>",
             "B2L remove temporary OOBE credentials",
+            "EnableDesktopModeAutoInvoke",
             'delete "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon" /v DefaultPassword',
             'del /f /q "C:\\Windows\\System32\\Sysprep\\Unattend.xml"',
         ):

@@ -380,6 +380,8 @@ function Set-B2LDesktopOobeState {
     $loaded = $false
     $baseKey = $null
     $offlineHive = $null
+    $tabTipQuarantine = New-Object System.Collections.Generic.List[string]
+    $tabTipServiceNames = New-Object System.Collections.Generic.List[string]
     try {
         Invoke-B2LReg -Arguments @("load", $hiveName, $systemHive)
         $loaded = $true
@@ -426,7 +428,58 @@ function Set-B2LDesktopOobeState {
         finally {
             $childCompletion.Close()
         }
-        Write-B2LStageLog "Desktop OOBE hazir: ChildCompletion setup.exe $before -> 3; UnattendFile=$unattendValue"
+
+        # TabTip.exe bu hedefte OOBE'nin "Just a moment" aşamasından sonra
+        # STATUS_STACK_BUFFER_OVERRUN ile kapanıyor. Build'e göre iki servis
+        # adından biri bulunur. Yalnız var olan etkin control set kayıtlarını
+        # Start=4 yap; b2ltouch/VHF HID sürücülerini değiştirme. İlk masaüstü
+        # geçişi reboot gerektirmeden tamamlandıktan sonra metin girişi ayrıca
+        # ele alınabilir.
+        $selectKey = $offlineHive.OpenSubKey("Select")
+        if ($null -eq $selectKey) {
+            throw "Desktop OOBE offline SYSTEM Select anahtari yok"
+        }
+        try {
+            $controlSetNumbers = @(
+                [int](Get-B2LRequiredRegistryValue -Key $selectKey -Name "Current"),
+                [int](Get-B2LRequiredRegistryValue -Key $selectKey -Name "Default")
+            )
+            if ($selectKey.GetValueNames() -contains "LastKnownGood") {
+                $controlSetNumbers += [int]$selectKey.GetValue("LastKnownGood")
+            }
+        }
+        finally {
+            $selectKey.Close()
+        }
+        $controlSetNumbers = @($controlSetNumbers | Where-Object { $_ -gt 0 } | Sort-Object -Unique)
+        foreach ($controlSetNumber in $controlSetNumbers) {
+            $controlSet = "ControlSet{0:D3}" -f $controlSetNumber
+            foreach ($serviceName in @("TabletInputService", "TextInputManagementService")) {
+                $service = $offlineHive.OpenSubKey("$controlSet\Services\$serviceName", $true)
+                if ($null -eq $service) { continue }
+                try {
+                    $serviceBefore = [int](Get-B2LRequiredRegistryValue -Key $service -Name "Start")
+                    $service.SetValue("Start", 4, [Microsoft.Win32.RegistryValueKind]::DWord)
+                    $service.Flush()
+                    $serviceAfter = [int](Get-B2LRequiredRegistryValue -Key $service -Name "Start")
+                    if ($serviceAfter -ne 4) {
+                        throw "TabTip servis karantinasi geri okunamadi: $controlSet/$serviceName=$serviceAfter"
+                    }
+                    $tabTipQuarantine.Add(("{0}/{1}:{2}->4" -f $controlSet, $serviceName, $serviceBefore))
+                    if (-not $tabTipServiceNames.Contains($serviceName)) {
+                        $tabTipServiceNames.Add($serviceName)
+                    }
+                    Write-B2LStageLog "TabTip ilk-acilis karantinasi: $controlSet\Services\$serviceName Start $serviceBefore -> 4"
+                }
+                finally {
+                    $service.Close()
+                }
+            }
+        }
+        if ($tabTipQuarantine.Count -eq 0) {
+            throw "TabTip'i baslatan TabletInputService/TextInputManagementService bulunamadi"
+        }
+        Write-B2LStageLog "Desktop OOBE hazir: ChildCompletion setup.exe $before -> 3; UnattendFile=$unattendValue; TabTip karantinada"
     }
     finally {
         if ($null -ne $offlineHive) { $offlineHive.Close() }
@@ -450,6 +503,8 @@ function Set-B2LDesktopOobeState {
         "B2L_OOBE_LOCAL_USER=b2l"
         "B2L_OOBE_AUTOLOGON_COUNT=1"
         "B2L_OOBE_CREDENTIAL_CLEANUP=1"
+        "B2L_OOBE_TABTIP_QUARANTINE=1"
+        "B2L_OOBE_TABTIP_SERVICES=$($tabTipServiceNames -join ',')"
         "B2L_OOBE_REBOOT_REQUIRED=0"
         "B2L_OOBE_UNATTEND_SHA256=$($installedUnattendHash.ToLowerInvariant())"
     ) | Set-Content -LiteralPath (Join-Path $markerRoot "oobe-state.txt") -Encoding ASCII

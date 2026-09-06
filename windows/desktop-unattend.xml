@@ -52,7 +52,7 @@
           <Order>1</Order>
           <Description>B2L remove temporary OOBE credentials</Description>
           <RequiresUserInput>false</RequiresUserInput>
-          <CommandLine>cmd.exe /c reg.exe delete "HKLM\SYSTEM\Setup" /v UnattendFile /f &amp; reg.exe delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword /f &amp; reg.exe delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon /f &amp; reg.exe delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoLogonCount /f &amp; del /f /q "C:\Windows\System32\Sysprep\Unattend.xml"</CommandLine>
+          <CommandLine>cmd.exe /c reg.exe add "HKCU\Software\Microsoft\TabletTip\1.7" /v EnableDesktopModeAutoInvoke /t REG_DWORD /d 0 /f &amp; reg.exe delete "HKLM\SYSTEM\Setup" /v UnattendFile /f &amp; reg.exe delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword /f &amp; reg.exe delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon /f &amp; reg.exe delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoLogonCount /f &amp; del /f /q "C:\Windows\System32\Sysprep\Unattend.xml"</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
     </component>

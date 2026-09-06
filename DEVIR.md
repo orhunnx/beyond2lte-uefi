@@ -94,6 +94,17 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > cihazda bulunmayan Windows restart desteğine dayanmaz: sysprep/reboot komutu
 > yoktur ve cevap dosyası mevcut açılışın `oobeSystem` pass'inde tamamlanır.
 
+> **6 Eylül / TabTip stack-overrun gözlemi:** Yukarıdaki cevap dosyasıyla
+> `Just a moment` aşaması geçildi, ardından Windows dokunmatik klavyesi
+> `TabTip.exe` stack-overrun hatası verdi. Bu süreç OOBE'nin metin-giriş
+> bileşenidir; `b2ltouch` HID sürücüsüyle karıştırılmamalıdır. Desktop
+> servislemesi artık build'de gerçekten bulunan `TabletInputService` veya
+> `TextInputManagementService` kaydını etkin control set'lerde `Start=4`
+> yaparak yalnız ilk açılış için karantinaya alır. Dokunmatik HID etkin kalır,
+> cevap dosyası `b2l` hesabını oluşturup bir kez otomatik giriş yapar ve hiçbir
+> Windows restart/sysprep adımı kullanılmaz. İlk masaüstü doğrulandıktan sonra
+> metin-giriş servisi ve ekran klavyesi ayrı bir cihaz testiyle geri açılacaktır.
+
 ### CACHE'e flash atmadan Desktop geçişi
 
 Desktop paketinde `cache.img` **yoktur**. Cihazda disk-WinPE'yi başarıyla
