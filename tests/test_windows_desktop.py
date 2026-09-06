@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,6 +68,9 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
         self.assertIn("function Set-B2LDesktopOobeState", stage)
         self.assertIn('$childCompletion.SetValue("setup.exe", 3', stage)
         self.assertIn('"B2L_CHILD_COMPLETION_SETUP=3"', stage)
+        self.assertIn('"UnattendFile"', stage)
+        self.assertIn('"B2L_OOBE_UNATTEND=1"', stage)
+        self.assertIn('Join-Path $ProjectRoot "windows\\desktop-unattend.xml"', stage)
 
     def test_existing_desktop_image_has_transactional_oobe_repair(self) -> None:
         repair = read("tools_windesktop_oobe_repair.sh")
@@ -78,12 +82,44 @@ class WindowsDesktopPipelineTests(unittest.TestCase):
             '"setup.exe"=dword:00000003',
             "SYSTEM-before-oobe",
             "B2L_OOBE_CHILD_COMPLETION=3",
+            "desktop-unattend.xml",
+            "/Windows/System32/Sysprep/Unattend.xml",
+            "B2L_OOBE_UNATTEND=1",
+            "B2L_OOBE_LOCAL_USER=b2l",
+            "B2L_OOBE_REBOOT_REQUIRED=0",
         ):
             self.assertIn(gate, repair)
 
         bundle = read("tools_odin_winpe_bundle.sh")
         self.assertIn("B2L_OOBE_CHILD_COMPLETION=3", bundle)
         self.assertIn("tools_windesktop_oobe_repair.sh", bundle)
+
+    def test_keyboardless_oobe_answer_file_is_arm64_and_bounded(self) -> None:
+        answer = ROOT / "windows/desktop-unattend.xml"
+        tree = ET.parse(answer)
+        ns = {"u": "urn:schemas-microsoft-com:unattend"}
+        settings = tree.findall("u:settings", ns)
+        self.assertEqual([node.attrib["pass"] for node in settings], ["oobeSystem"])
+        components = settings[0].findall("u:component", ns)
+        self.assertTrue(components)
+        self.assertTrue(all(node.attrib["processorArchitecture"] == "arm64" for node in components))
+        text = answer.read_text(encoding="utf-8")
+        for gate in (
+            "<HideOnlineAccountScreens>true</HideOnlineAccountScreens>",
+            "<HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>",
+            "<Name>b2l</Name>",
+            "<Group>Administrators</Group>",
+            "<LogonCount>1</LogonCount>",
+            "B2L remove temporary OOBE credentials",
+            'delete "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon" /v DefaultPassword',
+            'del /f /q "C:\\Windows\\System32\\Sysprep\\Unattend.xml"',
+        ):
+            self.assertIn(gate, text)
+        self.assertNotIn("SkipMachineOOBE", text)
+        self.assertNotIn("SkipUserOOBE", text)
+        self.assertNotIn("shutdown.exe", text.lower())
+        self.assertNotIn("restart-computer", text.lower())
+        self.assertNotIn("<restart>", text.lower())
 
     def test_windows_logo_patch_disables_only_bgrt_fv_entry(self) -> None:
         helper = ROOT / "tools_windows_boot_logo.py"

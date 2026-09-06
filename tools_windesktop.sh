@@ -155,7 +155,10 @@ for expected in B2L_DESKTOP_STAGE=1 B2L_FRAMEBUFFER_BOOT_START=1; do
   tr -d '\r' < "$VERIFY/desktop/offline-drivers.txt" | grep -Fqx "$expected" || \
     die "Desktop WIM framebuffer isareti eksik: $expected"
 done
-for expected in B2L_DESKTOP_OOBE_REPAIR=1 B2L_CHILD_COMPLETION_SETUP=3; do
+for expected in \
+  B2L_DESKTOP_OOBE_REPAIR=1 B2L_CHILD_COMPLETION_SETUP=3 \
+  B2L_OOBE_UNATTEND=1 B2L_OOBE_LOCAL_USER=b2l B2L_OOBE_AUTOLOGON_COUNT=1 \
+  B2L_OOBE_CREDENTIAL_CLEANUP=1 B2L_OOBE_REBOOT_REQUIRED=0; do
   tr -d '\r' < "$VERIFY/oobe/oobe-state.txt" | grep -Fqx "$expected" || \
     die "Desktop WIM OOBE isareti eksik: $expected"
 done
@@ -216,6 +219,10 @@ MARKER="$OUT/windows-desktop-target.txt"
   echo "B2L_EDITION_NAME=$NAME"
   echo "B2L_COMPACT=NONE"
   echo "B2L_OOBE_CHILD_COMPLETION=3"
+  echo "B2L_OOBE_UNATTEND=1"
+  echo "B2L_OOBE_LOCAL_USER=b2l"
+  echo "B2L_OOBE_CREDENTIAL_CLEANUP=1"
+  echo "B2L_OOBE_REBOOT_REQUIRED=0"
 } > "$MARKER"
 
 if [ "$TARGET" = userdata ]; then

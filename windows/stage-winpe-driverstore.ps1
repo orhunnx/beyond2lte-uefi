@@ -345,7 +345,29 @@ function Set-B2LFramebufferOfflineService {
 }
 
 function Set-B2LDesktopOobeState {
-    param([string]$MountPath)
+    param(
+        [string]$MountPath,
+        [string]$UnattendPath
+    )
+
+    if (-not (Test-Path -LiteralPath $UnattendPath -PathType Leaf)) {
+        throw "Desktop OOBE answer file bulunamadi: $UnattendPath"
+    }
+    $unattendText = Get-Content -LiteralPath $UnattendPath -Raw
+    try { $parsedUnattend = [xml]$unattendText }
+    catch { throw "Desktop OOBE answer file XML gecersiz: $($_.Exception.Message)" }
+    foreach ($requiredText in @(
+        'pass="oobeSystem"',
+        'processorArchitecture="arm64"',
+        '<Name>b2l</Name>',
+        '<Group>Administrators</Group>',
+        '<LogonCount>1</LogonCount>',
+        'B2L remove temporary OOBE credentials'
+    )) {
+        if (-not $unattendText.Contains($requiredText)) {
+            throw "Desktop OOBE answer file kapisi eksik: $requiredText"
+        }
+    }
 
     # A fully applied install.wim can retain ChildCompletion\setup.exe=1.
     # On this keyboardless target that makes SetupHost stop at the generic
@@ -369,6 +391,25 @@ function Set-B2LDesktopOobeState {
         if ($null -eq $offlineHive) {
             throw "Desktop OOBE offline SYSTEM hive acilamadi"
         }
+        $setupKey = $offlineHive.CreateSubKey("Setup")
+        if ($null -eq $setupKey) {
+            throw "Desktop OOBE Setup anahtari olusturulamadi"
+        }
+        try {
+            $setupKey.SetValue(
+                "UnattendFile",
+                "C:\Windows\System32\Sysprep\Unattend.xml",
+                [Microsoft.Win32.RegistryValueKind]::String
+            )
+            $setupKey.Flush()
+            $unattendValue = [string]$setupKey.GetValue("UnattendFile", "")
+            if ($unattendValue -cne "C:\Windows\System32\Sysprep\Unattend.xml") {
+                throw "Desktop OOBE UnattendFile geri okuma basarisiz: $unattendValue"
+            }
+        }
+        finally {
+            $setupKey.Close()
+        }
         $childCompletion = $offlineHive.CreateSubKey("Setup\Status\ChildCompletion")
         if ($null -eq $childCompletion) {
             throw "Desktop OOBE ChildCompletion anahtari olusturulamadi"
@@ -385,7 +426,7 @@ function Set-B2LDesktopOobeState {
         finally {
             $childCompletion.Close()
         }
-        Write-B2LStageLog "Desktop OOBE hazir: Setup\Status\ChildCompletion\setup.exe $before -> 3"
+        Write-B2LStageLog "Desktop OOBE hazir: ChildCompletion setup.exe $before -> 3; UnattendFile=$unattendValue"
     }
     finally {
         if ($null -ne $offlineHive) { $offlineHive.Close() }
@@ -395,9 +436,22 @@ function Set-B2LDesktopOobeState {
 
     $markerRoot = Join-Path $MountPath "Windows\B2LDESKTOP"
     New-Item -ItemType Directory -Path $markerRoot -Force | Out-Null
+    $unattendDestination = Join-Path $MountPath "Windows\System32\Sysprep\Unattend.xml"
+    Copy-Item -LiteralPath $UnattendPath -Destination $unattendDestination -Force
+    $sourceUnattendHash = (Get-FileHash -LiteralPath $UnattendPath -Algorithm SHA256).Hash
+    $installedUnattendHash = (Get-FileHash -LiteralPath $unattendDestination -Algorithm SHA256).Hash
+    if ($sourceUnattendHash -ne $installedUnattendHash) {
+        throw "Desktop OOBE answer file hash'i kopya sonrasinda degisti"
+    }
     @(
         "B2L_DESKTOP_OOBE_REPAIR=1"
         "B2L_CHILD_COMPLETION_SETUP=3"
+        "B2L_OOBE_UNATTEND=1"
+        "B2L_OOBE_LOCAL_USER=b2l"
+        "B2L_OOBE_AUTOLOGON_COUNT=1"
+        "B2L_OOBE_CREDENTIAL_CLEANUP=1"
+        "B2L_OOBE_REBOOT_REQUIRED=0"
+        "B2L_OOBE_UNATTEND_SHA256=$($installedUnattendHash.ToLowerInvariant())"
     ) | Set-Content -LiteralPath (Join-Path $markerRoot "oobe-state.txt") -Encoding ASCII
 }
 
@@ -539,7 +593,7 @@ function Invoke-B2LOfflineServicing {
             if (-not $IncludeFramebuffer -or -not $hasUfs) {
                 throw "Desktop OOBE hazirligi UFS + framebuffer Desktop profili gerektirir"
             }
-            Set-B2LDesktopOobeState -MountPath $mountRoot
+            Set-B2LDesktopOobeState -MountPath $mountRoot -UnattendPath (Join-Path $WorkRoot "desktop-unattend.xml")
         }
 
         $verified = @(Get-WindowsDriver -Path $mountRoot -All)
@@ -690,6 +744,13 @@ try {
             throw "Framebuffer surucusu bulunamadi: $sourceFile"
         }
         Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $driverRoot "b2lfb.sys") -Force
+    }
+    if ($PrepareDesktopOobe) {
+        $sourceFile = Join-Path $ProjectRoot "windows\desktop-unattend.xml"
+        if (-not (Test-Path -LiteralPath $sourceFile -PathType Leaf)) {
+            throw "Desktop OOBE answer file bulunamadi: $sourceFile"
+        }
+        Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $workRoot "desktop-unattend.xml") -Force
     }
 
     if (Test-B2LAdministrator) {

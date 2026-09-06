@@ -80,6 +80,20 @@ hiçbir şey burada elenmiş sayılmıyor; tahminler ayrı başlık altında.
 > karesini devralmak yerine kendi boot logosunu çizer. OOBE düzeltmesinin ve
 > yeni logo profilinin cihaz tekrar testi bekleniyor.
 
+> **6 Eylül / ChildCompletion sonrası ikinci OOBE gözlemi:** `setup.exe=3`
+> uygulanan imaj artık “Just a moment” aşamasına ilerledi, ancak aynı genel
+> kurulum-tamamlanamadı penceresine döndü. Bu, ilk latch düzeltmesinin işlendiğini
+> fakat `oobeSystem` geçişinin tamamlanmadığını gösterir. Desktop profili artık
+> `%WINDIR%\System32\Sysprep\Unattend.xml` yoluna ARM64 cevap dosyası koyar ve
+> offline `HKLM\SYSTEM\Setup\UnattendFile` değerini bu dosyaya bağlar. Yalnız
+> `oobeSystem` pass'i kullanılır; deprecated `SkipMachineOOBE/SkipUserOOBE`
+> bayrakları yoktur. Cevap dosyası klavyesiz ilk açılış için yerel yönetici
+> `b2l` hesabını geçici `beyond2lte` parolasıyla oluşturur, çevrimiçi/ağ
+> ekranlarını gizler ve bir kez otomatik oturum açar. Mevcut `userdata.img`
+> aynı `tools_windesktop_oobe_repair.sh` komutuyla yeniden yamalanabilir. Akış
+> cihazda bulunmayan Windows restart desteğine dayanmaz: sysprep/reboot komutu
+> yoktur ve cevap dosyası mevcut açılışın `oobeSystem` pass'inde tamamlanır.
+
 ### CACHE'e flash atmadan Desktop geçişi
 
 Desktop paketinde `cache.img` **yoktur**. Cihazda disk-WinPE'yi başarıyla

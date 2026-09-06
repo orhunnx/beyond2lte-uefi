@@ -61,6 +61,18 @@ okur. Mevcut `userdata.img` için `tools_windesktop_oobe_repair.sh` yalnız hive
 zorunlu tutar. Mu-Silicium'ın standart BGRT DXE girdisi de build sırasında
 yalnız paketlemeden çıkarılır; Windows böylece firmware logosunu devralmaz.
 
+`ChildCompletion=3` ile sonraki cihaz denemesi “Just a moment” ekranına kadar
+ilerledi fakat aynı genel Setup hatasına döndü. Bu nedenle güncel onarım yalnız
+registry latch'ine dayanmaz: ARM64 `oobeSystem` cevap dosyasını
+`Windows\System32\Sysprep\Unattend.xml` içine koyar ve offline SYSTEM
+`Setup\UnattendFile` değerini bu dosyaya bağlar. Cevap dosyası deprecated OOBE
+atlama bayraklarını kullanmadan `b2l` yerel yöneticisini oluşturur, klavye/ağ
+gerektiren ekranları kapatır ve yalnız ilk oturumu otomatik açar. Cihaz testi
+bekleniyor; geliştirme parolası `beyond2lte` Desktop'a ulaşınca değiştirilmelidir.
+Bu yol cihazda henüz bulunmayan Windows restart desteğine dayanmaz; cevap
+dosyasında sysprep/reboot yoktur ve paket marker'ı `B2L_OOBE_REBOOT_REQUIRED=0`
+değerini zorunlu tutar.
+
 Karşılaştırma: upstream `beyond1lte` (S10) Status.md'de Display ✅ ve tuşlar ✅
 diyor ama "Inactive" işaretli. **beyond2lte artık ondan ileride** — çünkü onun
 memory map hatasını düzelttik (aşağıya bak).

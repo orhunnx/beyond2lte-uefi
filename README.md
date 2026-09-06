@@ -64,7 +64,10 @@ Ham disk-WinPE SYSTEM kaybolmuşsa araç eski `beyond2lte-winpe-ufs-disk.tar`
 AP arşivindeki sparse SYSTEM'i güvenli kaynak olarak geri açabilir.
 Desktop ilk açılışı genel kurulum-tamamlanamadı penceresinde kalırsa
 `tools_windesktop_oobe_repair.sh`, büyük NTFS imajını yeniden üretmeden
-offline `ChildCompletion\setup.exe=3` değerini yazar ve geri okur. Sonraki
+offline `ChildCompletion\setup.exe=3` değerini ve ARM64 klavyesiz OOBE cevap
+dosyasını yazar, ikisini de geri okur. Cevap dosyası bir kez otomatik açılan
+`b2l` / `beyond2lte` geliştirme hesabını oluşturur; parola Desktop'a ulaşınca
+değiştirilmelidir. Windows içinden yeniden başlatma gerektirmez. Sonraki
 `tools_windesktop.sh` üretimleri bu kaydı DISM turunda otomatik hazırlar;
 Odin paketleyicisi doğrulama işareti bulunmayan Desktop imajını reddeder.
 `yap.sh` ayrıca firmware BGRT aktarımını kapatır; Windows Boot Manager böylece
