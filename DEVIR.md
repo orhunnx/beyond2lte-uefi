@@ -25,6 +25,23 @@ Samsung Galaxy S10+ (SM-G975F) üzerinde **Windows on ARM** çalıştırmak.
 | Bootloader | Samsung S-Boot, kilidi açık |
 | TrustZone | Samsung TEEgris, EL3'te |
 
+### İkinci cihaz: Galaxy S10e (`beyond0lte`)
+
+Aynı proje 2026'da **S10e (SM-G970F, 6/128)** için de port edildi: SoC
+(Exynos 9820) ve S-Boot ailesi aynı. Cihaza özgü farklar yalnız üçe indi —
+RAM 6 GiB (`0x980000000` bankası **yok**), panel 1080×2280 ve ayrı bir platform
+paketi (`Platforms/Samsung/beyond0ltePkg`). Ayrıntı, doğrulanmamış noktalar ve
+flash/geri dönüş: [`PORT_S10E.md`](PORT_S10E.md). Derleme:
+
+```bash
+bash yap.sh -d beyond0lte --acpi --clean
+```
+
+> Durum: bu port **derleniyor** (`Mu-beyond0lte.img` üretiliyor) ve gerçek S10e
+> DTB'si (stok firmware'den) depoda; yine de S10e üzerinde **henüz
+> flaşlanıp denenmedi**. Kalan tek gerçek varsayım `"Display Reserved"`
+> bölgesidir (§13). Kurulum: [`BUILD_LINUX.md`](BUILD_LINUX.md).
+
 Kısıtlar:
 
 - **Ek donanım yok.** UART, JTAG, USB debug kablosu, hepsi baştan elendi.
@@ -71,20 +88,22 @@ UEFI_beyond2lte/
 ├── kaydet.sh                git commit + push (Mac'te calisir)
 │
 ├── mu-silicium-overlay/     UEFI kaynak katmanı (Mu-Silicium uzerine kopyalanir)
-│   └── Platforms/Samsung/beyond2ltePkg/
-│       ├── beyond2lte.dsc            platform tanimi
-│       ├── Include/DXE.inc           firmware'e giren surucu listesi
-│       ├── Library/MemoryMapLib/     BELLEK HARITASI - en kritik dosya
-│       ├── Applications/
-│       │   ├── B2LGoster/            tani ekrani (buyuk puntolu)
-│       │   ├── B2LBootTani/           bootmgfw canlilik/ExitBootServices tanisi
-│       │   └── EbsTest/              ExitBootServices sonrasi kalp atisi
-│       └── Drivers/
-│           ├── B2LRtHookDxe/         UEFI calisma zamani servis kancalari
-│           ├── B2LSehDxe/            EL3 Smart Exception Handler + PSCI sorgusu
-│           ├── B2LGicSusDxe/         ExitBootServices'te GIC SPI susturma
-│           ├── B2LResetHookDxe/      (kullanim disi)
-│           └── B2LEl2Dxe/            (kullanim disi, hic calismadi)
+│   ├── Platforms/Samsung/beyond2ltePkg/
+│   │   ├── beyond2lte.dsc            platform tanimi
+│   │   ├── Include/DXE.inc           firmware'e giren surucu listesi
+│   │   ├── Library/MemoryMapLib/     BELLEK HARITASI - en kritik dosya
+│   │   ├── Applications/
+│   │   │   ├── B2LGoster/            tani ekrani (buyuk puntolu)
+│   │   │   ├── B2LBootTani/           bootmgfw canlilik/ExitBootServices tanisi
+│   │   │   └── EbsTest/              ExitBootServices sonrasi kalp atisi
+│   │   └── Drivers/
+│   │       ├── B2LRtHookDxe/         UEFI calisma zamani servis kancalari
+│   │       ├── B2LSehDxe/            EL3 Smart Exception Handler + PSCI sorgusu
+│   │       ├── B2LGicSusDxe/         ExitBootServices'te GIC SPI susturma
+│   │       ├── B2LResetHookDxe/      (kullanim disi)
+│   │       └── B2LEl2Dxe/            (kullanim disi, hic calismadi)
+│   └── Platforms/Samsung/beyond0ltePkg/   S10e portu: ayni suruculer,
+│                                       MemoryMapLib 6 GiB, panel 1080x2280
 │
 ├── silicium-acpi-overlay/SoCs/Samsung/S5E9820/
 │   ├── DSDT_minimal.dsl     CPU1-7 _STA=0, UFS0 dugumu kapali
@@ -103,13 +122,19 @@ UEFI_beyond2lte/
 ├── tools_winpe_sistem.sh    Start=1 sistem servisleri (liste/sadece/kapat/ac)
 ├── tools_wim_sikistirma.sh  boot.wim sikistirmasini degistirir
 ├── tools_winboot.sh         Windows acilis dosyalarini ESP'ye kurar
+├── tools_dtb_s10e.sh        GERCEK S10e DTB'sini uretir (base+overlay veya --fdt)
+├── tools_dtbo_extract.py    dtbo.img/dt.img cozucu (mkdtimg gerekmez)
+├── tools_uefi_layout_check.py    FD/stack/framebuffer cakismasi denetimi (--device)
+├── tools_reserved_memory_audit.py DTB rezervleri <-> MemoryMapLib denetimi (--device)
+├── tools_flash_bundle.sh    Odin AP + heimdall imaji + talimat (--device)
 ├── linux_test/              Linux kontrol deneyi (initramfs + init)
 ├── dtb-analiz/              stok DTB (dts) + cikarilan initcall listeleri
 ├── stockfirmware/           Samsung fabrika firmware'i (.tar.md5)
 ├── esp/                     ESP icerigi (startup.nsh, boot.wim, EFI/...)
 │
 └── belgeler: STATUS.md (4100 satir gunluk), STOK_ACILIS.md,
-             HARDWARE.md, BUILD.md, PARTITIONS.md, ORTAM.md, ...
+             HARDWARE.md, BUILD.md / BUILD_LINUX.md, PARTITIONS.md,
+             ORTAM.md, ...
 ```
 
 ---
@@ -1874,6 +1899,11 @@ Mac'te çalışır, sonra WSL'de `git pull`.
 `SetVirtualAddressMap` sonrası sanal haritaya **girmiyor**; `RtData`
 giriyor. Bu bir bugcheck'e mal oldu (`SYSTEM_THREAD_EXCEPTION_NOT_HANDLED`).
 
+> S10e notu: bu tablo `beyond2lte` (8 GiB) içindir. S10e 6 GiB olduğundan
+> `0x980000000` DRAM bankası **yoktur** ve `beyond0ltePkg` içindeki
+> `MemoryMapLib.c` o bölgeyi tarif etmez. `0xCF...` günlük adresleri ve GIC
+> adresleri SoC düzeyinde olduğu için iki cihazda aynıdır.
+
 `RST_STAT` okuması: `0x20000000` yazılım sıfırlaması, `0x40010000` güç
 çevrimi.
 
@@ -1889,6 +1919,29 @@ giriyor. Bu bir bugcheck'e mal oldu (`SYSTEM_THREAD_EXCEPTION_NOT_HANDLED`).
 - `B2LEl2Dxe` ve `B2LResetHookDxe` kullanım dışı, kaynakları duruyor
 - `boot.wim`'in orijinal `Start` değerleri hiç kaydedilmedi; geri dönüş için
   ISO'daki dokunulmamış kopyadan okunmalı
+- **S10e (`beyond0lte`) portu** derleniyor, ama cihazda denenmedi:
+  - `Resources/DTBs/beyond0lte.dtb` artık **gerçek S10e DTB'si**: stok
+    `G970FXXUHHXJ1` firmware'inden `dt.img` (base) + `dtbo.img` (EUR OPEN 25
+    board overlay) `fdtoverlay` ile birleştirildi. 3 bank / 6.00 GiB.
+  - Ayrılmış bellek denetimi (`tools_reserved_memory_audit.py --device
+    beyond0lte`) **geçti**: 23 sabit `reg` bölgesinin tümü zaten korunuyor,
+    `MemoryMapLib.c`'ye **eklenecek yeni bölge yok**. S10+'a göre tek fark
+    `camera` boyutu (228 MiB vs 450 MiB); ikisi de mevcut "alt dinamik koruma"
+    altında kalıyor.
+  - Tuş GPIO'ları DTB ile **doğrulandı**: güç `gpa2-4`, ses aç `gpa0-3`,
+    ses kıs `gpa0-4`, özel tuş `gpa0-6` — `KeypadDeviceLib` ile birebir.
+  - Panel `s6e3fa7_beyond0` = 1080×2280 (`mres_width=0x438`,
+    `mres_height=0x8e8`), PCD çerçeve tamponuyla uyumlu.
+  - **Derleme doğrulandı** (Linux native, clang 23 / `CLANGPDB`,
+    `aarch64-unknown-windows-msvc`): `Mu-beyond0lte.img` 4,4 MB, FD tam 4 MiB
+    `0xC9000000`'da, 67 imaj PE doğrulamasından geçti, arkasına gerçek S10e
+    DTB'si (372541 B) eklendi. `beyond2lte` da aynı ağaçla derleniyor —
+    regresyon yok. Kurulum: `BUILD_LINUX.md`.
+  - Hâlâ **varsayım**: `"Display Reserved"` bölgesi (`0xCA000000`, 20 MiB) —
+    bu bölge DTB'den değil S-Boot'tan gelir, S10+'taki değer korunuyor.
+  - Fiziksel board revizyonu bilinmiyor; DTB en yüksek revizyonu (`EUR OPEN
+    25`) kullanıyor. Gerekirse `--index N`.
+  - Cihaz testi yapılmadı. Ayrıntı ve flash/geri dönüş: `PORT_S10E.md`.
 
 ---
 

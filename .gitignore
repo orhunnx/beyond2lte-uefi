@@ -8,6 +8,15 @@ stockfirmware/
 *.tar.md5
 !Resources/**/*.img
 
+# Derleme ciktilari (yap.sh uretir)
+out/
+esp/*.EFI
+
+# Windows medyasi (tools_winboot.sh uretir). boot.wim yuzlerce MB, depoya girmez.
+esp/EFI/
+esp/boot/
+esp/sources/
+
 # macOS
 .DS_Store
 ._*
@@ -15,3 +24,7 @@ stockfirmware/
 # Gecici
 *.log
 BUILDLOG*.txt
+
+# Python
+__pycache__/
+*.pyc
